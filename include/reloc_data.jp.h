@@ -23,7 +23,7 @@
 
 #include <stdint.h>
 
-/* 4181 symbols from the vendored table, 1819 extra stubs from src/. */
+/* 4181 symbols from the vendored table, 1820 extra stubs from src/. */
 
 #define llRelocFileCount ((intptr_t)2107)
 #define llMNCommonFileID ((intptr_t)0x0)
@@ -5976,6 +5976,7 @@
 #define llFTYoshiAnimWalkEndFileID ((intptr_t)0) /* STUBBED */
 #define llFTYoshiAnimWin1FileID ((intptr_t)0) /* STUBBED */
 #define llFTYoshiAnimWin2FileID ((intptr_t)0) /* STUBBED */
+#define llGRSectorMapArwing ((intptr_t)0) /* STUBBED */
 #define llMNCongraCaptainBottomFileID ((intptr_t)0) /* STUBBED */
 #define llMNCongraCaptainBottomSprite ((intptr_t)0) /* STUBBED */
 #define llMNCongraCaptainTopFileID ((intptr_t)0) /* STUBBED */
