@@ -2,332 +2,162 @@
   <img src="assets/BattleShip.svg" alt="BattleShip" width="640">
 </p>
 
-# BattleShip
+# BattleShip Reinforcement Learning Fork
 
-**BattleShip** is a PC port of **Super Smash Bros. (N64)** — both the **US** (NTSC-U v1.0) and **Japanese** (Nintendo All-Star! Dairantou Smash Brothers) releases — built on top of the [VetriTheRetri/ssb-decomp-re](https://github.com/vetritheretri/ssb-decomp-re) decompilation, using [libultraship](https://github.com/Kenix3/libultraship) for PC-native rendering / audio / input and [Torch](https://github.com/HarbourMasters/Torch) for extracting assets out of the ROM at build time.
+This repository is an experimental fork of
+[JRickey/BattleShip](https://github.com/JRickey/BattleShip), a native PC port
+of Super Smash Bros. for Nintendo 64. This fork focuses on automating Mario's
+Break the Targets as the first environment for reinforcement-learning research,
+agent training, and input optimization.
 
-Runs natively on macOS (Apple Silicon), Linux, Windows, and Android.
+The upstream port is built on
+[VetriTheRetri/ssb-decomp-re](https://github.com/VetriTheRetri/ssb-decomp-re),
+uses [libultraship](https://github.com/Kenix3/libultraship) for PC-native
+rendering, audio, and input, and uses
+[Torch](https://github.com/HarbourMasters/Torch) to extract assets from a
+user-supplied ROM.
 
-Download the high resolution texture pack from [GhostlyDark](https://github.com/GhostlyDark) [here!](https://evilgames.eu/texture-packs/ssb-reloaded.htm#pc)
+## Research objective
 
-## No copyrighted assets are included in this repository
+The long-term objective is to provide a fast, automated environment where
+reinforcement-learning agents can interact with Super Smash Bros. 64, observe
+game state, receive rewards, and discover optimized strategies. Mario's Break
+the Targets is the initial training environment and benchmark, but the project
+is intended to support broader reinforcement-learning experiments over time.
 
-**None of Nintendo's assets (code, textures, audio, models, text, ROM data) are checked into this repo or distributed with builds.** The port is a pure C/C++ source tree; every byte of Nintendo-owned data is extracted at build time from a ROM that *you* supply. If you do not own a legal copy of Super Smash Bros. for the Nintendo 64, you cannot build or run this project.
+The current Mario Break the Targets benchmark:
 
-You supply your own ROM. The decomp game code is region-compiled, so US
-and JP are separate builds — build the one matching your ROM
-(`-DSSB64_VERSION=us|jp`, see [BUILDING.md](BUILDING.md)). The canonical,
-supported dumps (internal name `SMASH BROTHERS`):
+- Starts Mario's Break the Targets route automatically.
+- Replays 468 gameplay input rows from a known-good input sequence.
+- Completes the stage with an internal time of 7.43 seconds.
+- Restricts automated playback to Mario's Break the Targets stage so normal
+  input remains available elsewhere.
+- Supports state tracing for positions, velocities, actions, and target
+  progress.
 
-| Version | Game code | SHA‑1 | MD5 |
-|---------|-----------|-------|-----|
-| **US** — NTSC-U v1.0 | `NALE` | `e2929e10fccc0aa84e5776227e798abc07cedabf` | `f7c52568a31aadf26e14dc2b6416b2ed` |
-| **JP** — Nintendo All-Star! Dairantou Smash Brothers v1.0 | `NALJ` | `4b71f0e01878696733eefa9c80d11c147ecb4984` | `66db457b130d31a286a23d6e4dd9726e` |
+The immediate milestone is a reinforcement-learning episode runner that can
+launch the stage, accept agent inputs, expose machine-readable observations,
+detect completion or failure, calculate a result, and reset without manual
+interaction. The existing replay provides a known-good baseline for validating
+the environment before agent training begins.
 
-If your dump does not match the hashes for its version, it will not work.
+## Project status
 
-## Project stats
+This is a reinforcement-learning research fork, not an official BattleShip
+release. The initial Mario Break the Targets environment currently targets the
+US version of the game. Other BattleShip features and platform support come
+from the upstream project unless explicitly documented as changes in this fork.
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/readme-stats/star-growth-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/readme-stats/star-growth-light.svg">
-    <img src="assets/readme-stats/star-growth-light.svg" alt="GitHub star growth chart" width="840">
-  </picture>
-</p>
+## No copyrighted assets are included
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/readme-stats/release-downloads-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/readme-stats/release-downloads-light.svg">
-    <img src="assets/readme-stats/release-downloads-light.svg" alt="Downloads by Platform chart" width="840">
-  </picture>
-</p>
+No Nintendo assets, including game code, textures, audio, models, text, or ROM
+data, are checked into this repository or distributed with builds. Every byte
+of Nintendo-owned data used by the port is extracted at build time from a ROM
+supplied by the user. You must own a legal copy of Super Smash Bros. for
+Nintendo 64 to build or run the project.
 
-<p align="center">
-  <sub>Charts are generated by GitHub Actions. Downloads are split by platform and ROM region; GitHub exposes current per-asset totals, not per-download timestamps.</sub>
-</p>
+The decompiled game code is region-specific, so US and JP are separate builds.
+Build the version matching your ROM with `-DSSB64_VERSION=us` or
+`-DSSB64_VERSION=jp`. See [BUILDING.md](BUILDING.md) for complete instructions.
 
-## Features
+| Version | Game code | SHA-1 | MD5 |
+| --- | --- | --- | --- |
+| US NTSC-U v1.0 | `NALE` | `e2929e10fccc0aa84e5776227e798abc07cedabf` | `f7c52568a31aadf26e14dc2b6416b2ed` |
+| JP Nintendo All-Star Dairantou Smash Brothers v1.0 | `NALJ` | `4b71f0e01878696733eefa9c80d11c147ecb4984` | `66db457b130d31a286a23d6e4dd9726e` |
 
-Everything below is toggleable in-game from the ESC menu.
-
-### Input enhancements (per-player)
-
-- **Disable Tap Jump**
-- **C-Stick Smash**
-- **D-Pad to Jump**
-- **NRage analog-stick remap** with customizable per-axis ranges
-
-### Gameplay & match options
-
-- **Classic Co-op** — play the originally single-player Classic mode with 2-player local co-op, with an optional friendly-fire toggle
-- **Z-Cancel assists** — Auto Z-Cancel and Flash on Failed Z-Cancel (L-cancel practice aids)
-- **Competitive ruleset** — one-click tournament rules, plus neutral spawns on Dream Land
-- **Disable Stage Hazards**
-- **Hitbox view** — visualize hitboxes / hurtboxes / collision
-- **Boot straight to the VS character-select screen**, **Skip Results Screen**, **Force CPU Level 9**
-- **Unlocks** — unlock everything, or individual characters (Captain Falcon, Jigglypuff, Luigi, Ness) and features (Mushroom Kingdom, Item Switch menu, Sound Test)
-
-### Audio
-
-- **Music shuffler** — randomize stage BGM
-- **Music selection screen** — pick the track per stage
-- Independent Master / Music / Sound / Voice volume sliders
-
-### Rendering (powered by libultraship / Fast3D)
-
-- Internal resolution scaling, MSAA anti-aliasing, three-point texture filtering
-- Full widescreen support, including ultrawide resolutions.
-- Renderer backend selection (OpenGL / Metal / Direct3D), VSync, windowed-fullscreen, multi-window
-- **Post-process shader support** with an in-app shader-pack downloader
-
-### Textures & mods
-
-- **Hi-res texture packs** on desktop *and* Android (opt-in, read in place straight out of a `.zip`). Download GhostlyDark's pack from [evilgames.eu](https://evilgames.eu/texture-packs/ssb-reloaded.htm#pc).
-- **Native C mod support** — write mods in C, compiled at runtime (TinyCC), with hot-reload, function detours, and a documented engine/fighter event catalog. See [`docs/modding.md`](docs/modding.md). *(Desktop only; scripting is disabled on Android.)*
-
-### Controls
-
-- Controller and rumble support powered by **SDL2**, with plug-and-play routing for up to 4 pads
-- Native **Raphnet** adapter support up to 4 channels through **hidapi**
-- Per-controller configuration UI and a bundled `gamecontrollerdb.txt` mapping database
-
-### Platform & quality-of-life
-
-- Runs natively on **macOS (Apple Silicon), Linux, Windows, and Android**
-- First-run ROM-extraction wizard, built-in update checker/downloader, and Discord Rich Presence
-
-### Rollback netcode & online play
-
-Work in progress.
-
-## Author's notes
-
-### About the project
-
-This is a project that I started and developed alone with Claude until the v0.3-beta release. It took a little over a month of night and day work to get to the first beta release, and a massive 4 day long sprint working all day resolving bugs from v0.3-beta to v0.7-beta. As of now, this is no longer a pure AI project. Many people have offered their time playtesting, their knowledge of the game, or their experience with modding or competitive play; to bring improvements, bug fixes, new feature suggestions, and additions. Without them, the project would not be what it is today.
-
-If you find anything that you would like to see improved, create an issue on Github. I'll fix it.
-
-This port was started when the original decomp was 96% complete code only. The remaining 4% was the internal debug menu and Libultra functions that aren't necessary to port the game. The relocatable data was also not decompiled at the time. The port was designed with this in mind, and it is why certain design decisions had to have been made. I like to move fast, obviously.
-
-This project uses a heavily modified LibUltraShip and Torch, those two modules obviously don't work with every n64 game out of the box and a lot of game specific things needed to be implemented. The original game is quite unique and uses rendering techniques and n64 hardware tricks in ways other LUS projects did not need to account for.
-
-This is a passion project for me. Not out of nostalgia, but to actually make something. I don't have too much nostalgia for the original game, considering I didn't own a copy as a kid, but I remember playing it at a friend's house a handful of times. What motivates me to work on this is because I can. Because it's hard, because it hasn't been done before (at least not open source). It's required a ton of my personal time, even using AI. It's forced me to get creative, to design custom tools, to force the agents into certain boxes.
-
-People may not like it because I used AI, and that's okay. I'm not going to argue with your opinion or try to say that my way is the correct way of doing things. It works for me and that's what matters to me. My code is open source, it's free, it's MIT Licensed, and everyone can learn from it. That's what should matter to you.
-
-I hope you enjoy the project.
-
----
+If your ROM does not match the hash for its version, it will not work.
 
 ## Building
 
-If you want to manually compile BattleShip, please consult the [building instructions](BUILDING.md).
+Follow the upstream-compatible [building instructions](BUILDING.md). Clone the
+repository with its submodules, provide the supported ROM for the region you
+want to build, and configure a separate build directory for each region.
+
+Example configuration:
+
+```powershell
+cmake -S . -B build-us -DSSB64_VERSION=us
+cmake --build build-us --config Release
+```
+
+```powershell
+cmake -S . -B build-jp -DSSB64_VERSION=jp
+cmake --build build-jp --config Release
+```
 
 ## Architecture
 
-The port has three layers and they are kept deliberately separate:
+BattleShip keeps three main layers separate:
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  decompiled game code  (decomp/src/)                         │
-│  Unmodified C produced by the decomp project. Talks to the   │
-│  N64 the same way the original ROM did: GBI display lists,   │
-│  ALSeqPlayer audio, OS threads, OSContPad input.             │
-├──────────────────────────────────────────────────────────────┤
-│  port layer            (port/)                               │
-│  Modern C++ glue. Translates N64-shaped APIs into LUS calls, │
-│  fixes endianness on freshly-loaded data, owns Ship::Context │
-│  and the resource factories, and quarantines every change    │
-│  the decomp doesn't need to know about.                      │
-├──────────────────────────────────────────────────────────────┤
-│  libultraship         (libultraship/)                        │
-│  PC-native runtime: Fast3D renderer (OpenGL / Metal / D3D),  │
-│  SDL2 input, miniaudio output, OTR/O2R resource manager,     │
-│  ImGui overlay.                                              │
-└──────────────────────────────────────────────────────────────┘
-```
+- `decomp/` contains the decompiled SSB64 game code. Port-specific changes in
+  this layer should remain protected by `#ifdef PORT` where appropriate.
+- `port/` contains the modern C++ integration layer, platform glue, hooks,
+  resource factories, input handling, and PC-specific behavior.
+- `libultraship/` provides the PC-native runtime, including Fast3D rendering,
+  SDL2 input, audio, resource management, and the ImGui interface.
 
-### Asset pipeline
+Torch reads the user-supplied ROM during the asset-generation process and
+produces `BattleShip.o2r`. The ROM itself is not read during normal gameplay.
 
-`baserom.us.z64` is never read at runtime. At build time, **Torch** walks the ROM with the YAMLs under `yamls/us/` and emits `BattleShip.o2r` — a zip-format archive of typed resources (textures, sequences, sample banks, animations, reloc files). At launch, libultraship's resource manager mounts `BattleShip.o2r` + `f3d.o2r` and the port code requests resources by path. This is the same pipeline used by Ship of Harkinian, Starship, SpaghettiKart, etc.
+### Relevant repository paths
 
-The relocatable-data files (fighter tables, item tables, effects, sprites) are SSB64-specific and required custom factories on the Torch side and a custom loader (`port/resource/RelocFileFactory.cpp`) on the runtime side.
-
-### Build-time codegen
-
-A small amount of generated code lives outside the source tree (gitignored) and is regenerated on every build from `tools/reloc_data_symbols.us.txt`:
-
-- `include/reloc_data.h` — extern declarations for every relocatable symbol
-- `yamls/us/reloc_*.yml` — Torch extraction configs
-- `port/resource/RelocFileTable.cpp` — the runtime symbol table
-
-If you ever see "undefined reference to `dFooBarReloc`" you regenerated the table without rebuilding, or vice versa.
-
----
-
-## Code conventions
-
-### `#ifdef PORT` — what it is and what it isn't
-
-Every meaningful change to a decomp source file is wrapped in `#ifdef PORT` / `#else` / `#endif`. The discipline this enforces:
-
-- **The original decomp code path stays intact and compilable** under the IDO toolchain on a real N64 build. This is non-negotiable — if it ever stops being true, upstreaming improvements back to the decomp project becomes impossible.
-- **The PORT branch is allowed to be ugly** — an explicit endian conversion, a struct rewrite, a function shim — as long as the contract it presents to the rest of the file is the same as the N64 branch.
-- **Reloc tokens vs. raw pointers**: a field declared `u32` under `#ifdef PORT` where the N64 branch declared `T*` is a *reloc token*, not a raw pointer. Resolving it requires `PORT_RESOLVE(token)`. Assigning a real pointer with `(uintptr_t)ptr` will silently truncate on LP64 — wrap post-load writes in `PORT_REGISTER`.
-
-### Decomp preservation: behavior, not bytes
-
-The repo follows a single principle for changes to `decomp/src/`:
-
-> **Accuracy to game behavior > accuracy to ROM bytes.**
-
-That means IDO idioms that encode original N64 semantics — odd casts, `goto` flow, deliberate temporaries — are load-bearing and stay. But **compiler-compat shims** (warning suppressions, permissive flags, header shortcuts) that mask real bugs on modern LP64 toolchains do *not* survive. The most expensive lesson of the project was that `-Wno-implicit-function-declaration` was silently truncating 64-bit pointer returns to 32-bit `int` in dozens of places — see `docs/bugs/item_arrow_gobj_implicit_int_2026-04-20.md`. The shim is gone; the real declarations are in.
-
-### Naming prefixes
-
-The decomp uses two-letter module prefixes throughout. Knowing them makes the source tree navigable:
-
-| Prefix | Meaning |
-|--------|---------|
-| `ft`   | Fighter (`ftMario`, `ftKirby`, `ftFox`, …) |
-| `it`   | Item (`itAttribute`, `itManager`) |
-| `wp`   | Weapon |
-| `ef`   | Effect / particle |
-| `gm`   | Game mode |
-| `gr`   | Stage (ground) |
-| `mp`   | Map / collision |
-| `mn`   | Menu |
-| `sc`   | Scene |
-| `sy`   | System (engine internals) |
-| `sf`   | Saved-state / save file |
-| `db`   | Debug |
-| `cm`   | Camera |
-| `lb`   | Library (low-level utilities) |
-| `obj`  | GObj / DObj / OMObj — game-object wrappers |
-
-Full reference: [`docs/c_conventions.md`](docs/c_conventions.md).
-
-### Endianness handling
-
-The N64 is big-endian; PC targets are little-endian. The port handles this in three layers:
-
-1. **Gross byteswap at load** — `lbRelocLoadAndRelocFile` byteswaps relocatable files word-by-word during load.
-2. **Per-struct fixups** — small `portFixupStructU16` / `portFixupStructU8` helpers fix sub-word fields that the gross swap got wrong (e.g., `{u16, u8, u8}` patterns where the two `u8`s end up swapped).
-3. **Per-stream walkers** — animation events, spline interpolators, and other variable-length streams are halfswapped at file-bake time and need a per-stream un-halfswap on first access. These live in `port/port_aobj_fixup.{h,cpp}` and friends.
-
-If you find a new struct that reads garbage, the playbook in `docs/n64_reference.md` will tell you which layer it belongs in.
-
-### Bitfield layout
-
-The IDO compiler packs small bitfields into preceding `u16` pad gaps, MSB-first. Modern compilers (Clang, GCC) on LE targets pack LSB-first into the next storage unit. Bitfield structs that travel through file data must be **rewritten under `#ifdef PORT`** to match the IDO physical layout — see `docs/debug_ido_bitfield_layout.md` for the workflow (compile + rabbitizer disasm to verify bit positions before porting).
-
-Patching the *reads* in game code instead of the *layout* is forbidden by team policy; the bug always comes back. See `feedback_struct_rewrite_over_overrides.md` in the project's memory for the long version.
-
----
-
-## Why the submodules are forks
-
-Both `libultraship` and `torch` are pinned to **personal forks** rather than the upstream Harbour Masters repos, because each needs SSB64-specific changes that don't exist upstream.
-
-### [`libultraship`](https://github.com/JRickey/libultraship/tree/ssb64) — fork of [Kenix3/libultraship](https://github.com/Kenix3/libultraship)
-
-SSB64 drives the RDP differently than the Zelda / Mario 64 / Star Fox 64 titles libultraship was originally built for — in particular around tile masks, `SetTileSize` extents, IA/I4 texture uploads, `gDPSetPrimDepth` for 2D layering, and Metal sampler binding for matanim CCs. Upstreaming the fixes is on the list, but until then the fork carries:
-
-- Clamping `ImportTexture*` upload width/height to the active `SetTileSize` extent (fixes the fighter "black squares" bug and the IA8/I4 stretch bug)
-- Honouring `SetTile` mask/maskt in the Import* path
-- A real implementation of `gDPSetPrimDepth` (was a `TODO Implement` stub upstream — broke every `G_ZS_PRIM` 2D sprite)
-- A 1×1 black fallback texture for sampler slots that would otherwise alias the screen drawable on Metal (fixed the Whispy canopy stripe)
-- A no-logging path in `IResource`'s destructor to prevent a shutdown-time crash
-
-### [`torch`](https://github.com/JRickey/Torch/tree/ssb64) — fork of [HarbourMasters/Torch](https://github.com/HarbourMasters/Torch)
-
-Torch is the tool that reads the ROM and emits `BattleShip.o2r`. Upstream supports OoT, MM, SF64, MK64, PM64, etc., but has no knowledge of SSB64's file formats. The fork adds:
-
-- An `SSB64` build flag and game target
-- A reloc-file factory for SSB64's relocatable data blobs (fighters, items, effects, sprites)
-- `libvpk0` integration for VPK0-compressed segments
-
-Both forks live as submodules so their history stays their own and so upstream changes can be merged in cleanly when/if the fixes are accepted.
-
----
-
-## Repo layout
-
-```
-port/         modern C++ port layer — Ship::Context, resource factories,
-              endian fixups, bridges between decomp code and libultraship
-                port/hooks/     engine/fighter event system (all platforms)
-                port/mods/      native C mod loader + hook backend (funchook)
-workspace/    worked example mods (hooktest, playertint, template)
-include/      headers (some generated: reloc_data.h)
-decomp/       submodule — decompiled SSB64 C source (largely unchanged
-              game logic). Major subdirs inside the submodule:
-                src/sys/        main loop, DMA, scheduling, audio,
-                                controllers, threading
-                src/ft/         fighters (ftmario/, ftkirby/, ftfox/, …)
-                src/sc/ gm/ gr/ scene / game modes / stage rendering
-                src/mn/ it/ ef/ menus / items / effects
-                src/relocData/  reloc data sources
-libultraship/ submodule — PC-native render / audio / input / resource mgr
-torch/        submodule — asset extractor (ROM → BattleShip.o2r)
-yamls/us/     Torch YAML extraction configs (some generated)
-tools/        Python helpers: reloc stubs, YAML gen, credits encoder
-docs/         architecture notes, bug write-ups, debugging guides
-debug_tools/  optional disasm / diff utilities (not required for a build)
-scripts/      packaging (.dmg / .AppImage / .zip), worktree helper
+```text
+decomp/       Decompiled SSB64 game code and learning-environment integration
+port/         PC runtime integration, input, hooks, and diagnostics
+libultraship/ Native rendering, audio, input, and resource management
+torch/        ROM asset-extraction tool
+yamls/        Region-specific asset-extraction definitions
+tools/        Code-generation and development utilities
+docs/         Architecture, modding, debugging, and bug documentation
 ```
 
-### Further reading
+Additional technical references are available in:
 
-- [`docs/modding.md`](docs/modding.md) — writing native C mods: the event catalog, function detours, and fighter override points
-- [`docs/architecture.md`](docs/architecture.md) — project status, ROM info, dependency map, source-tree layout
-- [`docs/c_conventions.md`](docs/c_conventions.md) — decomp naming prefixes, IDO idioms to preserve, code style, macros
-- [`docs/n64_reference.md`](docs/n64_reference.md) — RDRAM, RSP/RDP, GBI, audio, threading, endianness primer
-- [`docs/build_and_tooling.md`](docs/build_and_tooling.md) — CMake details, reloc stub regen, runtime logs, LP64 compat notes
-- [`docs/debug_gbi_trace.md`](docs/debug_gbi_trace.md) — capturing GBI traces from the port and a M64P plugin, diffing with `gbi_diff.py`
-- [`docs/debug_ido_bitfield_layout.md`](docs/debug_ido_bitfield_layout.md) — verifying ported struct bit positions against IDO output via rabbitizer
-- [`docs/bugs/README.md`](docs/bugs/README.md) — index of resolved bugs with per-bug root-cause and fix write-ups (~45 entries)
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/build_and_tooling.md`](docs/build_and_tooling.md)
+- [`docs/c_conventions.md`](docs/c_conventions.md)
+- [`docs/n64_reference.md`](docs/n64_reference.md)
+- [`docs/modding.md`](docs/modding.md)
 
----
+## Credits and licensing
 
-## Contributing
+- Original BattleShip PC port:
+  [JRickey/BattleShip](https://github.com/JRickey/BattleShip) and its
+  contributors.
+- Game code, data, sound, textures, models, and trademarks: Nintendo and HAL
+  Laboratory. These assets are not included or redistributed, and this project
+  is not endorsed by either company.
+- Decompilation:
+  [VetriTheRetri/ssb-decomp-re](https://github.com/VetriTheRetri/ssb-decomp-re)
+  and its contributors. It is included as the `decomp/` submodule. Refer to
+  that project for its applicable rights and restrictions.
+- Runtime framework: [libultraship](https://github.com/Kenix3/libultraship),
+  copyright 2022 kenix3, MIT-licensed and originally created by the Harbour
+  Masters team.
+- Asset pipeline: [Torch](https://github.com/HarbourMasters/Torch), copyright
+  2023 Lywx and the Harbour Masters contributors, MIT-licensed.
+- Menu fonts: [Montserrat](https://github.com/JulietaUla/Montserrat) and
+  [Inconsolata](https://github.com/cyrealtype/Inconsolata), distributed under
+  the SIL Open Font License 1.1.
+- Controller mappings: [`gamecontrollerdb.txt`](gamecontrollerdb.txt) from
+  [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB),
+  distributed under the zlib license.
+- High-resolution texture-pack support is inherited from upstream. SSB
+  Reloaded by [GhostlyDark](https://github.com/GhostlyDark) is distributed
+  separately and is not included in this repository.
 
-PRs are welcome from anyone. If you're opening a bug report, the most useful things to include are:
-
-- SHA-1 of your `baserom.us.z64`
-- OS + architecture (especially macOS ARM64 vs x86_64, since LP64 bitfield layout has bitten us several times — see `docs/bugs/`)
-- The contents of `ssb64.log` from the run that reproduces the issue
-- A GBI trace if the issue is rendering-related (see `docs/debug_gbi_trace.md`)
-
-## Credits & licensing
-
-- Game code, data, sound, textures, models, and trademarks: **© Nintendo / HAL Laboratory.** Not included in this repository, not redistributed, and not endorsed by them.
-- Decompilation: [VetriTheRetri/ssb-decomp-re](https://github.com/VetriTheRetri/ssb-decomp-re) and its contributors. Vendored as the `decomp/` submodule. At the time of writing the upstream project does not publish an explicit license; this repository makes no copyright claim over the decompiled source and refers to the upstream project for any rights, terms, or restrictions on reuse.
-- Runtime framework: [libultraship](https://github.com/Kenix3/libultraship) — Copyright (c) 2022 kenix3, MIT-licensed. Originated by the Harbour Masters team (Ship of Harkinian) and now maintained at Kenix3/libultraship. Vendored as the `libultraship/` submodule.
-- Asset pipeline: [Torch](https://github.com/HarbourMasters/Torch) — Copyright (c) 2023 Lywx (Harbour Masters), MIT-licensed. Vendored as the `torch/` submodule.
-- Menu fonts: [Montserrat](https://github.com/JulietaUla/Montserrat) and [Inconsolata](https://github.com/cyrealtype/Inconsolata), both bundled under the [SIL Open Font License 1.1](https://openfontlicense.org). License texts ship alongside the font files in [`assets/custom/fonts/`](assets/custom/fonts/).
-- Controller mappings: [`gamecontrollerdb.txt`](gamecontrollerdb.txt) from the [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) project — bundled with every build and loaded at startup so more controllers work out of the box. Distributed under the zlib license; full text in [`LICENSE`](LICENSE).
-- High-resolution texture pack: *SSB Reloaded* by [GhostlyDark](https://github.com/GhostlyDark), distributed separately at [evilgames.eu](https://evilgames.eu/texture-packs/ssb-reloaded.htm#pc). Not bundled with this repository or its builds — the port loads it only if you download it yourself.
-- Reference ports I learned from and adapted code from: [Starship](https://github.com/HarbourMasters/Starship) (SF64) and [Ship of Harkinian](https://github.com/HarbourMasters/Shipwright) (OoT) — both MIT-licensed by The Harbour Masters; see [`LICENSE`](LICENSE) for the per-file attribution.
-- Reference ports I learned from but did not borrow code from: [SM64 PC Port](https://github.com/sm64-port/sm64-port) (SM64), [SpaghettiKart](https://github.com/HarbourMasters/SpaghettiKart) (MK64).
-- Port work: me ([JRickey](https://github.com/JRickey)), with an enormous amount of help, debugging, and feature suggestions from contributors in our Discord server.
-
-This project is **not affiliated with, endorsed by, or authorized by Nintendo.** It is a personal, non-commercial research and preservation effort. Do not upload ROMs, extracted `.o2r` archives, or any other Nintendo-owned data to issues or pull requests.
-
-This project is **not affiliated with, endorsed by, or authorized by Harbour Masters** either. It uses libultraship (originated by the Harbour Masters team and now maintained at [Kenix3/libultraship](https://github.com/Kenix3/libultraship)) and Torch (the [HarbourMasters/Torch](https://github.com/HarbourMasters/Torch) asset extractor) as upstream dependencies via personal forks, but it is an independent fan effort. Issues, bugs, and support questions about this port should not be directed to the Harbour Masters team.
+This project is not affiliated with, endorsed by, or authorized by Nintendo,
+HAL Laboratory, Harbour Masters, or the upstream BattleShip maintainers. Do not
+upload ROMs, extracted `.o2r` archives, or other copyrighted game assets to
+issues or pull requests.
 
 ## License
 
-Source code in this repository (everything outside the `decomp/`, `libultraship/`, and `torch/` submodules — each of which carries its own attribution) is released under the [MIT License](LICENSE) — free to use, modify, and redistribute, with no warranty and no liability. See [`LICENSE`](LICENSE) for the full text.
+Port-specific source code outside the `decomp/`, `libultraship/`, and `torch/`
+submodules is distributed under the [MIT License](LICENSE), subject to the
+copyright and attribution requirements described in that file.
 
-The MIT grant covers only the port-specific code (the `port/` layer, build scripts, tools, docs). It does **not** extend to:
-- Game assets, code, audio, textures, models, or any other content owned by Nintendo / HAL Laboratory — none of which is in this repository.
-- The decompilation vendored as the `decomp/` submodule, sourced from [VetriTheRetri/ssb-decomp-re](https://github.com/VetriTheRetri/ssb-decomp-re). The upstream project does not currently publish an explicit license; this repository makes no copyright claim over the decompiled source and incorporates it by reference. Defer to the upstream project and its contributors for any rights or restrictions on reuse.
-- Decomp-derived content elsewhere in the tree (vendored or auto-generated from the decomp's symbol/file-name tables): `tools/reloc_data_symbols.us.txt`, `tools/relocFileDescriptions.us.txt`, `include/reloc_data.h`, `port/resource/RelocFileTable.cpp`, and `yamls/us/reloc_*.yml`. These follow the same upstream-deference as the `decomp/` submodule. The generator scripts that produce them (`tools/generate_*.py`) are port-authored and remain MIT.
-- The `libultraship` submodule — Copyright (c) 2022 kenix3, MIT-licensed (originated by the Harbour Masters team).
-- The `torch` submodule — Copyright (c) 2023 Lywx (Harbour Masters), MIT-licensed.
-- The bundled menu fonts under `assets/custom/fonts/`, which are licensed under the SIL Open Font License 1.1 (per-font license files in that directory).
-- The bundled controller-mapping database `gamecontrollerdb.txt`, from the [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) project — distributed under the zlib license. Full text and attribution in [`LICENSE`](LICENSE).
+That license does not grant rights to Nintendo or HAL Laboratory assets, the
+decompiled game code, or independently licensed dependencies. Each submodule
+and bundled third-party component remains subject to its own license or
+applicable terms.
