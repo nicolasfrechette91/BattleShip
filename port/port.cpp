@@ -1444,6 +1444,10 @@ int main(int argc, char* argv[]) {
 	port_log("SSB64: main loop exited cleanly at frame=%d (WindowIsRunning=%d)\n",
 	         frame, WindowIsRunning());
 
+	// M1c: release any interactive-stepping caller blocked in rlStepWait()
+	// before the game coroutine is destroyed. No-op unless SSB64_RL_STEP=1.
+	rlRuntimeShutdown();
+
 	PortGameShutdown();
 	port_log("SSB64: PortGameShutdown returned\n");
 

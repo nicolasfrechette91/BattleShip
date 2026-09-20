@@ -71,6 +71,13 @@ void OnGamePostUpdate(IEvent *) {
 
 	sObservation = obs;
 	sHasObservation = true;
+
+	/* M1c: hand this exact snapshot to the stepping state machine
+	 * (rl_step.cpp) so a step result pairs with the capture of the update
+	 * that consumed its action. It copies under its own mutex for other
+	 * threads; rlObservationGet() itself stays main-thread only. No-op unless
+	 * interactive stepping is enabled. */
+	rlStepOnObservation(&obs);
 }
 
 } // namespace

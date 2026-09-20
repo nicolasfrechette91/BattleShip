@@ -22,7 +22,9 @@ namespace {
 
 struct RLConfig {
 	bool enabled = false;
-	bool exitOnEnd = false;
+	bool exitOnEnd = false;     /* M1a clean exit, performed by rl_result.cpp */
+	bool step = false;          /* M1c interactive stepping (SSB64_RL_STEP=1) */
+	bool stepExitOnEnd = false; /* SSB64_RL_EXIT_ON_END while stepping: deferred to rl_step.cpp */
 	std::string resultPath;
 };
 
@@ -46,16 +48,45 @@ extern "C" void rlConfigInit(void) {
 		return;
 	}
 	sConfig.enabled = true;
-	sConfig.exitOnEnd = envIsOne("SSB64_RL_EXIT_ON_END");
+	const bool exitOnEndEnv = envIsOne("SSB64_RL_EXIT_ON_END");
+	const bool stepEnv = envIsOne("SSB64_RL_STEP");
+	const bool replayConfigured = std::getenv("SSB64_BTT_INPUT") != nullptr;
+
+	/* M1c precedence rule: a configured replay owns player 0, so interactive
+	 * stepping never activates beside it and the replay path stays untouched. */
+	sConfig.step = stepEnv && !replayConfigured;
+
+	/* M1c compatibility rule for the M1a exit: while stepping, the final step
+	 * result must stay collectable, so the exit is not performed by the M1a
+	 * monitor but by rl_step.cpp on the main thread after collection. With
+	 * stepping disabled the M1a behaviour is exactly as before. */
+	sConfig.exitOnEnd = exitOnEndEnv && !sConfig.step;
+	sConfig.stepExitOnEnd = exitOnEndEnv && sConfig.step;
 	if (const char *resultPath = std::getenv("SSB64_RL_RESULT_PATH")) {
 		sConfig.resultPath = resultPath;
 	}
 
-	port_log("SSB64 RL: enabled episode=btt_mario result=%s exit_on_end=%d\n",
-	         sConfig.resultPath.empty() ? "<unset>" : sConfig.resultPath.c_str(), sConfig.exitOnEnd ? 1 : 0);
+	port_log("SSB64 RL: enabled episode=btt_mario result=%s exit_on_end=%d step=%d\n",
+	         sConfig.resultPath.empty() ? "<unset>" : sConfig.resultPath.c_str(), exitOnEndEnv ? 1 : 0,
+	         sConfig.step ? 1 : 0);
 	if (sConfig.resultPath.empty()) {
 		port_log("SSB64 RL: SSB64_RL_RESULT_PATH is not set; no result can be written\n");
 	}
+	if (stepEnv && replayConfigured) {
+		port_log("SSB64 RL Step: SSB64_BTT_INPUT is set; the replay keeps precedence and interactive stepping "
+		         "is disabled\n");
+	}
+	if (sConfig.stepExitOnEnd) {
+		port_log("SSB64 RL Step: SSB64_RL_EXIT_ON_END deferred until the final step result is collected\n");
+	}
+}
+
+extern "C" int rlStepIsEnabled(void) {
+	return sConfig.step ? 1 : 0;
+}
+
+extern "C" int rlStepExitOnEnd(void) {
+	return sConfig.stepExitOnEnd ? 1 : 0;
 }
 
 extern "C" int rlIsEnabled(void) {

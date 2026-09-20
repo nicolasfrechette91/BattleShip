@@ -189,4 +189,8 @@ extern "C" void rlRuntimeRegister(void) {
 	/* M1b observation capture. Read-only and independent of the monitor above,
 	 * so the relative dispatch order of the two listeners does not matter. */
 	rlObservationRegister();
+	/* M1c interactive stepping. Registers no listener of its own: it is fed
+	 * by the M1b capture and by the PortPushFrame() hook. No-op unless
+	 * SSB64_RL_STEP=1. */
+	rlStepRegister();
 }

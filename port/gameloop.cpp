@@ -27,6 +27,7 @@
 #include "port.h"
 #include "port_watchdog.h"
 #include "hooks/Events.h"
+#include "rl/rl.h"
 
 #include <libultraship/libultraship.h>
 #include <libultraship/bridge/eventsbridge.h>
@@ -680,10 +681,76 @@ static void port_screenshot_maybe_capture(int frame)
 	}
 }
 
+/* VI-style idle presentation: when no gfx task was submitted this VI,
+ * original hardware still scans out the current RDRAM framebuffer.
+ * Fast3D normally presents only from DrawAndRunGraphicsCommands(), so
+ * 0-submit frames can otherwise hold an older swapchain image. Present
+ * the cached game framebuffer texture through the normal GUI/window path
+ * without re-running any display list or touching game memory.
+ *
+ * Shared by the normal 0-submit tail of PortPushFrame and by the M1c parked
+ * host iteration, which must keep the window painted and frame-paced while
+ * the game is deliberately not advanced. */
+static void port_present_idle_frame(std::chrono::steady_clock::time_point frameStart)
+{
+	bool idlePresented = false;
+	static int sFreezePacing = -1;
+	if (sFreezePacing < 0) {
+		const char *env = std::getenv("SSB64_FREEZE_PACING");
+		sFreezePacing = (env != nullptr) ? std::atoi(env) : 1;
+	}
+	if (sFreezePacing) {
+		auto context = Ship::Context::GetInstance();
+		auto window = context
+			? std::dynamic_pointer_cast<Fast::Fast3dWindow>(context->GetWindow())
+			: nullptr;
+		if (window) {
+			/* Held frame: present k paced subframes of the cached
+			 * framebuffer so the tick still occupies one VI period at
+			 * the interpolated render rate. k == 1 when the feature is
+			 * off (single present, old behavior). */
+			int idleSubframes = portInterpActiveSubframes();
+			for (int sub = 0; sub < idleSubframes; sub++) {
+				idlePresented = window->PresentCurrentFramebuffer();
+				if (!idlePresented) {
+					break;
+				}
+			}
+		}
+
+		if (!idlePresented) {
+			/* Fallback pace to one VI period if there is no cached
+			 * framebuffer yet. Normal idle presents pace through the
+			 * backend's SwapBuffers path. */
+			auto target = frameStart + std::chrono::microseconds(16667);
+			auto coarseTarget = target - std::chrono::microseconds(2000);
+			auto now = std::chrono::steady_clock::now();
+			if (now < coarseTarget) {
+				std::this_thread::sleep_for(coarseTarget - now);
+			}
+			while (std::chrono::steady_clock::now() < target) {
+				/* busy-wait */
+			}
+		}
+	}
+}
+
 void PortPushFrame(void)
 {
+	/* M1c interactive stepping (port/rl/rl_step.cpp): main-thread lifecycle
+	 * hook plus host-gate query. Non-zero while the stepping caller has not
+	 * supplied the next action (or has not collected the last result): this
+	 * host iteration must then leave the game untouched -- no cheats, no
+	 * vblank rotation, no VRETRACE, no coroutine resume, no game events --
+	 * so sySchedulerGetTicCount() and the whole simulation stay frozen for
+	 * as long as the caller waits. Always 0 unless SSB64_RL_STEP=1, and the
+	 * unparked path below is the pre-M1c frame verbatim. */
+	const int rlParked = rlStepHostUpdate();
+
 	// Process cheats safely before the frame updates
-	lbBackupApplyCheats();
+	if (!rlParked) {
+		lbBackupApplyCheats();
+	}
 
 	/* Capture the wall-clock start of this PortPushFrame for the
 	 * frame-pacing fallback below. */
@@ -698,6 +765,16 @@ void PortPushFrame(void)
 			window->HandleEvents();
 		}
 	}
+
+	if (rlParked) {
+		/* Parked host iteration: only window responsiveness and presentation.
+		 * The game sees nothing of it; the next unparked iteration is a
+		 * complete normal frame. */
+		port_present_idle_frame(frameStart);
+		port_watchdog_note_frame_end();
+		return;
+	}
+
 	/* Propagate the previous frame's queued framebuffer (if any) to VI's
 	 * "current" slot. The scheduler's CheckReadyFramebuffer fnCheck reads
 	 * osViGetCurrent/NextFramebuffer to decide whether the slot the game
@@ -798,53 +875,10 @@ void PortPushFrame(void)
 
 	sFrameCount++;
 
-	/* VI-style idle presentation: when no gfx task was submitted this VI,
-	 * original hardware still scans out the current RDRAM framebuffer.
-	 * Fast3D normally presents only from DrawAndRunGraphicsCommands(), so
-	 * 0-submit frames can otherwise hold an older swapchain image. Present
-	 * the cached game framebuffer texture through the normal GUI/window path
-	 * without re-running any display list or touching game memory. */
+	/* VI-style idle presentation for 0-submit frames; see
+	 * port_present_idle_frame() above. */
 	if (sDLSubmitsThisFrame == 0) {
-		bool idlePresented = false;
-		static int sFreezePacing = -1;
-		if (sFreezePacing < 0) {
-			const char *env = std::getenv("SSB64_FREEZE_PACING");
-			sFreezePacing = (env != nullptr) ? std::atoi(env) : 1;
-		}
-		if (sFreezePacing) {
-			auto context = Ship::Context::GetInstance();
-			auto window = context
-				? std::dynamic_pointer_cast<Fast::Fast3dWindow>(context->GetWindow())
-				: nullptr;
-			if (window) {
-				/* Held frame: present k paced subframes of the cached
-				 * framebuffer so the tick still occupies one VI period at
-				 * the interpolated render rate. k == 1 when the feature is
-				 * off (single present, old behavior). */
-				int idleSubframes = portInterpActiveSubframes();
-				for (int sub = 0; sub < idleSubframes; sub++) {
-					idlePresented = window->PresentCurrentFramebuffer();
-					if (!idlePresented) {
-						break;
-					}
-				}
-			}
-
-			if (!idlePresented) {
-				/* Fallback pace to one VI period if there is no cached
-				 * framebuffer yet. Normal idle presents pace through the
-				 * backend's SwapBuffers path. */
-				auto target = frameStart + std::chrono::microseconds(16667);
-				auto coarseTarget = target - std::chrono::microseconds(2000);
-				auto now = std::chrono::steady_clock::now();
-				if (now < coarseTarget) {
-					std::this_thread::sleep_for(coarseTarget - now);
-				}
-				while (std::chrono::steady_clock::now() < target) {
-					/* busy-wait */
-				}
-			}
-		}
+		port_present_idle_frame(frameStart);
 	}
 	sDLSubmitsThisFrame = 0;
 
