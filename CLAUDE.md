@@ -1,124 +1,245 @@
-# SSB64 PC Port — Claude Session Context
+# BattleShip Reinforcement-Learning Fork
 
-PC port of Super Smash Bros. 64 built from the complete decompilation at github.com/VetriTheRetri/ssb-decomp-re. Target integration: libultraship (LUS) + Torch asset pipeline.
+BattleShip is a native PC port of Super Smash Bros. 64 built from the completed
+decompilation. This fork is a stable desktop-only sandbox for reinforcement-
+learning research.
+
+Mario's Break the Targets is the initial environment and benchmark.
+
+## Supported scope
+
+Supported:
+
+- Windows x64 desktop
+- Linux desktop and future headless training
+- US game version as the initial RL target
+- JP builds where existing support remains functional
+
+Unsupported and intentionally removed:
+
+- Android
+- UWP and Xbox packaging
+
+Do not restore removed platforms unless explicitly requested.
+
+## Current objective
+
+Phase 1 is an automated episode environment that can:
+
+1. Launch Mario's Break the Targets.
+2. Accept frame-level controller actions.
+3. Expose structured, machine-readable observations.
+4. Detect completion, failure, and timeout.
+5. Produce machine-readable episode results.
+6. Reset and start another episode without manual interaction.
+7. Eventually run faster than real time without rendering.
+
+The existing scripted baseline contains 468 gameplay input rows and completes
+with an internal time of 7.43 seconds. Preserve this as a regression baseline.
+
+Do not implement, validate, or compare RNG seeds. RNG seed checking is not
+required for this project.
+
+## Repository ownership
+
+The parent repository belongs to the current user, not JRickey.
+
+- Do not assume access to JRickey repositories, branches, issues, credentials,
+  connectors, or GitHub identity.
+- Do not push to JRickey repositories.
+- Do not open issues or pull requests against upstream unless explicitly asked.
+- Treat upstream repositories as reference sources only.
+- Do not merge upstream automatically.
+- External updates are selected deliberately for this stable sandbox.
+
+## Repository structure
+
+- `decomp/`: completed SSB64 decompilation and minimal PC-port hooks.
+- `port/`: native C++ integration, runtime hooks, input, and diagnostics.
+- `libultraship/`: pinned native runtime dependency.
+- `torch/`: pinned ROM asset-extraction dependency.
+- `tools/`: build and asset-generation utilities.
+- `yamls/`: region-specific asset definitions.
+- `docs/`: architecture and debugging documentation.
+- `rl/`: Python environment, protocol clients, training, evaluation, and tests.
+- `port/rl/`: native game-to-RL bridge, when introduced.
+
+Prefer new RL code under `rl/` and `port/rl/`. Minimize changes to inherited
+files.
 
 ## Documentation
 
-Detailed reference material lives under `docs/`. Read the file that matches the task before touching code. When looking for a topic not listed here, run `ls docs/` and `ls docs/bugs/` to see what's available.
+Read the document relevant to the task before editing code.
 
 | Topic | File |
-|-------|------|
-| Project status, ROM info, dependencies, source tree layout | `docs/architecture.md` |
-| C type system, decomp naming prefixes, code style, macros | `docs/c_conventions.md` |
-| RDRAM / RSP / RDP / GBI / audio / threading / controller / endianness | `docs/n64_reference.md` |
-| CMake build, reloc stub regen, runtime logs, LP64 compat notes | `docs/build_and_tooling.md` |
-| GBI trace capture (port + M64P plugin) and `gbi_diff.py` usage | `docs/debug_gbi_trace.md` |
-| IDO BE bitfield layout audit (compile + rabbitizer disasm to verify port struct bit positions) | `docs/debug_ido_bitfield_layout.md` |
-| Resolved bugs (index + per-bug root cause / fix write-ups) | `docs/bugs/README.md` |
+| --- | --- |
+| Architecture, dependencies, and source layout | `docs/architecture.md` |
+| C types, naming, macros, and conventions | `docs/c_conventions.md` |
+| N64 memory, graphics, audio, threading, input, and endianness | `docs/n64_reference.md` |
+| CMake, generated files, logs, and LP64 compatibility | `docs/build_and_tooling.md` |
+| GBI tracing | `docs/debug_gbi_trace.md` |
+| IDO bitfield-layout verification | `docs/debug_ido_bitfield_layout.md` |
+| Resolved bugs | `docs/bugs/README.md` |
 
-Ongoing investigations and handoff notes are loose `.md` files at the top level of `docs/` — check there before starting work on rendering, collision, or animation issues so you don't duplicate prior effort.
+Check `docs/` before starting an investigation so existing findings are not
+duplicated.
 
-When you fix a new significant bug, add an entry under `docs/bugs/` using the slug pattern `<topic>_<YYYY-MM-DD>.md` and link it from `docs/bugs/README.md`.
+Document significant port bugs under `docs/bugs/` and link them from
+`docs/bugs/README.md`.
 
----
+## Decomp preservation
 
-## GitHub Issue Access
+Treat `decomp/` as byte-accurate source.
 
-When asked to inspect GitHub issues, prefer the GitHub connector. If issue tools
-are not visible yet, first run tool discovery for "GitHub issue fetch/view" so
-the connector exposes `_fetch_issue` and `_fetch_issue_comments`, then fetch with
-`repository_full_name: "JRickey/BattleShip"`.
+- Do not modernize matching code for style.
+- Do not remove fake variables, unusual casts, gotos, or compiler-matching
+  constructs from the non-PORT implementation.
+- Never make an unconditional semantic correction to matching code merely to
+  satisfy a modern compiler.
+- Put PC-only behavior behind `#ifdef PORT`.
+- Preserve the original non-PORT code path unchanged.
+- Before excluding an unreferenced function from PORT builds, search the entire
+  decomp repository for direct and indirect symbolic references.
+- Prefer a port-side adapter over changing decomp code.
+- If a decomp edit is unavoidable, verify both the PC build and the applicable
+  decomp validation process.
 
-The local GitHub CLI is also authenticated as `JRickey` and has admin access to
-`JRickey/BattleShip`. If the human-formatted `gh issue view` output is blank or
-unreliable, use the JSON/template path instead:
+The recent `unref_800036B4` handling is the preferred pattern: retain the
+byte-accurate function for non-PORT builds and exclude it only from PORT builds.
 
-```bash
-gh issue view <number> -R JRickey/BattleShip --json number,title,state,author,body,url,comments,labels
-```
+## Submodules
 
-Known-good check from 2026-06-01: issue #209 and its comments were accessible
-through both the connector and `gh --json`; #209 had no comments at that time.
+`decomp`, `libultraship`, and `torch` are pinned submodules.
 
----
+- Do not update a submodule merely because a newer commit exists.
+- Do not modify `libultraship` or `torch` unless the requested feature requires
+  it.
+- Never assume a detached submodule HEAD can be pushed directly.
+- Inspect its branch and remotes before making changes.
+- Do not change submodule remote URLs without explicit approval.
 
-## Parallel Sessions — Worktree Workflow
+When a submodule change is required:
 
-Multiple Claude windows working in the same checkout will clobber each other's source edits and build outputs. **Every parallel session works in its own git worktree.**
+1. Create or switch to a branch inside the submodule.
+2. Make and verify the change.
+3. Commit and push to the user's appropriate fork.
+4. Return to the parent repository.
+5. Stage and commit the updated submodule pointer separately.
 
-### Spinning up a new worktree
+Never push submodule changes to JRickey-owned repositories.
 
-```bash
-./scripts/new-worktree.sh <slug>           # configure only (fast)
-./scripts/new-worktree.sh <slug> --build   # configure + full Debug compile
-./scripts/new-worktree.sh <slug> --base some-branch --release
-```
+## RL architecture rules
 
-Output lands at `.claude/worktrees/<slug>` on branch `agent/<slug>`. The script:
-1. Creates the worktree and branch.
-2. Symlinks `baserom.us.z64` (gitignored, too large to duplicate).
-3. **Independently clones `libultraship`, `torch`, and `decomp`** from the main tree's local submodule checkouts (picks up pinned SHAs that may not be pushed to the forks yet), then resets each submodule's `origin` to whatever URL the main tree's submodule uses — usually SSH so pushes work.
-4. Regenerates gitignored codegen (`reloc_data.h`, `yamls/us/reloc_*.yml`, credits encodings).
-5. Runs `cmake -B build` inside the worktree (and compiles if `--build` given).
+Define and document the environment contract before implementing a learning
+algorithm.
 
-### What this gives you
+The contract must explicitly define:
 
-- **Full edit authority everywhere** — any file under `decomp/src/`, `decomp/include/`, `port/`, `libultraship/`, `torch/` is fair game. Submodule checkouts are real independent clones, not symlinks.
-- **Zero collision** with other windows on source, build artifacts, or submodule state.
-- **Normal git flow for submodule changes**:
-  1. Edit and commit inside `<worktree>/decomp/`, `<worktree>/libultraship/`, or `<worktree>/torch/`.
-  2. Push to the fork: `git -C <worktree>/<sm> push origin <branch>`.
-     - `decomp` → `port-patches` on `JRickey/ssb-decomp-re`
-     - `libultraship` → `ssb64` on `JRickey/libultraship`
-     - `torch` → `ssb64` on `JRickey/Torch`
-  3. In the outer worktree, bump the submodule pointer: `git add <sm> && git commit -m "Bump <sm>: <summary>"`.
-  4. When the outer branch lands on main, the pointer update goes with it.
+- Action representation and valid ranges.
+- Observation fields, types, shapes, and units.
+- Reward components.
+- Success and failure conditions.
+- Episode termination and truncation.
+- Reset behavior.
+- Frame-advance behavior.
+- Protocol version.
 
-### Merging back to main
+Additional requirements:
 
-The outer worktree is a normal branch (`agent/<slug>`). Merge or PR it into `main` like any other branch. Submodule pointer bumps ride along in the commits.
+- Use game frames or internal game time, not wall-clock time.
+- Keep rewards and training-framework dependencies outside byte-accurate game
+  logic.
+- Do not link PyTorch, Gymnasium, Stable-Baselines3, or another ML framework
+  directly into the game executable.
+- Keep the native game bridge independent of the selected ML framework.
+- Do not require rendering for environment operation.
+- First validate the environment with the known scripted replay.
+- Then add a random-agent smoke test.
+- Add an ML algorithm only after reset, stepping, observations, actions, and
+  termination have automated tests.
+- Do not add RNG seed checking.
 
-### Cleanup
+Do not choose the final IPC transport or ML library without first comparing the
+requirements and documenting the decision.
 
-```bash
-git worktree remove .claude/worktrees/<slug>
-git branch -D agent/<slug>
-```
+## Windows build
 
-Stale worktrees under `.claude/worktrees/` from past sessions are fine to remove — check `git worktree list` and prune anything you don't recognize.
+Configure the US build:
 
-### Gotchas
+    cmake -S . -B build-us -G "Visual Studio 18 2026" -A x64 -DSSB64_VERSION=us
 
-- **Never use relative `build` paths in Bash tool calls** — Claude Code resets cwd between `Bash` calls. `cmake --build build` from the project root builds the main tree, not the worktree. Always use absolute paths: `cmake --build <worktree>/build ...`.
-- **Cap build parallelism at `-j 4` on the M1 16 GB machine.** Bare `-j` lets make spawn one clang per logical core; libultraship's Debug C++ TUs hold 1–2 GB resident each, so 8 in parallel push the laptop into swap and pin the fans for the whole compile. Always: `cmake --build <worktree>/build --target ssb64 -j 4`. Push to `-j 6` only when you know nothing else heavy is open. Worktree first-builds are full from-scratch (no shared cache with main tree), so this matters most the first time.
-- The binary loads `BattleShip.o2r` (ROM-derived, user-extracted) and `f3d.o2r` (shaders) from its CWD at launch; without them it exits with `archive ... does not exist`. `new-worktree.sh` symlinks both from the main tree's `build/` into the worktree's `build/`. If the main tree has never been extracted, run `cmake --build <main-tree>/build --target ExtractAssets` there first so the symlinks resolve. (`ssb64.o2r` was an early-development port-asset archive; it is no longer produced or loaded — the build never contains ROM-derived data beyond the user's own first-run `BattleShip.o2r`.)
+Build:
 
----
+    cmake --build build-us --config Release
 
-## Agent Directives
+Expected executable:
 
-### Pre-Work
+    build-us/Release/BattleShip.exe
 
-1. **THE "STEP 0" RULE**: Before any structural refactor on a file >300 LOC, first remove dead code, unused exports, unused imports, and debug logs. Commit cleanup separately.
+JP uses a separate `build-jp` directory with `-DSSB64_VERSION=jp`.
 
-2. **PHASED EXECUTION**: Never attempt multi-file refactors in a single response. Break work into phases. Complete Phase 1, run verification, wait for approval before Phase 2. Max 5 files per phase.
+Do not reuse a CMake build directory created from another checkout or source
+path.
 
-### Code Quality
+## Verification
 
-3. **THE SENIOR DEV OVERRIDE**: If architecture is flawed, state is duplicated, or patterns are inconsistent — propose and implement structural fixes. Ask: "What would a senior, experienced, perfectionist dev reject in code review?" Fix all of it.
+Before reporting a C or C++ change complete:
 
-4. **FORCED VERIFICATION**: Do not report a task complete until you have run the build and fixed all errors. If no build is configured yet, state that explicitly.
+1. Run `git diff --check`.
+2. Inspect the complete relevant diff.
+3. Build the US Release configuration.
+4. Run relevant automated tests or replay validation.
+5. Report the exact commands and outcomes.
 
-5. **DECOMP PRESERVATION — preserve behavior, not byte-matching**: The decomp describes the *game*, not the build. Keep IDO idioms (goto, odd casts, temp variables) that encode original N64 semantics — those are load-bearing and must not be "modernized." But don't preserve **compiler compat shims** (warning suppressions, permissive flags, header shortcuts) that hurt port stability just to avoid touching decomp source. If a suppressed diagnostic is masking real bugs on modern LP64 toolchains (e.g., `-Wno-implicit-function-declaration` silently truncating 64-bit pointer returns to `int`), fix the root cause — add the missing include, wrap a port fix in `#ifdef PORT`, or adjust the decomp file itself — rather than keeping the suppression. **Accuracy to game behavior > accuracy to ROM bytes.** When choosing between stability and ROM-matching, choose stability and document the deviation in `docs/bugs/`.
+For RL environment changes, verify:
 
-### Context Management
+- Observation schema and types.
+- Action ranges and controller mapping.
+- Frame-step behavior.
+- Success detection.
+- Failure detection.
+- Timeout handling.
+- Reset behavior.
+- Scripted baseline regression.
+- Protocol compatibility.
+- Repeated episode execution.
 
-6. **SUB-AGENT SWARMING**: For tasks touching >5 independent files, launch parallel sub-agents. Each agent gets its own context window.
+Do not claim verification that was not actually performed.
 
-7. **CONTEXT DECAY AWARENESS**: After 10+ messages, re-read any file before editing. Do not trust memory of file contents.
+## Working rules
 
-8. **FILE READ BUDGET**: For files over 500 LOC, use offset and limit parameters to read in chunks.
+- Inspect `git status` before editing.
+- Preserve all pre-existing user changes.
+- Re-read a file immediately before editing it.
+- Keep changes focused on the requested milestone.
+- Prefer new files over broad inherited-code refactors.
+- Do not perform unrelated cleanup.
+- Do not commit, push, merge, rebase, or create a pull request unless explicitly
+  requested.
+- Never use destructive Git commands.
+- Never commit ROMs, `.o2r` files, generated game assets, build directories,
+  training runs, datasets, logs, or model checkpoints.
+- Do not expose or inspect ROM contents unless explicitly required.
+- Do not suppress compiler errors when a safe PORT-specific correction exists.
 
-9. **EDIT INTEGRITY**: Before every edit, re-read the file. After editing, verify the change applied correctly. Never batch >3 edits to the same file without a verification read.
+For multi-file architectural work:
 
-10. **NO SEMANTIC SEARCH**: When renaming or changing any function/type/variable, search separately for: direct calls, type references, string literals, dynamic references, re-exports, and tests.
+1. Explore the relevant code.
+2. Present a phased implementation plan.
+3. Implement one independently verifiable milestone at a time.
+4. Build and test after each milestone.
+5. Continue automatically within the approved scope unless a decision would
+   materially change the architecture.
+
+Use parallel agents only for read-only investigations or isolated worktrees.
+Never allow multiple agents to edit the same checkout concurrently.
+
+## Context management
+
+- Use focused investigations instead of reading entire large directories.
+- Read large files in relevant sections.
+- Search for callers, declarations, macros, string references, generated
+  references, and tests before changing an interface.
+- Use a fresh Claude session for a new implementation milestone.
+- Preserve modified-file lists, decisions, failures, and verification commands
+  when compacting context.

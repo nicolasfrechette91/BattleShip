@@ -53,6 +53,7 @@
 #include "port_log.h"
 #include "fighter_registry.h"
 #include "focus.h"
+#include "rl/rl.h"
 #include "shaders/fast3d_shader_manifest.h"
 
 #ifndef DISABLE_SCRIPTING
@@ -1390,8 +1391,16 @@ int main(int argc, char* argv[]) {
 	// up as an opaque MSVC 0xE06D7363 throw.
 	try {
 
+	// RL configuration is parsed and cached before the game boots:
+	// scManagerRunLoop() (reached from PortGameInit) consults it.
+	rlConfigInit();
+
 	// Initialize the game boot sequence (coroutines, thread init, etc.)
 	PortGameInit();
+
+	// RL episode monitor: registered after PortGameInit(); the event system
+	// has been up since PortInit.
+	rlRuntimeRegister();
 
 	// Main frame loop — each iteration runs one frame of game logic
 	// and rendering through the coroutine system. PortPushFrame posts
