@@ -186,4 +186,7 @@ extern "C" void rlRuntimeRegister(void) {
 	}
 	REGISTER_LISTENER(GamePostUpdateEvent, EVENT_PRIORITY_NORMAL, OnGamePostUpdate);
 	port_log("SSB64 RL: episode monitor registered\n");
+	/* M1b observation capture. Read-only and independent of the monitor above,
+	 * so the relative dispatch order of the two listeners does not matter. */
+	rlObservationRegister();
 }
