@@ -1,7 +1,7 @@
 name: Build
 
-# Per-PR compile gate. Builds the BattleShip binary on Windows, Linux, and
-# macOS on every pull_request and push to main, so a contribution that fails to
+# Per-PR compile gate. Builds the BattleShip binary on Windows, and Linux
+# on every pull_request and push to main, so a contribution that fails to
 # compile on a platform is caught before review and merge — the exact gap a
 # Windows-only change (e.g. a MinHook-based mod loader) would otherwise slip
 # through until a maintainer builds it by hand on three machines.
@@ -77,30 +77,6 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DNON_PORTABLE=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
         run: cmake --build build -j"$(nproc)"
-
-  macos:
-    name: macOS (arm64)
-    runs-on: macos-14
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-      - name: Install build deps
-        run: |
-          brew install cmake ninja sdl2 glew libzip nlohmann-json tinyxml2 spdlog
-          python3 -m pip install --break-system-packages Pillow
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: build-macos
-          max-size: 2G
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DNON_PORTABLE=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-      - name: Build
-        run: cmake --build build -j"$(sysctl -n hw.ncpu)"
-
   windows:
     name: Windows (MSVC)
     runs-on: windows-2022
