@@ -47,6 +47,7 @@ carries `"protocol": 1`.
 | `{"protocol":1,"op":"ping"}` | `{"protocol":1,"op":"ping","ok":true}` |
 | `{"protocol":1,"op":"status"}` | `{"protocol":1,"op":"status","ok":true,"state":S,"state_name":"...","can_step":bool,"step_count":N}` |
 | `{"protocol":1,"op":"step","buttons":B,"stick_x":X,"stick_y":Y}` | `{"protocol":1,"op":"step","ok":true,"step_schema":1,"state":S,"state_name":"...","step_count":N,"consumed_tick":T,"observation":{...}}` |
+| `{"protocol":1,"op":"observe"}` (M3 addition) | `{"protocol":1,"op":"observe","ok":true,"state":S,"state_name":"...","can_step":bool,"step_count":N,"observation":{...}}` |
 
 `buttons` is a JSON integer 0..65535 holding the native N64 button word
 (`RL_BUTTON_*`); `stick_x` / `stick_y` are JSON integers -128..127, passed
@@ -63,6 +64,18 @@ so the transport worker consumes M1c step results only and never reads the
 main-thread M1b cache. Its `step_count` is that of the last result the
 worker collected, which is M1c's counter because the worker is the sole
 submitter and collector.
+
+`observe` was added for M3 (see `docs/rl_gymnasium_m3.md`) and is additive:
+`ping`, `status` and `step` are unchanged and the protocol version stays 1
+(an older BattleShip answers `unknown_op`). It returns the `status` metadata
+plus a copy of the newest M1b snapshot held by the M1c state machine, read
+through the pure query `rlStepGetLatestObservation()`; `rlStepPoll()` is
+still never called by the transport, so `observe` cannot collect a result,
+open the host gate or advance `input_tick` or `time_passed`. In
+`WaitingForAction` the copy is the state the next action will act upon; at
+`step_count == 0` that is the state before native tick 0
+(`observation.input_tick == 0`). Before the first native capture it fails
+with the protocol error `no_observation`.
 
 Error response:
 

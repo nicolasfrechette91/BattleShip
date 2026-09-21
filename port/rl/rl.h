@@ -373,6 +373,22 @@ int rlStepWait(RLStepResult *out);
 /* Current RLStepState. Any thread. */
 int rlStepGetState(void);
 
+/* Copy the newest M1b snapshot this module has been handed (the same copy
+ * rlStepPoll reports for RL_STEP_READY) into *out. Pure query under the M1c
+ * mutex, any thread: it reads the state machine's cached snapshot only and
+ * never changes the state, collects a result, opens the host gate, submits
+ * an action or touches the game. Returns 1 when a snapshot exists and was
+ * copied, 0 when none has been captured yet (or out is NULL); *out is left
+ * untouched in that case.
+ *
+ * Meaning of the copy depends on the state and is for the caller to judge:
+ * in WaitingForAction it is the state the next action will act upon (at
+ * step_count 0: the post-update of the update that set Go, i.e. the state
+ * before native tick 0); in EpisodeEnded it is the terminal snapshot of the
+ * last collected result. Added for M3 so a fresh episode's initial
+ * observation can be read without consuming tick 0. */
+int rlStepGetLatestObservation(RLObservation *out);
+
 /* -- M1c decomp-facing call-outs (sc1pbonusstage.c, PORT only) ------------- */
 
 /* 1 when interactive stepping is enabled by configuration. */

@@ -45,10 +45,27 @@
  *       "observation":{...}}
  *      The RLStepResult verbatim: observation.input_tick == T + 1.
  *
+ *   -> {"protocol":1,"op":"observe"}
+ *   <- {"protocol":1,"op":"observe","ok":true,"state":S,"state_name":"...",
+ *       "can_step":bool,"step_count":N,"observation":{...}}
+ *      M3 addition, additive to protocol 1 (ping / status / step are
+ *      unchanged). Non-consuming by construction: it reads rlStepGetState()
+ *      and rlStepGetLatestObservation(), both pure queries under the M1c
+ *      mutex; it never calls rlStepPoll() or rlStepSubmit(), so it cannot
+ *      collect a result, open the host gate or advance any clock. The
+ *      observation is the newest M1b snapshot the state machine holds: in
+ *      WaitingForAction the state the next action will act upon (at
+ *      step_count 0, the state before native tick 0, input_tick == 0), in
+ *      EpisodeEnded the terminal snapshot. Exists so a Gymnasium reset() can
+ *      return the initial observation without consuming tick 0. Fails with
+ *      the protocol error no_observation (native_code null) only before the
+ *      first GamePostUpdateEvent has captured anything.
+ *
  *   <- {"protocol":1,"op":<op or null>,"ok":false,"error":"<name>",
  *       "message":"...","native_code":<int>|null}
  *      Protocol errors (native_code null): malformed_request,
- *      unsupported_protocol, unknown_op, missing_field, out_of_range.
+ *      unsupported_protocol, unknown_op, missing_field, out_of_range,
+ *      no_observation.
  *      Native errors carry the RL_STEP_ERR_* code verbatim plus its name:
  *      null(-1), disabled(-2), invalid_action(-3), not_ready(-4), busy(-5),
  *      episode_ended(-6), stopping(-7), main_thread(-8).
@@ -360,6 +377,29 @@ json handleStatus(const json &op) {
 	return r;
 }
 
+/* M3: the status metadata plus a copy of the newest M1b snapshot held by the
+ * M1c state machine. Both calls are pure queries (rlStepGetState,
+ * rlStepGetLatestObservation); rlStepPoll() is still never used here, so
+ * this op can neither collect a result nor advance the game. */
+json handleObserve(const json &op) {
+	RLObservation observation;
+	std::memset(&observation, 0, sizeof(observation));
+	const int have = rlStepGetLatestObservation(&observation);
+	const uint32_t state = (uint32_t)rlStepGetState();
+	if (!have) {
+		return protocolError(op, "no_observation",
+		                     std::string("no observation has been captured yet (state ") + stateName(state) + ")");
+	}
+	json r = baseResponse(op);
+	r["ok"] = true;
+	r["state"] = state;
+	r["state_name"] = stateName(state);
+	r["can_step"] = (state == RL_STEP_WAITING_FOR_ACTION);
+	r["step_count"] = sLastStepCount;
+	r["observation"] = observationToJson(observation);
+	return r;
+}
+
 json handleStep(const json &req, const json &op) {
 	long long buttons = 0;
 	long long stickX = 0;
@@ -432,7 +472,10 @@ json handleLine(const std::string &line) {
 	if (name == "step") {
 		return handleStep(req, op);
 	}
-	return protocolError(op, "unknown_op", "unknown op '" + name + "'; expected ping, status or step");
+	if (name == "observe") {
+		return handleObserve(op);
+	}
+	return protocolError(op, "unknown_op", "unknown op '" + name + "'; expected ping, status, step or observe");
 }
 
 void serveClient(Socket c) {

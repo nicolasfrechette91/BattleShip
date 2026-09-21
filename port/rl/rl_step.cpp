@@ -275,6 +275,22 @@ extern "C" int rlStepGetState(void) {
 	return (int)sState;
 }
 
+/* M3: non-consuming read of sLatest, the copy rlStepOnObservation() keeps
+ * under the mutex for other threads. Deliberately not routed through
+ * pollLocked(): that path collects an ObservationReady result and moves the
+ * state machine, and this query must never do either. */
+extern "C" int rlStepGetLatestObservation(RLObservation *out) {
+	if (out == nullptr) {
+		return 0;
+	}
+	std::lock_guard<std::mutex> lock(sMutex);
+	if (!sHasLatest) {
+		return 0;
+	}
+	*out = sLatest;
+	return 1;
+}
+
 /* -- Decomp-facing (game coroutine) ---------------------------------------- */
 
 extern "C" int rlStepControllerRead(uint32_t tick, uint16_t *buttons, int8_t *stick_x, int8_t *stick_y) {

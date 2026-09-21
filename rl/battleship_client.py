@@ -168,6 +168,23 @@ class Status:
     step_count: int
 
 
+@dataclass(frozen=True)
+class Observe:
+    """Non-consuming snapshot query (M3 `observe` op, additive to protocol 1).
+
+    The same metadata as Status plus a copy of the newest M1b snapshot the
+    M1c state machine holds. Nothing is consumed: no tick, no result, no
+    clock. In WaitingForAction the observation is the state the next action
+    will act upon; at step_count 0 that is the state before native tick 0
+    (observation.input_tick == 0)."""
+
+    state: StepState
+    state_name: str
+    can_step: bool
+    step_count: int
+    observation: Observation
+
+
 def _wire_int(name: str, value: Any) -> int:
     # bool is an int subclass; the wire rejects it, so reject it here too.
     if isinstance(value, bool) or not isinstance(value, int):
@@ -286,6 +303,21 @@ class BattleShipClient:
             state_name=r["state_name"],
             can_step=bool(r["can_step"]),
             step_count=r["step_count"],
+        )
+
+    def observe(self) -> Observe:
+        """Non-consuming: read the newest M1b snapshot without stepping.
+
+        Raises ProtocolError(error="no_observation") before the first native
+        capture, and ProtocolError(error="unknown_op") against a BattleShip
+        built before the M3 `observe` op existed."""
+        r = self.request("observe")
+        return Observe(
+            state=StepState(r["state"]),
+            state_name=r["state_name"],
+            can_step=bool(r["can_step"]),
+            step_count=r["step_count"],
+            observation=Observation.from_wire(r["observation"]),
         )
 
     def step(self, buttons: int, stick_x: int, stick_y: int) -> StepResult:
