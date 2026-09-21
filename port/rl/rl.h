@@ -445,6 +445,61 @@ void rlTransportStart(void);
  * worker blocked in rlStepWait(). No-op when the transport never started. */
 void rlTransportShutdown(void);
 
+/* -- M4: opt-in stepping timing diagnostic (measurement only) -------------- */
+
+/*
+ *   SSB64_RL_TIMING=1         record steady-clock stamps for every step and
+ *                             report them in the step response ("timing"
+ *                             object, additive to protocol 1). Requires
+ *                             effective interactive stepping; otherwise
+ *                             ignored. Unset: nothing is stamped and every
+ *                             response is byte-identical to a build without
+ *                             this diagnostic.
+ *
+ * The stamps are std::chrono::steady_clock readings in nanoseconds taken
+ * inside the game process. Only differences between them are meaningful; a
+ * zero means "this stamp was not taken for this step". They are recorded
+ * inside the existing M1c locked regions, feed back into no transition, and
+ * touch neither the observation nor the result. What each interval contains
+ * is documented in docs/rl_measurements_m4.md; in particular
+ * consumed_ns -> logic_done_ns is the game update of the tick without any
+ * rendering, and logic_done_ns -> observation_ns is the display-list render
+ * plus the paced present.
+ */
+#define RL_TIMING_SCHEMA 1u
+
+typedef struct RLStepTiming
+{
+	uint32_t timing_schema; /* RL_TIMING_SCHEMA */
+	uint32_t step_count;    /* the step these stamps belong to */
+
+	uint64_t submit_ns;      /* rlStepSubmit accepted the action (submitting thread) */
+	uint64_t gate_open_ns;   /* first PortPushFrame entry that ran a frame for this step (main thread) */
+	uint64_t consumed_ns;    /* rlStepControllerRead handed the action to the BTT read (game coroutine) */
+	uint64_t logic_done_ns;  /* PortPushFrame: game logic of that update complete, display list not yet
+	                          * drained (main thread, rlStepNoteFrameLogicDone) */
+	uint64_t observation_ns; /* rlStepOnObservation paired the result (main thread, after render + present) */
+	uint64_t collected_ns;   /* rlStepPoll / rlStepWait handed the result to the collector */
+
+	uint32_t host_iterations;   /* unparked PortPushFrame entries that served this step (1 normally) */
+	uint32_t parked_iterations; /* parked host iterations immediately before the gate-open iteration */
+
+} RLStepTiming;
+
+/* 1 when SSB64_RL_TIMING=1 and interactive stepping is effective (rl_boot.cpp). */
+int rlTimingIsEnabled(void);
+
+/* Copy the stamps of the most recently collected step into *out. Pure query
+ * under the M1c mutex, any thread. Returns 1 when the diagnostic is enabled
+ * and a step has been collected, 0 otherwise (*out untouched). */
+int rlStepGetLastTiming(RLStepTiming *out);
+
+/* Main-thread hook, called by PortPushFrame() after port_resume_service_threads()
+ * and before port_drain_pending_display_list(). Records logic_done_ns for the
+ * in-flight step. No-op unless stepping is registered and the diagnostic is
+ * enabled; never changes state. */
+void rlStepNoteFrameLogicDone(void);
+
 /* -- Internal seams inside port/rl ----------------------------------------- */
 
 void rlStepRegister(void);                             /* from rlRuntimeRegister() */

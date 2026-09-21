@@ -809,6 +809,12 @@ void PortPushFrame(void)
 	port_enhancement_stage_hazards_tick();
 	port_widescreen_tick();
 
+	/* M4 timing diagnostic (port/rl/rl_step.cpp): the game update of this
+	 * host frame is complete and the display list has not been drained yet.
+	 * Records one stamp for an in-flight interactive step; no-op unless
+	 * SSB64_RL_STEP=1 and SSB64_RL_TIMING=1, and never alters the frame. */
+	rlStepNoteFrameLogicDone();
+
 #if !defined(__ANDROID__)
 #if !defined(BATTLESHIP_UWP)
 	ssb64::enhancements::TickDiscordPresence(); // DRP

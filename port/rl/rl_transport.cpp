@@ -71,6 +71,19 @@
  *      episode_ended(-6), stopping(-7), main_thread(-8).
  *      No error response ever advances the game.
  *
+ *   M4 diagnostic, only with SSB64_RL_TIMING=1: a successful step response
+ *   additionally carries "timing":{"timing_schema":1,"clock":
+ *   "steady_clock_ns_differences_only","request_received_ns":..,"submit_ns":..,
+ *   "gate_open_ns":..,"consumed_ns":..,"logic_done_ns":..,"observation_ns":..,
+ *   "collected_ns":..,"response_ready_ns":..,"host_iterations":N,
+ *   "parked_iterations":N}. Additive: the key is absent (never null) when
+ *   the diagnostic is off, nothing inside "observation" changes, and the
+ *   protocol version stays 1. Stamps are ns readings of the game's steady
+ *   clock; only differences are meaningful; 0 = not taken. request_received
+ *   is taken when the worker extracts the request line from its buffer (a
+ *   pipelined line is stamped when reached, not on arrival); response_ready
+ *   is taken before the JSON dump and send.
+ *
  * THREADING.
  *   Python -> worker thread -> rlStepSubmit() / rlStepWait()
  *          -> main-thread host gate -> one native input tick
@@ -127,6 +140,7 @@
 #endif
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
@@ -159,6 +173,18 @@ Socket sClient = kInvalidSocket;
 /* --- worker thread only ---------------------------------------------------- */
 uint32_t sConnections = 0;
 uint32_t sLastStepCount = 0; /* step_count of the last RLStepResult collected by this worker */
+
+/* M4 timing diagnostic (SSB64_RL_TIMING=1). sTimingEnabled is written once by
+ * rlTransportStart() before the worker exists; sRequestReceivedNs is set by
+ * serveClient() for the request being handled and read by handleStep(). */
+bool sTimingEnabled = false;
+uint64_t sRequestReceivedNs = 0;
+
+uint64_t nowNs() {
+	return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+	           std::chrono::steady_clock::now().time_since_epoch())
+	    .count();
+}
 
 int lastSocketError() {
 #ifdef _WIN32
@@ -442,6 +468,30 @@ json handleStep(const json &req, const json &op) {
 	r["step_count"] = result.step_count;
 	r["consumed_tick"] = result.consumed_tick;
 	r["observation"] = observationToJson(result.observation);
+
+	if (sTimingEnabled) {
+		/* M4: attach the game's own stamps for exactly this step. Additive
+		 * key; absent whenever the diagnostic is off or the stamps do not
+		 * belong to this step_count. */
+		RLStepTiming t;
+		std::memset(&t, 0, sizeof(t));
+		if (rlStepGetLastTiming(&t) && t.step_count == result.step_count) {
+			json tj;
+			tj["timing_schema"] = t.timing_schema;
+			tj["clock"] = "steady_clock_ns_differences_only";
+			tj["request_received_ns"] = sRequestReceivedNs;
+			tj["submit_ns"] = t.submit_ns;
+			tj["gate_open_ns"] = t.gate_open_ns;
+			tj["consumed_ns"] = t.consumed_ns;
+			tj["logic_done_ns"] = t.logic_done_ns;
+			tj["observation_ns"] = t.observation_ns;
+			tj["collected_ns"] = t.collected_ns;
+			tj["response_ready_ns"] = nowNs();
+			tj["host_iterations"] = t.host_iterations;
+			tj["parked_iterations"] = t.parked_iterations;
+			r["timing"] = tj;
+		}
+	}
 	return r;
 }
 
@@ -491,6 +541,9 @@ void serveClient(Socket c) {
 			}
 			if (line.empty()) {
 				continue;
+			}
+			if (sTimingEnabled) {
+				sRequestReceivedNs = nowNs(); /* M4: request line in hand, not yet parsed */
 			}
 			const json response = handleLine(line);
 			if (!sendAll(c, response.dump() + "\n")) {
@@ -631,9 +684,10 @@ extern "C" void rlTransportStart(void) {
 		sListen = s;
 	}
 	sStop.store(false);
+	sTimingEnabled = rlTimingIsEnabled() != 0; /* M4 diagnostic, opt-in; read before the worker exists */
 	sStarted.store(true);
-	port_log("SSB64 RL Transport: listening on 127.0.0.1:%d protocol=%u (one client, one request at a time)\n",
-	         port, (unsigned)RL_PROTOCOL_VERSION);
+	port_log("SSB64 RL Transport: listening on 127.0.0.1:%d protocol=%u (one client, one request at a time)%s\n",
+	         port, (unsigned)RL_PROTOCOL_VERSION, sTimingEnabled ? " timing=1" : "");
 	sWorker = std::thread(workerMain);
 }
 

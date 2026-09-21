@@ -56,6 +56,7 @@
 #include <libultraship/libultraship.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
@@ -82,6 +83,16 @@ bool sExitRequested = false; /* deferred SSB64_RL_EXIT_ON_END, performed by rlSt
 bool sExitPerformed = false;
 uint32_t sParkedRun = 0;     /* consecutive parked host iterations, diagnostic */
 bool sFallbackLogged = false;
+
+/* --- M4 timing diagnostic (SSB64_RL_TIMING=1), protected by sMutex ---------
+ * Stamps only: nothing below is read by a transition. sTimingInFlight collects
+ * the stamps of the step being processed (zeroed at submit); sTimingLast is
+ * the copy of the most recently collected step that rlStepGetLastTiming()
+ * hands out. sTimingEnabled is written once by rlStepRegister(). */
+bool sTimingEnabled = false;
+RLStepTiming sTimingInFlight;
+RLStepTiming sTimingLast;
+bool sHasTimingLast = false;
 
 /* --- main-thread-only, written once by rlStepRegister() before any other
  *     thread that uses this module can exist ----------------------------- */
@@ -115,6 +126,14 @@ const char *stateName(RLStepState s) {
 bool gateClosedLocked() {
 	return sState == RL_STEP_WAITING_FOR_ACTION || sState == RL_STEP_OBSERVATION_READY ||
 	       sState == RL_STEP_EPISODE_ENDED;
+}
+
+/* M4: steady-clock reading for the timing stamps. Safe from any thread and
+ * from the game coroutine (a fiber on the main thread); tens of nanoseconds. */
+uint64_t nowNs() {
+	return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+	           std::chrono::steady_clock::now().time_since_epoch())
+	    .count();
 }
 
 /* Same clean-exit path M1a uses: Window::Close() clears the running flag and
@@ -158,6 +177,13 @@ int pollLocked(RLStepResult *out) {
 		}
 		sState = next;
 		out->state = (uint32_t)next;
+		if (sTimingEnabled) {
+			/* M4: the step is complete from the caller's point of view. */
+			sTimingInFlight.collected_ns = nowNs();
+			sTimingInFlight.step_count = out->step_count;
+			sTimingLast = sTimingInFlight;
+			sHasTimingLast = true;
+		}
 		if (next != RL_STEP_WAITING_FOR_ACTION) {
 			port_log("SSB64 RL Step: result collected step=%u consumed_tick=%u input_tick=%u "
 			         "time_passed=%u targets=%u -> %s%s\n",
@@ -227,6 +253,13 @@ extern "C" int rlStepSubmit(const RLAction *action) {
 	case RL_STEP_WAITING_FOR_ACTION:
 		sPending = *action;
 		sState = RL_STEP_ACTION_READY;
+		if (sTimingEnabled) {
+			/* M4: a new step starts here; every other stamp of it is zero
+			 * until its site runs, so a missing stamp reads as 0. */
+			std::memset(&sTimingInFlight, 0, sizeof(sTimingInFlight));
+			sTimingInFlight.timing_schema = RL_TIMING_SCHEMA;
+			sTimingInFlight.submit_ns = nowNs();
+		}
 		sCond.notify_all();
 		return RL_STEP_OK;
 	case RL_STEP_INACTIVE:
@@ -307,6 +340,9 @@ extern "C" int rlStepControllerRead(uint32_t tick, uint16_t *buttons, int8_t *st
 				*stick_y = sPending.stick_y;
 				sConsumedTick = tick;
 				sState = RL_STEP_ACTION_CONSUMED;
+				if (sTimingEnabled) {
+					sTimingInFlight.consumed_ns = nowNs(); /* M4: the accepting read only */
+				}
 				return 1;
 			case RL_STEP_DISABLED:
 			case RL_STEP_EPISODE_ENDED:
@@ -375,6 +411,9 @@ extern "C" void rlStepOnObservation(const RLObservation *obs) {
 		sResult.observation = *obs;
 		sResultFinal = (obs->btt_active != 0u && obs->targets_remaining == 0u);
 		sState = RL_STEP_OBSERVATION_READY;
+		if (sTimingEnabled) {
+			sTimingInFlight.observation_ns = nowNs(); /* M4 */
+		}
 		if (sResultFinal) {
 			port_log("SSB64 RL Step: final observation ready step=%u consumed_tick=%u input_tick=%u "
 			         "time_passed=%u\n",
@@ -417,6 +456,18 @@ extern "C" int rlStepHostUpdate(void) {
 			sExitPerformed = true;
 			doExit = true;
 		}
+		if (sTimingEnabled && !closed && (sState == RL_STEP_ACTION_READY || sState == RL_STEP_ACTION_CONSUMED)) {
+			/* M4: an unparked iteration serving the in-flight step. The first
+			 * one is the gate-open stamp (with the parked run that preceded it,
+			 * read before it is reset below); the count makes a step that
+			 * needed more than one host frame visible instead of looking like
+			 * one slow frame. */
+			if (sTimingInFlight.gate_open_ns == 0u) {
+				sTimingInFlight.gate_open_ns = nowNs();
+				sTimingInFlight.parked_iterations = sParkedRun;
+			}
+			sTimingInFlight.host_iterations++;
+		}
 		if (closed) {
 			sParkedRun++;
 		} else if (sParkedRun != 0u) {
@@ -444,6 +495,33 @@ extern "C" int rlStepHostGateClosed(void) {
 	return gateClosedLocked() ? 1 : 0;
 }
 
+/* -- M4 timing diagnostic ---------------------------------------------------- */
+
+extern "C" void rlStepNoteFrameLogicDone(void) {
+	if (!sRegistered.load() || !sTimingEnabled) {
+		return;
+	}
+	std::lock_guard<std::mutex> lock(sMutex);
+	/* Only the iteration whose read consumed the action reaches this point in
+	 * ActionConsumed; the first such iteration is the one that ran the game
+	 * update of the tick. A later multi-iteration frame leaves it alone. */
+	if (sState == RL_STEP_ACTION_CONSUMED && sTimingInFlight.logic_done_ns == 0u) {
+		sTimingInFlight.logic_done_ns = nowNs();
+	}
+}
+
+extern "C" int rlStepGetLastTiming(RLStepTiming *out) {
+	if (out == nullptr) {
+		return 0;
+	}
+	std::lock_guard<std::mutex> lock(sMutex);
+	if (!sTimingEnabled || !sHasTimingLast) {
+		return 0;
+	}
+	*out = sTimingLast;
+	return 1;
+}
+
 extern "C" void rlRuntimeShutdown(void) {
 	if (!sRegistered.load()) {
 		return;
@@ -468,8 +546,9 @@ extern "C" void rlStepRegister(void) {
 	{
 		std::lock_guard<std::mutex> lock(sMutex);
 		sState = RL_STEP_INACTIVE;
+		sTimingEnabled = rlTimingIsEnabled() != 0; /* M4 diagnostic, opt-in */
 	}
 	sRegistered.store(true);
-	port_log("SSB64 RL Step: interactive stepping enabled schema=%u exit_on_end=%d\n", (unsigned)RL_STEP_SCHEMA,
-	         rlStepExitOnEnd());
+	port_log("SSB64 RL Step: interactive stepping enabled schema=%u exit_on_end=%d timing=%d\n",
+	         (unsigned)RL_STEP_SCHEMA, rlStepExitOnEnd(), sTimingEnabled ? 1 : 0);
 }

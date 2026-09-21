@@ -26,6 +26,7 @@ struct RLConfig {
 	bool step = false;          /* M1c interactive stepping (SSB64_RL_STEP=1) */
 	bool stepExitOnEnd = false; /* SSB64_RL_EXIT_ON_END while stepping: deferred to rl_step.cpp */
 	int transportPort = 0;      /* M1d loopback TCP port (SSB64_RL_PORT), 0 = no transport */
+	bool timing = false;        /* M4 stepping timing diagnostic (SSB64_RL_TIMING=1), measurement only */
 	std::string resultPath;
 };
 
@@ -63,6 +64,10 @@ extern "C" void rlConfigInit(void) {
 	 * stepping disabled the M1a behaviour is exactly as before. */
 	sConfig.exitOnEnd = exitOnEndEnv && !sConfig.step;
 	sConfig.stepExitOnEnd = exitOnEndEnv && sConfig.step;
+
+	/* M4 timing diagnostic: stamps exist only for interactive steps, so the
+	 * flag is meaningless (and ignored) without effective stepping. */
+	sConfig.timing = envIsOne("SSB64_RL_TIMING") && sConfig.step;
 	if (const char *resultPath = std::getenv("SSB64_RL_RESULT_PATH")) {
 		sConfig.resultPath = resultPath;
 	}
@@ -99,6 +104,14 @@ extern "C" void rlConfigInit(void) {
 	if (sConfig.stepExitOnEnd) {
 		port_log("SSB64 RL Step: SSB64_RL_EXIT_ON_END deferred until the final step result is collected\n");
 	}
+	if (sConfig.timing) {
+		port_log("SSB64 RL Timing: step timing diagnostic enabled schema=%u (stamps only; no behaviour change)\n",
+		         (unsigned)RL_TIMING_SCHEMA);
+	}
+}
+
+extern "C" int rlTimingIsEnabled(void) {
+	return sConfig.timing ? 1 : 0;
 }
 
 extern "C" int rlStepIsEnabled(void) {

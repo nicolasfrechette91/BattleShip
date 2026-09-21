@@ -77,6 +77,17 @@ open the host gate or advance `input_tick` or `time_passed`. In
 (`observation.input_tick == 0`). Before the first native capture it fails
 with the protocol error `no_observation`.
 
+M4 timing diagnostic (opt-in, `SSB64_RL_TIMING=1`, see
+`docs/rl_measurements_m4.md`): a successful `step` response additionally
+carries a `timing` object with the game's own steady-clock stamps for that
+step (`request_received_ns`, `submit_ns`, `gate_open_ns`, `consumed_ns`,
+`logic_done_ns`, `observation_ns`, `collected_ns`, `response_ready_ns`,
+`host_iterations`, `parked_iterations`). It is additive: the key is absent
+(never null) when the variable is unset, nothing inside `observation`
+changes, `ping`, `status` and `observe` are unchanged, and the protocol
+version stays 1. Stamps are only meaningful as differences and never feed
+back into stepping.
+
 Error response:
 
 ```json
