@@ -1,38 +1,48 @@
-"""M6: semantic-equivalence regression of the training no-render host mode.
+"""M6: semantic-equivalence regression of the training host modes.
 
 Feeds the authoritative 7.43 s Mario Break the Targets replay
-(tas_input_2/mario_743.btti, 468 rows) through the frozen M1d client into two
-kinds of fresh BattleShip process, launched with the M2 lifecycle:
+(tas_input_2/mario_743.btti, 468 rows) through the frozen M1d client into
+three kinds of fresh BattleShip process, launched with the M2 lifecycle:
 
-  normal      the default visual host path (render, present, paced)
-  no_render   SSB64_RL_NO_RENDER=1 (display lists discarded, no present, no
-              presentation pacing; the M6 training mode)
+  normal                      the default visual host path (render, present,
+                              paced), native Raphnet adapter as configured
+  no_render                   SSB64_RL_NO_RENDER=1 (display lists discarded,
+                              no present, no presentation pacing; the M6
+                              training mode), adapter as configured
+  no_render_raphnet_disabled  SSB64_RL_NO_RENDER=1 and SSB64_RAPHNET_DISABLE=1
+                              (the M6 follow-up: the process-local bypass of
+                              native Raphnet adapter initialisation and
+                              per-read USB polling; no console variable is
+                              read or written)
 
-and compares EVERY submitted step, not only the terminal result: for each
-of the 447 steps the step-level fields (state, step_count, consumed_tick)
-and every authoritative observation field (input_tick, time_passed,
-game_status, btt_active, targets_remaining, fighter_valid, position,
-air velocities, ground velocity, facing direction, ground/air state, fighter
-status, jumps used, observation_schema). The only field not compared is
-host_frame, which is a diagnostic host counter by contract; it is still
-recorded and reported (identical or not) but never asserted.
+and compares EVERY submitted step of each candidate against the normal
+trace, not only the terminal result: for each of the 447 steps the
+step-level fields (state, step_count, consumed_tick) and every authoritative
+observation field (input_tick, time_passed, game_status, btt_active,
+targets_remaining, fighter_valid, position, air velocities, ground velocity,
+facing direction, ground/air state, fighter status, jumps used,
+observation_schema). The only field not compared is host_frame, which is a
+diagnostic host counter by contract; it is still recorded and reported
+(identical or not) but never asserted.
 
 The initial observations (the M3 `observe` snapshot at fresh WaitingForAction,
 input_tick 0) are compared the same way before any action is sent.
 
-On top of the equivalence, the no-render trace must reproduce the frozen
-contract on its own: 447 submitted actions, last consumed_tick 446,
-completion_time_passed 446 and completion_input_tick 447 (two clocks, never
-combined), final step_count 447, targets_remaining 0, native EpisodeEnded,
-exit code 0, 21 source rows never submitted, and zero large_position_delta
-events from the default M4 detector (300 units per tick). The process must
-report no_render true in its `status` response, and the normal process
-false, so the comparison cannot silently run two processes of the same kind.
+On top of the equivalence, every trace must reproduce the frozen contract on
+its own: 447 submitted actions, last consumed_tick 446, completion_time_passed
+446 and completion_input_tick 447 (two clocks, never combined), final
+step_count 447, targets_remaining 0, native EpisodeEnded, exit code 0, 21
+source rows never submitted, and zero large_position_delta events from the
+default M4 detector (300 units per tick). Each process must report exactly
+the expected `no_render` and `raphnet_disabled` booleans in its `status`
+response, so the comparison cannot silently run two processes of the same
+kind or a process that ignored a flag.
 
 Finally the canonical M4 artifact recorded from the normal run (native
 triples + consumed ticks, rlaction_native_v1) is read back and resubmitted
-through a third, fresh no-render process with run_artifacts.resubmit_actions;
-its step results must equal the no-render trace field for field.
+through a fresh process of each candidate kind with
+run_artifacts.resubmit_actions; its step results must equal that candidate's
+trace field for field.
 
 Nothing is tolerated: the first divergent step index and field is reported
 and the run fails. No tolerances, no RNG inspection, no reward, no Gym.
@@ -41,6 +51,7 @@ Usage:
     python rl/m6_equivalence_regression.py
     python rl/m6_equivalence_regression.py --repeats 3 --out m6_equivalence.json
     python rl/m6_equivalence_regression.py --exe build-us/Release/BattleShip.exe --run-dir <dir>
+    python rl/m6_equivalence_regression.py --candidates no_render     # the original two-mode M6 comparison only
 
 Exit codes: 0 PASS, 1 divergence / regression / lifecycle failure, 2 bad input.
 """
@@ -92,7 +103,22 @@ DEFAULT_EXECUTABLE = REPO_ROOT / "build-us" / "Release" / "BattleShip.exe"
 DEFAULT_REPLAY = REPO_ROOT / "tas_input_2" / "mario_743.btti"
 
 NO_RENDER_ENV = "SSB64_RL_NO_RENDER"
+RAPHNET_DISABLE_ENV = "SSB64_RAPHNET_DISABLE"
 NO_RENDER_CHILD_ENV = {NO_RENDER_ENV: "1"}
+NO_RENDER_RAPHNET_DISABLED_CHILD_ENV = {NO_RENDER_ENV: "1", RAPHNET_DISABLE_ENV: "1"}
+
+# The additive per-process configuration booleans of the `status` response
+# (M6 `no_render`, M6 follow-up `raphnet_disabled`). Both must be present and
+# boolean on every process, and equal to the launch expectation.
+STATUS_FLAGS = ("no_render", "raphnet_disabled")
+
+# label -> (child env, expected status flags)
+CANDIDATE_KINDS: Dict[str, Tuple[Dict[str, str], Dict[str, bool]]] = {
+    "no_render": (dict(NO_RENDER_CHILD_ENV), {"no_render": True, "raphnet_disabled": False}),
+    "no_render_raphnet_disabled": (dict(NO_RENDER_RAPHNET_DISABLED_CHILD_ENV),
+                                   {"no_render": True, "raphnet_disabled": True}),
+}
+NORMAL_FLAGS = {"no_render": False, "raphnet_disabled": False}
 
 EXIT_PASS = 0
 EXIT_FAILED = 1
@@ -146,7 +172,7 @@ class StepRecord:
 @dataclass
 class Trace:
     label: str
-    no_render: bool
+    flags: Dict[str, bool]
     pid: Optional[int] = None
     port: Optional[int] = None
     boot_s: Optional[float] = None
@@ -162,7 +188,7 @@ class Trace:
     def summary(self) -> Dict[str, Any]:
         last = self.steps[-1] if self.steps else None
         return {
-            "label": self.label, "no_render": self.no_render, "pid": self.pid, "port": self.port,
+            "label": self.label, **{k: self.flags.get(k) for k in STATUS_FLAGS}, "pid": self.pid, "port": self.port,
             "boot_to_fresh_s": None if self.boot_s is None else round(self.boot_s, 3),
             "stepping_wall_s": None if self.stepping_s is None else round(self.stepping_s, 3),
             "actions_submitted": len(self.steps),
@@ -181,21 +207,33 @@ class Trace:
         }
 
 
-def read_no_render_flag(episode: BattleShipEpisode) -> bool:
-    """The additive M6 `no_render` field of the status response; missing means an executable without M6."""
+def read_status_flags(episode: BattleShipEpisode) -> Dict[str, bool]:
+    """The additive `no_render` (M6) and `raphnet_disabled` (M6 follow-up) booleans of the status response."""
     assert episode.client is not None
     r = episode.client.request("status")
-    if "no_render" not in r:
-        raise RegressionFailure("status response has no `no_render` field: the executable predates M6 or was not rebuilt")
-    if not isinstance(r["no_render"], bool):
-        raise RegressionFailure(f"status.no_render must be a JSON boolean, got {r['no_render']!r}")
-    return bool(r["no_render"])
+    flags: Dict[str, bool] = {}
+    for name in STATUS_FLAGS:
+        if name not in r:
+            raise RegressionFailure(f"status response has no `{name}` field: the executable predates it or was not rebuilt")
+        if not isinstance(r[name], bool):
+            raise RegressionFailure(f"status.{name} must be a JSON boolean, got {r[name]!r}")
+        flags[name] = bool(r[name])
+    return flags
+
+
+def check_status_flags(label: str, episode: BattleShipEpisode, expected: Dict[str, bool], child_env: Dict[str, str]) -> Dict[str, bool]:
+    actual = read_status_flags(episode)
+    for name in STATUS_FLAGS:
+        if actual[name] != expected[name]:
+            raise RegressionFailure(f"{label}: process reports {name}={actual[name]}, expected {expected[name]} "
+                                    f"(child env {child_env})")
+    return actual
 
 
 def run_trace(label: str, index: int, config: LaunchConfig, rows: Sequence[ReplayRow], artifact_root: Path,
-              expect_no_render: bool) -> Trace:
+              expect_flags: Dict[str, bool]) -> Trace:
     """One fresh process, the replay through the raw M1d client, every step recorded, M4 artifact written."""
-    trace = Trace(label=label, no_render=expect_no_render)
+    trace = Trace(label=label, flags=dict(expect_flags))
     episode = BattleShipEpisode(config, index=index)
     with episode:
         fresh = episode.start()
@@ -203,10 +241,7 @@ def run_trace(label: str, index: int, config: LaunchConfig, rows: Sequence[Repla
         trace.boot_s = episode.seconds("launched", "fresh")
         if not (fresh.state == StepState.WAITING_FOR_ACTION and fresh.can_step and fresh.step_count == 0):
             raise RegressionFailure(f"{label}: episode is not fresh: {fresh.state_name} step_count={fresh.step_count}")
-        actual_no_render = read_no_render_flag(episode)
-        if actual_no_render != expect_no_render:
-            raise RegressionFailure(f"{label}: process reports no_render={actual_no_render}, expected {expect_no_render} "
-                                    f"(child env {dict(config.extra_env)})")
+        actual_flags = check_status_flags(label, episode, expect_flags, dict(config.extra_env))
         client = episode.client
         assert client is not None
         initial: Observe = client.observe()
@@ -216,9 +251,11 @@ def run_trace(label: str, index: int, config: LaunchConfig, rows: Sequence[Repla
         recorder = EpisodeRecorder(episode_id=f"m6_{label}_{index}", source_action_contract=NATIVE_ACTION_CONTRACT,
                                    labels={"role": "m6_equivalence", "host_mode": label, "checkpoint_label": "scripted_baseline_7.43"},
                                    detectors=[PositionDeltaDetector(DEFAULT_POSITION_DELTA_THRESHOLD)], initial=initial,
-                                   diagnostics={"pid": episode.pid, "port": episode.port, "child_env": dict(config.extra_env)})
+                                   diagnostics={"pid": episode.pid, "port": episode.port, "child_env": dict(config.extra_env),
+                                                "status_flags": actual_flags})
         recorder.preserve(PreservationReason.MANUAL, f"M6 equivalence: {label} trace of the tracked 7.43 s baseline")
-        log(f"  {label}: pid={episode.pid} port={episode.port} fresh after {trace.boot_s:.2f} s, no_render={actual_no_render}")
+        log(f"  {label}: pid={episode.pid} port={episode.port} fresh after {trace.boot_s:.2f} s, "
+            f"status {', '.join(f'{k}={v}' for k, v in actual_flags.items())}")
 
         previous: Optional[Observation] = None
         terminal: Optional[StepResult] = None
@@ -327,21 +364,22 @@ def check_frozen_contract(trace: Trace) -> None:
             raise RegressionFailure(f"{trace.label}: frozen contract violated: {message}")
 
 
-def replay_artifact(index: int, config: LaunchConfig, artifact_dir: Path, reference: Trace) -> Dict[str, Any]:
-    """Canonical M4 artifact -> fresh no-render process; results must equal the no-render trace."""
+def replay_artifact(index: int, config: LaunchConfig, artifact_dir: Path, reference: Trace,
+                    expect_flags: Dict[str, bool]) -> Dict[str, Any]:
+    """Canonical M4 artifact -> fresh process of the reference's kind; results must equal the reference trace."""
     art = read_artifact(artifact_dir)
     if art.metadata["action_contract"] != NATIVE_ACTION_CONTRACT or len(art.actions) != COMPLETION_STEPS:
         raise RegressionFailure(f"artifact {artifact_dir.name}: contract {art.metadata['action_contract']} / {len(art.actions)} rows")
-    trace = Trace(label="artifact_replay_no_render", no_render=True)
+    label = f"artifact_replay_{reference.label}"
+    trace = Trace(label=label, flags=dict(expect_flags))
     collected: List[StepRecord] = []
     episode = BattleShipEpisode(config, index=index)
     with episode:
         fresh = episode.start()
         trace.pid, trace.port, trace.boot_s = episode.pid, episode.port, episode.seconds("launched", "fresh")
         if not (fresh.state == StepState.WAITING_FOR_ACTION and fresh.can_step and fresh.step_count == 0):
-            raise RegressionFailure(f"artifact replay: episode is not fresh: {fresh.state_name}")
-        if read_no_render_flag(episode) is not True:
-            raise RegressionFailure("artifact replay: process is not in no-render mode")
+            raise RegressionFailure(f"{label}: episode is not fresh: {fresh.state_name}")
+        check_status_flags(label, episode, expect_flags, dict(config.extra_env))
         client = episode.client
         assert client is not None
         trace.initial = client.observe().observation
@@ -356,19 +394,19 @@ def replay_artifact(index: int, config: LaunchConfig, artifact_dir: Path, refere
         trace.rows_unsent = SOURCE_ROWS - len(collected)
         terminal = results[-1]
         if terminal.state != StepState.EPISODE_ENDED:
-            raise RegressionFailure(f"artifact replay ended in {terminal.state_name} after {len(results)} actions")
+            raise RegressionFailure(f"{label} ended in {terminal.state_name} after {len(results)} actions")
         done = episode.finish(terminal)
         trace.exit_code = done.exit_code
         trace.result = dict(done.result)
     divergence, host_frames_identical = compare_traces(reference, trace)
     if divergence is not None:
-        raise RegressionFailure(f"artifact replay through no-render diverges from the no-render trace: {divergence}")
+        raise RegressionFailure(f"artifact replay through {reference.label} diverges from the {reference.label} trace: {divergence}")
     check_frozen_contract(trace)
-    log(f"  artifact_replay: {len(collected)} recorded actions through a fresh no-render process reproduced the "
-        f"no-render trace field for field ({len(OBSERVATION_FIELDS)} observation fields + {len(STEP_FIELDS)} step fields), "
+    log(f"  {label}: {len(collected)} recorded actions through a fresh {reference.label} process reproduced the "
+        f"{reference.label} trace field for field ({len(OBSERVATION_FIELDS)} observation fields + {len(STEP_FIELDS)} step fields), "
         f"terminal {trace.steps[-1].observation.time_passed}/{trace.steps[-1].observation.input_tick}, exit {trace.exit_code}, "
         f"host_frames_identical={host_frames_identical}")
-    return {**trace.summary(), "host_frames_identical_to_no_render_trace": host_frames_identical}
+    return {**trace.summary(), "reference": reference.label, "host_frames_identical_to_reference_trace": host_frames_identical}
 
 
 # -- main -------------------------------------------------------------------------------------------
@@ -379,7 +417,9 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     parser.add_argument("--exe", default=str(DEFAULT_EXECUTABLE), help="BattleShip executable (default: %(default)s)")
     parser.add_argument("--run-dir", default=None, help="parent of the per-episode and artifact directories (default: a new temp dir)")
     parser.add_argument("--replay", default=str(DEFAULT_REPLAY), help="authoritative replay (default: %(default)s)")
-    parser.add_argument("--repeats", type=int, default=1, help="no-render traces to compare against the normal trace (default: %(default)s)")
+    parser.add_argument("--repeats", type=int, default=1, help="traces of each candidate kind to compare against the normal trace (default: %(default)s)")
+    parser.add_argument("--candidates", default=",".join(CANDIDATE_KINDS),
+                        help=f"comma-separated candidate kinds, in order (default: %(default)s)")
     parser.add_argument("--out", default=None, help="write a JSON summary of the comparison here")
     parser.add_argument("--startup-timeout", type=float, default=60.0)
     parser.add_argument("--ready-timeout", type=float, default=180.0)
@@ -392,6 +432,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
     if args.repeats < 1:
         log("M6 ERROR: --repeats must be >= 1")
+        return EXIT_BAD_INPUT
+    candidates = [c.strip() for c in args.candidates.split(",") if c.strip()]
+    unknown = [c for c in candidates if c not in CANDIDATE_KINDS]
+    if not candidates or unknown:
+        log(f"M6 ERROR: --candidates must name kinds among {', '.join(CANDIDATE_KINDS)}; unknown: {unknown}")
         return EXIT_BAD_INPUT
     try:
         rows = read_btti_rows(args.replay)
@@ -416,16 +461,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                             exit_timeout=args.exit_timeout, extra_env=extra_env)
 
     normal_config = launch_config({})
-    no_render_config = launch_config(dict(NO_RENDER_CHILD_ENV))
 
     before = count_battleship_processes(executable)
     log(f"M6 equivalence: {executable.name} processes before: {before}; replay {Path(args.replay).name} ({len(rows)} rows); "
+        f"candidates {', '.join(candidates)} x{args.repeats}; "
         f"comparing {len(STEP_FIELDS)} step fields + {len(OBSERVATION_FIELDS)} observation fields per step; "
         f"excluded (diagnostic, reported only): {', '.join(EXCLUDED_OBSERVATION_FIELDS)}")
     report: Dict[str, Any] = {
         "tool": "rl/m6_equivalence_regression.py",
         "replay": Path(args.replay).name,
         "source_rows": len(rows),
+        "candidate_kinds": {label: {"child_env": env, "expected_status_flags": flags}
+                            for label, (env, flags) in CANDIDATE_KINDS.items() if label in candidates},
         "no_render_child_env": dict(NO_RENDER_CHILD_ENV),
         "compared_step_fields": list(STEP_FIELDS),
         "compared_observation_fields": list(OBSERVATION_FIELDS),
@@ -434,38 +481,42 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                            "reported as host_frames_identical, never asserted",
         "traces": [],
         "comparisons": [],
-        "artifact_replay": None,
+        "artifact_replays": [],
         "result": None,
     }
     failure: Optional[str] = None
     try:
-        log("[normal] default visual host path")
-        normal = run_trace("normal", 6000, normal_config, rows, artifacts, expect_no_render=False)
+        log("[normal] default visual host path, adapter as configured")
+        normal = run_trace("normal", 6000, normal_config, rows, artifacts, expect_flags=NORMAL_FLAGS)
         check_frozen_contract(normal)
         report["traces"].append(normal.summary())
 
-        for k in range(args.repeats):
-            log(f"[no_render {k + 1}/{args.repeats}] {NO_RENDER_ENV}=1 training host path")
-            candidate = run_trace("no_render", 6100 + k, no_render_config, rows, artifacts, expect_no_render=True)
-            report["traces"].append(candidate.summary())
-            divergence, host_frames_identical = compare_traces(normal, candidate)
-            comparison = {
-                "candidate": candidate.label, "candidate_index": k, "steps_compared": min(len(normal.steps), len(candidate.steps)),
-                "equivalent": divergence is None, "first_divergence": None if divergence is None else vars(divergence),
-                "host_frames_identical": host_frames_identical,
-                "stepping_wall_s": {"normal": round(normal.stepping_s or 0.0, 3), "no_render": round(candidate.stepping_s or 0.0, 3)},
-            }
-            report["comparisons"].append(comparison)
-            if divergence is not None:
-                raise RegressionFailure(f"normal vs no_render diverge: {divergence}")
-            check_frozen_contract(candidate)
-            log(f"  equivalent: {comparison['steps_compared']} steps + initial observation identical on every compared field; "
-                f"host_frames_identical={host_frames_identical}; stepping wall normal {normal.stepping_s:.2f} s vs "
-                f"no_render {candidate.stepping_s:.2f} s (informational, not a benchmark)")
-            if k == 0:
-                assert normal.artifact_dir is not None
-                log("[artifact_replay] canonical M4 artifact of the normal trace -> fresh no-render process")
-                report["artifact_replay"] = replay_artifact(6200, no_render_config, normal.artifact_dir, candidate)
+        for kind_index, kind in enumerate(candidates):
+            child_env, expect_flags = CANDIDATE_KINDS[kind]
+            config = launch_config(dict(child_env))
+            for k in range(args.repeats):
+                log(f"[{kind} {k + 1}/{args.repeats}] child env {child_env}")
+                candidate = run_trace(kind, 6100 + 10 * kind_index + k, config, rows, artifacts, expect_flags=expect_flags)
+                report["traces"].append(candidate.summary())
+                divergence, host_frames_identical = compare_traces(normal, candidate)
+                comparison = {
+                    "candidate": candidate.label, "candidate_index": k, "steps_compared": min(len(normal.steps), len(candidate.steps)),
+                    "equivalent": divergence is None, "first_divergence": None if divergence is None else vars(divergence),
+                    "host_frames_identical": host_frames_identical,
+                    "stepping_wall_s": {"normal": round(normal.stepping_s or 0.0, 3), kind: round(candidate.stepping_s or 0.0, 3)},
+                }
+                report["comparisons"].append(comparison)
+                if divergence is not None:
+                    raise RegressionFailure(f"normal vs {kind} diverge: {divergence}")
+                check_frozen_contract(candidate)
+                log(f"  equivalent: {comparison['steps_compared']} steps + initial observation identical on every compared field; "
+                    f"host_frames_identical={host_frames_identical}; stepping wall normal {normal.stepping_s:.2f} s vs "
+                    f"{kind} {candidate.stepping_s:.2f} s (informational, not a benchmark)")
+                if k == 0:
+                    assert normal.artifact_dir is not None
+                    log(f"[artifact_replay_{kind}] canonical M4 artifact of the normal trace -> fresh {kind} process")
+                    report["artifact_replays"].append(
+                        replay_artifact(6200 + kind_index, config, normal.artifact_dir, candidate, expect_flags))
     except RegressionFailure as exc:
         failure = describe_regression_failure(exc) if exc.row is not None else str(exc)
     except EpisodeFailure as exc:
@@ -485,10 +536,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         log(f"summary written to {args.out}")
     log(f"run_dir={run_root}")
     if failure is None:
-        log(f"M6 EQUIVALENCE PASS: normal vs no_render x{args.repeats}: every compared field identical on all "
-            f"{COMPLETION_STEPS} steps; no_render reproduces {COMPLETION_STEPS}/{COMPLETION_CONSUMED_TICK}/"
+        log(f"M6 EQUIVALENCE PASS: normal vs {' / '.join(candidates)} x{args.repeats}: every compared field identical on all "
+            f"{COMPLETION_STEPS} steps; every candidate reproduces {COMPLETION_STEPS}/{COMPLETION_CONSUMED_TICK}/"
             f"{COMPLETION_TIME_PASSED}/{COMPLETION_INPUT_TICK}, exit 0, {SOURCE_ROWS - COMPLETION_STEPS} rows unsent, "
-            f"0 anomaly events; artifact replay identical; processes before={before} after={after}")
+            f"0 anomaly events; artifact replays identical; processes before={before} after={after}")
         return EXIT_PASS
     log(f"M6 EQUIVALENCE FAIL: {failure}")
     return EXIT_FAILED

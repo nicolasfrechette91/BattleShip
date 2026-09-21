@@ -28,6 +28,7 @@ struct RLConfig {
 	int transportPort = 0;      /* M1d loopback TCP port (SSB64_RL_PORT), 0 = no transport */
 	bool timing = false;        /* M4 stepping timing diagnostic (SSB64_RL_TIMING=1), measurement only */
 	bool noRender = false;      /* M6 training no-render mode (SSB64_RL_NO_RENDER=1), host-side only */
+	bool raphnetDisable = false; /* M6 follow-up: SSB64_RAPHNET_DISABLE=1 effective (native adapter bypassed) */
 	std::string resultPath;
 };
 
@@ -42,12 +43,40 @@ bool envIsOne(const char *name) {
 	return env != nullptr && std::strcmp(env, "1") == 0;
 }
 
+/* SSB64_RAPHNET_DISABLE is honoured by libultraship itself
+ * (ControlDeck::PreInitRaphnet skips native Raphnet adapter support for the
+ * process when it reads "1"). The port keeps the variable only while
+ * interactive stepping is effective: otherwise it is removed from this
+ * process's own environment here, before PortGameInit() reaches osContInit(),
+ * so an ordinary launch, a native replay or a non-stepping RL run keeps the
+ * user's normal adapter path. The launcher's environment is not touched (a
+ * child process only ever receives a copy). */
+constexpr const char *kRaphnetDisableEnv = "SSB64_RAPHNET_DISABLE";
+
+void raphnetDisableEnvClear(void) {
+#if defined(_WIN32)
+	(void)_putenv_s(kRaphnetDisableEnv, "");
+#else
+	(void)unsetenv(kRaphnetDisableEnv);
+#endif
+}
+
+void raphnetDisableIgnored(const char *why) {
+	raphnetDisableEnvClear();
+	port_log("SSB64 RL Raphnet: %s=1 ignored: %s; native Raphnet adapter support kept as configured\n",
+	         kRaphnetDisableEnv, why);
+}
+
 } // namespace
 
 extern "C" void rlConfigInit(void) {
 	sConfig = RLConfig{};
 
+	const bool raphnetDisableEnv = envIsOne(kRaphnetDisableEnv);
 	if (!envIsOne("SSB64_RL_BTT")) {
+		if (raphnetDisableEnv) {
+			raphnetDisableIgnored("SSB64_RL_BTT is not set (ordinary launch)");
+		}
 		return;
 	}
 	sConfig.enabled = true;
@@ -76,6 +105,19 @@ extern "C" void rlConfigInit(void) {
 	 * visual path, replay included, is untouched. */
 	const bool noRenderEnv = envIsOne("SSB64_RL_NO_RENDER");
 	sConfig.noRender = noRenderEnv && sConfig.step;
+
+	/* M6 follow-up, process-local Raphnet bypass: a separate capability from
+	 * no-render (a launcher may set either, both or neither). Effective only
+	 * with effective interactive stepping, for the same reason: the native
+	 * adapter is not on the RL input path (rlStepControllerRead supplies
+	 * player 0), and outside stepping the user's controller path must stay
+	 * exactly as configured. libultraship reads the variable itself, so the
+	 * ineffective case removes it from this process's environment. */
+	sConfig.raphnetDisable = raphnetDisableEnv && sConfig.step;
+	if (raphnetDisableEnv && !sConfig.step) {
+		raphnetDisableIgnored(replayConfigured ? "SSB64_BTT_INPUT is set (native replay keeps precedence)"
+		                                       : "interactive stepping is not effective");
+	}
 	if (const char *resultPath = std::getenv("SSB64_RL_RESULT_PATH")) {
 		sConfig.resultPath = resultPath;
 	}
@@ -99,9 +141,10 @@ extern "C" void rlConfigInit(void) {
 		}
 	}
 
-	port_log("SSB64 RL: enabled episode=btt_mario result=%s exit_on_end=%d step=%d transport_port=%d no_render=%d\n",
+	port_log("SSB64 RL: enabled episode=btt_mario result=%s exit_on_end=%d step=%d transport_port=%d no_render=%d "
+	         "raphnet_disabled=%d\n",
 	         sConfig.resultPath.empty() ? "<unset>" : sConfig.resultPath.c_str(), exitOnEndEnv ? 1 : 0,
-	         sConfig.step ? 1 : 0, sConfig.transportPort, sConfig.noRender ? 1 : 0);
+	         sConfig.step ? 1 : 0, sConfig.transportPort, sConfig.noRender ? 1 : 0, sConfig.raphnetDisable ? 1 : 0);
 	if (sConfig.resultPath.empty()) {
 		port_log("SSB64 RL: SSB64_RL_RESULT_PATH is not set; no result can be written\n");
 	}
@@ -123,10 +166,19 @@ extern "C" void rlConfigInit(void) {
 		port_log("SSB64 RL NoRender: training no-render mode enabled: display lists discarded, no presents, "
 		         "no presentation pacing, parked host waits on the step condition variable\n");
 	}
+	if (sConfig.raphnetDisable) {
+		port_log("SSB64 RL Raphnet: %s=1 effective: native Raphnet adapter support is bypassed for this process "
+		         "(libultraship ControlDeck::PreInitRaphnet; no console variable read or written)\n",
+		         kRaphnetDisableEnv);
+	}
 }
 
 extern "C" int rlNoRenderIsEnabled(void) {
 	return sConfig.noRender ? 1 : 0;
+}
+
+extern "C" int rlRaphnetDisableIsEnabled(void) {
+	return sConfig.raphnetDisable ? 1 : 0;
 }
 
 extern "C" int rlTimingIsEnabled(void) {

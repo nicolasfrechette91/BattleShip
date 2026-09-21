@@ -1,0 +1,901 @@
+{
+  "benchmark_schema": 1,
+  "tool": "rl/tools/bench.py",
+  "timestamp_utc": "2026-09-21T22:20:15+00:00",
+  "environment": {
+    "platform": {
+      "system": "Windows",
+      "release": "11",
+      "version": "10.0.26200",
+      "machine": "AMD64",
+      "processor": "Intel64 Family 6 Model 158 Stepping 12, GenuineIntel"
+    },
+    "python": {
+      "version": "3.13.2",
+      "implementation": "CPython"
+    },
+    "logical_cpus": 6,
+    "executable": {
+      "name": "BattleShip.exe",
+      "repo_relative_path": "build-us/Release/BattleShip.exe",
+      "size_bytes": 23510016,
+      "mtime_utc": "2026-09-21T22:06:28+00:00",
+      "sha256": "57d61fe0b2a602659e0a1685a58266f652e8ce2ad35f767ace54943da23fc56b",
+      "git": {
+        "head": "1868008",
+        "dirty": true
+      }
+    },
+    "contracts": {
+      "protocol": 1,
+      "observation_schema": 1,
+      "m3_action_contract": "btt_raw_b8_s161_v1",
+      "native_timing_env": "SSB64_RL_TIMING"
+    },
+    "memory_definition": "Windows PROCESS_MEMORY_COUNTERS_EX from K32GetProcessMemoryInfo: working_set = WorkingSetSize (resident pages now), peak_working_set = PeakWorkingSetSize (lifetime peak resident), private_bytes = PrivateUsage (private commit charge), peak_private_bytes = PeakPagefileUsage (peak commit charge). CPU time from GetProcessTimes (user + kernel, 100 ns units).",
+    "child_extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RL_TIMING": "1"
+    }
+  },
+  "parameters": {
+    "only": "startup,rtt,step,serialization,memory,reliability",
+    "startup_samples": 5,
+    "steps": 600,
+    "warmup_steps": 30,
+    "rtt_samples": 500,
+    "serialization_iterations": 20000,
+    "max_processes": null,
+    "mp_seconds": 10.0,
+    "reliability_episodes": 10,
+    "no_native_timing": false,
+    "startup_timeout": 60.0,
+    "ready_timeout": 180.0,
+    "request_timeout": 30.0,
+    "exit_timeout": 30.0,
+    "sections": [
+      "startup",
+      "rtt",
+      "step",
+      "serialization",
+      "memory",
+      "reliability"
+    ],
+    "replay": "tas_input_2/mario_743.btti",
+    "child_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RL_TIMING": "1"
+    }
+  },
+  "process_count_before": 0,
+  "sections": {
+    "startup": {
+      "definition": "wall-clock (time.perf_counter) from immediately before BattleShipEpisode.launch() (preflight, port allocation and Popen included) until wait_for_fresh_episode() returned the fresh M2 gate: state WaitingForAction, can_step true, step_count 0. This is fresh interactive readiness (the state before native tick 0), which earlier notes called startup-to-Go.",
+      "attempted": 5,
+      "succeeded": 5,
+      "failed": 0,
+      "pre_launch_to_fresh": {
+        "unit": "s",
+        "count": 5,
+        "min": 2.1272365000331774,
+        "median": 2.2335307999746874,
+        "mean": 2.278771760012023,
+        "p95": 2.452412699931301,
+        "p99": 2.452412699931301,
+        "max": 2.452412699931301,
+        "stdev": 0.13957366302252422
+      },
+      "stages": {
+        "pre_launch_to_popen": {
+          "unit": "s",
+          "count": 5,
+          "min": 0.007556900032795966,
+          "median": 0.008872599923051894,
+          "mean": 0.10482989996671677,
+          "p95": 0.2532080999808386,
+          "p99": 0.2532080999808386,
+          "max": 0.2532080999808386,
+          "stdev": 0.11851021059120118
+        },
+        "popen_to_transport": {
+          "unit": "s",
+          "count": 5,
+          "min": 2.016962500056252,
+          "median": 2.0363922000396997,
+          "mean": 2.0317924200091513,
+          "p95": 2.0466989999404177,
+          "p99": 2.0466989999404177,
+          "max": 2.0466989999404177,
+          "stdev": 0.010684148325909453
+        },
+        "transport_to_fresh": {
+          "unit": "s",
+          "count": 5,
+          "min": 0.10139900003559887,
+          "median": 0.15212139999493957,
+          "mean": 0.14214772002305837,
+          "p95": 0.2032061000354588,
+          "p99": 0.2032061000354588,
+          "max": 0.2032061000354588,
+          "stdev": 0.03807069605061416
+        },
+        "close_terminate": {
+          "unit": "s",
+          "count": 5,
+          "min": 0.051785700023174286,
+          "median": 0.10190570005215704,
+          "mean": 0.09225382003933191,
+          "p95": 0.10344159998930991,
+          "p99": 0.10344159998930991,
+          "max": 0.10344159998930991,
+          "stdev": 0.020256939752907915
+        }
+      },
+      "samples": [
+        {
+          "sample": 1,
+          "ok": true,
+          "outcome": "fresh",
+          "pid": 27748,
+          "port": 53003,
+          "pre_launch_to_fresh_s": 2.435211000032723,
+          "pre_launch_to_popen_s": 0.24669539998285472,
+          "popen_to_transport_s": 2.0363922000396997,
+          "transport_to_fresh_s": 0.15212139999493957,
+          "close_s": 0.10082590009551495,
+          "cleanup_action": "terminated",
+          "memory_at_fresh": {
+            "pid": 27748,
+            "working_set_bytes": 115875840,
+            "peak_working_set_bytes": 115875840,
+            "private_bytes": 387047424,
+            "peak_private_bytes": 387055616,
+            "page_faults": 81134,
+            "cpu_user_s": 1.421875,
+            "cpu_kernel_s": 0.328125
+          },
+          "error": null
+        },
+        {
+          "sample": 2,
+          "ok": true,
+          "outcome": "fresh",
+          "pid": 32116,
+          "port": 53006,
+          "pre_launch_to_fresh_s": 2.1272365000331774,
+          "pre_launch_to_popen_s": 0.008872599923051894,
+          "popen_to_transport_s": 2.016962500056252,
+          "transport_to_fresh_s": 0.10139900003559887,
+          "close_s": 0.10331020003650337,
+          "cleanup_action": "terminated",
+          "memory_at_fresh": {
+            "pid": 32116,
+            "working_set_bytes": 116228096,
+            "peak_working_set_bytes": 116228096,
+            "private_bytes": 387600384,
+            "peak_private_bytes": 387608576,
+            "page_faults": 81481,
+            "cpu_user_s": 1.359375,
+            "cpu_kernel_s": 0.421875
+          },
+          "error": null
+        },
+        {
+          "sample": 3,
+          "ok": true,
+          "outcome": "fresh",
+          "pid": 9484,
+          "port": 53009,
+          "pre_launch_to_fresh_s": 2.2335307999746874,
+          "pre_launch_to_popen_s": 0.007816499914042652,
+          "popen_to_transport_s": 2.022506900015287,
+          "transport_to_fresh_s": 0.2032061000354588,
+          "close_s": 0.051785700023174286,
+          "cleanup_action": "terminated",
+          "memory_at_fresh": {
+            "pid": 9484,
+            "working_set_bytes": 115597312,
+            "peak_working_set_bytes": 115597312,
+            "private_bytes": 385183744,
+            "peak_private_bytes": 385191936,
+            "page_faults": 81256,
+            "cpu_user_s": 1.328125,
+            "cpu_kernel_s": 0.453125
+          },
+          "error": null
+        },
+        {
+          "sample": 4,
+          "ok": true,
+          "outcome": "fresh",
+          "pid": 31488,
+          "port": 53012,
+          "pre_launch_to_fresh_s": 2.452412699931301,
+          "pre_launch_to_popen_s": 0.2532080999808386,
+          "popen_to_transport_s": 2.0466989999404177,
+          "transport_to_fresh_s": 0.15250399999786168,
+          "close_s": 0.10190570005215704,
+          "cleanup_action": "terminated",
+          "memory_at_fresh": {
+            "pid": 31488,
+            "working_set_bytes": 115814400,
+            "peak_working_set_bytes": 115814400,
+            "private_bytes": 385908736,
+            "peak_private_bytes": 385916928,
+            "page_faults": 81275,
+            "cpu_user_s": 1.390625,
+            "cpu_kernel_s": 0.421875
+          },
+          "error": null
+        },
+        {
+          "sample": 5,
+          "ok": true,
+          "outcome": "fresh",
+          "pid": 14480,
+          "port": 53015,
+          "pre_launch_to_fresh_s": 2.145467800088227,
+          "pre_launch_to_popen_s": 0.007556900032795966,
+          "popen_to_transport_s": 2.036401499994099,
+          "transport_to_fresh_s": 0.10150810005143285,
+          "close_s": 0.10344159998930991,
+          "cleanup_action": "terminated",
+          "memory_at_fresh": {
+            "pid": 14480,
+            "working_set_bytes": 115523584,
+            "peak_working_set_bytes": 115523584,
+            "private_bytes": 387162112,
+            "peak_private_bytes": 387170304,
+            "page_faults": 81312,
+            "cpu_user_s": 1.28125,
+            "cpu_kernel_s": 0.40625
+          },
+          "error": null
+        }
+      ]
+    },
+    "rtt": {
+      "definition": "wall-clock around BattleShipClient.request(op) for the non-consuming ops: Python json.dumps, socket send, native select wake + JSON parse + handler + dump + send, socket recv, Python json.loads. Nothing native advances; input_tick stays 0.",
+      "samples_per_op": 500,
+      "ping": {
+        "unit": "ms",
+        "count": 500,
+        "min": 0.08749996777623892,
+        "median": 0.09549997048452497,
+        "mean": 0.10328760044649243,
+        "p95": 0.14180003199726343,
+        "p99": 0.1930000726133585,
+        "max": 0.23559993132948875,
+        "stdev": 0.019452278016243635
+      },
+      "status": {
+        "unit": "ms",
+        "count": 500,
+        "min": 0.08939998224377632,
+        "median": 0.09940005838871002,
+        "mean": 0.10556220053695142,
+        "p95": 0.13499998021870852,
+        "p99": 0.18199998885393143,
+        "max": 0.24009996559470892,
+        "stdev": 0.0165143152722013
+      },
+      "observe": {
+        "unit": "ms",
+        "count": 500,
+        "min": 0.1047999830916524,
+        "median": 0.11765002273023129,
+        "mean": 0.1240972001105547,
+        "p95": 0.15320000238716602,
+        "p99": 0.18620002083480358,
+        "max": 0.27879991102963686,
+        "stdev": 0.01666405759023742
+      },
+      "nothing_consumed": true,
+      "observe_response_bytes": 455
+    },
+    "step": {
+      "raw_client": {
+        "definition": "wall-clock around one raw M1d `step` request (BattleShipClient.request): one accepted step == one M1c native simulation tick. Rate = measured steps / sum of their latencies. This is native stepping throughput, not a rendering frame rate.",
+        "pid": 31384,
+        "warmup_steps": 30,
+        "measured_steps": 600,
+        "action_pattern": "neutral stick; A (Mario's standing jab, in place) for one tick every 60 ticks",
+        "latency_ms": {
+          "unit": "ms",
+          "count": 600,
+          "min": 2.382099977694452,
+          "median": 3.070700040552765,
+          "mean": 3.168777334697855,
+          "p95": 4.026700044050813,
+          "p99": 4.399599973112345,
+          "max": 5.623099976219237,
+          "stdev": 0.4120777805734036
+        },
+        "native_ticks_per_s": 315.57913175220017,
+        "wall_window_s_including_warmup": 2.006937500089407,
+        "final_input_tick": 630,
+        "final_time_passed": 629,
+        "final_targets_remaining": 10,
+        "memory_before": {
+          "pid": 31384,
+          "working_set_bytes": 115949568,
+          "peak_working_set_bytes": 115949568,
+          "private_bytes": 387158016,
+          "peak_private_bytes": 387166208,
+          "page_faults": 81412,
+          "cpu_user_s": 1.296875,
+          "cpu_kernel_s": 0.46875
+        },
+        "memory_after": {
+          "pid": 31384,
+          "working_set_bytes": 115957760,
+          "peak_working_set_bytes": 115957760,
+          "private_bytes": 387080192,
+          "peak_private_bytes": 387166208,
+          "page_faults": 81415,
+          "cpu_user_s": 1.5,
+          "cpu_kernel_s": 0.6875
+        },
+        "cpu_per_step_ms": 0.6696428571428571,
+        "native_timing": {
+          "available": true,
+          "steps_with_stamps": 600,
+          "clock": "std::chrono::steady_clock, ns, inside the game process (SSB64_RL_TIMING=1)",
+          "segments": {
+            "request_to_submit": {
+              "contains": "request JSON parse, field validation, rlStepSubmit (transport worker thread)",
+              "ms": {
+                "unit": "ms",
+                "count": 600,
+                "min": 0.0149,
+                "median": 0.0196,
+                "mean": 0.021834,
+                "p95": 0.0361,
+                "p99": 0.044,
+                "max": 0.1483,
+                "stdev": 0.009828754278476326
+              }
+            },
+            "submit_to_gate_open": {
+              "contains": "submit -> next PortPushFrame entry with the gate open: the remainder of the parked idle-present iteration (paced present of the cached framebuffer: DXGI 1/60 s limiter + vsync) plus main-thread scheduling. Not stepping work.",
+              "ms": {
+                "unit": "ms",
+                "count": 600,
+                "min": 0.0057,
+                "median": 0.0111,
+                "mean": 0.013199166666666666,
+                "p95": 0.0235,
+                "p99": 0.0377,
+                "max": 0.0837,
+                "stdev": 0.0061017988581692495
+              }
+            },
+            "gate_open_to_consume": {
+              "contains": "PortPushFrame entry -> BTT controller read: cheats, SDL HandleEvents, vblank rotation, VRETRACE post, scheduler rounds up to the read",
+              "ms": {
+                "unit": "ms",
+                "count": 600,
+                "min": 2.0834,
+                "median": 2.7209,
+                "mean": 2.7936605,
+                "p95": 3.4744,
+                "p99": 3.8735,
+                "max": 4.4488,
+                "stdev": 0.3559713705572636
+              }
+            },
+            "consume_to_logic_done": {
+              "contains": "controller read -> end of port_resume_service_threads: the game update of the tick (fighter, stage, targets, audio thread, display-list build/staging). No rendering, no present.",
+              "ms": {
+                "unit": "ms",
+                "count": 600,
+                "min": 0.029,
+                "median": 0.0544,
+                "mean": 0.06913949999999999,
+                "p95": 0.0997,
+                "p99": 0.4192,
+                "max": 0.7083,
+                "stdev": 0.0745482693053076
+              }
+            },
+            "logic_done_to_observation": {
+              "contains": "display-list drain -> GamePostUpdateEvent: Fast3D render of the display list AND the present (DXGI frame-limiter wait, Present with vsync, frame-latency wait).",
+              "ms": {
+                "unit": "ms",
+                "count": 600,
+                "min": 0.0003,
+                "median": 0.0008,
+                "mean": 0.0008023333333333333,
+                "p95": 0.0014,
+                "p99": 0.0018,
+                "max": 0.003,
+                "stdev": 0.0003177964058254208
+              }
+            },
+            "observation_to_collect": {
+              "contains": "condition-variable wake of the transport worker after the paired result exists",
+              "ms": {
+                "unit": "ms",
+                "count": 600,
+                "min": 0.0064,
+                "median": 0.0166,
+                "mean": 0.018172333333333332,
+                "p95": 0.0313,
+                "p99": 0.0365,
+                "max": 0.1601,
+                "stdev": 0.008100086494737091
+              }
+            },
+            "collect_to_response": {
+              "contains": "response JSON object construction (before nlohmann dump and send)",
+              "ms": {
+                "unit": "ms",
+                "count": 600,
+                "min": 0.0161,
+                "median": 0.0228,
+                "mean": 0.024808,
+                "p95": 0.0407,
+                "p99": 0.0468,
+                "max": 0.2183,
+                "stdev": 0.011646828008804228
+              }
+            }
+          },
+          "native_total_ms": {
+            "unit": "ms",
+            "count": 600,
+            "min": 2.191,
+            "median": 2.851,
+            "mean": 2.941615833333333,
+            "p95": 3.6943,
+            "p99": 4.0758,
+            "max": 5.227,
+            "stdev": 0.3833599030493046
+          },
+          "counters": {
+            "host_iterations": {
+              "unit": "iterations",
+              "count": 600,
+              "min": 1.0,
+              "median": 1.0,
+              "mean": 1.0,
+              "p95": 1.0,
+              "p99": 1.0,
+              "max": 1.0,
+              "stdev": 0.0
+            },
+            "parked_iterations": {
+              "unit": "iterations",
+              "count": 600,
+              "min": 1.0,
+              "median": 1.0,
+              "mean": 1.0,
+              "p95": 1.0,
+              "p99": 1.0,
+              "max": 1.0,
+              "stdev": 0.0
+            }
+          },
+          "steps_with_one_host_iteration": 600,
+          "client_residual_ms": {
+            "derived": "client wall latency - native_total: socket transit both ways, transport worker select() wake, nlohmann dump + send, Python json.dumps/json.loads and recv",
+            "ms": {
+              "unit": "ms",
+              "count": 600,
+              "min": 0.15369998141080154,
+              "median": 0.2129999699808658,
+              "mean": 0.22716150136452165,
+              "p95": 0.35270003255903726,
+              "p99": 0.4001999731123447,
+              "max": 0.5990999939560888,
+              "stdev": 0.057811554630118785
+            }
+          }
+        },
+        "cpu_time_definition": "derived: (child user+kernel CPU time after - before) / (warm-up + measured steps). CPU time the game process spent per step; the rest of the wall latency is waiting (pacing, vsync, scheduling, socket)."
+      },
+      "gym_env": {
+        "available": true,
+        "definition": "wall-clock around BattleShipBTTEnv.step(action): Gym action validation + conversion, the raw M1d step, observation_to_gym (numpy 0-d arrays) and the info dict. One call == one native tick.",
+        "pid": 24788,
+        "reset_s": 2.40787829994224,
+        "warmup_steps": 30,
+        "measured_steps": 600,
+        "latency_ms": {
+          "unit": "ms",
+          "count": 600,
+          "min": 2.4204000364989042,
+          "median": 3.080999944359064,
+          "mean": 3.1281860013647624,
+          "p95": 3.736100043170154,
+          "p99": 4.085500026121736,
+          "max": 4.645199980586767,
+          "stdev": 0.34440449370694404
+        },
+        "native_ticks_per_s": 319.67408573650056,
+        "final_input_tick": 630,
+        "memory_before": {
+          "pid": 24788,
+          "working_set_bytes": 115564544,
+          "peak_working_set_bytes": 115564544,
+          "private_bytes": 385675264,
+          "peak_private_bytes": 385683456,
+          "page_faults": 81149,
+          "cpu_user_s": 1.375,
+          "cpu_kernel_s": 0.453125
+        },
+        "memory_after": {
+          "pid": 24788,
+          "working_set_bytes": 115580928,
+          "peak_working_set_bytes": 115580928,
+          "private_bytes": 385593344,
+          "peak_private_bytes": 385683456,
+          "page_faults": 81154,
+          "cpu_user_s": 1.609375,
+          "cpu_kernel_s": 0.578125
+        }
+      },
+      "derived": {
+        "gym_minus_raw_median_ms": 0.010299903806298971,
+        "note": "derived: M3 wrapper overhead per step, difference of two separately measured medians on two different processes"
+      }
+    },
+    "serialization": {
+      "definition": "timeit of json.dumps(obj, separators=(',', ':')) and json.loads(line) in this Python process, in isolation from sockets and the game. Microseconds per call; min over 5 repeats is the least-disturbed figure, median is typical.",
+      "source_of_structures": "captured from this run's real responses (re-dumped compactly)",
+      "line_bytes": {
+        "step_request": 69,
+        "ping_request": 26,
+        "step_response": 471,
+        "step_response_with_timing": 845,
+        "observe_response": 455
+      },
+      "dumps": {
+        "step_request": {
+          "min_us": 2.906054997583851,
+          "median_us": 2.945139998337254,
+          "max_us": 3.0125099990982562,
+          "iterations": 20000,
+          "repeat": 5
+        },
+        "ping_request": {
+          "min_us": 2.333070000167936,
+          "median_us": 2.3525900032836944,
+          "max_us": 2.4594750022515655,
+          "iterations": 20000,
+          "repeat": 5
+        }
+      },
+      "loads": {
+        "step_response": {
+          "min_us": 5.978694994701073,
+          "median_us": 6.0319900047034025,
+          "max_us": 6.3294049992691725,
+          "iterations": 20000,
+          "repeat": 5
+        },
+        "observe_response": {
+          "min_us": 5.805789999430999,
+          "median_us": 5.851580004673451,
+          "max_us": 5.874399997992441,
+          "iterations": 20000,
+          "repeat": 5
+        },
+        "ping_response": {
+          "min_us": 1.3458599976729602,
+          "median_us": 1.3655650021973997,
+          "max_us": 1.3676400005351752,
+          "iterations": 20000,
+          "repeat": 5
+        },
+        "step_response_with_timing": {
+          "min_us": 8.79475999972783,
+          "median_us": 8.882415003608912,
+          "max_us": 12.18566499883309,
+          "iterations": 20000,
+          "repeat": 5
+        }
+      },
+      "derived": {
+        "python_json_per_step_us": 8.977130003040656,
+        "note": "derived: dumps(step request) + loads(step response) medians; the Python JSON share of one step. The native nlohmann parse/dump cost is not measured here (see native_timing transport segments)."
+      }
+    },
+    "memory": {
+      "definition": "Windows PROCESS_MEMORY_COUNTERS_EX from K32GetProcessMemoryInfo: working_set = WorkingSetSize (resident pages now), peak_working_set = PeakWorkingSetSize (lifetime peak resident), private_bytes = PrivateUsage (private commit charge), peak_private_bytes = PeakPagefileUsage (peak commit charge). CPU time from GetProcessTimes (user + kernel, 100 ns units).",
+      "at_fresh": [
+        {
+          "pid": 27748,
+          "working_set_bytes": 115875840,
+          "peak_working_set_bytes": 115875840,
+          "private_bytes": 387047424,
+          "peak_private_bytes": 387055616,
+          "page_faults": 81134,
+          "cpu_user_s": 1.421875,
+          "cpu_kernel_s": 0.328125
+        },
+        {
+          "pid": 32116,
+          "working_set_bytes": 116228096,
+          "peak_working_set_bytes": 116228096,
+          "private_bytes": 387600384,
+          "peak_private_bytes": 387608576,
+          "page_faults": 81481,
+          "cpu_user_s": 1.359375,
+          "cpu_kernel_s": 0.421875
+        },
+        {
+          "pid": 9484,
+          "working_set_bytes": 115597312,
+          "peak_working_set_bytes": 115597312,
+          "private_bytes": 385183744,
+          "peak_private_bytes": 385191936,
+          "page_faults": 81256,
+          "cpu_user_s": 1.328125,
+          "cpu_kernel_s": 0.453125
+        },
+        {
+          "pid": 31488,
+          "working_set_bytes": 115814400,
+          "peak_working_set_bytes": 115814400,
+          "private_bytes": 385908736,
+          "peak_private_bytes": 385916928,
+          "page_faults": 81275,
+          "cpu_user_s": 1.390625,
+          "cpu_kernel_s": 0.421875
+        },
+        {
+          "pid": 14480,
+          "working_set_bytes": 115523584,
+          "peak_working_set_bytes": 115523584,
+          "private_bytes": 387162112,
+          "peak_private_bytes": 387170304,
+          "page_faults": 81312,
+          "cpu_user_s": 1.28125,
+          "cpu_kernel_s": 0.40625
+        }
+      ],
+      "after_raw_stepping": {
+        "pid": 31384,
+        "working_set_bytes": 115957760,
+        "peak_working_set_bytes": 115957760,
+        "private_bytes": 387080192,
+        "peak_private_bytes": 387166208,
+        "page_faults": 81415,
+        "cpu_user_s": 1.5,
+        "cpu_kernel_s": 0.6875
+      },
+      "after_gym_stepping": {
+        "pid": 24788,
+        "working_set_bytes": 115580928,
+        "peak_working_set_bytes": 115580928,
+        "private_bytes": 385593344,
+        "peak_private_bytes": 385683456,
+        "page_faults": 81154,
+        "cpu_user_s": 1.609375,
+        "cpu_kernel_s": 0.578125
+      },
+      "note": "per-level samples for concurrent processes are in sections.multiprocess.levels[*].per_process[*].memory_after"
+    },
+    "reliability": {
+      "definition": "each episode: NEW BattleShip process (M2), fresh gate, tas_input_2/mario_743.btti fed one row per M1d step with the M1e per-step checks, terminal EpisodeEnded at consumed_tick 446 / input_tick 447 / time_passed 446 / step_count 447, native clean exit 0, result JSON equal to the frozen M1a values, cleanup, machine-wide process count unchanged. No retries.",
+      "attempted": 10,
+      "successful": 10,
+      "failed": 0,
+      "failure_rate": 0.0,
+      "failure_categories": {},
+      "startup_s": {
+        "unit": "s",
+        "count": 10,
+        "min": 2.1543514999793842,
+        "median": 2.326051499985624,
+        "mean": 2.321933379978873,
+        "p95": 2.4962459999369457,
+        "p99": 2.4962459999369457,
+        "max": 2.4962459999369457,
+        "stdev": 0.12448445007048986
+      },
+      "stepping_s": {
+        "unit": "s",
+        "count": 10,
+        "min": 1.424469199962914,
+        "median": 1.434674050018657,
+        "mean": 1.4402210299973377,
+        "p95": 1.4729011000599712,
+        "p99": 1.4729011000599712,
+        "max": 1.4729011000599712,
+        "stdev": 0.015273094482984105
+      },
+      "expected_terminal": {
+        "steps": 447,
+        "last_consumed_tick": 446,
+        "completion_time_passed": 446,
+        "completion_input_tick": 447,
+        "rows_unsent": 21
+      },
+      "episodes": [
+        {
+          "episode": 1,
+          "ok": true,
+          "category": null,
+          "detail": null,
+          "pid": 17852,
+          "port": 53024,
+          "startup_s": 2.4034352999879047,
+          "stepping_s": 1.4365864000283182,
+          "steps": 447,
+          "last_consumed_tick": 446,
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "exit_code": 0,
+          "cleanup_action": "already_exited"
+        },
+        {
+          "episode": 2,
+          "ok": true,
+          "category": null,
+          "detail": null,
+          "pid": 26956,
+          "port": 53027,
+          "startup_s": 2.183636499918066,
+          "stepping_s": 1.441550899995491,
+          "steps": 447,
+          "last_consumed_tick": 446,
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "exit_code": 0,
+          "cleanup_action": "already_exited"
+        },
+        {
+          "episode": 3,
+          "ok": true,
+          "category": null,
+          "detail": null,
+          "pid": 31616,
+          "port": 53030,
+          "startup_s": 2.439879599958658,
+          "stepping_s": 1.431874300003983,
+          "steps": 447,
+          "last_consumed_tick": 446,
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "exit_code": 0,
+          "cleanup_action": "already_exited"
+        },
+        {
+          "episode": 4,
+          "ok": true,
+          "category": null,
+          "detail": null,
+          "pid": 31416,
+          "port": 53033,
+          "startup_s": 2.195460799965076,
+          "stepping_s": 1.4296010999241844,
+          "steps": 447,
+          "last_consumed_tick": 446,
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "exit_code": 0,
+          "cleanup_action": "already_exited"
+        },
+        {
+          "episode": 5,
+          "ok": true,
+          "category": null,
+          "detail": null,
+          "pid": 31920,
+          "port": 53036,
+          "startup_s": 2.4495824000332505,
+          "stepping_s": 1.4279658000450581,
+          "steps": 447,
+          "last_consumed_tick": 446,
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "exit_code": 0,
+          "cleanup_action": "already_exited"
+        },
+        {
+          "episode": 6,
+          "ok": true,
+          "category": null,
+          "detail": null,
+          "pid": 23524,
+          "port": 53039,
+          "startup_s": 2.1543514999793842,
+          "stepping_s": 1.4327617000089958,
+          "steps": 447,
+          "last_consumed_tick": 446,
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "exit_code": 0,
+          "cleanup_action": "already_exited"
+        },
+        {
+          "episode": 7,
+          "ok": true,
+          "category": null,
+          "detail": null,
+          "pid": 24800,
+          "port": 53042,
+          "startup_s": 2.4962459999369457,
+          "stepping_s": 1.424469199962914,
+          "steps": 447,
+          "last_consumed_tick": 446,
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "exit_code": 0,
+          "cleanup_action": "already_exited"
+        },
+        {
+          "episode": 8,
+          "ok": true,
+          "category": null,
+          "detail": null,
+          "pid": 28920,
+          "port": 53045,
+          "startup_s": 2.226187599939294,
+          "stepping_s": 1.439523599925451,
+          "steps": 447,
+          "last_consumed_tick": 446,
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "exit_code": 0,
+          "cleanup_action": "already_exited"
+        },
+        {
+          "episode": 9,
+          "ok": true,
+          "category": null,
+          "detail": null,
+          "pid": 24376,
+          "port": 53048,
+          "startup_s": 2.4218864000868052,
+          "stepping_s": 1.4649762000190094,
+          "steps": 447,
+          "last_consumed_tick": 446,
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "exit_code": 0,
+          "cleanup_action": "already_exited"
+        },
+        {
+          "episode": 10,
+          "ok": true,
+          "category": null,
+          "detail": null,
+          "pid": 24388,
+          "port": 50497,
+          "startup_s": 2.2486676999833435,
+          "stepping_s": 1.4729011000599712,
+          "steps": 447,
+          "last_consumed_tick": 446,
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "exit_code": 0,
+          "cleanup_action": "already_exited"
+        }
+      ]
+    }
+  },
+  "errors": {},
+  "section_wall_s": {
+    "startup": 11.86,
+    "rtt_step": 4.49,
+    "gym_step": 4.72,
+    "serialization": 2.88,
+    "memory": 0.0,
+    "reliability": 47.15
+  },
+  "process_count_after": 0,
+  "total_wall_s": 71.2
+}

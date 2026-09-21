@@ -27,7 +27,7 @@
  *   -> {"protocol":1,"op":"status"}
  *   <- {"protocol":1,"op":"status","ok":true,"state":2,
  *       "state_name":"WaitingForAction","can_step":true,"step_count":N,
- *       "no_render":bool}
+ *       "no_render":bool,"raphnet_disabled":bool}
  *      Non-consuming: it reads rlStepGetState() only and never calls
  *      rlStepPoll(), so it can never collect an ObservationReady result. It
  *      carries no observation on purpose: the only observation this
@@ -37,7 +37,10 @@
  *      M1c's counter because the worker is the sole submitter and collector.
  *      no_render (M6, additive) is the process's constant host mode
  *      (SSB64_RL_NO_RENDER effective or not): configuration, not an
- *      observation, and a client may ignore it.
+ *      observation, and a client may ignore it. raphnet_disabled (M6
+ *      follow-up, additive) is likewise constant per process: whether the
+ *      process-local native Raphnet adapter bypass (SSB64_RAPHNET_DISABLE)
+ *      was kept for it; configuration only, a client may ignore it.
  *
  *   -> {"protocol":1,"op":"step","buttons":B,"stick_x":X,"stick_y":Y}
  *      B: JSON integer 0..65535 (the RL_BUTTON_* word), X / Y: JSON integer
@@ -407,6 +410,9 @@ json handleStatus(const json &op) {
 	/* M6: additive, constant per process; lets a client prove which host
 	 * mode the process it is stepping actually runs in. */
 	r["no_render"] = rlNoRenderIsEnabled() != 0;
+	/* M6 follow-up: additive, constant per process; the process-local native
+	 * Raphnet adapter bypass as kept (or not) by rlConfigInit(). */
+	r["raphnet_disabled"] = rlRaphnetDisableIsEnabled() != 0;
 	return r;
 }
 

@@ -692,5 +692,1058 @@
       "after": 0,
       "leaked": false
     }
+  },
+  "raphnet_bypass_final": {
+    "note": "M6 follow-up, final implementation measured on the final executable (sha256 57d61fe0b2a60265..., git 1868008 + the uncommitted follow-up). The experiment_raphnet_native_adapter_disabled section above is the original isolated-copy experiment and is kept unchanged as historical context.",
+    "implementation": {
+      "environment_variable": "SSB64_RAPHNET_DISABLE",
+      "value": "1",
+      "evaluated_in": [
+        "libultraship ControlDeck::PreInitRaphnet (returns before the gControllers.Raphnet.Enabled read; generic, one file, uncommitted submodule change)",
+        "port/rl/rl_boot.cpp rlConfigInit (effective only with effective interactive stepping; otherwise removed from the process environment before the game boots and logged as ignored)"
+      ],
+      "status_field": "raphnet_disabled (additive boolean, protocol 1 unchanged)",
+      "persistence": "no console variable is read, registered or written; the exit-time config save rewrote identical bytes after every process"
+    },
+    "equivalence_regression": {
+      "tool": "rl/m6_equivalence_regression.py",
+      "result": "PASS",
+      "candidate_kinds": {
+        "no_render": {
+          "child_env": {
+            "SSB64_RL_NO_RENDER": "1"
+          },
+          "expected_status_flags": {
+            "no_render": true,
+            "raphnet_disabled": false
+          }
+        },
+        "no_render_raphnet_disabled": {
+          "child_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "expected_status_flags": {
+            "no_render": true,
+            "raphnet_disabled": true
+          }
+        }
+      },
+      "compared_step_fields": [
+        "state",
+        "step_count",
+        "consumed_tick"
+      ],
+      "compared_observation_fields": [
+        "observation_schema",
+        "input_tick",
+        "time_passed",
+        "game_status",
+        "btt_active",
+        "targets_remaining",
+        "fighter_valid",
+        "position_x",
+        "position_y",
+        "air_velocity_x",
+        "air_velocity_y",
+        "ground_velocity_x",
+        "facing_direction",
+        "ground_air_state",
+        "fighter_status_id",
+        "jumps_used"
+      ],
+      "excluded_observation_fields": [
+        "host_frame"
+      ],
+      "traces": [
+        {
+          "label": "normal",
+          "no_render": false,
+          "raphnet_disabled": false,
+          "pid": 22612,
+          "port": 64429,
+          "boot_to_fresh_s": 3.099,
+          "stepping_wall_s": 14.902,
+          "actions_submitted": 447,
+          "rows_unsent": 21,
+          "last_consumed_tick": 446,
+          "final_step_count": 447,
+          "final_state": "EpisodeEnded",
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "host_frame_final": 511,
+          "exit_code": 0,
+          "result_json_ok": true,
+          "anomaly_events_at_default_threshold": 0,
+          "artifact_dir": "C:\\Users\\kill_\\AppData\\Local\\Temp\\battleship_m6_b20s59pp\\artifacts\\m6_normal_6000"
+        },
+        {
+          "label": "no_render",
+          "no_render": true,
+          "raphnet_disabled": false,
+          "pid": 26820,
+          "port": 60174,
+          "boot_to_fresh_s": 2.344,
+          "stepping_wall_s": 1.456,
+          "actions_submitted": 447,
+          "rows_unsent": 21,
+          "last_consumed_tick": 446,
+          "final_step_count": 447,
+          "final_state": "EpisodeEnded",
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "host_frame_final": 511,
+          "exit_code": 0,
+          "result_json_ok": true,
+          "anomaly_events_at_default_threshold": 0,
+          "artifact_dir": "C:\\Users\\kill_\\AppData\\Local\\Temp\\battleship_m6_b20s59pp\\artifacts\\m6_no_render_6100"
+        },
+        {
+          "label": "no_render",
+          "no_render": true,
+          "raphnet_disabled": false,
+          "pid": 32448,
+          "port": 60180,
+          "boot_to_fresh_s": 2.22,
+          "stepping_wall_s": 1.457,
+          "actions_submitted": 447,
+          "rows_unsent": 21,
+          "last_consumed_tick": 446,
+          "final_step_count": 447,
+          "final_state": "EpisodeEnded",
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "host_frame_final": 511,
+          "exit_code": 0,
+          "result_json_ok": true,
+          "anomaly_events_at_default_threshold": 0,
+          "artifact_dir": "C:\\Users\\kill_\\AppData\\Local\\Temp\\battleship_m6_b20s59pp\\artifacts\\m6_no_render_6101"
+        },
+        {
+          "label": "no_render_raphnet_disabled",
+          "no_render": true,
+          "raphnet_disabled": true,
+          "pid": 15488,
+          "port": 60202,
+          "boot_to_fresh_s": 2.09,
+          "stepping_wall_s": 0.282,
+          "actions_submitted": 447,
+          "rows_unsent": 21,
+          "last_consumed_tick": 446,
+          "final_step_count": 447,
+          "final_state": "EpisodeEnded",
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "host_frame_final": 511,
+          "exit_code": 0,
+          "result_json_ok": true,
+          "anomaly_events_at_default_threshold": 0,
+          "artifact_dir": "C:\\Users\\kill_\\AppData\\Local\\Temp\\battleship_m6_b20s59pp\\artifacts\\m6_no_render_raphnet_disabled_6110"
+        },
+        {
+          "label": "no_render_raphnet_disabled",
+          "no_render": true,
+          "raphnet_disabled": true,
+          "pid": 32056,
+          "port": 60210,
+          "boot_to_fresh_s": 2.092,
+          "stepping_wall_s": 0.277,
+          "actions_submitted": 447,
+          "rows_unsent": 21,
+          "last_consumed_tick": 446,
+          "final_step_count": 447,
+          "final_state": "EpisodeEnded",
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "host_frame_final": 511,
+          "exit_code": 0,
+          "result_json_ok": true,
+          "anomaly_events_at_default_threshold": 0,
+          "artifact_dir": "C:\\Users\\kill_\\AppData\\Local\\Temp\\battleship_m6_b20s59pp\\artifacts\\m6_no_render_raphnet_disabled_6111"
+        }
+      ],
+      "comparisons": [
+        {
+          "candidate": "no_render",
+          "candidate_index": 0,
+          "steps_compared": 447,
+          "equivalent": true,
+          "first_divergence": null,
+          "host_frames_identical": true,
+          "stepping_wall_s": {
+            "normal": 14.902,
+            "no_render": 1.456
+          }
+        },
+        {
+          "candidate": "no_render",
+          "candidate_index": 1,
+          "steps_compared": 447,
+          "equivalent": true,
+          "first_divergence": null,
+          "host_frames_identical": true,
+          "stepping_wall_s": {
+            "normal": 14.902,
+            "no_render": 1.457
+          }
+        },
+        {
+          "candidate": "no_render_raphnet_disabled",
+          "candidate_index": 0,
+          "steps_compared": 447,
+          "equivalent": true,
+          "first_divergence": null,
+          "host_frames_identical": true,
+          "stepping_wall_s": {
+            "normal": 14.902,
+            "no_render_raphnet_disabled": 0.282
+          }
+        },
+        {
+          "candidate": "no_render_raphnet_disabled",
+          "candidate_index": 1,
+          "steps_compared": 447,
+          "equivalent": true,
+          "first_divergence": null,
+          "host_frames_identical": true,
+          "stepping_wall_s": {
+            "normal": 14.902,
+            "no_render_raphnet_disabled": 0.277
+          }
+        }
+      ],
+      "artifact_replays": [
+        {
+          "label": "artifact_replay_no_render",
+          "no_render": true,
+          "raphnet_disabled": false,
+          "pid": 8072,
+          "port": 60177,
+          "boot_to_fresh_s": 2.331,
+          "stepping_wall_s": 1.467,
+          "actions_submitted": 447,
+          "rows_unsent": 21,
+          "last_consumed_tick": 446,
+          "final_step_count": 447,
+          "final_state": "EpisodeEnded",
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "host_frame_final": 511,
+          "exit_code": 0,
+          "result_json_ok": true,
+          "anomaly_events_at_default_threshold": 0,
+          "artifact_dir": null,
+          "reference": "no_render",
+          "host_frames_identical_to_reference_trace": true
+        },
+        {
+          "label": "artifact_replay_no_render_raphnet_disabled",
+          "no_render": true,
+          "raphnet_disabled": true,
+          "pid": 15064,
+          "port": 60205,
+          "boot_to_fresh_s": 2.129,
+          "stepping_wall_s": 0.271,
+          "actions_submitted": 447,
+          "rows_unsent": 21,
+          "last_consumed_tick": 446,
+          "final_step_count": 447,
+          "final_state": "EpisodeEnded",
+          "completion_time_passed": 446,
+          "completion_input_tick": 447,
+          "targets_remaining": 0,
+          "host_frame_final": 511,
+          "exit_code": 0,
+          "result_json_ok": true,
+          "anomaly_events_at_default_threshold": 0,
+          "artifact_dir": null,
+          "reference": "no_render_raphnet_disabled",
+          "host_frames_identical_to_reference_trace": true
+        }
+      ],
+      "process_count": {
+        "before": 0,
+        "after": 0,
+        "leaked": false
+      }
+    },
+    "bypass_regression": {
+      "tool": "rl/m6_raphnet_bypass_regression.py",
+      "result": "PASS",
+      "config_path": "C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\build-us\\Release\\BattleShip.cfg.json",
+      "config_before": {
+        "sha256": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+        "size": 36885,
+        "raphnet_key": "<absent>"
+      },
+      "config_after_all": {
+        "sha256_before": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+        "sha256_after": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+        "size_before": 36885,
+        "size_after": 36885,
+        "bytes_identical": true,
+        "json_identical": true,
+        "cvars_identical": true,
+        "gcontrollers_identical": true,
+        "raphnet_key_before": "<absent>",
+        "raphnet_key_after": "<absent>",
+        "raphnet_key_unchanged": true,
+        "window_identical": true
+      },
+      "reference_adapter_opened": true,
+      "process_count": {
+        "before": 0,
+        "after": 0,
+        "leaked": false
+      },
+      "cases": [
+        {
+          "name": "ordinary_launch_no_flag",
+          "env": {
+            "SSB64_MAX_FRAMES": "300"
+          },
+          "kind": "native",
+          "ok": true,
+          "exit_code": 0,
+          "status_flags": null,
+          "lus_adapter_opened": true,
+          "stepping": {},
+          "replay": {},
+          "config_bytes_identical": true
+        },
+        {
+          "name": "ordinary_launch_with_flag",
+          "env": {
+            "SSB64_MAX_FRAMES": "300",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "kind": "native",
+          "ok": true,
+          "exit_code": 0,
+          "status_flags": null,
+          "lus_adapter_opened": true,
+          "stepping": {},
+          "replay": {},
+          "config_bytes_identical": true
+        },
+        {
+          "name": "rl_step_no_flag",
+          "env": {},
+          "kind": "step",
+          "ok": true,
+          "exit_code": 0,
+          "status_flags": {
+            "no_render": false,
+            "raphnet_disabled": false
+          },
+          "lus_adapter_opened": true,
+          "stepping": {
+            "actions_submitted": 447,
+            "rows_unsent": 21,
+            "last_consumed_tick": 446,
+            "completion_time_passed": 446,
+            "completion_input_tick": 447,
+            "final_step_count": 447,
+            "targets_remaining": 0,
+            "final_state": "EpisodeEnded",
+            "host_frame_final": 511,
+            "result_json": {
+              "result_schema": 1,
+              "outcome": "clear",
+              "targets_broken": 10,
+              "completion_time_passed": 446,
+              "completion_input_tick": 447,
+              "time_passed_final": 446,
+              "input_cursor_final": 447,
+              "host_frames": 511
+            }
+          },
+          "replay": {},
+          "config_bytes_identical": true
+        },
+        {
+          "name": "rl_step_raphnet_disabled",
+          "env": {
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "kind": "step",
+          "ok": true,
+          "exit_code": 0,
+          "status_flags": {
+            "no_render": false,
+            "raphnet_disabled": true
+          },
+          "lus_adapter_opened": false,
+          "stepping": {
+            "actions_submitted": 447,
+            "rows_unsent": 21,
+            "last_consumed_tick": 446,
+            "completion_time_passed": 446,
+            "completion_input_tick": 447,
+            "final_step_count": 447,
+            "targets_remaining": 0,
+            "final_state": "EpisodeEnded",
+            "host_frame_final": 511,
+            "result_json": {
+              "result_schema": 1,
+              "outcome": "clear",
+              "targets_broken": 10,
+              "completion_time_passed": 446,
+              "completion_input_tick": 447,
+              "time_passed_final": 446,
+              "input_cursor_final": 447,
+              "host_frames": 511
+            }
+          },
+          "replay": {},
+          "config_bytes_identical": true
+        },
+        {
+          "name": "rl_step_no_render_raphnet_disabled",
+          "env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "kind": "step",
+          "ok": true,
+          "exit_code": 0,
+          "status_flags": {
+            "no_render": true,
+            "raphnet_disabled": true
+          },
+          "lus_adapter_opened": false,
+          "stepping": {
+            "actions_submitted": 447,
+            "rows_unsent": 21,
+            "last_consumed_tick": 446,
+            "completion_time_passed": 446,
+            "completion_input_tick": 447,
+            "final_step_count": 447,
+            "targets_remaining": 0,
+            "final_state": "EpisodeEnded",
+            "host_frame_final": 511,
+            "result_json": {
+              "result_schema": 1,
+              "outcome": "clear",
+              "targets_broken": 10,
+              "completion_time_passed": 446,
+              "completion_input_tick": 447,
+              "time_passed_final": 446,
+              "input_cursor_final": 447,
+              "host_frames": 511
+            }
+          },
+          "replay": {},
+          "config_bytes_identical": true
+        },
+        {
+          "name": "native_replay_no_flag",
+          "env": {
+            "SSB64_RL_BTT": "1",
+            "SSB64_BTT_INPUT": "C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\tas_input_2\\mario_743.btti",
+            "SSB64_MAX_FRAMES": "1500",
+            "SSB64_RL_RESULT_PATH": "C:\\Users\\kill_\\AppData\\Local\\Temp\\claude\\C--Users-kill--Bureau-gitRepo-Smash-pc-port-BattleShip\\49261a4a-1b96-4c8c-9695-3ce455a75f51\\scratchpad\\raphnet_bypass_run\\native_replay_no_flag.result.json"
+          },
+          "kind": "native",
+          "ok": true,
+          "exit_code": 0,
+          "status_flags": null,
+          "lus_adapter_opened": true,
+          "stepping": {},
+          "replay": {
+            "result_json": {
+              "result_schema": 1,
+              "outcome": "clear",
+              "targets_broken": 10,
+              "completion_time_passed": 446,
+              "completion_input_tick": 447,
+              "time_passed_final": 446,
+              "input_cursor_final": 447,
+              "host_frames": 511
+            },
+            "complete_line": true,
+            "checksum_line": true
+          },
+          "config_bytes_identical": true
+        },
+        {
+          "name": "native_replay_with_flag",
+          "env": {
+            "SSB64_RL_BTT": "1",
+            "SSB64_BTT_INPUT": "C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\tas_input_2\\mario_743.btti",
+            "SSB64_MAX_FRAMES": "1500",
+            "SSB64_RAPHNET_DISABLE": "1",
+            "SSB64_RL_RESULT_PATH": "C:\\Users\\kill_\\AppData\\Local\\Temp\\claude\\C--Users-kill--Bureau-gitRepo-Smash-pc-port-BattleShip\\49261a4a-1b96-4c8c-9695-3ce455a75f51\\scratchpad\\raphnet_bypass_run\\native_replay_with_flag.result.json"
+          },
+          "kind": "native",
+          "ok": true,
+          "exit_code": 0,
+          "status_flags": null,
+          "lus_adapter_opened": true,
+          "stepping": {},
+          "replay": {
+            "result_json": {
+              "result_schema": 1,
+              "outcome": "clear",
+              "targets_broken": 10,
+              "completion_time_passed": 446,
+              "completion_input_tick": 447,
+              "time_passed_final": 446,
+              "input_cursor_final": 447,
+              "host_frames": 511
+            },
+            "complete_line": true,
+            "checksum_line": true
+          },
+          "config_bytes_identical": true
+        },
+        {
+          "name": "native_replay_all_flags",
+          "env": {
+            "SSB64_RL_BTT": "1",
+            "SSB64_BTT_INPUT": "C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\tas_input_2\\mario_743.btti",
+            "SSB64_RL_EXIT_ON_END": "1",
+            "SSB64_RL_STEP": "1",
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1",
+            "SSB64_RL_PORT": "52103",
+            "SSB64_RL_RESULT_PATH": "C:\\Users\\kill_\\AppData\\Local\\Temp\\claude\\C--Users-kill--Bureau-gitRepo-Smash-pc-port-BattleShip\\49261a4a-1b96-4c8c-9695-3ce455a75f51\\scratchpad\\raphnet_bypass_run\\native_replay_all_flags.result.json"
+          },
+          "kind": "native",
+          "ok": true,
+          "exit_code": 0,
+          "status_flags": null,
+          "lus_adapter_opened": true,
+          "stepping": {},
+          "replay": {
+            "result_json": {
+              "result_schema": 1,
+              "outcome": "clear",
+              "targets_broken": 10,
+              "completion_time_passed": 446,
+              "completion_input_tick": 447,
+              "time_passed_final": 446,
+              "input_cursor_final": 447,
+              "host_frames": 511
+            },
+            "complete_line": true,
+            "checksum_line": null
+          },
+          "config_bytes_identical": true
+        }
+      ]
+    },
+    "three_mode_step_comparison": {
+      "normal": {
+        "startup_to_fresh_s": {
+          "min": 3.175,
+          "median": 3.341,
+          "p95": 3.53,
+          "max": 3.53
+        },
+        "raw_step_latency_ms": {
+          "min": 32.658,
+          "median": 33.31,
+          "p95": 33.525,
+          "p99": 33.637,
+          "max": 33.863
+        },
+        "native_ticks_per_s": 30.03,
+        "child_cpu_per_step_ms": 8.606,
+        "native_segment_medians_ms": {
+          "request_to_submit": 0.02,
+          "submit_to_gate_open": 16.28,
+          "gate_open_to_consume": 2.83,
+          "consume_to_logic_done": 0.06,
+          "logic_done_to_observation": 13.75,
+          "observation_to_collect": 0.03,
+          "collect_to_response": 0.03,
+          "native_total": 33.04
+        },
+        "gym_step_latency_ms": {
+          "min": 32.748,
+          "median": 33.33,
+          "p95": 33.574,
+          "p99": 33.728,
+          "max": 33.918
+        },
+        "gym_native_ticks_per_s": 30.01,
+        "full_replay_wall_s": {
+          "min": 14.887,
+          "median": 14.891,
+          "max": 14.9
+        },
+        "reliability": "10/10",
+        "working_set_after_stepping_mib": 132.7
+      },
+      "no_render": {
+        "startup_to_fresh_s": {
+          "min": 2.127,
+          "median": 2.234,
+          "p95": 2.452,
+          "max": 2.452
+        },
+        "raw_step_latency_ms": {
+          "min": 2.382,
+          "median": 3.071,
+          "p95": 4.027,
+          "p99": 4.4,
+          "max": 5.623
+        },
+        "native_ticks_per_s": 315.58,
+        "child_cpu_per_step_ms": 0.67,
+        "native_segment_medians_ms": {
+          "request_to_submit": 0.02,
+          "submit_to_gate_open": 0.01,
+          "gate_open_to_consume": 2.72,
+          "consume_to_logic_done": 0.05,
+          "logic_done_to_observation": 0.0,
+          "observation_to_collect": 0.02,
+          "collect_to_response": 0.02,
+          "native_total": 2.85
+        },
+        "gym_step_latency_ms": {
+          "min": 2.42,
+          "median": 3.081,
+          "p95": 3.736,
+          "p99": 4.086,
+          "max": 4.645
+        },
+        "gym_native_ticks_per_s": 319.67,
+        "full_replay_wall_s": {
+          "min": 1.424,
+          "median": 1.435,
+          "max": 1.473
+        },
+        "reliability": "10/10",
+        "working_set_after_stepping_mib": 110.6
+      },
+      "no_render_raphnet_disabled": {
+        "startup_to_fresh_s": {
+          "min": 2.041,
+          "median": 2.059,
+          "p95": 2.284,
+          "max": 2.284
+        },
+        "raw_step_latency_ms": {
+          "min": 0.292,
+          "median": 0.449,
+          "p95": 0.712,
+          "p99": 0.867,
+          "max": 1.043
+        },
+        "native_ticks_per_s": 2112.49,
+        "child_cpu_per_step_ms": 0.372,
+        "native_segment_medians_ms": {
+          "request_to_submit": 0.01,
+          "submit_to_gate_open": 0.01,
+          "gate_open_to_consume": 0.23,
+          "consume_to_logic_done": 0.03,
+          "logic_done_to_observation": 0.0,
+          "observation_to_collect": 0.01,
+          "collect_to_response": 0.02,
+          "native_total": 0.31
+        },
+        "gym_step_latency_ms": {
+          "min": 0.347,
+          "median": 0.503,
+          "p95": 0.724,
+          "p99": 0.897,
+          "max": 1.171
+        },
+        "gym_native_ticks_per_s": 1894.58,
+        "full_replay_wall_s": {
+          "min": 0.261,
+          "median": 0.266,
+          "max": 0.274
+        },
+        "reliability": "10/10",
+        "working_set_after_stepping_mib": 110.0
+      }
+    },
+    "multiprocess_sweep_1_full_benchmark": {
+      "source": "docs/rl_throughput_m6_raphnet_bypass_baseline.json",
+      "levels": [
+        {
+          "n": 1,
+          "ready": 1,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 1976.0,
+          "per_process_median_steps_per_s": 1976.1,
+          "per_process_min_max_steps_per_s": [
+            1976.1,
+            1976.1
+          ],
+          "efficiency_pct": 100.0,
+          "latency_ms_median_p95_p99_max": [
+            0.49,
+            0.71,
+            0.88,
+            1.41
+          ],
+          "working_set_median_mib": 110.6,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 1.42
+        },
+        {
+          "n": 2,
+          "ready": 2,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 3852.9,
+          "per_process_median_steps_per_s": 1926.5,
+          "per_process_min_max_steps_per_s": [
+            1907.3,
+            1945.7
+          ],
+          "efficiency_pct": 97.5,
+          "latency_ms_median_p95_p99_max": [
+            0.5,
+            0.74,
+            0.94,
+            1.55
+          ],
+          "working_set_median_mib": 109.7,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 2.98
+        },
+        {
+          "n": 3,
+          "ready": 3,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 5594.8,
+          "per_process_median_steps_per_s": 1882.9,
+          "per_process_min_max_steps_per_s": [
+            1813.1,
+            1899.1
+          ],
+          "efficiency_pct": 94.4,
+          "latency_ms_median_p95_p99_max": [
+            0.51,
+            0.82,
+            1.06,
+            8.58
+          ],
+          "working_set_median_mib": 109.7,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 4.98
+        },
+        {
+          "n": 4,
+          "ready": 4,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 7073.3,
+          "per_process_median_steps_per_s": 1755.1,
+          "per_process_min_max_steps_per_s": [
+            1729.0,
+            1834.6
+          ],
+          "efficiency_pct": 89.5,
+          "latency_ms_median_p95_p99_max": [
+            0.53,
+            0.88,
+            1.15,
+            2.4
+          ],
+          "working_set_median_mib": 110.0,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 6.09
+        },
+        {
+          "n": 5,
+          "ready": 5,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 8273.1,
+          "per_process_median_steps_per_s": 1729.2,
+          "per_process_min_max_steps_per_s": [
+            1501.7,
+            1770.5
+          ],
+          "efficiency_pct": 83.7,
+          "latency_ms_median_p95_p99_max": [
+            0.56,
+            0.99,
+            1.36,
+            7.53
+          ],
+          "working_set_median_mib": 109.8,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 6.84
+        },
+        {
+          "n": 6,
+          "ready": 5,
+          "startup_failures": 1,
+          "aggregate_steps_per_s": 8262.5,
+          "per_process_median_steps_per_s": 1563.8,
+          "per_process_min_max_steps_per_s": [
+            1556.9,
+            1811.8
+          ],
+          "efficiency_pct": 69.7,
+          "latency_ms_median_p95_p99_max": [
+            0.56,
+            0.99,
+            1.33,
+            3.66
+          ],
+          "working_set_median_mib": 109.4,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 8.19
+        },
+        {
+          "n": 7,
+          "ready": 7,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 8901.4,
+          "per_process_median_steps_per_s": 980.2,
+          "per_process_min_max_steps_per_s": [
+            954.8,
+            1709.1
+          ],
+          "efficiency_pct": 64.4,
+          "latency_ms_median_p95_p99_max": [
+            0.66,
+            1.51,
+            2.15,
+            29.24
+          ],
+          "working_set_median_mib": 109.4,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 8.66
+        },
+        {
+          "n": 8,
+          "ready": 8,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 8905.9,
+          "per_process_median_steps_per_s": 1316.6,
+          "per_process_min_max_steps_per_s": [
+            601.7,
+            1543.4
+          ],
+          "efficiency_pct": 56.3,
+          "latency_ms_median_p95_p99_max": [
+            0.69,
+            1.9,
+            3.33,
+            488.18
+          ],
+          "working_set_median_mib": 109.45,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 8.53
+        }
+      ]
+    },
+    "multiprocess_sweep_2": {
+      "source": "python rl/tools/bench.py --only multiprocess --max-processes 8 --child-env SSB64_RL_NO_RENDER=1 --child-env SSB64_RAPHNET_DISABLE=1 (same session, after the regression suite)",
+      "levels": [
+        {
+          "n": 1,
+          "ready": 1,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 1976.0,
+          "per_process_median_steps_per_s": 1976.1,
+          "per_process_min_max_steps_per_s": [
+            1976.1,
+            1976.1
+          ],
+          "efficiency_pct": 100.0,
+          "latency_ms_median_p95_p99_max": [
+            0.49,
+            0.71,
+            0.89,
+            1.28
+          ],
+          "working_set_median_mib": 110.6,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 1.42
+        },
+        {
+          "n": 2,
+          "ready": 2,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 3922.2,
+          "per_process_median_steps_per_s": 1961.1,
+          "per_process_min_max_steps_per_s": [
+            1951.2,
+            1971.1
+          ],
+          "efficiency_pct": 99.2,
+          "latency_ms_median_p95_p99_max": [
+            0.49,
+            0.71,
+            0.89,
+            1.35
+          ],
+          "working_set_median_mib": 110.0,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 3.39
+        },
+        {
+          "n": 3,
+          "ready": 3,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 5706.9,
+          "per_process_median_steps_per_s": 1898.9,
+          "per_process_min_max_steps_per_s": [
+            1875.7,
+            1932.5
+          ],
+          "efficiency_pct": 96.3,
+          "latency_ms_median_p95_p99_max": [
+            0.51,
+            0.74,
+            0.93,
+            11.73
+          ],
+          "working_set_median_mib": 109.8,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 5.19
+        },
+        {
+          "n": 4,
+          "ready": 4,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 7322.2,
+          "per_process_median_steps_per_s": 1828.6,
+          "per_process_min_max_steps_per_s": [
+            1768.9,
+            1896.9
+          ],
+          "efficiency_pct": 92.6,
+          "latency_ms_median_p95_p99_max": [
+            0.52,
+            0.82,
+            1.06,
+            14.76
+          ],
+          "working_set_median_mib": 109.69999999999999,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 6.56
+        },
+        {
+          "n": 5,
+          "ready": 5,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 8525.4,
+          "per_process_median_steps_per_s": 1616.8,
+          "per_process_min_max_steps_per_s": [
+            1597.9,
+            1862.5
+          ],
+          "efficiency_pct": 86.3,
+          "latency_ms_median_p95_p99_max": [
+            0.55,
+            0.93,
+            1.26,
+            4.58
+          ],
+          "working_set_median_mib": 109.9,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 7.39
+        },
+        {
+          "n": 6,
+          "ready": 6,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 8844.2,
+          "per_process_median_steps_per_s": 1451.1,
+          "per_process_min_max_steps_per_s": [
+            1194.7,
+            1803.1
+          ],
+          "efficiency_pct": 74.6,
+          "latency_ms_median_p95_p99_max": [
+            0.61,
+            1.18,
+            1.71,
+            17.88
+          ],
+          "working_set_median_mib": 109.75,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 7.53
+        },
+        {
+          "n": 7,
+          "ready": 7,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 8850.7,
+          "per_process_median_steps_per_s": 1042.5,
+          "per_process_min_max_steps_per_s": [
+            1026.1,
+            1837.9
+          ],
+          "efficiency_pct": 64.0,
+          "latency_ms_median_p95_p99_max": [
+            0.66,
+            1.44,
+            2.45,
+            35.28
+          ],
+          "working_set_median_mib": 109.4,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 8.42
+        },
+        {
+          "n": 8,
+          "ready": 8,
+          "startup_failures": 0,
+          "aggregate_steps_per_s": 9209.0,
+          "per_process_median_steps_per_s": 1107.7,
+          "per_process_min_max_steps_per_s": [
+            677.6,
+            1751.5
+          ],
+          "efficiency_pct": 58.3,
+          "latency_ms_median_p95_p99_max": [
+            0.66,
+            1.82,
+            2.82,
+            60.25
+          ],
+          "working_set_median_mib": 109.2,
+          "process_leak": false,
+          "errors": [],
+          "driver_python_cpu_s": 9.42
+        }
+      ]
+    },
+    "m5_ppo_smoke_both_flags": {
+      "command": "python rl/m5_smoke.py --child-env SSB64_RL_NO_RENDER=1 --child-env SSB64_RAPHNET_DISABLE=1",
+      "result": "8/8 PASS",
+      "ppo_smoke": "PPO/MlpPolicy 512 timesteps, 5 episodes started / 4 finished, 4 rollouts, sb3 n_updates 8 (32 gradient steps), parameters changed, train wall 12.5 s, checkpoints ppo_00000256_steps.zip and ppo_00000512_steps.zip, final_model.zip reloaded, 20 inference steps all legal Track 1 pairs with canonical native triples recorded, 3 artifacts preserved, BattleShip.exe 0 before and after; config.json extra_env records both flags"
+    },
+    "regressions": {
+      "m5_smoke_normal": "8/8 PASS",
+      "m4_smoke": "5/5 PASS",
+      "m3_gym_smoke": "9/9 PASS",
+      "m2_restart_regression": "3/3 completed 446/447 exit 0, PASS",
+      "m2_lifecycle_smoke": "PASS (exit 0)",
+      "m1e_hand_launched_normal": "PASS 447/446/447/446, 21 rows unsent, result JSON 10/446/447, host_frame 511",
+      "m1e_hand_launched_no_render_raphnet_disabled": "PASS same values, stepping wall 0.25 s, log raphnet_disabled=1 + effective line",
+      "native_replay_checksum": "COMPLETE input_tick=447 time_passed=446, input exhausted frames=468 actual_checksum=0x93E9EFB4, with and without the flag (bypass regression cases)",
+      "process_leaks": "0 BattleShip.exe after every suite"
+    }
   }
 }

@@ -541,6 +541,38 @@ int rlNoRenderIsEnabled(void);
  * Never changes state; a no-op (returns 0) when stepping is not registered. */
 int rlStepHostWaitParked(unsigned int timeout_ms);
 
+/* -- M6 follow-up: opt-in process-local Raphnet adapter bypass -------------- */
+
+/*
+ *   SSB64_RAPHNET_DISABLE=1   training-only: libultraship's
+ *                             ControlDeck::PreInitRaphnet reads this variable
+ *                             itself and skips native Raphnet N64 USB adapter
+ *                             support for the process (no hidapi open, no
+ *                             per-read USB poll), the same state as the
+ *                             gControllers.Raphnet.Enabled=0 kill switch but
+ *                             without reading, registering or writing that
+ *                             console variable, so nothing can be persisted
+ *                             into the user's configuration. The variable is
+ *                             kept only while interactive stepping is
+ *                             effective (SSB64_RL_STEP=1 and no
+ *                             SSB64_BTT_INPUT): otherwise rlConfigInit()
+ *                             removes it from this process's environment
+ *                             before the game boots and logs that it was
+ *                             ignored, so an ordinary launch, a native replay
+ *                             and a non-stepping RL run keep the configured
+ *                             adapter path. Independent of SSB64_RL_NO_RENDER:
+ *                             each is set explicitly by the launcher.
+ *
+ * The RL input path never depends on the adapter: rlStepControllerRead()
+ * supplies player 0 for every gameplay tick and the native controller read of
+ * the controller thread only feeds the stock (unused) pad. Bypassing the
+ * adapter therefore changes no action, observation, tick or timing semantics;
+ * it removes host work only.
+ */
+
+/* 1 when SSB64_RAPHNET_DISABLE=1 was kept for this process (effective interactive stepping), 0 otherwise. */
+int rlRaphnetDisableIsEnabled(void);
+
 /* -- Internal seams inside port/rl ----------------------------------------- */
 
 void rlStepRegister(void);                             /* from rlRuntimeRegister() */

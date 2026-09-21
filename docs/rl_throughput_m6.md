@@ -34,6 +34,23 @@ reset, save states, camera, capture or video work.
 | `docs/rl_throughput_m6_experiments.json` | attribution experiments (not implemented as features) and the equivalence summary |
 | `docs/rl_transport_m1d.md` | the `status` row gains the `no_render` field |
 
+M6 follow-up (process-local Raphnet adapter bypass, documented in the
+section of that name below):
+
+| File | Role |
+| --- | --- |
+| `libultraship/src/ship/controller/controldeck/ControlDeck.cpp` | submodule, uncommitted: `PreInitRaphnet()` honours `SSB64_RAPHNET_DISABLE=1` before reading the console variable (generic, one file) |
+| `port/rl/rl_boot.cpp` | parses `SSB64_RAPHNET_DISABLE`; effective only with effective interactive stepping, otherwise removed from the process environment before the game boots and logged as ignored; `rlRaphnetDisableIsEnabled()` |
+| `port/rl/rl.h` | contract of the bypass |
+| `port/rl/rl_transport.cpp` | additive `raphnet_disabled` boolean in the `status` response |
+| `rl/m6_equivalence_regression.py` | now three kinds: normal, no-render, no-render + bypass (`--candidates`), artifact replay through each candidate kind |
+| `rl/m6_raphnet_bypass_regression.py` | new: precedence / mode combinations, native replay with the flag, adapter evidence from the libultraship log, byte-level configuration-persistence check with backup |
+| `docs/rl_throughput_m6_raphnet_bypass_baseline.json` | `rl/tools/bench.py` report, no-render + bypass, 1..8 processes, final executable |
+| `docs/rl_throughput_m6_raphnet_followup_normal_reference.json` | same session, normal visual mode (single-process sections) |
+| `docs/rl_throughput_m6_raphnet_followup_no_render_reference.json` | same session, no-render with the adapter polled (single-process sections) |
+| `docs/rl_throughput_m6_experiments.json` | gains the `raphnet_bypass_final` section (final measurements beside the original experiment) |
+| `docs/rl_transport_m1d.md` | the `status` row gains the `raphnet_disabled` field |
+
 `decomp/`, `libultraship/`, `torch/`, CMake, `rl/battleship_client.py`,
 `rl/battleship_process.py`, `rl/battleship_env.py`, `rl/run_artifacts.py`,
 `rl/btt_learning.py`, `rl/tools/bench.py` and every M1e/M2/M3/M4 smoke or
@@ -315,6 +332,10 @@ core each would fit on this machine). The attribution below identifies it.
 
 ## Residual attribution: the native controller adapter (experiment, not implemented)
 
+(Historical M6 measurements, kept as the original Raphnet-active baseline.
+The M6 follow-up section at the end of this document implements the switch
+and remeasures everything on the final executable.)
+
 A temporary per-thread timer (steady-clock accumulation around every
 coroutine resume in `port_resume_service_threads` and around the
 `PortPushFrame` segments; added, measured, reverted, never committed, the
@@ -433,11 +454,14 @@ or run; Linux CI was not modified.
    the Python learner), remeasured with the learner in the loop; **N = 3**
    if the adapter must stay active. The M4 figure of 91 % at N = 5 no longer
    describes the optimised path.
-3. If a per-process adapter switch is wanted, the smallest option is an
-   environment override in `ControlDeck::PreInitRaphnet` next to the
-   existing `SSB64_RAPHNET_MOCK` (a `libultraship` change on the user's fork),
-   validated with the M6 equivalence regression exactly as the no-render
-   mode was.
+3. (Implemented by the M6 follow-up below.) The per-process adapter switch
+   is `SSB64_RAPHNET_DISABLE=1`, an environment override in
+   `ControlDeck::PreInitRaphnet` next to the existing `SSB64_RAPHNET_MOCK`
+   (a one-file `libultraship` change), validated with the M6 equivalence
+   regression exactly as the no-render mode was. Training processes should
+   set both `SSB64_RL_NO_RENDER=1` and `SSB64_RAPHNET_DISABLE=1`; the final
+   scaling curve is in that section and supersedes the isolated-copy numbers
+   above.
 
 ## Limitations
 
@@ -446,6 +470,14 @@ or run; Linux CI was not modified.
 - The residual 2.7 ms per step and the 490 steps/s ceiling are properties of
   this machine's attached adapter, not of the mode; numbers on another
   machine will differ in that segment.
+- (Follow-up) The bypass needs the uncommitted `libultraship` change; a
+  build from the committed submodule pointer ignores `SSB64_RAPHNET_DISABLE`
+  while the port still reports it. The bypass does not skip-list the
+  adapter's vendor id for SDL (same as the `Enabled = 0` kill switch), so
+  SDL may still enumerate it as a plain joystick; that path is event-driven
+  and did not show up in any measurement. The M2 launcher's startup race
+  under concurrent launches (one `transport_failure` at N = 6 in one of two
+  sweeps) is pre-existing and unrelated to the bypass.
 - `host_frame` values are identical between the modes today, but only the
   authoritative fields are asserted; a future change that alters boot frame
   counts would show up as a reported, not asserted, difference.
@@ -493,16 +525,378 @@ python rl/m2_restart_regression.py
 python rl/m2_lifecycle_smoke.py
 python rl/m1e_replay_regression.py --port 52101      (hand-launched normal process, no SSB64_RL_EXIT_ON_END)
 python rl/m1e_replay_regression.py --port 52102      (hand-launched SSB64_RL_NO_RENDER=1 process)
+
+(M6 follow-up, final executable sha256 57d61fe0b2a60265...)
+cmake --build build-us --config Release
+git diff --check                                      (parent and libultraship)
+python rl/m6_equivalence_regression.py --repeats 2 --out <json>
+python rl/m6_raphnet_bypass_regression.py --out <json> --run-dir <dir>
+python rl/tools/bench.py --only startup,rtt,step,serialization,memory,reliability --out docs/rl_throughput_m6_raphnet_followup_normal_reference.json
+python rl/tools/bench.py --only startup,rtt,step,serialization,memory,reliability --child-env SSB64_RL_NO_RENDER=1 --out docs/rl_throughput_m6_raphnet_followup_no_render_reference.json
+python rl/tools/bench.py --child-env SSB64_RL_NO_RENDER=1 --child-env SSB64_RAPHNET_DISABLE=1 --max-processes 8 --out docs/rl_throughput_m6_raphnet_bypass_baseline.json
+python rl/tools/bench.py --only multiprocess --max-processes 8 --child-env SSB64_RL_NO_RENDER=1 --child-env SSB64_RAPHNET_DISABLE=1
+python rl/m5_smoke.py --child-env SSB64_RL_NO_RENDER=1 --child-env SSB64_RAPHNET_DISABLE=1
+python rl/m5_smoke.py
+python rl/m4_smoke.py
+python rl/m3_gym_smoke.py
+python rl/m2_restart_regression.py
+python rl/m2_lifecycle_smoke.py
+python rl/m1e_replay_regression.py --port 52101      (hand-launched normal process)
+python rl/m1e_replay_regression.py --port 52102      (hand-launched SSB64_RL_NO_RENDER=1 SSB64_RAPHNET_DISABLE=1 process)
 build-us/Release/BattleShip.exe with SSB64_RL_BTT=1 SSB64_BTT_INPUT=<replay> SSB64_MAX_FRAMES=1500            (checksum run)
 build-us/Release/BattleShip.exe with SSB64_RL_BTT=1 SSB64_BTT_INPUT=<replay> SSB64_RL_EXIT_ON_END=1 SSB64_RL_STEP=1 SSB64_RL_NO_RENDER=1 SSB64_RL_PORT=52103   (precedence run)
 ```
+
+## M6 follow-up: the process-local Raphnet adapter bypass (`SSB64_RAPHNET_DISABLE=1`)
+
+The residual attributed above (2.6 ms per native tick spent by the
+controller thread polling the attached Raphnet N64 USB adapter over USB HID,
+serialised machine-wide by the host HID stack) is removed for opted-in
+training processes by one explicit, process-local override. Rendering and
+physical-controller polling remain separate capabilities: the training
+launcher sets `SSB64_RL_NO_RENDER=1` and `SSB64_RAPHNET_DISABLE=1`
+independently; neither implies the other.
+
+### Phase A: what was traced before editing
+
+- `gControllers.Raphnet.Enabled` is read once, in
+  `ControlDeck::PreInitRaphnet()` (`libultraship/src/ship/controller/controldeck/ControlDeck.cpp`),
+  through `ConsoleVariable::GetInteger(name, 1)`, a pure read that does not
+  register the variable. The user's `build-us/Release/BattleShip.cfg.json`
+  contains no `gControllers.Raphnet` key at all.
+- Devices are opened only by `RaphnetPhysicalDeviceManager::Init()`
+  (`hid_init`, enumerate, `Open`, channel probe, port claim), which only
+  `PreInitRaphnet` creates. `PreInitRaphnet` is called from libultraship's
+  `osContInit` (`libultra/os.cpp`), reached from the game's controller
+  initialisation, i.e. after `Ship::Context` (config load) and after the
+  port's `rlConfigInit()`.
+- Per-frame polling: `ControlDeck::Init` installs `SetRaphnetBinding` on
+  every claimed port; `LUS::Controller::ReadToOSContPad` then performs one
+  USB feature-report `Poll` per read. The decomp controller thread calls
+  `osContStartReadData` / `osContGetReadData` every native tick
+  (`decomp/src/sys/controller.c`), in every mode.
+- A null manager already means "disabled": `ControlDeck::Init` installs no
+  binding, `ShutdownRaphnet` returns early, `RaphnetDropPortBinding` and the
+  input editor null-check, and the port's shutdown (`port/port.cpp`,
+  `cd->ShutdownRaphnet()`) is safe. This is the state the `Enabled = 0`
+  kill switch produces, so it is an exercised path, not a new one.
+- RL input does not depend on the adapter: `rlStepControllerRead()` hands
+  the submitted action to the BTT read, which writes it into the saved
+  input and publishes it; the polled pad of the stock read is not consulted.
+- Persistence: `ConsoleVariable::Save()` copies every in-memory console
+  variable into the config and rewrites the whole file; it runs from about
+  thirty controller-mapping paths, `CVarSave()` in the port GUI,
+  `Gui::SaveConsoleVariablesNextFrame`, and `Context::~Context` saves the
+  config on every exit. Any in-memory change to the variable, however
+  transient, could therefore be persisted. A parent-only implementation
+  through the variable was rejected for that reason, and `PreInitRaphnet`
+  has no other input, so a minimal libultraship change is genuinely
+  required.
+- Config location: the parent build is portable (`NON_PORTABLE` only under
+  the removed UWP packaging), so `Context::GetAppDirectoryPath()` is `.` and
+  the config is `<cwd>/BattleShip.cfg.json`; the M2 launcher runs every
+  process with the executable directory as cwd, so
+  `build-us/Release/BattleShip.cfg.json` is the file to protect. libultraship's
+  Release log (`build-us/Release/logs/BattleShip.log`, rotating, appended
+  across processes) carries the adapter transport's warning-level
+  diagnostics but no INFO lines; the port log (`%APPDATA%\BattleShip\ssb64.log`)
+  is truncated per process.
+
+### The override
+
+| Where | What |
+| --- | --- |
+| `libultraship` `ControlDeck::PreInitRaphnet()` | If the process environment has `SSB64_RAPHNET_DISABLE` equal to exactly `1`, log one line and return before the console variable is read: no manager, no `hid_init`, no device open, no port claim, no binding, no per-read poll, and `ShutdownRaphnet` is a no-op. Any other value, or the variable absent, leaves the function byte-for-byte on its previous path. Generic (no game or RL logic), one file, sibling of the existing `SSB64_RAPHNET_MOCK` override in the same subsystem. |
+| `port/rl/rl_boot.cpp` | Parses the same variable. It is effective only with effective interactive stepping (`SSB64_RL_BTT=1`, `SSB64_RL_STEP=1`, no `SSB64_BTT_INPUT`), the same rule as `SSB64_RL_NO_RENDER`. When it is present but not effective (ordinary launch, native replay, RL run without stepping) `rlConfigInit()` removes it from the process's own environment (`_putenv_s` / `unsetenv`) before `PortGameInit()` reaches `osContInit`, and logs `SSB64_RAPHNET_DISABLE=1 ignored: <reason>; native Raphnet adapter support kept as configured`. The launcher's environment is never touched (a child only receives a copy). |
+| `port/rl/rl_transport.cpp` | `status` gains the additive boolean `raphnet_disabled` (constant per process, configuration, not an observation; protocol version unchanged). |
+
+Why it cannot modify persistent configuration: the libultraship branch
+returns before `GetInteger` and never calls `SetInteger`, `RegisterInteger`
+or `Save`; the port never touches a console variable either. The console
+variable store is therefore identical to a run without the flag, so every
+save path (including the unconditional save on exit) writes exactly what it
+would have written anyway. The precedence regression below proves it at the
+byte level.
+
+Behaviour when absent: unchanged. Behaviour of the flag outside effective
+stepping: ignored and logged (so a shell that exported it for a training
+session cannot accidentally disable the adapter for ordinary play). Under
+the bypass the adapter is not skip-listed for SDL, exactly as with the
+`Enabled = 0` kill switch; the input editor shows no native binding and
+the RL process never reads a physical pad for player 0 anyway.
+
+Log evidence: `SSB64 RL: enabled ... raphnet_disabled=1` and
+`SSB64 RL Raphnet: SSB64_RAPHNET_DISABLE=1 effective: native Raphnet adapter
+support is bypassed for this process (libultraship ControlDeck::PreInitRaphnet;
+no console variable read or written)`. Protocol evidence: `status` ->
+`"raphnet_disabled": true`. libultraship evidence (Release log level): no
+`[raphnet-diag] Open(` / `hid_open_path OK` line is appended by a bypassed
+process, whereas every non-bypassed process on this machine appends them.
+
+Launch configuration (no new Python path; the same `extra_env` /
+`--child-env` plumbing as M6):
+
+```text
+python rl/tools/bench.py --child-env SSB64_RL_NO_RENDER=1 --child-env SSB64_RAPHNET_DISABLE=1 --out <json>
+python rl/m5_smoke.py   --child-env SSB64_RL_NO_RENDER=1 --child-env SSB64_RAPHNET_DISABLE=1
+python rl/train_m5.py   --child-env SSB64_RL_NO_RENDER=1 --child-env SSB64_RAPHNET_DISABLE=1
+python rl/m6_equivalence_regression.py [--repeats N] [--candidates no_render,no_render_raphnet_disabled] [--out <json>]
+python rl/m6_raphnet_bypass_regression.py [--out <json>] [--run-dir <dir>]
+```
+
+### Semantic equivalence (three kinds, `rl/m6_equivalence_regression.py --repeats 2`)
+
+The regression now launches one normal process and, per candidate kind,
+`--repeats` processes: `no_render` (`SSB64_RL_NO_RENDER=1`) and
+`no_render_raphnet_disabled` (`SSB64_RL_NO_RENDER=1` and
+`SSB64_RAPHNET_DISABLE=1`). Each process must report exactly the expected
+`no_render` / `raphnet_disabled` pair in `status`. The comparison is
+unchanged: the initial observation and, for every one of the 447 submitted
+steps, `state`, `step_count`, `consumed_tick` and all 16 authoritative
+observation fields, exact equality and same type, `host_frame` reported
+only. The canonical M4 artifact of the normal trace is resubmitted through a
+fresh process of each candidate kind.
+
+| Trace | actions | last consumed_tick | completion_time_passed / completion_input_tick | step_count | targets | state | exit | rows unsent | anomaly events (300) | host_frame | stepping wall (informational) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| normal | 447 | 446 | 446 / 447 | 447 | 0 | EpisodeEnded | 0 | 21 | 0 | 511 | 14.90 s |
+| no_render (x2) | 447 | 446 | 446 / 447 | 447 | 0 | EpisodeEnded | 0 | 21 | 0 | 511 | 1.46 s |
+| no_render_raphnet_disabled (x2) | 447 | 446 | 446 / 447 | 447 | 0 | EpisodeEnded | 0 | 21 | 0 | 511 | 0.28 s |
+| artifact replay through no_render | 447 | 446 | 446 / 447 | 447 | 0 | EpisodeEnded | 0 | 21 | n/a | 511 | |
+| artifact replay through no_render_raphnet_disabled | 447 | 446 | 446 / 447 | 447 | 0 | EpisodeEnded | 0 | 21 | n/a | 511 | |
+
+Result: PASS. Every candidate equivalent to normal on all 447 steps plus the
+initial observation (`consumed_tick` = source row index, `input_tick` =
+source row index + 1 on every step through the M1e per-row checks),
+`host_frames_identical = true` throughout, result JSON 10 / 446 / 447 on
+every process, `BattleShip.exe` 0 before and after. No divergence occurred,
+so no first divergent tick exists to report.
+
+### Precedence, native replay and configuration persistence (`rl/m6_raphnet_bypass_regression.py`)
+
+Eight fresh, sequential processes on the final executable, the user's real
+`build-us/Release/BattleShip.cfg.json` backed up first (36885 bytes, sha256
+`1b29d91b80051a13...`, `gControllers.Raphnet` absent) and hashed plus
+JSON-compared after every process:
+
+| Case | Environment | Expected and observed |
+| --- | --- | --- |
+| ordinary_launch_no_flag | `SSB64_MAX_FRAMES=300` | no RL line; adapter opened (reference for "as configured") |
+| ordinary_launch_with_flag | + `SSB64_RAPHNET_DISABLE=1` | `ignored: SSB64_RL_BTT is not set (ordinary launch)`; adapter opened |
+| rl_step_no_flag | M2 stepping | status `no_render=false raphnet_disabled=false`; 447 / 446 / 446 / 447, exit 0, 21 unsent; adapter opened |
+| rl_step_raphnet_disabled | M2 stepping + flag (visible host) | status `false / true`; `effective` line; same contract; adapter not opened |
+| rl_step_no_render_raphnet_disabled | M2 stepping + both flags | status `true / true`; same contract; adapter not opened |
+| native_replay_no_flag | `SSB64_RL_BTT=1 SSB64_BTT_INPUT=<mario_743.btti> SSB64_MAX_FRAMES=1500` | `COMPLETE input_tick=447 time_passed=446`, `input exhausted frames=468 actual_checksum=0x93E9EFB4`, result JSON 10 / 446 / 447; adapter opened |
+| native_replay_with_flag | + `SSB64_RAPHNET_DISABLE=1` | `ignored: SSB64_BTT_INPUT is set (native replay keeps precedence)`, `step=0 transport_port=0 no_render=0 raphnet_disabled=0`; same COMPLETE, checksum and result JSON; adapter opened |
+| native_replay_all_flags | replay + `SSB64_RL_EXIT_ON_END=1 SSB64_RL_STEP=1 SSB64_RL_NO_RENDER=1 SSB64_RAPHNET_DISABLE=1 SSB64_RL_PORT=52103` | both `ignored` lines, `the replay keeps precedence`, `step=0 transport_port=0 no_render=0 raphnet_disabled=0`, COMPLETE 447 / 446, result JSON identical, clean exit 0; adapter opened |
+
+Result: 8/8 PASS; the config file was byte-identical (same sha256) after
+every one of the eight processes, `CVars`, `CVars.gControllers`, the
+(absent) `gControllers.Raphnet` key and `Window` all unchanged; process
+count 0 before and after. The exit-time config save of libultraship ran
+after every process and rewrote identical bytes, which is the direct
+evidence that the override adds nothing to the saved state. Note that the
+first attempt of this script failed on its own port-log reader (it read the
+truncated-per-process log from the previous file size); the harness was
+fixed and the run repeated; no game behaviour was involved.
+
+### Three-mode performance (final executable, same session)
+
+Environment as in Phase D (Windows 11, 6 logical CPUs, Python 3.13.2,
+`build-us/Release/BattleShip.exe` sha256 `57d61fe0b2a60265...` built from
+`1868008` plus the uncommitted follow-up, Raphnet adapter attached,
+`SSB64_RL_TIMING=1` in the child). Commands:
+`python rl/tools/bench.py --only startup,rtt,step,serialization,memory,reliability --out docs/rl_throughput_m6_raphnet_followup_normal_reference.json`,
+the same with `--child-env SSB64_RL_NO_RENDER=1` into
+`docs/rl_throughput_m6_raphnet_followup_no_render_reference.json`, and the
+full benchmark with `--child-env SSB64_RL_NO_RENDER=1 --child-env
+SSB64_RAPHNET_DISABLE=1 --max-processes 8` into
+`docs/rl_throughput_m6_raphnet_bypass_baseline.json` (221 s).
+
+| Metric | normal visible | no-render, adapter polled | no-render + bypass | bypass vs no-render |
+| --- | --- | --- | --- | --- |
+| startup to fresh, median (min / p95 / max) (s) | 3.341 (3.175 / 3.530 / 3.530) | 2.234 (2.127 / 2.452 / 2.452) | 2.059 (2.041 / 2.284 / 2.284) | |
+| raw M1d step median (ms) | 33.31 | 3.07 | 0.45 | 6.8x |
+| raw step min / p95 / p99 / max (ms) | 32.66 / 33.53 / 33.64 / 33.86 | 2.38 / 4.03 / 4.40 / 5.62 | 0.29 / 0.71 / 0.87 / 1.04 | |
+| raw native ticks/s | 30.0 | 315.6 | 2112.5 | 6.7x |
+| M3 `env.step()` median (ms) | 33.33 | 3.08 | 0.50 | |
+| M3 native ticks/s (Gym) | 30.0 | 319.7 | 1894.6 | 5.9x |
+| `gate_open_to_consume` median (controller / pre-read) (ms) | 2.83 | 2.72 | 0.23 | |
+| `consume_to_logic_done` median (game update) (ms) | 0.06 | 0.05 | 0.03 | |
+| `logic_done_to_observation` median (render + present) (ms) | 13.75 | 0.00 | 0.00 | |
+| `submit_to_gate_open` median (ms) | 16.28 | 0.01 | 0.01 | |
+| native total median (ms) | 33.04 | 2.85 | 0.31 | |
+| child CPU per step, `GetProcessTimes` (ms) | 8.61 | 0.67 | 0.37 | |
+| full 447-action replay wall, median (min / max) (s) | 14.891 (14.887 / 14.900) | 1.435 (1.424 / 1.473) | 0.266 (0.261 / 0.274) | 5.4x |
+| reliability (10 fresh episodes) | 10/10 | 10/10 | 10/10 | |
+| working set after stepping (MiB) | 132.7 | 110.6 | 110.0 | |
+| RTT ping / status / observe medians (ms) | 0.097 / 0.107 / 0.124 | 0.095 / 0.099 / 0.118 | 0.114 / 0.106 / 0.121 | |
+
+Measured facts: the bypass removes 2.5 ms of the 2.7 ms pre-read segment
+(`gate_open_to_consume` 2.72 -> 0.23 ms) and nothing else changes shape;
+the raw step is 0.45 ms median (about 74x the visible-window baseline). The
+remaining 0.23 ms is the scheduler round, the message pump, vblank and the
+controller thread's keyboard / SDL read. Boot to fresh also loses the
+adapter's open and probe time (2.23 -> 2.06 s).
+
+### Process scaling with no-render + bypass (final executable)
+
+Same driver and definitions as Phase E (10 s window per level, all
+processes fresh before the window opens, efficiency = aggregate / (N x the
+N = 1 aggregate)). `--max-processes 8` was run because the isolated-copy
+experiment had been stable to N = 6.
+
+| N | ready | aggregate (steps/s) | per-process median (min / max) | efficiency | latency median / p95 / p99 / max (ms) | working set (MiB) | leak |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1/1 | 1976 | 1976 | 100 % | 0.49 / 0.71 / 0.88 / 1.4 | 110.6 | no |
+| 2 | 2/2 | 3853 | 1927 (1907 / 1946) | 97 % | 0.50 / 0.74 / 0.94 / 1.5 | 109.7 | no |
+| 3 | 3/3 | 5595 | 1883 (1813 / 1899) | 94 % | 0.51 / 0.82 / 1.06 / 8.6 | 109.7 | no |
+| 4 | 4/4 | 7073 | 1755 (1729 / 1835) | 89 % | 0.53 / 0.88 / 1.15 / 2.4 | 110.0 | no |
+| 5 | 5/5 | 8273 | 1729 (1502 / 1770) | 84 % | 0.56 / 0.99 / 1.36 / 7.5 | 109.8 | no |
+| 6 | 5/6 (one startup failure, see below) | 8262 | 1564 (1557 / 1812) | 70 % of 6, 84 % of the 5 ready | 0.56 / 0.99 / 1.33 / 3.7 | 109.4 | no |
+| 7 | 7/7 | 8901 | 980 (955 / 1709) | 64 % | 0.66 / 1.51 / 2.15 / 29.2 | 109.4 | no |
+| 8 | 8/8 | 8906 | 1317 (602 / 1543) | 56 % | 0.69 / 1.90 / 3.33 / 488.2 | 109.5 | no |
+
+Failures and timeouts: one, at N = 6, process index 2: the M2 launcher's
+`transport_failure` at startup ("status request failed before a fresh
+episode was established; process still alive"), the same category the
+original M6 isolated-copy sweep hit once at N = 4. The process was
+terminated by the launcher, the level ran with 5 ready processes, no error
+was recorded in the window, and the machine-wide process count was 0 after
+every level. This is a startup race of concurrent launches in the M2
+lifecycle, not an effect of the bypass (the bypassed single-process startup
+succeeded 5/5, 10/10 and in every regression). CPU utilisation: the driver
+(one Python process, one thread per BattleShip) used 8.2 to 8.5 s of CPU
+per 10 s level at N = 6..8, i.e. the Python driver itself is near one core
+at these aggregates; per-process child CPU is 0.37 ms per step (about
+0.75 of a core per process at 2000 steps/s). From N = 7 on the six logical
+CPUs are oversubscribed and per-process rates split into two groups (about
+960 and about 1700 steps/s at N = 7; 600 to 1540 at N = 8) with long tails
+(p99 3.3 ms, max 488 ms at N = 8): aggregate throughput is flat at about
+8900 steps/s and only latency variance grows.
+
+A second sweep of the same levels (`python rl/tools/bench.py --only
+multiprocess --max-processes 8 --child-env SSB64_RL_NO_RENDER=1 --child-env
+SSB64_RAPHNET_DISABLE=1`, same session, after the whole regression suite;
+summarised in `docs/rl_throughput_m6_experiments.json` under
+`raphnet_bypass_final.multiprocess_sweep_2`) had every process ready at
+every level and no failure:
+
+| N | ready | aggregate (steps/s) | per-process median | efficiency |
+| --- | --- | --- | --- | --- |
+| 1 | 1/1 | 1976 | 1976 | 100 % |
+| 2 | 2/2 | 3922 | 1961 | 99 % |
+| 3 | 3/3 | 5707 | 1899 | 96 % |
+| 4 | 4/4 | 7322 | 1829 | 93 % |
+| 5 | 5/5 | 8525 | 1617 | 86 % |
+| 6 | 6/6 | 8844 | 1451 | 75 % |
+| 7 | 7/7 | 8851 | 1043 | 64 % |
+| 8 | 8/8 | 9209 | 1108 | 58 % |
+
+Both sweeps agree within a few percent at every level; the N = 6 startup
+failure of the first sweep did not recur.
+
+Interpretation (not a measured fact): the machine-wide serialisation seen
+with the adapter polled (about 490 steps/s ceiling) is gone; scaling is now
+bounded by CPU (six logical CPUs shared by N game processes and one
+near-saturated Python driver), which is why efficiency falls gradually
+instead of collapsing. For M7 on this machine, N = 4 (7073 steps/s at
+89 %) or N = 5 (8273 steps/s at 84 %) leave one to two logical CPUs for
+the learner; N >= 6 buys nothing.
+
+### M5 PPO smoke with both optimisations
+
+`python rl/m5_smoke.py --child-env SSB64_RL_NO_RENDER=1 --child-env
+SSB64_RAPHNET_DISABLE=1`: 8/8 PASS, `BattleShip.exe` 0 before and after;
+the PPO run's `config.json` records both flags in `extra_env`. `ppo_smoke`
+(one environment, PPO/MlpPolicy, 512 timesteps, max_episode_steps 128,
+n_steps 128, batch 32, 2 epochs): PPO initialised, 512 real native ticks,
+5 episodes started / 4 finished (terminated or truncated normally),
+4 rollouts, 8 SB3 optimizer updates (32 gradient steps), parameters
+changed, checkpoints at 256 and 512 steps, final model saved, reloaded,
+20 inference steps from the reloaded model with every action a legal Track 1
+pair and the canonical native triples recorded (`[8, 80, 80]` for
+up-right + C-up, consumed ticks 0..19), 3 artifacts preserved
+(`new_best_target_count`, 2 periodic), evaluation artifact preserved; train
+wall 12.5 s (M6 no-render only: 15.0 s; normal: 34.7 s; the remaining time
+is process restart per episode, about 2 s each). `baseline_reward`,
+`learning_reset_step`, `failure_truncation` (`SSB64_MAX_FRAMES=600` layered
+on both flags) and `save_load_inference` all PASS. No serious training was
+started and no claim about learning quality is made.
+
+### Regression results of the follow-up (final executable, sequential, `SSB64_RL_TIMING` unset)
+
+| Suite | Command | Result |
+| --- | --- | --- |
+| M6 equivalence, three kinds | `python rl/m6_equivalence_regression.py --repeats 2` | PASS (table above) |
+| Raphnet bypass precedence + persistence | `python rl/m6_raphnet_bypass_regression.py` | 8/8 PASS, config byte-identical |
+| M5 smoke, both flags | `python rl/m5_smoke.py --child-env SSB64_RL_NO_RENDER=1 --child-env SSB64_RAPHNET_DISABLE=1` | 8/8 PASS |
+| M5 smoke, normal | `python rl/m5_smoke.py` | 8/8 PASS |
+| M4 smoke | `python rl/m4_smoke.py` | 5/5 PASS |
+| M3 smoke | `python rl/m3_gym_smoke.py` | 9/9 PASS |
+| M2 restart | `python rl/m2_restart_regression.py` | 3/3 episodes 446 / 447, exit 0, result JSON ok, PASS |
+| M2 lifecycle | `python rl/m2_lifecycle_smoke.py` | PASS (exit 0) |
+| M1e, hand-launched normal process | `python rl/m1e_replay_regression.py --port 52101` | PASS 447 / 446 / 447 / 446, 21 rows after completion, result JSON 10 / 446 / 447, host_frame 511 |
+| M1e, hand-launched no-render + bypass process | `python rl/m1e_replay_regression.py --port 52102` | PASS, same values, stepping wall 0.25 s, log `raphnet_disabled=1` and the `effective` line |
+| native replay, checksum run, with and without the flag | bypass regression cases `native_replay_*` | `COMPLETE input_tick=447 time_passed=446`, `input exhausted frames=468 actual_checksum=0x93E9EFB4`, result JSON 10 / 446 / 447 |
+| native replay precedence, every flag | bypass regression case `native_replay_all_flags` | `step=0 transport_port=0 no_render=0 raphnet_disabled=0`, both `ignored` lines, replay completes 447 / 446, clean exit 0 |
+
+`BattleShip.exe` count was 0 after every suite, after the three benchmarks
+and both sweeps, and after the hand-launched runs (those two processes ran
+without `SSB64_RL_EXIT_ON_END` and were terminated by the harness after the
+regression, as in M6). `git diff --check` clean in the parent and the
+submodule. Build: `cmake --build build-us --config Release`, exit 0, only
+the pre-existing warnings. Linux was not built or run.
+
+### Submodule change and commit order
+
+`libultraship` is a pinned submodule whose only configured remote is
+`https://github.com/JRickey/libultraship.git` (fetch and push), detached at
+`89d9de83` (on `origin/ssb64`). The follow-up leaves one uncommitted change
+inside it (`src/ship/controller/controldeck/ControlDeck.cpp`, +17 lines,
+`<cstdlib>` include and the early return) and the parent shows the pointer
+as `89d9de83-dirty`. Nothing was committed, pushed, branched or re-pointed,
+and no remote was changed. The change cannot be pushed to the configured
+remote (JRickey-owned); it needs the user's own fork. The order to use:
+
+1. In `libultraship/`: `git checkout -b <branch>` (from the detached
+   `89d9de83`), `git add src/ship/controller/controldeck/ControlDeck.cpp`,
+   commit, add the user's fork as a remote (or change the URL with explicit
+   approval) and push there.
+2. In the parent: `git add libultraship` to stage the new submodule pointer,
+   and commit that pointer on its own (with `.gitmodules` updated to the
+   fork's URL if the URL was changed).
+3. Then commit the parent files of the follow-up (`port/rl/rl.h`,
+   `port/rl/rl_boot.cpp`, `port/rl/rl_transport.cpp`,
+   `rl/m6_equivalence_regression.py`, `rl/m6_raphnet_bypass_regression.py`,
+   `docs/rl_throughput_m6.md`, `docs/rl_transport_m1d.md`,
+   `docs/rl_throughput_m6_experiments.json`, the three new
+   `docs/rl_throughput_m6_raphnet_*.json` reports) separately.
+
+Until the submodule commit exists, a fresh clone at the parent's pointer
+builds an executable that ignores `SSB64_RAPHNET_DISABLE` (the port still
+logs the variable and `status.raphnet_disabled` would report `true`
+without the bypass being applied); `rl/m6_raphnet_bypass_regression.py`
+detects that case through the adapter evidence when an adapter is attached.
+
+### Rollback / disable of the follow-up
+
+Leave `SSB64_RAPHNET_DISABLE` unset: both the libultraship and the port
+paths are the pre-follow-up code verbatim. To remove the feature, revert
+the `PreInitRaphnet` hunk in `libultraship` and the follow-up hunks in
+`port/rl/rl.h`, `port/rl/rl_boot.cpp` and `port/rl/rl_transport.cpp` (the
+`status` field is additive; clients ignore it); run
+`rl/m6_equivalence_regression.py --candidates no_render` for the original
+two-kind comparison; `rl/m6_raphnet_bypass_regression.py` then fails at its
+status-flag check by design.
 
 ## Not in M6
 
 No binary or shared-memory IPC, no protocol change (version 1, one additive
 `status` field), no in-process reset, no save states, no serious PPO
 training, no reward or curriculum change, no new action space, no camera,
-capture or video work, no libultraship or torch change, no submodule pointer
-change, no adapter switch, no RNG inspection, logging, control, comparison
+capture or video work, no torch change, no submodule pointer change, no RNG
+inspection, logging, control, comparison
 or hashing, no change to the 300-unit threshold or to the 446 / 447
-contract.
+contract. The follow-up documented above adds the one-file `libultraship`
+Raphnet bypass (uncommitted) and nothing else from this list.
