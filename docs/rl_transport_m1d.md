@@ -130,4 +130,6 @@ with BattleShipClient(port=5555) as client:
 ```
 
 `rl/m1d_smoke.py` holds the verification tests (`single`, `delayed`,
-`errors`, `disconnect`, `baseline`, `shutdown`); see its docstring.
+`errors`, `disconnect`, `baseline`, `shutdown`); see its docstring. The
+permanent scripted-replay regression built on this client is
+`rl/m1e_replay_regression.py`; see `docs/rl_replay_regression_m1e.md`.

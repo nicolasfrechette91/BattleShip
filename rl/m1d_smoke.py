@@ -39,6 +39,7 @@ from battleship_client import (  # noqa: E402
     StepResult,
     StepState,
 )
+from btti_replay import read_btti_rows  # noqa: E402
 
 NEUTRAL = (int(Button.NONE), 0, 0)
 
@@ -60,25 +61,6 @@ def log(message: str) -> None:
 def expect(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
-
-
-def read_btti_rows(path: str) -> List[Tuple[int, int, int]]:
-    """Parse the BTT text replay exactly as decomp/src/sys/netreplay.c does:
-    '#' comments and blank lines skipped, rows are buttons_hex,stick_x,stick_y
-    with buttons in 0..0xFFFF and sticks in -128..127."""
-    rows: List[Tuple[int, int, int]] = []
-    with open(path, encoding="utf-8") as fp:
-        for lineno, line in enumerate(fp, 1):
-            if line.startswith("#") or line.strip() == "":
-                continue
-            parts = line.strip().split(",")
-            if len(parts) != 3:
-                raise ValueError(f"{path}:{lineno}: expected buttons_hex,stick_x,stick_y")
-            buttons, stick_x, stick_y = int(parts[0], 16), int(parts[1]), int(parts[2])
-            if not (0 <= buttons <= 0xFFFF and -128 <= stick_x <= 127 and -128 <= stick_y <= 127):
-                raise ValueError(f"{path}:{lineno}: value out of native range")
-            rows.append((buttons, stick_x, stick_y))
-    return rows
 
 
 def new_client(args: argparse.Namespace) -> BattleShipClient:
