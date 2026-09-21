@@ -114,3 +114,7 @@ debug_traces/
 # Local extraction / scratch directories used during debugging
 extract/
 test.zip
+
+# RL training runs (M5+): checkpoints, models, episode artifacts, per-episode
+# game files. Never committed (CLAUDE.md: no training runs, logs, checkpoints).
+/runs/

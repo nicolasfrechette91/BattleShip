@@ -79,12 +79,13 @@ NATIVE_ACTION_CONTRACT = "rlaction_native_v1"
 # Calibration (2026-09-21): about 215.525 units of vertical movement in one
 # native tick has been observed as legitimate Mario Up-B behaviour on the
 # tracked 7.43 s baseline (tick 148), so the earlier default of 200 fired on
-# normal play. 250 is a PRESERVATION HEURISTIC for the current Mario-only
+# normal play; the default went to 250 and then, later the same day, to 300
+# by project decision. 300 is a PRESERVATION HEURISTIC for the current Mario-only
 # Break the Targets environment: exceeding it means "worth keeping and
 # looking at", never "glitch". It is not a universal definition of anything;
 # other characters may need other thresholds, and character-specific
 # profiles are deliberately not implemented. Always overridable per detector.
-DEFAULT_POSITION_DELTA_THRESHOLD = 250.0
+DEFAULT_POSITION_DELTA_THRESHOLD = 300.0
 
 
 class PreservationReason(str, Enum):
@@ -184,7 +185,7 @@ class PositionDeltaDetector(ObservationDetector):
     == 1) inside an active BTT battle (btt_active == 1) are compared; zeros
     are never taken to mean 'the fighter is at the origin'. The threshold is
     a recording heuristic: exceeding it means 'worth preserving and looking
-    at', not 'glitch'. The default (DEFAULT_POSITION_DELTA_THRESHOLD, 250)
+    at', not 'glitch'. The default (DEFAULT_POSITION_DELTA_THRESHOLD, 300)
     sits above the roughly 215.525-unit one-tick vertical move of Mario's
     Up-B, which is legitimate; it is specific to the current Mario-only BTT
     environment and any caller may pass another value.
@@ -228,7 +229,7 @@ class PositionDeltaDetector(ObservationDetector):
 
 
 def default_detectors() -> List[ObservationDetector]:
-    """The detectors enabled by default in M4: the position-delta detector at DEFAULT_POSITION_DELTA_THRESHOLD (250)."""
+    """The detectors enabled by default in M4: the position-delta detector at DEFAULT_POSITION_DELTA_THRESHOLD (300)."""
     return [PositionDeltaDetector(DEFAULT_POSITION_DELTA_THRESHOLD)]
 
 

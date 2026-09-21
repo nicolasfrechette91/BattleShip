@@ -2,12 +2,18 @@
 #
 # M1/M2 (battleship_client.py, battleship_process.py, btti_replay.py and
 # their regressions) are standard library only and need nothing from here.
-# M3 (battleship_env.py, m3_gym_smoke.py) needs Gymnasium; NumPy comes with
-# it. No ML framework (PyTorch, Stable-Baselines3, JAX, TensorFlow) is
-# declared: none is part of the environment contract and none is linked
-# into the game.
+# M3 (battleship_env.py, m3_gym_smoke.py) and M4 (run_artifacts.py,
+# m4_smoke.py, tools/bench.py) need Gymnasium; NumPy comes with it.
+# M5 (btt_learning.py, train_m5.py, m5_smoke.py) adds Stable-Baselines3,
+# the single ML framework of this repository; PyTorch, NumPy and cloudpickle
+# come with it transitively. Nothing from here is linked into the game: the
+# environment contract (M1-M3) stays standard library + Gymnasium, and the
+# learner only talks to BattleShip through the M2/M3 Python stack.
 #
 #     python -m pip install -r rl/requirements.txt
 #
-# Verified with gymnasium 1.3.0 / numpy 2.5.3 on Python 3.13 (2026-09-21).
+# Verified with gymnasium 1.3.0 / numpy 2.5.3 on Python 3.13 (2026-09-21),
+# and with stable-baselines3 2.9.0 / torch 2.14.0 (CPU wheel) on the same
+# interpreter (M5, 2026-09-21; see docs/rl_learning_m5.md).
 gymnasium>=1.0,<2
+stable-baselines3>=2.9,<3

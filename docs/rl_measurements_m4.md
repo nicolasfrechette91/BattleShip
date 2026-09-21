@@ -210,7 +210,7 @@ event marks the episode for preservation and is stored with its evidence;
 the episode continues normally and the artifact holds the complete
 trajectory before and after the event.
 
-`PositionDeltaDetector(threshold=250.0)` is the only detector enabled by
+`PositionDeltaDetector(threshold=300.0)` is the only detector enabled by
 default: `dx = current.position_x - previous.position_x` (likewise `dy`),
 compared only when both observations have `fighter_valid == 1` and
 `btt_active == 1` (validity is the explicit flag; zeros are never read as a
@@ -226,8 +226,9 @@ tick, and on the tracked 7.43 s baseline that fired exactly once, at
 one-tick vertical move of about 215.525 units (position y 717.0 -> 932.5,
 x -4.0), Mario airborne on both sides with fighter status 226 unchanged.
 That move is legitimate Mario Up-B behaviour. The default was therefore
-raised to 250, and the baseline is now preserved for its manual mark alone.
-What 250 is and is not:
+raised to 250 the same day and, after M5, to 300 by project decision (see
+"Threshold update" below); the baseline is preserved for its manual mark
+alone. What 300 is and is not:
 
 - it is a preservation heuristic for the current Mario-only Break the
   Targets environment: exceeding it means "keep this run and look at it";
@@ -256,10 +257,10 @@ python rl/m4_smoke.py detector_synthetic recorder_synthetic   # no game needed
 
 | Case | Proves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | --- |----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `detector_synthetic` | at the default 250: small movement (150; 299.9 on both axes) and the legitimate Mario Up-B magnitude (215.525 vertically) -> no event; 350 in x -> event on x; -400 in y -> event on y; both axes; the event name is `large_position_delta`; invalid fighter on either side and inactive BTT -> no comparison; custom thresholds 10, 200 (fires on 215.525) and 1000 applied; 0 and -1 rejected; an event marks the run, five further actions are recorded, the written artifact has all rows, and the metadata never says "glitch"                                                                                                                                                                                  |
+| `detector_synthetic` | at the default 300: small movement (150; 299.9 on both axes; exactly 300 on both axes) and the legitimate Mario Up-B magnitude (215.525 vertically) -> no event; 300.5 in x -> event on x; 350 in x -> event on x; -400 in y -> event on y; both axes; the event name is `large_position_delta`; invalid fighter on either side and inactive BTT -> no comparison; custom thresholds 10, 200 (fires on 215.525) and 1000 applied; 0 and -1 rejected; an event marks the run, five further actions are recorded, the written artifact has all rows, and the metadata never says "glitch"                                                                                                                                                                                  |
 | `recorder_synthetic` | five native triples including the int8 limits and consumed ticks survive write -> read exactly; all six preservation reasons representable; terminal fields incl. separate completion clocks; labels stored verbatim; no RNG fields; an unpreserved episode: write refused, `discard()` drops it, no directory; `read_artifact` rejects a wrong schema, a wrong contract and a row-count mismatch                                                                                                                                                                                                                                                                                                                    |
 | `wrapper_discard` | real game: 60 random Gym actions through the wrapper with the default detector; the trajectory is inspected inside the `on_episode_end` hook (the M5 decision point): 60 actions with consumed ticks 0..59, truncated at the bound; with no event the episode is not preserved -> nothing written, discarded; if the default threshold fires on the random movement the events are printed (not judged) and the run is preserved instead                                                                                                                                                                                                                                                                             |
-| `baseline_roundtrip` | real game: the 7.43 s baseline through the wrapper with a manual mark -> artifact with 447 rows equal to the submitted replay rows and consumed ticks 0..446, terminal 446 / 447, `targets_broken` 10, exit 0; captured with the default detector, no event and the single reason `manual` (the Up-B move at tick 148 is below 250; any event would be printed in full); read back; resubmitted through a fresh M3 environment and through a fresh raw M1d client (`resubmit_actions`): both reach 447 actions, last `consumed_tick` 446, `completion_time_passed` 446, `completion_input_tick` 447, `step_count` 447, `targets_remaining` 0, result JSON equal to the frozen values, 21 source rows never submitted |
+| `baseline_roundtrip` | real game: the 7.43 s baseline through the wrapper with a manual mark -> artifact with 447 rows equal to the submitted replay rows and consumed ticks 0..446, terminal 446 / 447, `targets_broken` 10, exit 0; captured with the default detector, no event and the single reason `manual` (the Up-B move at tick 148 is below 300; any event would be printed in full); read back; resubmitted through a fresh M3 environment and through a fresh raw M1d client (`resubmit_actions`): both reach 447 actions, last `consumed_tick` 446, `completion_time_passed` 446, `completion_input_tick` 447, `step_count` 447, `targets_remaining` 0, result JSON equal to the frozen values, 21 source rows never submitted |
 | `anomaly_live` | real game: threshold 1 unit on a scripted walk (stick x = -60, 40 steps): ordinary movement raises `large_position_delta` events, the episode continues to the bound, the artifact is written for reason `anomaly` and holds all 40 rows                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ## Verified (2026-09-21)
@@ -397,7 +398,8 @@ exactly the same terminal values and result JSON. With the original
 `sequence_index` 148 (`dy` +215.49, airborne, status 226: Mario's Up-B), so
 that first artifact carried the reasons `manual` + `anomaly`. After the
 calibration to 250 (same day) the capture was rerun: no event, the single
-reason `manual`; see the calibration rerun below. `anomaly_live` at threshold 1 recorded 37 events on a
+reason `manual`; the same holds at the current default of 300 (see the
+threshold update below). `anomaly_live` at threshold 1 recorded 37 events on a
 40-step walk, the first at `sequence_index` 0 (`dx` -54), the episode
 continued to the bound and the artifact holds all 40 rows. `wrapper_discard`:
 60 random steps, no default-threshold event, nothing written, an
@@ -407,8 +409,8 @@ left the recorder active and unchanged.
 ### Calibration rerun (default threshold 200 -> 250, same day)
 
 `python rl/m4_smoke.py` after the change: all five cases PASS, no
-`BattleShip.exe` before or after. `detector_synthetic` at the default 250:
-150 and 299.9 on both axes and the Up-B magnitude (215.525 vertically) raise
+`BattleShip.exe` before or after. `detector_synthetic` at the then default
+250: 150 on one axis and the Up-B magnitude (215.525 vertically) raise
 nothing; 350 in x, -400 in y and a both-axes move raise
 `large_position_delta`; custom thresholds 10, 200 (which does fire on
 215.525) and 1000 keep working. `baseline_roundtrip`: the 7.43 s baseline
@@ -419,6 +421,27 @@ a fresh M3 environment and a fresh raw M1d client. `wrapper_discard`: 60
 random steps, no event at 250, nothing written. `anomaly_live` at threshold
 1: 37 events, all 40 rows kept. No native file was touched for this change;
 the rebuilt executable is the one from the benchmark above.
+
+### Threshold update (default 250 -> 300, after M5)
+
+By project decision after M5 the default became 300 units per native tick
+(`DEFAULT_POSITION_DELTA_THRESHOLD = 300.0`); the detector's comparison
+(strictly above the threshold, both observations with `fighter_valid` and
+`btt_active`) is unchanged, and every caller may still pass another value.
+The `detector_synthetic` case now probes the boundary explicitly: 150, 299.9
+on both axes, exactly 300 on both axes and the Up-B magnitude raise nothing;
+300.5 in x, 350 in x, -400 in y and a both-axes move raise
+`large_position_delta`. Rerun of `python rl/m4_smoke.py` at 300 (2026-09-21):
+all five cases PASS, no `BattleShip.exe` before or after; `wrapper_discard`
+60 random steps with no event, nothing written; `baseline_roundtrip` 447
+rows, terminal 446 / 447, `targets_broken` 10, exit 0, zero events, the
+single reason `manual`, then 447 / 446 / 447 / 446 through a fresh M3
+environment and a fresh raw M1d client; `anomaly_live` at threshold 1: 37
+events, all 40 rows kept. Observed while the default was 250 and worth
+knowing: a grounded backward roll (`fighter_status_id` 157) produced a
+one-tick horizontal displacement of about 280.56 units during M5 random
+exploration; at 300 it is no longer preserved by default (details in
+`docs/rl_learning_m5.md`).
 
 ### Regressions after the rebuild
 

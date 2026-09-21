@@ -11,7 +11,7 @@ trip against the authoritative 7.43 s baseline.
 
 Cases:
   detector_synthetic   position-delta detector on synthetic observation pairs: small movement and the legitimate
-                       Mario Up-B magnitude (about 215.525 units) -> no event at the default 250, large one-tick X
+                       Mario Up-B magnitude (about 215.525 units) -> no event at the default 300, large one-tick X
                        delta -> event, large Y delta -> event, invalid fighter on either side -> no event (validity
                        is the explicit flag, never inferred from zeros), custom thresholds 10 / 200 / 1000 still
                        work, an event marks the episode for preservation, recording continues after it
@@ -22,7 +22,7 @@ Cases:
                        default detector is NOT preserved -> nothing written, the trajectory discarded; the
                        wrapper changed nothing about stepping (consumed ticks 0..N-1)
   baseline_roundtrip   real game: the 7.43 s baseline through the wrapper with a manual preservation mark ->
-                       artifact with 447 rows, preserved for the manual reason only (the default 250-unit
+                       artifact with 447 rows, preserved for the manual reason only (the default 300-unit
                        detector must not fire on the legitimate Up-B move at tick 148); read back; resubmitted
                        through a fresh M3 environment AND a fresh raw M1d client: 447 actions, last
                        consumed_tick 446, completion 446 / 447, step_count 447, targets 0, 21 source rows never
@@ -141,10 +141,14 @@ def result_for(index: int, observation: Observation, state: StepState = StepStat
 
 def case_detector_synthetic(args: argparse.Namespace) -> None:
     d = PositionDeltaDetector()
-    expect(d.threshold == DEFAULT_POSITION_DELTA_THRESHOLD == 250.0, f"default threshold {d.threshold}")
+    expect(d.threshold == DEFAULT_POSITION_DELTA_THRESHOLD == 300.0, f"default threshold {d.threshold}")
     expect(d.compare(None, obs(0, 0)) == [], "first observation must not raise")
-    expect(d.compare(obs(0, 0), obs(150, 0, tick=2)) == [], "150 units in x is below 250")
-    expect(d.compare(obs(0, 0), obs(-299.9, 299.9, tick=2)) == [], "299.9 on both axes is below 250")
+    expect(d.compare(obs(0, 0), obs(150, 0, tick=2)) == [], "150 units in x is below 300")
+    expect(d.compare(obs(0, 0), obs(-299.9, 299.9, tick=2)) == [], "299.9 on both axes is below 300")
+    # Boundary: the comparison is strictly greater than the threshold.
+    expect(d.compare(obs(0, 0), obs(300.0, -300.0, tick=2)) == [], "exactly 300 on both axes must not fire")
+    ev = d.compare(obs(0, 0), obs(300.5, 0, tick=2))
+    expect(len(ev) == 1 and ev[0]["axes"] == ["x"] and ev[0]["delta"] == [300.5, 0.0], f"300.5 must fire: {ev}")
     # Calibration: about 215.525 units vertically in one tick is legitimate
     # Mario Up-B movement (baseline tick 148) and must not fire by default.
     expect(d.compare(obs(2435.5, 717.0), obs(2431.5, 717.0 + 215.525, tick=2)) == [],
@@ -155,7 +159,7 @@ def case_detector_synthetic(args: argparse.Namespace) -> None:
     expect(len(ev) == 1 and ev[0]["axes"] == ["y"] and ev[0]["delta"] == [0.0, -400.0], f"large y: {ev}")
     ev = d.compare(obs(100, 100), obs(-250, 500, tick=2))
     expect(len(ev) == 1 and ev[0]["axes"] == ["x", "y"], f"both axes: {ev}")
-    expect(ev[0]["threshold"] == 250.0 and ev[0]["previous_position"] == [100.0, 100.0]
+    expect(ev[0]["threshold"] == 300.0 and ev[0]["previous_position"] == [100.0, 100.0]
            and ev[0]["current_position"] == [-250.0, 500.0], f"event evidence incomplete: {ev[0]}")
     expect(d.event_name == "large_position_delta", f"event name must stay descriptive: {d.event_name}")
     # Explicit validity: a zero position with fighter_valid 0 is not "at the origin".
@@ -176,7 +180,7 @@ def case_detector_synthetic(args: argparse.Namespace) -> None:
             pass
         else:
             raise AssertionError(f"threshold {bad} accepted")
-    log("  default 250: small/299.9/Up-B 215.525 -> no event; 350 x/-400 y/both axes -> event; invalid fighter and "
+    log("  default 300: small/299.9/exactly 300/Up-B 215.525 -> no event; 300.5 x/350 x/-400 y/both axes -> event; invalid fighter and "
         "inactive btt -> no comparison; custom thresholds 10, 200 and 1000 applied; 0 and -1 rejected")
 
     # An event marks the episode; recording continues; the artifact holds everything.
@@ -196,7 +200,7 @@ def case_detector_synthetic(args: argparse.Namespace) -> None:
     expect(len(art.actions) == 8 and art.actions[7] == RecordedAction(7, int(Button.B), 40, -40, 7),
            f"complete trajectory expected: {art.actions}")
     expect(art.metadata["anomaly_events"][0]["event"] == "large_position_delta"
-           and art.metadata["anomaly_events"][0]["details"]["delta"] == [-250.0, 0.0], "event not stored")
+           and art.metadata["anomaly_events"][0]["details"]["delta"] == [-300.0, 0.0], "event not stored")
     expect("glitch" not in json.dumps(art.metadata).lower(), "artifact must not label the event a glitch")
     log(f"  event at sequence_index 2 preserved the run; 5 further actions recorded; artifact {directory.name} has all 8 rows")
 
@@ -417,7 +421,7 @@ def case_baseline_roundtrip(args: argparse.Namespace) -> None:
            and m["terminal"]["targets_broken"] == MAX_TARGETS and m["terminal"]["exit_code"] == 0, f"terminal metadata {m['terminal']}")
     expect(m["preservation_reasons"][0]["reason"] == "manual" and m["source_action_contract"] == ENV_CONTRACT
            and m["labels"]["checkpoint_label"] == "scripted_baseline_7.43", "metadata fields")
-    # Calibration expectation: the default threshold (250) was set above the
+    # Calibration expectation: the default threshold (300) was set above the
     # legitimate Mario Up-B move of about 215.525 units at baseline tick 148
     # (which the earlier 200 default recorded), so the baseline must now be
     # preserved for the manual reason alone. Any event is printed in full.
