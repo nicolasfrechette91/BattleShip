@@ -193,4 +193,9 @@ extern "C" void rlRuntimeRegister(void) {
 	 * by the M1b capture and by the PortPushFrame() hook. No-op unless
 	 * SSB64_RL_STEP=1. */
 	rlStepRegister();
+	/* M1d external transport: one loopback TCP worker that calls the M1c API
+	 * from its own thread. No-op unless SSB64_RL_PORT is set and stepping is
+	 * effective. Started last so the state machine exists before any client
+	 * can reach it. */
+	rlTransportStart();
 }

@@ -25,6 +25,7 @@ struct RLConfig {
 	bool exitOnEnd = false;     /* M1a clean exit, performed by rl_result.cpp */
 	bool step = false;          /* M1c interactive stepping (SSB64_RL_STEP=1) */
 	bool stepExitOnEnd = false; /* SSB64_RL_EXIT_ON_END while stepping: deferred to rl_step.cpp */
+	int transportPort = 0;      /* M1d loopback TCP port (SSB64_RL_PORT), 0 = no transport */
 	std::string resultPath;
 };
 
@@ -66,9 +67,28 @@ extern "C" void rlConfigInit(void) {
 		sConfig.resultPath = resultPath;
 	}
 
-	port_log("SSB64 RL: enabled episode=btt_mario result=%s exit_on_end=%d step=%d\n",
+	/* M1d transport: only meaningful with effective interactive stepping, and
+	 * only a strict decimal 1..65535 is accepted. Anything else leaves the
+	 * transport off (no socket, no thread) and says so in the log. */
+	const char *portEnv = std::getenv("SSB64_RL_PORT");
+	if (portEnv != nullptr && portEnv[0] != '\0') {
+		char *end = nullptr;
+		const long value = std::strtol(portEnv, &end, 10);
+		const bool numeric = end != nullptr && end != portEnv && *end == '\0';
+		if (!numeric || value < 1 || value > 65535) {
+			port_log("SSB64 RL Transport: SSB64_RL_PORT=%s is not a port in 1..65535; transport disabled\n",
+			         portEnv);
+		} else if (!sConfig.step) {
+			port_log("SSB64 RL Transport: SSB64_RL_PORT set but interactive stepping is not effective; "
+			         "transport disabled\n");
+		} else {
+			sConfig.transportPort = (int)value;
+		}
+	}
+
+	port_log("SSB64 RL: enabled episode=btt_mario result=%s exit_on_end=%d step=%d transport_port=%d\n",
 	         sConfig.resultPath.empty() ? "<unset>" : sConfig.resultPath.c_str(), exitOnEndEnv ? 1 : 0,
-	         sConfig.step ? 1 : 0);
+	         sConfig.step ? 1 : 0, sConfig.transportPort);
 	if (sConfig.resultPath.empty()) {
 		port_log("SSB64 RL: SSB64_RL_RESULT_PATH is not set; no result can be written\n");
 	}
@@ -87,6 +107,10 @@ extern "C" int rlStepIsEnabled(void) {
 
 extern "C" int rlStepExitOnEnd(void) {
 	return sConfig.stepExitOnEnd ? 1 : 0;
+}
+
+extern "C" int rlTransportPort(void) {
+	return sConfig.transportPort;
 }
 
 extern "C" int rlIsEnabled(void) {

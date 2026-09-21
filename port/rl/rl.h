@@ -37,6 +37,16 @@
  *                             SSB64_BTT_INPUT is set: the replay keeps
  *                             precedence for player 0 and is left untouched.
  *
+ * M1d scope: an opt-in, single-client, loopback-only TCP transport
+ * (rl_transport.cpp) that lets an external process (the Python client in
+ * rl/battleship_client.py) call the M1c primitive. Newline-delimited JSON,
+ * protocol version RL_PROTOCOL_VERSION. No reset, no rewards, no launcher:
+ *
+ *   SSB64_RL_PORT=<1..65535>  listen on 127.0.0.1:<port>. Requires effective
+ *                             interactive stepping (SSB64_RL_STEP=1 and no
+ *                             SSB64_BTT_INPUT); otherwise ignored with a log
+ *                             line. Unset: no socket, no thread, nothing.
+ *
  * Input comes from the existing SSB64_BTT_INPUT text replay; the save file
  * is isolated with the existing SSB64_SAVE_PATH override. Neither is handled
  * here.
@@ -390,6 +400,34 @@ int rlStepHostGateClosed(void);
  * to Stopping (keeping an uncollected result collectable once) and wakes any
  * blocked rlStepWait() caller so shutdown cannot deadlock on it. */
 void rlRuntimeShutdown(void);
+
+/* -- M1d: external transport (loopback TCP, newline-delimited JSON) -------- */
+
+/*
+ * Wire protocol version. Every request and every response carries
+ * "protocol": RL_PROTOCOL_VERSION. The transport is plumbing only: it maps
+ * three operations (ping, status, step) onto rlStepPoll / rlStepSubmit /
+ * rlStepWait and serialises RLStepResult / RLObservation field-for-field.
+ * It never derives, rewrites or normalises a native field, never touches
+ * game memory and never advances the game by itself; M1c stays the single
+ * authority for validation, one-action/one-tick pairing and host gating.
+ */
+#define RL_PROTOCOL_VERSION 1u
+
+/* Loopback TCP port from SSB64_RL_PORT; 0 when the transport is disabled
+ * (unset, invalid, or interactive stepping not effective). */
+int rlTransportPort(void);
+
+/* Bind 127.0.0.1:rlTransportPort() and start the one transport worker
+ * thread. Called by rlRuntimeRegister() on the main thread; no-op when
+ * rlTransportPort() == 0. A bind failure is logged and leaves the game
+ * running without a transport. */
+void rlTransportStart(void);
+
+/* Stop accepting, unblock the worker, join it and release the sockets.
+ * Called by main() right after rlRuntimeShutdown(), which is what releases a
+ * worker blocked in rlStepWait(). No-op when the transport never started. */
+void rlTransportShutdown(void);
 
 /* -- Internal seams inside port/rl ----------------------------------------- */
 

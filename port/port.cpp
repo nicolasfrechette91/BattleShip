@@ -1447,6 +1447,10 @@ int main(int argc, char* argv[]) {
 	// M1c: release any interactive-stepping caller blocked in rlStepWait()
 	// before the game coroutine is destroyed. No-op unless SSB64_RL_STEP=1.
 	rlRuntimeShutdown();
+	// M1d: the transport worker is the only rlStepWait() caller and has just
+	// been released; stop accepting, join it and free its sockets before game
+	// teardown. No-op unless SSB64_RL_PORT is set.
+	rlTransportShutdown();
 
 	PortGameShutdown();
 	port_log("SSB64: PortGameShutdown returned\n");
