@@ -27,6 +27,7 @@ struct RLConfig {
 	bool stepExitOnEnd = false; /* SSB64_RL_EXIT_ON_END while stepping: deferred to rl_step.cpp */
 	int transportPort = 0;      /* M1d loopback TCP port (SSB64_RL_PORT), 0 = no transport */
 	bool timing = false;        /* M4 stepping timing diagnostic (SSB64_RL_TIMING=1), measurement only */
+	bool noRender = false;      /* M6 training no-render mode (SSB64_RL_NO_RENDER=1), host-side only */
 	std::string resultPath;
 };
 
@@ -68,6 +69,13 @@ extern "C" void rlConfigInit(void) {
 	/* M4 timing diagnostic: stamps exist only for interactive steps, so the
 	 * flag is meaningless (and ignored) without effective stepping. */
 	sConfig.timing = envIsOne("SSB64_RL_TIMING") && sConfig.step;
+
+	/* M6 no-render mode: a host-side throughput mode for process-backed
+	 * stepping only. Without effective stepping there is no caller to pace
+	 * against, so the flag is ignored (and said so below) and the ordinary
+	 * visual path, replay included, is untouched. */
+	const bool noRenderEnv = envIsOne("SSB64_RL_NO_RENDER");
+	sConfig.noRender = noRenderEnv && sConfig.step;
 	if (const char *resultPath = std::getenv("SSB64_RL_RESULT_PATH")) {
 		sConfig.resultPath = resultPath;
 	}
@@ -91,9 +99,9 @@ extern "C" void rlConfigInit(void) {
 		}
 	}
 
-	port_log("SSB64 RL: enabled episode=btt_mario result=%s exit_on_end=%d step=%d transport_port=%d\n",
+	port_log("SSB64 RL: enabled episode=btt_mario result=%s exit_on_end=%d step=%d transport_port=%d no_render=%d\n",
 	         sConfig.resultPath.empty() ? "<unset>" : sConfig.resultPath.c_str(), exitOnEndEnv ? 1 : 0,
-	         sConfig.step ? 1 : 0, sConfig.transportPort);
+	         sConfig.step ? 1 : 0, sConfig.transportPort, sConfig.noRender ? 1 : 0);
 	if (sConfig.resultPath.empty()) {
 		port_log("SSB64 RL: SSB64_RL_RESULT_PATH is not set; no result can be written\n");
 	}
@@ -108,6 +116,17 @@ extern "C" void rlConfigInit(void) {
 		port_log("SSB64 RL Timing: step timing diagnostic enabled schema=%u (stamps only; no behaviour change)\n",
 		         (unsigned)RL_TIMING_SCHEMA);
 	}
+	if (noRenderEnv && !sConfig.step) {
+		port_log("SSB64 RL NoRender: SSB64_RL_NO_RENDER=1 ignored: interactive stepping is not effective; "
+		         "normal rendering and presentation kept\n");
+	} else if (sConfig.noRender) {
+		port_log("SSB64 RL NoRender: training no-render mode enabled: display lists discarded, no presents, "
+		         "no presentation pacing, parked host waits on the step condition variable\n");
+	}
+}
+
+extern "C" int rlNoRenderIsEnabled(void) {
+	return sConfig.noRender ? 1 : 0;
 }
 
 extern "C" int rlTimingIsEnabled(void) {

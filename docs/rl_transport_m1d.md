@@ -45,7 +45,7 @@ carries `"protocol": 1`.
 | Request | Success response |
 | --- | --- |
 | `{"protocol":1,"op":"ping"}` | `{"protocol":1,"op":"ping","ok":true}` |
-| `{"protocol":1,"op":"status"}` | `{"protocol":1,"op":"status","ok":true,"state":S,"state_name":"...","can_step":bool,"step_count":N}` |
+| `{"protocol":1,"op":"status"}` | `{"protocol":1,"op":"status","ok":true,"state":S,"state_name":"...","can_step":bool,"step_count":N,"no_render":bool}` (`no_render` is an M6 additive field: the process's constant host mode, `SSB64_RL_NO_RENDER` effective or not; configuration, not an observation, see `docs/rl_throughput_m6.md`) |
 | `{"protocol":1,"op":"step","buttons":B,"stick_x":X,"stick_y":Y}` | `{"protocol":1,"op":"step","ok":true,"step_schema":1,"state":S,"state_name":"...","step_count":N,"consumed_tick":T,"observation":{...}}` |
 | `{"protocol":1,"op":"observe"}` (M3 addition) | `{"protocol":1,"op":"observe","ok":true,"state":S,"state_name":"...","can_step":bool,"step_count":N,"observation":{...}}` |
 

@@ -14,6 +14,7 @@ here is expected to clear the stage, beat random play or the 7.43 s baseline.
     python rl/train_m5.py                                    # bounded default run under runs/<run_id>/
     python rl/train_m5.py --total-timesteps 512 --max-episode-steps 128 --periodic-episodes 2
     python rl/train_m5.py --evaluate runs/<run_id>/final_model.zip --eval-steps 60
+    python rl/train_m5.py --child-env SSB64_RL_NO_RENDER=1        # M6 training no-render host mode
 
 Output layout (portable metadata, no machine-specific absolute paths):
 
@@ -520,7 +521,19 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     parser.add_argument("--ready-timeout", type=float, default=180.0)
     parser.add_argument("--request-timeout", type=float, default=30.0)
     parser.add_argument("--exit-timeout", type=float, default=30.0)
-    return parser.parse_args(argv)
+    parser.add_argument("--child-env", action="append", default=[], metavar="KEY=VALUE",
+                        help="extra environment for every launched BattleShip process (TrainingConfig.extra_env -> M2 "
+                             "LaunchConfig.extra_env), e.g. SSB64_RL_NO_RENDER=1 for the M6 training no-render host "
+                             "mode; repeatable; recorded in config.json")
+    args = parser.parse_args(argv)
+    child_env: Dict[str, str] = {}
+    for item in args.child_env:
+        if "=" not in item:
+            parser.error(f"--child-env expects KEY=VALUE, got {item!r}")
+        key, value = item.split("=", 1)
+        child_env[key] = value
+    args.child_env = child_env
+    return args
 
 
 def config_from_args(args: argparse.Namespace) -> TrainingConfig:
@@ -548,6 +561,7 @@ def config_from_args(args: argparse.Namespace) -> TrainingConfig:
         ready_timeout=args.ready_timeout,
         request_timeout=args.request_timeout,
         exit_timeout=args.exit_timeout,
+        extra_env=dict(args.child_env),
     )
 
 

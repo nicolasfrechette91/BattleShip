@@ -500,6 +500,47 @@ int rlStepGetLastTiming(RLStepTiming *out);
  * enabled; never changes state. */
 void rlStepNoteFrameLogicDone(void);
 
+/* -- M6: opt-in training no-render mode (throughput only) ------------------ */
+
+/*
+ *   SSB64_RL_NO_RENDER=1      training-only host mode: while interactive
+ *                             stepping is effective, PortPushFrame() discards
+ *                             the staged display list instead of rendering
+ *                             it, never presents a swap-chain image (neither
+ *                             the frame present nor the parked idle present)
+ *                             and therefore never runs the backend's
+ *                             presentation pacing; a parked host iteration
+ *                             blocks on the M1c condition variable (bounded
+ *                             wait, see rlStepHostWaitParked) instead of
+ *                             re-presenting the cached framebuffer. Requires
+ *                             effective interactive stepping (SSB64_RL_STEP=1
+ *                             and no SSB64_BTT_INPUT); otherwise ignored with
+ *                             a log line, so replay mode and ordinary play
+ *                             are untouched. Unset: the visual path below is
+ *                             the default and is byte-for-byte the pre-M6
+ *                             frame.
+ *
+ * The window and the graphics backend stay alive (the Win32/SDL event pump
+ * still runs every iteration, so the close button and the deferred clean
+ * exit keep working); the window is simply never repainted. This is a
+ * no-render / no-present / no-pacing mode, not a headless process. Nothing
+ * game-owned changes: the game update, the controller read, the display-list
+ * build and GamePostUpdateEvent run exactly as before; only the Fast3D walk
+ * of the finished display list and the presents are omitted.
+ */
+
+/* 1 when SSB64_RL_NO_RENDER=1 and interactive stepping is effective (rl_boot.cpp). */
+int rlNoRenderIsEnabled(void);
+
+/* Main-thread parked wait for the no-render mode, called by PortPushFrame()
+ * on a parked iteration instead of the paced idle present. Blocks on the M1c
+ * condition variable for at most timeout_ms while the host gate is closed and
+ * no deferred exit is pending; rlStepSubmit, result collection and shutdown
+ * all notify it, so a submitted action is served without waiting out the
+ * timeout. Returns 1 when the gate is still closed on return, 0 otherwise.
+ * Never changes state; a no-op (returns 0) when stepping is not registered. */
+int rlStepHostWaitParked(unsigned int timeout_ms);
+
 /* -- Internal seams inside port/rl ----------------------------------------- */
 
 void rlStepRegister(void);                             /* from rlRuntimeRegister() */

@@ -394,7 +394,9 @@ def case_policy_observation(args: argparse.Namespace) -> None:
 def launch_config(args: argparse.Namespace, **overrides: Any) -> LaunchConfig:
     fields: Dict[str, Any] = dict(executable=Path(args.exe), run_root=args.run_root, startup_timeout=args.startup_timeout,
                                   ready_timeout=args.ready_timeout, request_timeout=args.request_timeout,
-                                  exit_timeout=args.exit_timeout)
+                                  exit_timeout=args.exit_timeout, extra_env=dict(args.child_env))
+    if "extra_env" in overrides:
+        overrides["extra_env"] = {**dict(args.child_env), **dict(overrides["extra_env"])}
     fields.update(overrides)
     return LaunchConfig(**fields)
 
@@ -402,7 +404,11 @@ def launch_config(args: argparse.Namespace, **overrides: Any) -> LaunchConfig:
 def env_config(args: argparse.Namespace, artifact_root: Path, **overrides: Any) -> LearningEnvConfig:
     fields: Dict[str, Any] = dict(artifact_root=artifact_root, executable=Path(args.exe), episodes_root=args.run_root,
                                   startup_timeout=args.startup_timeout, ready_timeout=args.ready_timeout,
-                                  request_timeout=args.request_timeout, exit_timeout=args.exit_timeout)
+                                  request_timeout=args.request_timeout, exit_timeout=args.exit_timeout,
+                                  extra_env=dict(args.child_env))
+    # A case-specific extra_env (e.g. SSB64_MAX_FRAMES) is layered on top of --child-env, never instead of it.
+    if "extra_env" in overrides:
+        overrides["extra_env"] = {**dict(args.child_env), **dict(overrides["extra_env"])}
     fields.update(overrides)
     return LearningEnvConfig(**fields)
 
@@ -596,7 +602,7 @@ def case_ppo_smoke(args: argparse.Namespace) -> None:
         max_episode_steps=args.ppo_episode_steps, n_steps=args.ppo_n_steps, batch_size=args.ppo_batch_size, n_epochs=2,
         checkpoint_interval=args.ppo_n_steps * 2, periodic_episodes=2, eval_steps=20, verbose=args.ppo_verbose,
         startup_timeout=args.startup_timeout, ready_timeout=args.ready_timeout, request_timeout=args.request_timeout,
-        exit_timeout=args.exit_timeout,
+        exit_timeout=args.exit_timeout, extra_env=dict(args.child_env),
     )
     t0 = time.monotonic()
     summary = run_training(config)
@@ -685,7 +691,8 @@ def case_save_load_inference(args: argparse.Namespace) -> None:
                                 total_timesteps=64, seed=args.seed, max_episode_steps=32, n_steps=32, batch_size=16, n_epochs=1,
                                 checkpoint_interval=0, periodic_episodes=None, eval_steps=0, verbose=0,
                                 startup_timeout=args.startup_timeout, ready_timeout=args.ready_timeout,
-                                request_timeout=args.request_timeout, exit_timeout=args.exit_timeout)
+                                request_timeout=args.request_timeout, exit_timeout=args.exit_timeout,
+                                extra_env=dict(args.child_env))
         model_path = Path(run_training(config)["paths"]["final_model"])
         check_no_leak(before, Path(args.exe))
     model = PPO.load(str(model_path), device="cpu")
@@ -731,6 +738,10 @@ CASES: Dict[str, Callable[[argparse.Namespace], None]] = {
 GAME_CASES = set(CASES) - {"track1_mapping", "reward_synthetic", "policy_observation"}
 
 
+def _bad_kv(value: str) -> bool:
+    raise ValueError(f"--child-env expects KEY=VALUE, got {value!r}")
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("cases", nargs="*", choices=sorted(CASES), help="cases to run, in order (default: all)")
@@ -748,7 +759,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--ready-timeout", type=float, default=180.0)
     parser.add_argument("--request-timeout", type=float, default=30.0)
     parser.add_argument("--exit-timeout", type=float, default=30.0)
+    parser.add_argument("--child-env", action="append", default=[], metavar="KEY=VALUE",
+                        help="extra environment for every launched BattleShip process (M2 LaunchConfig.extra_env), e.g. "
+                             "SSB64_RL_NO_RENDER=1 for the M6 training no-render host mode; repeatable")
     args = parser.parse_args(argv)
+    try:
+        args.child_env = dict(kv.split("=", 1) for kv in args.child_env if "=" in kv or _bad_kv(kv))
+    except ValueError as exc:
+        parser.error(str(exc))
     names = list(dict.fromkeys(args.cases)) or list(CASES)
     args.run_root = Path(args.run_dir) if args.run_dir else Path(tempfile.mkdtemp(prefix="battleship_m5_smoke_"))
     args.run_root.mkdir(parents=True, exist_ok=True)

@@ -26,7 +26,8 @@
  *
  *   -> {"protocol":1,"op":"status"}
  *   <- {"protocol":1,"op":"status","ok":true,"state":2,
- *       "state_name":"WaitingForAction","can_step":true,"step_count":N}
+ *       "state_name":"WaitingForAction","can_step":true,"step_count":N,
+ *       "no_render":bool}
  *      Non-consuming: it reads rlStepGetState() only and never calls
  *      rlStepPoll(), so it can never collect an ObservationReady result. It
  *      carries no observation on purpose: the only observation this
@@ -34,6 +35,9 @@
  *      consumes M1c results only and never reads the M1b cache. step_count
  *      is the value of the last result this worker collected, which equals
  *      M1c's counter because the worker is the sole submitter and collector.
+ *      no_render (M6, additive) is the process's constant host mode
+ *      (SSB64_RL_NO_RENDER effective or not): configuration, not an
+ *      observation, and a client may ignore it.
  *
  *   -> {"protocol":1,"op":"step","buttons":B,"stick_x":X,"stick_y":Y}
  *      B: JSON integer 0..65535 (the RL_BUTTON_* word), X / Y: JSON integer
@@ -400,6 +404,9 @@ json handleStatus(const json &op) {
 	r["state_name"] = stateName(state);
 	r["can_step"] = (state == RL_STEP_WAITING_FOR_ACTION);
 	r["step_count"] = sLastStepCount;
+	/* M6: additive, constant per process; lets a client prove which host
+	 * mode the process it is stepping actually runs in. */
+	r["no_render"] = rlNoRenderIsEnabled() != 0;
 	return r;
 }
 

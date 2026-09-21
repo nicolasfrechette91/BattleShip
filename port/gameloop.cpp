@@ -540,6 +540,21 @@ extern "C" void port_drain_pending_display_list(void)
 	gbi_trace_end_frame();
 }
 
+/* M6 training no-render mode (SSB64_RL_NO_RENDER=1, port/rl): drop the
+ * staged display list without walking it. The game built and submitted it
+ * exactly as before (osSpTaskStartGo already queued the SP/DP completion);
+ * only the Fast3D render and the present that would follow are omitted.
+ * sDLSubmitsThisFrame is deliberately left at 0: no image was produced. */
+static void port_discard_pending_display_list(void)
+{
+	sPendingDisplayList = nullptr;
+}
+
+/* Bound of one parked wait in no-render mode (rlStepHostWaitParked): the
+ * window event pump runs at least this often while the host waits for the
+ * next action. A submitted action wakes the wait immediately. */
+static constexpr unsigned int kRlNoRenderParkWaitMs = 5;
+
 /* ========================================================================= */
 /*  Public API                                                               */
 /* ========================================================================= */
@@ -747,6 +762,13 @@ void PortPushFrame(void)
 	 * unparked path below is the pre-M1c frame verbatim. */
 	const int rlParked = rlStepHostUpdate();
 
+	/* M6 training no-render mode (SSB64_RL_NO_RENDER=1, effective only with
+	 * interactive stepping): this host iteration renders nothing, presents
+	 * nothing and runs no presentation pacing. Always 0 unless opted in, and
+	 * every branch below that it selects only omits the display-list walk or
+	 * a present; the game-facing sequence of the frame is untouched. */
+	const int rlNoRender = rlNoRenderIsEnabled();
+
 	// Process cheats safely before the frame updates
 	if (!rlParked) {
 		lbBackupApplyCheats();
@@ -769,8 +791,15 @@ void PortPushFrame(void)
 	if (rlParked) {
 		/* Parked host iteration: only window responsiveness and presentation.
 		 * The game sees nothing of it; the next unparked iteration is a
-		 * complete normal frame. */
-		port_present_idle_frame(frameStart);
+		 * complete normal frame. In no-render mode there is nothing to
+		 * present, so the iteration sleeps on the stepping condition
+		 * variable (woken by the next action, a deferred exit or shutdown,
+		 * bounded so the event pump above keeps running) instead. */
+		if (rlNoRender) {
+			rlStepHostWaitParked(kRlNoRenderParkWaitMs);
+		} else {
+			port_present_idle_frame(frameStart);
+		}
 		port_watchdog_note_frame_end();
 		return;
 	}
@@ -870,7 +899,11 @@ void PortPushFrame(void)
 		gPortGLDumpDraws = (vi >= sDumpDrawsFirst && vi <= sDumpDrawsLast) ? vi : 0;
 	}
 #endif
-	port_drain_pending_display_list();
+	if (rlNoRender) {
+		port_discard_pending_display_list();
+	} else {
+		port_drain_pending_display_list();
+	}
 
 	/* TCC mod hook: GamePostUpdateEvent fires once per frame AFTER game
 	 * logic + GFX submission. Most common subscription point — game state
@@ -882,8 +915,9 @@ void PortPushFrame(void)
 	sFrameCount++;
 
 	/* VI-style idle presentation for 0-submit frames; see
-	 * port_present_idle_frame() above. */
-	if (sDLSubmitsThisFrame == 0) {
+	 * port_present_idle_frame() above. Skipped in no-render mode, where
+	 * every frame is a 0-submit frame by construction. */
+	if (sDLSubmitsThisFrame == 0 && !rlNoRender) {
 		port_present_idle_frame(frameStart);
 	}
 	sDLSubmitsThisFrame = 0;

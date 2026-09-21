@@ -495,6 +495,26 @@ extern "C" int rlStepHostGateClosed(void) {
 	return gateClosedLocked() ? 1 : 0;
 }
 
+/* M6 no-render mode: the parked host iteration has nothing to present, so
+ * instead of spinning it sleeps on the M1c condition variable until the gate
+ * can open (rlStepSubmit notifies), a deferred exit is pending (pollLocked
+ * notifies after recording it) or shutdown began (rlRuntimeShutdown
+ * notifies), bounded by timeout_ms so the caller keeps pumping window events.
+ * The game coroutine is a fiber on this thread and cannot run while the gate
+ * is closed anyway, so nothing game-owned can be waiting on the main thread
+ * here. No state is changed. */
+extern "C" int rlStepHostWaitParked(unsigned int timeout_ms) {
+	if (!sRegistered.load()) {
+		return 0;
+	}
+	std::unique_lock<std::mutex> lock(sMutex);
+	auto wakeup = []() { return !gateClosedLocked() || (sExitRequested && !sExitPerformed) || sStopRequested; };
+	if (!wakeup()) {
+		sCond.wait_for(lock, std::chrono::milliseconds(timeout_ms), wakeup);
+	}
+	return gateClosedLocked() ? 1 : 0;
+}
+
 /* -- M4 timing diagnostic ---------------------------------------------------- */
 
 extern "C" void rlStepNoteFrameLogicDone(void) {
