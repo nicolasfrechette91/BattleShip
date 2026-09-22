@@ -1,0 +1,1447 @@
+{
+ "schema": "m7e_idle_diagnosis_v1_replay",
+ "episodes": 15,
+ "records": [
+  {
+   "role": "best_final_v1",
+   "run": "m7d_s0_v1",
+   "episode_id": "episode_20260922T182314Z_96ea47e4",
+   "stage": "final",
+   "mode": "stochastic",
+   "recorded_targets": 6,
+   "recorded_length": 2042,
+   "recorded_end": "fall",
+   "recorded_breaks": [
+    18,
+    33,
+    264,
+    842,
+    1504,
+    1528
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s0_v1/final/stochastic/workers/w02/artifacts/episode_20260922T182314Z_96ea47e4",
+   "actions": 2042,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 2042,
+   "last_consumed_tick": 2041,
+   "final_state": "WaitingForAction",
+   "replay_targets": 6,
+   "replay_breaks": [
+    18,
+    33,
+    264,
+    842,
+    1504,
+    1528
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 2042,
+     "path_length": 77391.6,
+     "displacement": 9145.1,
+     "x_min": -955.7,
+     "x_max": 5797.2,
+     "x_range": 6752.9,
+     "y_min": -9622.8,
+     "y_max": 1298.9,
+     "y_range": 10921.7,
+     "stationary_share": 0.3386,
+     "distinct_cells_100": 562,
+     "revisit_share": 0.7248,
+     "mean_speed_per_tick": 37.918
+    },
+    "head": {
+     "ticks": 1529,
+     "path_length": 53888.5,
+     "displacement": 3060.2,
+     "x_min": -955.7,
+     "x_max": 1994.8,
+     "x_range": 2950.5,
+     "y_min": -2550.0,
+     "y_max": 1039.8,
+     "y_range": 3589.8,
+     "stationary_share": 0.3462,
+     "distinct_cells_100": 387,
+     "revisit_share": 0.7469,
+     "mean_speed_per_tick": 35.267
+    },
+    "tail": {
+     "ticks": 513,
+     "path_length": 23432.4,
+     "displacement": 11580.9,
+     "x_min": 64.6,
+     "x_max": 5797.2,
+     "x_range": 5732.6,
+     "y_min": -9622.8,
+     "y_max": 1298.9,
+     "y_range": 10921.7,
+     "stationary_share": 0.3164,
+     "distinct_cells_100": 222,
+     "revisit_share": 0.5673,
+     "mean_speed_per_tick": 45.766
+    }
+   },
+   "ground_air_state": {
+    "0": 794,
+    "1": 1248
+   },
+   "top_fighter_status_ids": {
+    "226": 477,
+    "58": 392,
+    "59": 300,
+    "224": 135,
+    "189": 129,
+    "156": 93
+   }
+  },
+  {
+   "role": "deterministic_v1",
+   "run": "m7d_s0_v1",
+   "episode_id": "episode_20260922T181810Z_41b8dbcd",
+   "stage": "final",
+   "mode": "deterministic",
+   "recorded_targets": 2,
+   "recorded_length": 3361,
+   "recorded_end": "fall",
+   "recorded_breaks": [
+    2635,
+    2661
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s0_v1/final/deterministic/workers/w00/artifacts/episode_20260922T181810Z_41b8dbcd",
+   "actions": 3361,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3361,
+   "last_consumed_tick": 3360,
+   "final_state": "WaitingForAction",
+   "replay_targets": 2,
+   "replay_breaks": [
+    2635,
+    2661
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3361,
+     "path_length": 30838.4,
+     "displacement": 8500.2,
+     "x_min": -1650.0,
+     "x_max": 4748.4,
+     "x_range": 6398.4,
+     "y_min": -9600.2,
+     "y_max": -322.4,
+     "y_range": 9277.8,
+     "stationary_share": 0.7506,
+     "distinct_cells_100": 285,
+     "revisit_share": 0.9152,
+     "mean_speed_per_tick": 9.178
+    },
+    "head": {
+     "ticks": 2662,
+     "path_length": 18586.5,
+     "displacement": 3465.2,
+     "x_min": -1650.0,
+     "x_max": 2756.4,
+     "x_range": 4406.4,
+     "y_min": -2550.0,
+     "y_max": -322.4,
+     "y_range": 2227.6,
+     "stationary_share": 0.8042,
+     "distinct_cells_100": 177,
+     "revisit_share": 0.9335,
+     "mean_speed_per_tick": 6.985
+    },
+    "tail": {
+     "ticks": 699,
+     "path_length": 12251.9,
+     "displacement": 9364.5,
+     "x_min": 2756.4,
+     "x_max": 4748.4,
+     "x_range": 1992.0,
+     "y_min": -9600.2,
+     "y_max": -450.0,
+     "y_range": 9150.2,
+     "stationary_share": 0.5458,
+     "distinct_cells_100": 109,
+     "revisit_share": 0.8441,
+     "mean_speed_per_tick": 17.553
+    }
+   },
+   "ground_air_state": {
+    "0": 2797,
+    "1": 564
+   },
+   "top_fighter_status_ids": {
+    "13": 1948,
+    "223": 540,
+    "10": 269,
+    "26": 197,
+    "24": 180,
+    "25": 145
+   }
+  },
+  {
+   "role": "best_final_v2",
+   "run": "m7d_s0_v2",
+   "episode_id": "episode_20260922T185049Z_de2315d4",
+   "stage": "final",
+   "mode": "stochastic",
+   "recorded_targets": 6,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [
+    105,
+    664,
+    732,
+    742,
+    765,
+    1150
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s0_v2/final/stochastic/workers/w03/artifacts/episode_20260922T185049Z_de2315d4",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 6,
+   "replay_breaks": [
+    105,
+    664,
+    732,
+    742,
+    765,
+    1150
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 74675.0,
+     "displacement": 1013.6,
+     "x_min": -1650.0,
+     "x_max": 1950.0,
+     "x_range": 3600.0,
+     "y_min": -2550.0,
+     "y_max": 1478.4,
+     "y_range": 4028.4,
+     "stationary_share": 0.5293,
+     "distinct_cells_100": 377,
+     "revisit_share": 0.8953,
+     "mean_speed_per_tick": 20.749
+    },
+    "head": {
+     "ticks": 1151,
+     "path_length": 23108.4,
+     "displacement": 1119.6,
+     "x_min": -1316.9,
+     "x_max": 1950.0,
+     "x_range": 3266.9,
+     "y_min": -2550.0,
+     "y_max": 1478.4,
+     "y_range": 4028.4,
+     "stationary_share": 0.5774,
+     "distinct_cells_100": 186,
+     "revisit_share": 0.8384,
+     "mean_speed_per_tick": 20.094
+    },
+    "tail": {
+     "ticks": 2449,
+     "path_length": 51566.7,
+     "displacement": 1540.5,
+     "x_min": -1650.0,
+     "x_max": 894.5,
+     "x_range": 2544.5,
+     "y_min": -2550.0,
+     "y_max": -95.1,
+     "y_range": 2454.9,
+     "stationary_share": 0.5065,
+     "distinct_cells_100": 224,
+     "revisit_share": 0.9085,
+     "mean_speed_per_tick": 21.065
+    }
+   },
+   "ground_air_state": {
+    "0": 2348,
+    "1": 1252
+   },
+   "top_fighter_status_ids": {
+    "227": 445,
+    "223": 364,
+    "224": 311,
+    "157": 279,
+    "59": 250,
+    "156": 248
+   }
+  },
+  {
+   "role": "worst_idle_v2",
+   "run": "m7d_s0_v2",
+   "episode_id": "episode_20260922T184948Z_c920171f",
+   "stage": "final",
+   "mode": "stochastic",
+   "recorded_targets": 3,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [
+    34,
+    72,
+    185
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s0_v2/final/stochastic/workers/w04/artifacts/episode_20260922T184948Z_c920171f",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 3,
+   "replay_breaks": [
+    34,
+    72,
+    185
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 103738.6,
+     "displacement": 1624.8,
+     "x_min": -1650.0,
+     "x_max": 2569.0,
+     "x_range": 4219.0,
+     "y_min": -2550.0,
+     "y_max": 2222.8,
+     "y_range": 4772.8,
+     "stationary_share": 0.4412,
+     "distinct_cells_100": 645,
+     "revisit_share": 0.8208,
+     "mean_speed_per_tick": 28.824
+    },
+    "head": {
+     "ticks": 186,
+     "path_length": 3809.4,
+     "displacement": 1650.0,
+     "x_min": -1650.0,
+     "x_max": 13.0,
+     "x_range": 1663.0,
+     "y_min": -2550.0,
+     "y_max": -945.2,
+     "y_range": 1604.8,
+     "stationary_share": 0.6054,
+     "distinct_cells_100": 46,
+     "revisit_share": 0.7527,
+     "mean_speed_per_tick": 20.591
+    },
+    "tail": {
+     "ticks": 3414,
+     "path_length": 99929.2,
+     "displacement": 25.2,
+     "x_min": -1650.0,
+     "x_max": 2569.0,
+     "x_range": 4219.0,
+     "y_min": -2550.0,
+     "y_max": 2222.8,
+     "y_range": 4772.8,
+     "stationary_share": 0.4322,
+     "distinct_cells_100": 624,
+     "revisit_share": 0.8172,
+     "mean_speed_per_tick": 29.279
+    }
+   },
+   "ground_air_state": {
+    "0": 1877,
+    "1": 1723
+   },
+   "top_fighter_status_ids": {
+    "223": 550,
+    "224": 530,
+    "225": 456,
+    "59": 400,
+    "58": 268,
+    "207": 177
+   }
+  },
+  {
+   "role": "deterministic_v2",
+   "run": "m7d_s0_v2",
+   "episode_id": "episode_20260922T184452Z_5643a236",
+   "stage": "final",
+   "mode": "deterministic",
+   "recorded_targets": 2,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [
+    34,
+    91
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s0_v2/final/deterministic/workers/w00/artifacts/episode_20260922T184452Z_5643a236",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 2,
+   "replay_breaks": [
+    34,
+    91
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 6572.4,
+     "displacement": 3002.3,
+     "x_min": 0.0,
+     "x_max": 2145.6,
+     "x_range": 2145.6,
+     "y_min": -2550.0,
+     "y_max": -368.9,
+     "y_range": 2181.1,
+     "stationary_share": 0.9744,
+     "distinct_cells_100": 53,
+     "revisit_share": 0.9853,
+     "mean_speed_per_tick": 1.826
+    },
+    "head": {
+     "ticks": 92,
+     "path_length": 0.0,
+     "displacement": 0.0,
+     "x_min": 0.0,
+     "x_max": 0.0,
+     "x_range": 0.0,
+     "y_min": -2550.0,
+     "y_max": -2550.0,
+     "y_range": 0.0,
+     "stationary_share": 1.0,
+     "distinct_cells_100": 1,
+     "revisit_share": 0.9891,
+     "mean_speed_per_tick": 0.0
+    },
+    "tail": {
+     "ticks": 3508,
+     "path_length": 6572.4,
+     "displacement": 3002.3,
+     "x_min": 0.0,
+     "x_max": 2145.6,
+     "x_range": 2145.6,
+     "y_min": -2550.0,
+     "y_max": -368.9,
+     "y_range": 2181.1,
+     "stationary_share": 0.9738,
+     "distinct_cells_100": 53,
+     "revisit_share": 0.9849,
+     "mean_speed_per_tick": 1.874
+    }
+   },
+   "ground_air_state": {
+    "0": 3507,
+    "1": 93
+   },
+   "top_fighter_status_ids": {
+    "10": 3376,
+    "223": 90,
+    "225": 39,
+    "59": 28,
+    "226": 28,
+    "58": 18
+   }
+  },
+  {
+   "role": "best_final_v1",
+   "run": "m7d_s1_v1",
+   "episode_id": "episode_20260922T194112Z_f8ff6e3b",
+   "stage": "final",
+   "mode": "stochastic",
+   "recorded_targets": 5,
+   "recorded_length": 1044,
+   "recorded_end": "fall",
+   "recorded_breaks": [
+    34,
+    72,
+    130,
+    420,
+    677
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s1_v1/final/stochastic/workers/w03/artifacts/episode_20260922T194112Z_f8ff6e3b",
+   "actions": 1044,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 1044,
+   "last_consumed_tick": 1043,
+   "final_state": "WaitingForAction",
+   "replay_targets": 5,
+   "replay_breaks": [
+    34,
+    72,
+    130,
+    420,
+    677
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 1044,
+     "path_length": 35857.9,
+     "displacement": 9221.2,
+     "x_min": -1650.0,
+     "x_max": 5893.8,
+     "x_range": 7543.8,
+     "y_min": -9641.7,
+     "y_max": 990.3,
+     "y_range": 10632.0,
+     "stationary_share": 0.3413,
+     "distinct_cells_100": 306,
+     "revisit_share": 0.7069,
+     "mean_speed_per_tick": 34.38
+    },
+    "head": {
+     "ticks": 678,
+     "path_length": 20441.2,
+     "displacement": 2214.7,
+     "x_min": -1650.0,
+     "x_max": 2055.0,
+     "x_range": 3705.0,
+     "y_min": -2550.0,
+     "y_max": -106.6,
+     "y_range": 2443.4,
+     "stationary_share": 0.3619,
+     "distinct_cells_100": 169,
+     "revisit_share": 0.7507,
+     "mean_speed_per_tick": 30.194
+    },
+    "tail": {
+     "ticks": 366,
+     "path_length": 15416.7,
+     "displacement": 9046.6,
+     "x_min": 1948.2,
+     "x_max": 5893.8,
+     "x_range": 3945.6,
+     "y_min": -9641.7,
+     "y_max": 990.3,
+     "y_range": 10632.0,
+     "stationary_share": 0.3014,
+     "distinct_cells_100": 148,
+     "revisit_share": 0.5956,
+     "mean_speed_per_tick": 42.238
+    }
+   },
+   "ground_air_state": {
+    "0": 379,
+    "1": 665
+   },
+   "top_fighter_status_ids": {
+    "224": 203,
+    "58": 196,
+    "223": 112,
+    "226": 82,
+    "227": 61,
+    "209": 56
+   }
+  },
+  {
+   "role": "deterministic_v1",
+   "run": "m7d_s1_v1",
+   "episode_id": "episode_20260922T193638Z_08296c48",
+   "stage": "final",
+   "mode": "deterministic",
+   "recorded_targets": 2,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [
+    34,
+    91
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s1_v1/final/deterministic/workers/w00/artifacts/episode_20260922T193638Z_08296c48",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 2,
+   "replay_breaks": [
+    34,
+    91
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 1967.9,
+     "displacement": 1932.1,
+     "x_min": 0.0,
+     "x_max": 1950.0,
+     "x_range": 1950.0,
+     "y_min": -2550.0,
+     "y_max": -2550.0,
+     "y_range": 0.0,
+     "stationary_share": 0.9872,
+     "distinct_cells_100": 17,
+     "revisit_share": 0.9953,
+     "mean_speed_per_tick": 0.547
+    },
+    "head": {
+     "ticks": 92,
+     "path_length": 0.0,
+     "displacement": 0.0,
+     "x_min": 0.0,
+     "x_max": 0.0,
+     "x_range": 0.0,
+     "y_min": -2550.0,
+     "y_max": -2550.0,
+     "y_range": 0.0,
+     "stationary_share": 1.0,
+     "distinct_cells_100": 1,
+     "revisit_share": 0.9891,
+     "mean_speed_per_tick": 0.0
+    },
+    "tail": {
+     "ticks": 3508,
+     "path_length": 1967.9,
+     "displacement": 1932.1,
+     "x_min": 0.0,
+     "x_max": 1950.0,
+     "x_range": 1950.0,
+     "y_min": -2550.0,
+     "y_max": -2550.0,
+     "y_range": 0.0,
+     "stationary_share": 0.9869,
+     "distinct_cells_100": 17,
+     "revisit_share": 0.9952,
+     "mean_speed_per_tick": 0.561
+    }
+   },
+   "ground_air_state": {
+    "0": 3600
+   },
+   "top_fighter_status_ids": {
+    "10": 3245,
+    "153": 178,
+    "223": 90,
+    "156": 31,
+    "157": 31,
+    "154": 11
+   }
+  },
+  {
+   "role": "best_final_v2",
+   "run": "m7d_s1_v2",
+   "episode_id": "episode_20260922T191603Z_808b9b3e",
+   "stage": "final",
+   "mode": "stochastic",
+   "recorded_targets": 5,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [
+    52,
+    56,
+    226,
+    1949,
+    1968
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s1_v2/final/stochastic/workers/w04/artifacts/episode_20260922T191603Z_808b9b3e",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 5,
+   "replay_breaks": [
+    52,
+    56,
+    226,
+    1949,
+    1968
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 105213.9,
+     "displacement": 596.0,
+     "x_min": -1650.0,
+     "x_max": 1950.0,
+     "x_range": 3600.0,
+     "y_min": -2550.0,
+     "y_max": 1724.2,
+     "y_range": 4274.2,
+     "stationary_share": 0.3376,
+     "distinct_cells_100": 586,
+     "revisit_share": 0.8372,
+     "mean_speed_per_tick": 29.234
+    },
+    "head": {
+     "ticks": 1969,
+     "path_length": 48663.2,
+     "displacement": 3685.8,
+     "x_min": -1650.0,
+     "x_max": 734.8,
+     "x_range": 2384.8,
+     "y_min": -2550.0,
+     "y_max": 1102.8,
+     "y_range": 3652.8,
+     "stationary_share": 0.3999,
+     "distinct_cells_100": 307,
+     "revisit_share": 0.8441,
+     "mean_speed_per_tick": 24.727
+    },
+    "tail": {
+     "ticks": 1631,
+     "path_length": 56550.7,
+     "displacement": 3176.7,
+     "x_min": -857.3,
+     "x_max": 1950.0,
+     "x_range": 2807.3,
+     "y_min": -2550.0,
+     "y_max": 1724.2,
+     "y_range": 4274.2,
+     "stationary_share": 0.262,
+     "distinct_cells_100": 400,
+     "revisit_share": 0.7548,
+     "mean_speed_per_tick": 34.694
+    }
+   },
+   "ground_air_state": {
+    "0": 1357,
+    "1": 2243
+   },
+   "top_fighter_status_ids": {
+    "211": 587,
+    "209": 375,
+    "210": 253,
+    "226": 243,
+    "58": 217,
+    "223": 214
+   }
+  },
+  {
+   "role": "worst_idle_v2",
+   "run": "m7d_s1_v2",
+   "episode_id": "episode_20260922T191803Z_d823c0bb",
+   "stage": "final",
+   "mode": "stochastic",
+   "recorded_targets": 4,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [
+    126,
+    154,
+    297,
+    309
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s1_v2/final/stochastic/workers/w02/artifacts/episode_20260922T191803Z_d823c0bb",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 4,
+   "replay_breaks": [
+    126,
+    154,
+    297,
+    309
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 103811.8,
+     "displacement": 1343.6,
+     "x_min": -1650.0,
+     "x_max": 1987.7,
+     "x_range": 3637.7,
+     "y_min": -2550.0,
+     "y_max": 1736.4,
+     "y_range": 4286.4,
+     "stationary_share": 0.3226,
+     "distinct_cells_100": 509,
+     "revisit_share": 0.8586,
+     "mean_speed_per_tick": 28.845
+    },
+    "head": {
+     "ticks": 310,
+     "path_length": 8614.7,
+     "displacement": 933.5,
+     "x_min": -1622.6,
+     "x_max": 581.8,
+     "x_range": 2204.4,
+     "y_min": -2550.0,
+     "y_max": -140.0,
+     "y_range": 2410.0,
+     "stationary_share": 0.3301,
+     "distinct_cells_100": 97,
+     "revisit_share": 0.6871,
+     "mean_speed_per_tick": 27.879
+    },
+    "tail": {
+     "ticks": 3290,
+     "path_length": 95152.8,
+     "displacement": 1582.2,
+     "x_min": -1650.0,
+     "x_max": 1987.7,
+     "x_range": 3637.7,
+     "y_min": -2550.0,
+     "y_max": 1736.4,
+     "y_range": 4286.4,
+     "stationary_share": 0.322,
+     "distinct_cells_100": 467,
+     "revisit_share": 0.8581,
+     "mean_speed_per_tick": 28.931
+    }
+   },
+   "ground_air_state": {
+    "0": 1264,
+    "1": 2336
+   },
+   "top_fighter_status_ids": {
+    "209": 610,
+    "211": 387,
+    "224": 307,
+    "226": 273,
+    "189": 259,
+    "59": 200
+   }
+  },
+  {
+   "role": "deterministic_v2",
+   "run": "m7d_s1_v2",
+   "episode_id": "episode_20260922T191206Z_5b2ea6f2",
+   "stage": "final",
+   "mode": "deterministic",
+   "recorded_targets": 3,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [
+    70,
+    422,
+    1952
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s1_v2/final/deterministic/workers/w00/artifacts/episode_20260922T191206Z_5b2ea6f2",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 3,
+   "replay_breaks": [
+    70,
+    422,
+    1952
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 8104.2,
+     "displacement": 1446.3,
+     "x_min": -237.9,
+     "x_max": 1446.3,
+     "x_range": 1684.2,
+     "y_min": -2550.0,
+     "y_max": -219.2,
+     "y_range": 2330.8,
+     "stationary_share": 0.9369,
+     "distinct_cells_100": 76,
+     "revisit_share": 0.9789,
+     "mean_speed_per_tick": 2.252
+    },
+    "head": {
+     "ticks": 1953,
+     "path_length": 8104.2,
+     "displacement": 1446.3,
+     "x_min": -237.9,
+     "x_max": 1446.3,
+     "x_range": 1684.2,
+     "y_min": -2550.0,
+     "y_max": -219.2,
+     "y_range": 2330.8,
+     "stationary_share": 0.8837,
+     "distinct_cells_100": 76,
+     "revisit_share": 0.9611,
+     "mean_speed_per_tick": 4.152
+    },
+    "tail": {
+     "ticks": 1647,
+     "path_length": 0.0,
+     "displacement": 0.0,
+     "x_min": 1446.3,
+     "x_max": 1446.3,
+     "x_range": 0.0,
+     "y_min": -2550.0,
+     "y_max": -2550.0,
+     "y_range": 0.0,
+     "stationary_share": 1.0,
+     "distinct_cells_100": 1,
+     "revisit_share": 0.9994,
+     "mean_speed_per_tick": 0.0
+    }
+   },
+   "ground_air_state": {
+    "0": 3479,
+    "1": 121
+   },
+   "top_fighter_status_ids": {
+    "223": 2430,
+    "10": 350,
+    "166": 210,
+    "18": 177,
+    "154": 121,
+    "153": 103
+   }
+  },
+  {
+   "role": "best_final_v1",
+   "run": "m7d_s2_v1",
+   "episode_id": "episode_20260922T200424Z_35d5372b",
+   "stage": "final",
+   "mode": "stochastic",
+   "recorded_targets": 5,
+   "recorded_length": 562,
+   "recorded_end": "fall",
+   "recorded_breaks": [
+    49,
+    111,
+    119,
+    157,
+    332
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s2_v1/final/stochastic/workers/w03/artifacts/episode_20260922T200424Z_35d5372b",
+   "actions": 562,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 562,
+   "last_consumed_tick": 561,
+   "final_state": "WaitingForAction",
+   "replay_targets": 5,
+   "replay_breaks": [
+    49,
+    111,
+    119,
+    157,
+    332
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 562,
+     "path_length": 23380.6,
+     "displacement": 11027.3,
+     "x_min": -182.2,
+     "x_max": 8435.3,
+     "x_range": 8617.5,
+     "y_min": -9652.6,
+     "y_max": 1296.3,
+     "y_range": 10948.9,
+     "stationary_share": 0.2032,
+     "distinct_cells_100": 243,
+     "revisit_share": 0.5676,
+     "mean_speed_per_tick": 41.677
+    },
+    "head": {
+     "ticks": 333,
+     "path_length": 10176.5,
+     "displacement": 3348.8,
+     "x_min": -182.2,
+     "x_max": 2608.5,
+     "x_range": 2790.7,
+     "y_min": -2550.0,
+     "y_max": 1296.3,
+     "y_range": 3846.3,
+     "stationary_share": 0.2711,
+     "distinct_cells_100": 101,
+     "revisit_share": 0.6967,
+     "mean_speed_per_tick": 30.652
+    },
+    "tail": {
+     "ticks": 229,
+     "path_length": 13204.1,
+     "displacement": 10892.2,
+     "x_min": 2608.5,
+     "x_max": 8435.3,
+     "x_range": 5826.8,
+     "y_min": -9652.6,
+     "y_max": 743.2,
+     "y_range": 10395.8,
+     "stationary_share": 0.1009,
+     "distinct_cells_100": 143,
+     "revisit_share": 0.3755,
+     "mean_speed_per_tick": 57.913
+    }
+   },
+   "ground_air_state": {
+    "0": 107,
+    "1": 455
+   },
+   "top_fighter_status_ids": {
+    "27": 163,
+    "224": 135,
+    "228": 90,
+    "223": 45,
+    "226": 39,
+    "59": 25
+   }
+  },
+  {
+   "role": "deterministic_v1",
+   "run": "m7d_s2_v1",
+   "episode_id": "episode_20260922T195916Z_5a35424d",
+   "stage": "final",
+   "mode": "deterministic",
+   "recorded_targets": 0,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [],
+   "artifact": "runs/m7d/_eval/m7d_s2_v1/final/deterministic/workers/w00/artifacts/episode_20260922T195916Z_5a35424d",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 0,
+   "replay_breaks": [],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 15886.4,
+     "displacement": 3590.9,
+     "x_min": -1065.4,
+     "x_max": 2912.8,
+     "x_range": 3978.2,
+     "y_min": -2550.0,
+     "y_max": 536.0,
+     "y_range": 3086.0,
+     "stationary_share": 0.9064,
+     "distinct_cells_100": 154,
+     "revisit_share": 0.9572,
+     "mean_speed_per_tick": 4.414
+    }
+   },
+   "ground_air_state": {
+    "0": 3273,
+    "1": 327
+   },
+   "top_fighter_status_ids": {
+    "29": 1616,
+    "153": 922,
+    "164": 486,
+    "219": 108,
+    "22": 76,
+    "158": 59
+   }
+  },
+  {
+   "role": "best_final_v2",
+   "run": "m7d_s2_v2",
+   "episode_id": "episode_20260922T203009Z_5d22867e",
+   "stage": "final",
+   "mode": "stochastic",
+   "recorded_targets": 6,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [
+    54,
+    60,
+    519,
+    888,
+    1511,
+    2487
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s2_v2/final/stochastic/workers/w00/artifacts/episode_20260922T203009Z_5d22867e",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 6,
+   "replay_breaks": [
+    54,
+    60,
+    519,
+    888,
+    1511,
+    2487
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 93590.1,
+     "displacement": 349.2,
+     "x_min": -1650.0,
+     "x_max": 2089.1,
+     "x_range": 3739.1,
+     "y_min": -2550.0,
+     "y_max": 1520.9,
+     "y_range": 4070.9,
+     "stationary_share": 0.4665,
+     "distinct_cells_100": 502,
+     "revisit_share": 0.8606,
+     "mean_speed_per_tick": 26.004
+    },
+    "head": {
+     "ticks": 2488,
+     "path_length": 71472.1,
+     "displacement": 3645.6,
+     "x_min": -1650.0,
+     "x_max": 2089.1,
+     "x_range": 3739.1,
+     "y_min": -2550.0,
+     "y_max": 1093.7,
+     "y_range": 3643.7,
+     "stationary_share": 0.4439,
+     "distinct_cells_100": 435,
+     "revisit_share": 0.8252,
+     "mean_speed_per_tick": 28.738
+    },
+    "tail": {
+     "ticks": 1112,
+     "path_length": 22117.9,
+     "displacement": 3673.5,
+     "x_min": -1083.2,
+     "x_max": 1471.8,
+     "x_range": 2554.9,
+     "y_min": -2550.0,
+     "y_max": 1520.9,
+     "y_range": 4070.9,
+     "stationary_share": 0.5167,
+     "distinct_cells_100": 188,
+     "revisit_share": 0.8309,
+     "mean_speed_per_tick": 19.908
+    }
+   },
+   "ground_air_state": {
+    "0": 1914,
+    "1": 1686
+   },
+   "top_fighter_status_ids": {
+    "189": 654,
+    "226": 408,
+    "59": 300,
+    "58": 263,
+    "224": 227,
+    "210": 222
+   }
+  },
+  {
+   "role": "worst_idle_v2",
+   "run": "m7d_s2_v2",
+   "episode_id": "episode_20260922T203124Z_e4c782ec",
+   "stage": "final",
+   "mode": "stochastic",
+   "recorded_targets": 4,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [
+    56,
+    76,
+    149,
+    165
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s2_v2/final/stochastic/workers/w04/artifacts/episode_20260922T203124Z_e4c782ec",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 4,
+   "replay_breaks": [
+    56,
+    76,
+    149,
+    165
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 91467.7,
+     "displacement": 525.1,
+     "x_min": -1650.0,
+     "x_max": 2120.7,
+     "x_range": 3770.7,
+     "y_min": -2550.0,
+     "y_max": 866.5,
+     "y_range": 3416.5,
+     "stationary_share": 0.4682,
+     "distinct_cells_100": 531,
+     "revisit_share": 0.8525,
+     "mean_speed_per_tick": 25.415
+    },
+    "head": {
+     "ticks": 166,
+     "path_length": 5386.2,
+     "displacement": 2354.7,
+     "x_min": -683.2,
+     "x_max": 0.0,
+     "x_range": 683.2,
+     "y_min": -2550.0,
+     "y_max": -197.5,
+     "y_range": 2352.5,
+     "stationary_share": 0.2909,
+     "distinct_cells_100": 46,
+     "revisit_share": 0.7229,
+     "mean_speed_per_tick": 32.644
+    },
+    "tail": {
+     "ticks": 3434,
+     "path_length": 86081.5,
+     "displacement": 2434.7,
+     "x_min": -1650.0,
+     "x_max": 2120.7,
+     "x_range": 3770.7,
+     "y_min": -2550.0,
+     "y_max": 866.5,
+     "y_range": 3416.5,
+     "stationary_share": 0.4766,
+     "distinct_cells_100": 520,
+     "revisit_share": 0.8486,
+     "mean_speed_per_tick": 25.075
+    }
+   },
+   "ground_air_state": {
+    "0": 1777,
+    "1": 1823
+   },
+   "top_fighter_status_ids": {
+    "189": 641,
+    "226": 477,
+    "59": 300,
+    "224": 293,
+    "58": 249,
+    "211": 210
+   }
+  },
+  {
+   "role": "deterministic_v2",
+   "run": "m7d_s2_v2",
+   "episode_id": "episode_20260922T202423Z_973632de",
+   "stage": "final",
+   "mode": "deterministic",
+   "recorded_targets": 1,
+   "recorded_length": 3600,
+   "recorded_end": "horizon",
+   "recorded_breaks": [
+    50
+   ],
+   "artifact": "runs/m7d/_eval/m7d_s2_v2/final/deterministic/workers/w00/artifacts/episode_20260922T202423Z_973632de",
+   "actions": 3600,
+   "fresh": {
+    "state": "WaitingForAction",
+    "step_count": 0
+   },
+   "submitted": 3600,
+   "last_consumed_tick": 3599,
+   "final_state": "WaitingForAction",
+   "replay_targets": 1,
+   "replay_breaks": [
+    50
+   ],
+   "checks": {
+    "fresh_at_tick_zero": true,
+    "all_actions_submitted": true,
+    "targets_match": true,
+    "break_ticks_match": true,
+    "consumed_tick_aligned": true
+   },
+   "ok": true,
+   "trajectory": {
+    "whole": {
+     "ticks": 3600,
+     "path_length": 5136.8,
+     "displacement": 2214.7,
+     "x_min": -240.8,
+     "x_max": 1950.0,
+     "x_range": 2190.8,
+     "y_min": -2550.0,
+     "y_max": -743.5,
+     "y_range": 1806.5,
+     "stationary_share": 0.9714,
+     "distinct_cells_100": 54,
+     "revisit_share": 0.985,
+     "mean_speed_per_tick": 1.427
+    },
+    "head": {
+     "ticks": 51,
+     "path_length": 1937.2,
+     "displacement": 946.5,
+     "x_min": -240.8,
+     "x_max": 438.2,
+     "x_range": 679.0,
+     "y_min": -2550.0,
+     "y_max": -1374.5,
+     "y_range": 1175.5,
+     "stationary_share": 0.04,
+     "distinct_cells_100": 26,
+     "revisit_share": 0.4902,
+     "mean_speed_per_tick": 38.745
+    },
+    "tail": {
+     "ticks": 3549,
+     "path_length": 3148.5,
+     "displacement": 1503.4,
+     "x_min": 468.0,
+     "x_max": 1950.0,
+     "x_range": 1482.0,
+     "y_min": -2111.8,
+     "y_max": -743.5,
+     "y_range": 1368.3,
+     "stationary_share": 0.9848,
+     "distinct_cells_100": 29,
+     "revisit_share": 0.9918,
+     "mean_speed_per_tick": 0.887
+    }
+   },
+   "ground_air_state": {
+    "0": 3500,
+    "1": 100
+   },
+   "top_fighter_status_ids": {
+    "13": 3282,
+    "153": 145,
+    "224": 45,
+    "193": 42,
+    "226": 39,
+    "59": 25
+   }
+  }
+ ],
+ "note": "observational replay only; fresh process per episode, tick 0, canonical native actions"
+}
