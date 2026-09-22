@@ -58,8 +58,10 @@ from stable_baselines3.common.vec_env import VecNormalize
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import experiment_config as ec  # noqa: E402
 from battleship_env import DEFAULT_EXECUTABLE  # noqa: E402
-from btt_learning import POLICY_OBSERVATION_SIZE  # noqa: E402
+from btt_learning import POLICY_OBSERVATION_CONTRACT, POLICY_OBSERVATION_SIZE, TRACK1_CONTRACT  # noqa: E402
+from btt_rewards import REWARD_V1, RewardContract  # noqa: E402
 from btt_parallel import (  # noqa: E402
     END_ABORTED,
     END_CLEAR,
@@ -88,6 +90,8 @@ from m7_evaluation import (  # noqa: E402
 )
 from m7_runtime import (  # noqa: E402
     BATTLESHIP_IMAGE,
+    PORT_BLOCK_BASE,
+    PORT_BLOCK_SIZE,
     USER_CONFIG_NAME,
     check_path_budget,
     cpu_utilisation,
@@ -111,6 +115,9 @@ DEFAULT_RUNS_DIR = REPO_ROOT / "runs"
 M6_FLAGS: Tuple[Tuple[str, str], ...] = (("SSB64_RL_NO_RENDER", "1"), ("SSB64_RAPHNET_DISABLE", "1"))
 ROLLOUT_SIZE = 5120
 POLICY = "MlpPolicy"
+ACTIVATIONS = {"tanh": torch.nn.Tanh, "relu": torch.nn.ReLU}
+EXPERIMENT_TOML = "experiment.toml"              # unmodified copy of the source profile (M7b)
+EXPERIMENT_RESOLVED = "experiment_resolved.json"  # canonical resolved configuration (M7b)
 
 try:
     from bench import ProcessMetrics  # rl/tools/bench.py
@@ -164,6 +171,7 @@ class M7PPO(PPO):
                                       if k.startswith("train/") and isinstance(v, (int, float, np.integer, np.floating))})
 
     def _excluded_save_params(self) -> List[str]:
+        # m7_reward_contract / m7_experiment (M7b) are deliberately NOT excluded: they are saved in model.zip
         return super()._excluded_save_params() + ["m7_train_s", "m7_train_metrics"]
 
 
@@ -183,6 +191,13 @@ class ForwardTimer:
     def _post(self, *_args: Any) -> None:
         self.total_s += time.perf_counter() - self._t0
         self.calls += 1
+
+
+def policy_kwargs(config: "M7Config") -> Dict[str, Any]:
+    """Explicit network architecture. M7a passed nothing and got SB3's defaults (pi/vf 64x64, Tanh,
+    orthogonal init); the M7a profile resolves to exactly those values (proved by the parity test)."""
+    layers = [int(v) for v in config.net_arch]
+    return {"net_arch": {"pi": list(layers), "vf": list(layers)}, "activation_fn": ACTIVATIONS[config.activation]}
 
 
 def resolved_ppo_params(model: PPO) -> Dict[str, Any]:
@@ -268,8 +283,18 @@ class M7Config:
     torch_threads: int = 1
     device: str = "cpu"
     clip_obs: float = 10.0
+    norm_obs: bool = True
     extra_env: Tuple[Tuple[str, str], ...] = M6_FLAGS
     resume_from: Optional[Path] = None
+    # M7b: reward contract, network, ports, worker root, experiment provenance (all default to M7a behaviour)
+    reward: RewardContract = REWARD_V1
+    net_arch: Tuple[int, ...] = (64, 64)
+    activation: str = "tanh"
+    port_block_base: int = PORT_BLOCK_BASE
+    port_block_size: int = PORT_BLOCK_SIZE
+    worker_runtime_root: Optional[Path] = None
+    allow_executable_change: bool = False
+    experiment: Optional[Any] = field(default=None, repr=False, compare=False)  # experiment_config.Experiment
     # test hooks (never used by the comparison or the pilot)
     fault: Optional[Dict[str, Any]] = None
     fault_rank: Optional[int] = None
@@ -285,14 +310,63 @@ class M7Config:
         self.executable = Path(self.executable).resolve()
         if self.resume_from is not None:
             self.resume_from = Path(self.resume_from).resolve()
+        if self.worker_runtime_root is not None:
+            self.worker_runtime_root = Path(self.worker_runtime_root).resolve()
+        self.net_arch = tuple(int(v) for v in self.net_arch)
 
     @property
     def rollout_size(self) -> int:
         return int(self.n_steps) * int(self.n_envs)
 
+    def experiment_summary(self) -> Optional[Dict[str, Any]]:
+        return self.experiment.summary() if self.experiment is not None else None
+
+    def compatibility_view(self) -> Dict[str, Any]:
+        """The resume-compatibility view of this configuration (experiment_config.COMPAT_KEYS)."""
+        return {
+            "task.id": "ssb64_us_mario_btt_v1",
+            "contracts.observation": POLICY_OBSERVATION_CONTRACT,
+            "contracts.action": TRACK1_CONTRACT,
+            "contracts.reward_resolved": self.reward.to_json(),
+            "contracts.artifact_schema": ec.ARTIFACT_SCHEMA,
+            "contracts.protocol_version": ec.PROTOCOL_VERSION,
+            "environment.horizon": int(self.horizon),
+            "environment.process_count": int(self.n_envs),
+            "environment.extra_env": dict(self.extra_env),
+            "ppo.policy": POLICY,
+            "ppo.net_arch": list(self.net_arch),
+            "ppo.activation": self.activation,
+            "ppo.learning_rate": float(self.learning_rate),
+            "ppo.rollout_size": self.rollout_size,
+            "ppo.n_steps": int(self.n_steps),
+            "ppo.batch_size": int(self.batch_size),
+            "ppo.n_epochs": int(self.n_epochs),
+            "ppo.gamma": float(self.gamma),
+            "ppo.gae_lambda": float(self.gae_lambda),
+            "ppo.clip_range": float(self.clip_range),
+            "ppo.ent_coef": float(self.ent_coef),
+            "ppo.vf_coef": float(self.vf_coef),
+            "ppo.max_grad_norm": float(self.max_grad_norm),
+            "ppo.device": self.device,
+            "ppo.vecnormalize.normalize_observations": bool(self.norm_obs),
+            "ppo.vecnormalize.normalize_rewards": False,
+            "ppo.vecnormalize.clip_obs": float(self.clip_obs),
+        }
+
     def validate(self) -> None:
         if self.n_envs < 1 or self.n_steps < 1:
             raise ValueError("n_envs and n_steps must be >= 1")
+        if self.activation not in ACTIVATIONS:
+            raise ValueError(f"activation {self.activation!r} not in {sorted(ACTIVATIONS)}")
+        if not self.net_arch or any(v < 1 for v in self.net_arch):
+            raise ValueError(f"net_arch {self.net_arch!r} must be non-empty positive widths")
+        if not isinstance(self.reward, RewardContract):
+            raise ValueError("reward must be a btt_rewards.RewardContract")
+        if self.experiment is not None:
+            view, mine = self.experiment.compatibility_view(), self.compatibility_view()
+            diffs = ec.compare_compatibility(view, mine)
+            if diffs:
+                raise ValueError(f"M7Config disagrees with its experiment profile: {diffs}")
         if self.rollout_size % self.batch_size != 0:
             raise ValueError(f"batch_size {self.batch_size} must divide the rollout size {self.rollout_size}")
         if self.total_timesteps < 1 or self.total_timesteps % self.rollout_size != 0:
@@ -310,22 +384,88 @@ class M7Config:
             raise ValueError("M7a trains on the CPU only")
 
     def to_json(self) -> Dict[str, Any]:
-        d = asdict(self)
+        d = {k: v for k, v in asdict(self).items() if k != "experiment"}
         d["runs_dir"] = portable_path(self.runs_dir)
         d["executable"] = portable_path(self.executable)
         d["resume_from"] = portable_path(self.resume_from) if self.resume_from else None
+        d["worker_runtime_root"] = portable_path(self.worker_runtime_root) if self.worker_runtime_root else None
         d["extra_env"] = dict(self.extra_env)
         d["rollout_size"] = self.rollout_size
+        d["reward"] = self.reward.to_json()
+        d["net_arch"] = list(self.net_arch)
+        d["experiment"] = self.experiment_summary()
         return d
+
+
+def config_from_experiment(exp: "ec.Experiment", *, run_id: Optional[str] = None, output_root: Optional[Path] = None,
+                           resume_from: Optional[Path] = None, purpose: Optional[str] = None) -> M7Config:
+    """Translate a validated experiment_config.Experiment into the trainer's M7Config (M7b).
+
+    The TOML is authoritative for every behavioural value; run_id / output_root
+    / resume_from are the permitted operational overrides (recorded in the
+    experiment block). For a resume the schema's cumulative
+    run.total_transitions becomes the additional transitions of this run."""
+    overrides: Dict[str, Any] = {}
+    if run_id is not None:
+        overrides["run.name"] = run_id
+    if output_root is not None:
+        overrides["run.output_root"] = str(output_root)
+    if resume_from is not None:
+        overrides["run.mode"] = "resume"
+        overrides["resume.source_checkpoint"] = str(resume_from)
+    if overrides:
+        exp = exp.with_overrides(overrides)
+    v = exp.values
+    total = int(v["run.total_transitions"])
+    if exp.mode == "resume":
+        assert exp.resume_source is not None
+        meta = read_checkpoint_set(exp.resume_source)   # existence + hashes only; contracts are compared in M7Run
+        _total, total = ec.resume_total_transitions(exp, int(meta["num_timesteps"]))
+    return M7Config(
+        run_id=exp.name, n_envs=exp.process_count, total_timesteps=total, n_steps=int(v["ppo.n_steps"]),
+        runs_dir=exp.output_root, executable=exp.executable,
+        purpose=purpose or {"train": "training", "pilot": "pilot", "resume": "resume"}[exp.mode],
+        batch_size=int(v["ppo.batch_size"]), n_epochs=int(v["ppo.n_epochs"]), gamma=float(v["ppo.gamma"]),
+        gae_lambda=float(v["ppo.gae_lambda"]), learning_rate=float(v["ppo.learning_rate"]),
+        clip_range=float(v["ppo.clip_range"]), ent_coef=float(v["ppo.ent_coef"]), vf_coef=float(v["ppo.vf_coef"]),
+        max_grad_norm=float(v["ppo.max_grad_norm"]), base_seed=int(v["run.base_seed"]),
+        horizon=int(v["environment.horizon"]), checkpoint_interval=int(v["checkpoint.interval"]),
+        initial_checkpoint=bool(v["checkpoint.initial"]), eval_interval=int(v["evaluation.interval"]),
+        eval_initial=bool(v["evaluation.initial"]), eval_final=bool(v["evaluation.final"]),
+        eval_deterministic_episodes=int(v["evaluation.deterministic_episodes"]),
+        eval_stochastic_episodes=int(v["evaluation.stochastic_episodes"]),
+        eval_workers=int(v["evaluation.workers"]) or None, eval_seed=int(v["evaluation.seed"]),
+        periodic_episodes=int(v["artifacts.periodic_episodes"]), retain_failed_cap=int(v["artifacts.retain_failed_cap"]),
+        position_delta_threshold=float(v["environment.position_delta_threshold"]),
+        startup_attempts=int(v["environment.startup_attempts"]), startup_timeout=float(v["environment.startup_timeout_s"]),
+        ready_timeout=float(v["environment.ready_timeout_s"]), request_timeout=float(v["environment.request_timeout_s"]),
+        exit_timeout=float(v["environment.exit_timeout_s"]), step_timeout=float(v["environment.step_timeout_s"]),
+        torch_threads=int(v["ppo.torch_threads"]), device=str(v["ppo.device"]),
+        clip_obs=float(v["ppo.vecnormalize.clip_obs"]), norm_obs=bool(v["ppo.vecnormalize.normalize_observations"]),
+        extra_env=exp.extra_env, resume_from=exp.resume_source, reward=exp.reward,
+        net_arch=tuple(v["ppo.net_arch"]), activation=str(v["ppo.activation"]),
+        port_block_base=int(v["environment.port_block_base"]), port_block_size=int(v["environment.port_block_size"]),
+        worker_runtime_root=exp.worker_runtime_root, allow_executable_change=bool(v["resume.allow_executable_change"]),
+        experiment=exp,
+    )
 
 
 @dataclass(frozen=True)
 class M7Layout:
     root: Path
+    workers_root: Optional[Path] = None   # M7b environment.worker_runtime_root; default <root>/workers
 
     @property
     def run_json(self) -> Path:
         return self.root / "run.json"
+
+    @property
+    def experiment_toml(self) -> Path:
+        return self.root / EXPERIMENT_TOML
+
+    @property
+    def experiment_resolved(self) -> Path:
+        return self.root / EXPERIMENT_RESOLVED
 
     @property
     def checkpoints(self) -> Path:
@@ -345,7 +485,7 @@ class M7Layout:
 
     @property
     def workers(self) -> Path:
-        return self.root / "workers"
+        return self.workers_root if self.workers_root is not None else self.root / "workers"
 
     @property
     def evaluations(self) -> Path:
@@ -365,6 +505,8 @@ class M7Layout:
     def create(self) -> None:
         if self.root.exists():
             raise FileExistsError(f"run directory already exists (never overwritten): {self.root}")
+        if self.workers_root is not None and self.workers_root.exists():
+            raise FileExistsError(f"worker directory already exists (never overwritten): {self.workers_root}")
         for d in (self.root, self.checkpoints, self.workers, self.evaluations, self.metrics):
             d.mkdir(parents=True, exist_ok=False)
 
@@ -392,6 +534,9 @@ def save_checkpoint_set(directory: Path, model: PPO, vecnorm: VecNormalize, *, r
                          "load_rule": "load with training=False and norm_reward=False for evaluation"},
         **{k: run_meta[k] for k in ("run_id", "purpose", "lineage", "contracts", "horizon", "n_envs", "ppo", "seeds",
                                      "executable", "revisions", "m6_flags", "versions", "torch_threads")},
+        # M7b: reward identity and experiment provenance travel with every set (None for legacy-shaped run_meta)
+        "reward_contract": (run_meta.get("contracts") or {}).get("reward_constants"),
+        "experiment": run_meta.get("experiment"),
         "files": {name: sha256_file(directory / name) for name in (MODEL_FILE, VECNORM_FILE, PRESERVATION_FILE)},
     }
     write_json(directory / META_FILE, meta)
@@ -439,7 +584,8 @@ class M7Run:
     def __init__(self, config: M7Config):
         config.validate()
         self.config = config
-        self.layout = M7Layout(Path(config.runs_dir) / config.run_id)
+        workers_root = (Path(config.worker_runtime_root) / config.run_id) if config.worker_runtime_root else None
+        self.layout = M7Layout(Path(config.runs_dir) / config.run_id, workers_root)
         self.model: Optional[M7PPO] = None
         self.vecnorm: Optional[VecNormalize] = None
         self.venv: Optional[M7SubprocVecEnv] = None
@@ -475,19 +621,22 @@ class M7Run:
                 rank=rank, run_id=c.run_id, role="training", worker_dir=str(wdir),
                 coordination_dir=str(self.layout.coordination.resolve()), executable=str(c.executable),
                 horizon=c.horizon, base_seed=c.base_seed, extra_env=tuple(c.extra_env),
+                reward_contract=c.reward, experiment=c.experiment_summary(),
                 position_delta_threshold=c.position_delta_threshold, retain_failed_cap=c.retain_failed_cap,
                 startup_attempts=c.startup_attempts, startup_timeout=c.startup_timeout, ready_timeout=c.ready_timeout,
                 request_timeout=c.request_timeout, exit_timeout=c.exit_timeout,
+                port_block_base=c.port_block_base, port_block_size=c.port_block_size,
                 detect_native_failure=c.detect_native_failure,
                 fault=c.fault if c.fault_rank == rank else None,
                 squat_first_attempt=("post_launch" if c.squat_first_attempt_rank == rank else None)))
         return specs
 
     def _source_checkpoint(self) -> Optional[Dict[str, Any]]:
+        """Verify the resume source and its compatibility BEFORE anything is created (M7a checks + M7b view)."""
         c = self.config
         if c.resume_from is None:
             return None
-        meta = read_checkpoint_set(c.resume_from, expected_contracts=m7_contracts(c.horizon))
+        meta = read_checkpoint_set(c.resume_from, expected_contracts=m7_contracts(c.horizon, c.reward))
         ppo = meta.get("ppo") or {}
         wanted = {"n_envs": c.n_envs, "n_steps": c.n_steps, "batch_size": c.batch_size, "n_epochs": c.n_epochs,
                   "gamma": c.gamma, "gae_lambda": c.gae_lambda, "learning_rate": c.learning_rate,
@@ -496,6 +645,21 @@ class M7Run:
         diffs = {k: {"checkpoint": ppo.get(k), "requested": v} for k, v in wanted.items() if ppo.get(k) != v}
         if diffs:
             raise CheckpointError(f"resume requires the checkpoint's PPO settings and process count: {diffs}")
+        # M7b: the full compatibility view (task, contracts, reward id + values, architecture, VecNormalize,
+        # flags, device) and the executable identity.
+        compat = ec.compare_compatibility(ec.checkpoint_compatibility_view(meta), c.compatibility_view())
+        if compat:
+            raise CheckpointError("resume rejected: compatibility-affecting fields differ from the checkpoint: "
+                                  + json.dumps(compat, sort_keys=True, default=str)[:3000])
+        stored_exe = (meta.get("executable") or {}).get("sha256")
+        current_exe = sha256_file(Path(c.executable))
+        if stored_exe != current_exe:
+            if not c.allow_executable_change:
+                raise CheckpointError(f"resume rejected: executable sha256 {current_exe[:16]}... differs from the "
+                                      f"checkpoint's {str(stored_exe)[:16]}... (set resume.allow_executable_change = true "
+                                      "to accept a separately validated build)")
+            meta["_executable_change"] = {"checkpoint_sha256": stored_exe, "current_sha256": current_exe,
+                                          "accepted_by": "resume.allow_executable_change"}
         return meta
 
     # -- callbacks ----------------------------------------------------------------------------------------
@@ -615,11 +779,13 @@ class M7Run:
                                       n_workers=c.eval_workers or c.n_envs, seed=c.eval_seed,
                                       extra_env=tuple(c.extra_env), startup_attempts=c.startup_attempts,
                                       request_timeout=c.request_timeout, step_timeout=c.step_timeout,
-                                      retain_failed_cap=c.retain_failed_cap)
+                                      retain_failed_cap=c.retain_failed_cap, reward=c.reward,
+                                      experiment=c.experiment_summary(),
+                                      port_block_base=c.port_block_base, port_block_size=c.port_block_size)
         result = evaluate_checkpoint(checkpoint_dir, self.layout.evaluations / label, settings=settings,
                                      deterministic_episodes=c.eval_deterministic_episodes,
                                      stochastic_episodes=c.eval_stochastic_episodes,
-                                     expected_contracts=m7_contracts(c.horizon), label=label)
+                                     expected_contracts=m7_contracts(c.horizon, c.reward), label=label)
         dt = time.perf_counter() - t0
         self.walls["eval_s"] += dt
         entry = {"label": label, "checkpoint": portable_path(checkpoint_dir), "wall_s": round(dt, 3),
@@ -656,21 +822,39 @@ class M7Run:
             raise RuntimeError(f"{BATTLESHIP_IMAGE} already running (pids {preexisting}); M7 runs need a quiet machine")
         user_cfg_path = Path(c.executable).resolve().parent / USER_CONFIG_NAME
         user_cfg_before = file_fingerprint(user_cfg_path)
-        port_blocks = validate_port_blocks(range(c.n_envs))
+        port_blocks = validate_port_blocks(range(c.n_envs), c.port_block_base, c.port_block_size)
         specs = self._specs()
         lineage: List[Dict[str, Any]] = []
         if source is not None:
             lineage = list(source.get("lineage") or []) + [{
                 "run_id": source.get("run_id"), "checkpoint": portable_path(c.resume_from),
                 "checkpoint_label": source.get("label"), "num_timesteps": source.get("num_timesteps"),
-                "n_updates": source.get("n_updates"), "files": source.get("files")}]
+                "n_updates": source.get("n_updates"), "files": source.get("files"),
+                "reward_contract": (source.get("contracts") or {}).get("reward_contract"),
+                "experiment": source.get("experiment"),
+                "executable_change": source.get("_executable_change"),
+                "versions_at_checkpoint": source.get("versions")}]
+        # M7b provenance: the source profile copy, the resolved configuration and the fingerprints.
+        experiment_meta = None
+        if c.experiment is not None:
+            with open(self.layout.experiment_toml, "w", encoding="utf-8", newline="\n") as fp:
+                fp.write(c.experiment.toml_text)
+            write_json(self.layout.experiment_resolved, c.experiment.resolved_json())
+            experiment_meta = dict(c.experiment.summary(), compatibility_view=c.experiment.compatibility_view(),
+                                   files={EXPERIMENT_TOML: sha256_file(self.layout.experiment_toml),
+                                          EXPERIMENT_RESOLVED: sha256_file(self.layout.experiment_resolved)})
+            if experiment_meta["files"][EXPERIMENT_TOML] != c.experiment.source.sha256:
+                raise RuntimeError("the saved experiment.toml does not reproduce the source fingerprint")
         self.run_meta = {
             "milestone": M7_MILESTONE,
             "run_id": c.run_id,
             "purpose": c.purpose,
             "created_utc": created,
             "lineage": lineage,
-            "contracts": m7_contracts(c.horizon),
+            "contracts": m7_contracts(c.horizon, c.reward),
+            "reward_contract": c.reward.to_json(),
+            "experiment": experiment_meta,
+            "compatibility_view": c.compatibility_view(),
             "horizon": c.horizon,
             "n_envs": c.n_envs,
             "seeds": {"base_seed": c.base_seed, "sb3_seed": c.base_seed,
@@ -712,17 +896,24 @@ class M7Run:
                 self.vecnorm = VecNormalize.load(str(Path(c.resume_from) / VECNORM_FILE), self.venv)
                 self.vecnorm.training = True
                 self.vecnorm.norm_reward = False
+                if bool(self.vecnorm.norm_obs) != bool(c.norm_obs) or float(self.vecnorm.clip_obs) != float(c.clip_obs):
+                    raise CheckpointError(f"resume rejected: the saved VecNormalize (norm_obs {self.vecnorm.norm_obs}, "
+                                          f"clip_obs {self.vecnorm.clip_obs}) differs from the configuration "
+                                          f"(norm_obs {c.norm_obs}, clip_obs {c.clip_obs})")
                 self.model = M7PPO.load(str(Path(c.resume_from) / MODEL_FILE), env=self.vecnorm, device=c.device)
                 self.model.set_random_seed(c.base_seed)
                 self.start_timesteps = int(self.model.num_timesteps)
             else:
-                self.vecnorm = VecNormalize(self.venv, training=True, norm_obs=True, norm_reward=False,
+                self.vecnorm = VecNormalize(self.venv, training=True, norm_obs=c.norm_obs, norm_reward=False,
                                             clip_obs=c.clip_obs, gamma=c.gamma)
                 self.model = M7PPO(POLICY, self.vecnorm, learning_rate=c.learning_rate, n_steps=c.n_steps,
                                    batch_size=c.batch_size, n_epochs=c.n_epochs, gamma=c.gamma,
                                    gae_lambda=c.gae_lambda, clip_range=c.clip_range, ent_coef=c.ent_coef,
                                    vf_coef=c.vf_coef, max_grad_norm=c.max_grad_norm, seed=c.base_seed,
-                                   device=c.device, verbose=0)
+                                   device=c.device, verbose=0, policy_kwargs=policy_kwargs(c))
+            # M7b: the reward identity and experiment provenance are stored inside model.zip as well
+            self.model.m7_reward_contract = c.reward.to_json()
+            self.model.m7_experiment = c.experiment_summary()
             self.forward = ForwardTimer(self.model.policy)
             self.run_meta["ppo"] = resolved_ppo_params(self.model)
             write_json(self.layout.run_json, self.run_meta)
@@ -851,6 +1042,8 @@ class M7Run:
             "status": status,
             "error": None if error is None else f"{type(error).__name__}: {str(error)[:4000]}",
             "config": c.to_json(),
+            "experiment": self.run_meta.get("experiment"),
+            "reward_contract": c.reward.to_json(),
             "ppo": self.run_meta.get("ppo"),
             "contracts": self.run_meta.get("contracts"),
             "seeds": self.run_meta.get("seeds"),
@@ -1090,14 +1283,22 @@ def select_process_count(rows: Sequence[Mapping[str, Any]], tolerance: float = 0
     return decision
 
 
-def run_comparison(base: M7Config, order: Sequence[int], compare_id: str) -> Dict[str, Any]:
-    root = Path(base.runs_dir) / compare_id
+def run_comparison(base: M7Config, order: Sequence[int], compare_id: str,
+                   config_factory: Optional[Any] = None, root: Optional[Path] = None) -> Dict[str, Any]:
+    """Sequential runs with different process counts. `config_factory(k, n, run_id)` (M7b) builds each run's
+    M7Config from the legacy arguments so that every run carries its own experiment provenance; `root` is the
+    comparison directory (default <runs_dir>/<compare_id>)."""
+    root = Path(root) if root is not None else Path(base.runs_dir) / compare_id
     if root.exists():
         raise FileExistsError(f"comparison directory already exists: {root}")
     root.mkdir(parents=True)
     rows = []
     for k, n in enumerate(order, 1):
-        cfg = replace(base, run_id=f"{compare_id}/run{k}_n{n}", n_envs=int(n), n_steps=ROLLOUT_SIZE // int(n))
+        run_id = f"{compare_id}/run{k}_n{n}"
+        if config_factory is not None:
+            cfg = config_factory(k, int(n), run_id)
+        else:
+            cfg = replace(base, run_id=run_id, n_envs=int(n), n_steps=ROLLOUT_SIZE // int(n), experiment=None)
         before = list_processes_named(BATTLESHIP_IMAGE)
         if before:
             raise RuntimeError(f"BattleShip processes present before comparison run {k}: {before}")
@@ -1111,7 +1312,8 @@ def run_comparison(base: M7Config, order: Sequence[int], compare_id: str) -> Dic
                                  "batch_size": base.batch_size, "n_epochs": base.n_epochs, "gamma": base.gamma,
                                  "gae_lambda": base.gae_lambda, "base_seed": base.base_seed,
                                  "checkpoint_interval": base.checkpoint_interval,
-                                 "periodic_episodes": base.periodic_episodes, "m6_flags": dict(base.extra_env)},
+                                 "periodic_episodes": base.periodic_episodes, "m6_flags": dict(base.extra_env),
+                                 "reward_contract": base.reward.to_json()},
               "runs": rows, "selection": decision}
     write_json(root / "comparison_report.json", report)
     return report

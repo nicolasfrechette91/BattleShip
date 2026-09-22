@@ -25,6 +25,17 @@ The pilot is a bounded baseline. It is not expected to clear the stage, and
 no learning claim is made beyond what the fixed evaluation protocol supports
 (see "Pilot").
 
+M7b (`docs/rl_experiment_configuration_m7b.md`) put a TOML experiment
+configuration in front of this stack and versioned the reward contract:
+`rl/configs/m7_mario_us_reward_v1.toml` resolves to exactly this pilot
+(`python rl/train_m7.py --config ...`; the subcommands below remain as a
+compatibility path), `btt_reward_v2` adds a one-time `-5.0` native-failure
+penalty as a separate contract, and every run / checkpoint / artifact /
+evaluation now records its reward contract and configuration fingerprints.
+The M7a numbers in this document were produced under `btt_reward_v1` and
+stay valid; `reward_constants` records gain a `failure_penalty` key (0.0
+for v1) and legacy records without it are read as v1.
+
 ## Files
 
 | File | Role |

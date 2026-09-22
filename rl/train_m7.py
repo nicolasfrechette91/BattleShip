@@ -1,15 +1,34 @@
 #!/usr/bin/env python3
-"""M7a: parallel PPO training CLI for BattleShip Mario Break the Targets.
+"""M7 training CLI for BattleShip Mario Break the Targets (M7b: TOML-configured).
+
+    python rl/train_m7.py --config rl/configs/m7_mario_us_reward_v1.toml --dry-run
+    python rl/train_m7.py --config rl/configs/m7_mario_us_reward_v1.toml --run-id <run name>
+    python rl/train_m7.py --config rl/configs/m7_mario_us_reward_v2.toml --run-id <run name>
+    python rl/train_m7.py --config <profile> --resume-from runs/<id>/checkpoints/ckpt_<t> --run-id <new run name>
+
+The TOML profile (rl/experiment_config.py) is the authoritative source of
+every behavioural setting: task, contracts, reward values, environment
+behaviour, PPO, VecNormalize, evaluation protocol. The command line only
+selects the profile and operational things that cannot change what the
+experiment means: --dry-run (parse, validate, resolve, print; launches
+nothing and writes nothing unless --dry-run-output names a file), --run-id
+(run.name), --output-root (run.output_root), --resume-from
+(run.mode = resume + resume.source_checkpoint). Every override is recorded
+in the run's experiment block.
+
+Legacy M7a subcommands (compatibility path, translated into the same
+schema and recorded as such; behaviour identical to M7a):
 
     python rl/train_m7.py train   --n-envs 4 --total-timesteps 51200 --run-id <id>
     python rl/train_m7.py compare --order 4,5,5,4 --total-timesteps 51200 --compare-id <id>
     python rl/train_m7.py pilot   --n-envs <N> --run-id <id>          # 1,024,000 transitions, evaluation cadence
-    python rl/train_m7.py resume  --from runs/<id>/checkpoints/ckpt_<t> --total-timesteps 5120 --run-id <new id>
+    python rl/train_m7.py resume  --from runs/<id>/checkpoints/ckpt_<t> --n-envs <N> --total-timesteps 5120 --run-id <new id>
 
-Every training process gets SSB64_RL_NO_RENDER=1 and SSB64_RAPHNET_DISABLE=1
-(the M6 training flags); nothing else is affected. Workers run in isolated
-runtime directories under the run directory; the user's BattleShip.cfg.json is
-never opened by a worker. Output layout: see rl/m7_trainer.py.
+Every training process gets the M6 flags the profile enables
+(SSB64_RL_NO_RENDER=1 and SSB64_RAPHNET_DISABLE=1 in the checked-in
+profiles). Workers run in isolated runtime directories; the user's
+BattleShip.cfg.json is never opened by a worker. Output layout: see
+rl/m7_trainer.py.
 
 This file imports only the standard library at module level: SubprocVecEnv
 spawn workers re-import it as __mp_main__ and must stay free of PyTorch.
@@ -18,13 +37,14 @@ spawn workers re-import it as __mp_main__ and must stay free of PyTorch.
 from __future__ import annotations
 
 import argparse
+import json
 import multiprocessing
 import os
 import signal
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -53,16 +73,27 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--eval-seed", type=int, default=12345)
     p.add_argument("--eval-stochastic-episodes", type=int, default=20)
     p.add_argument("--eval-deterministic-episodes", type=int, default=2)
+    # accepted after the subcommand as well; SUPPRESS keeps a top-level --dry-run from being reset to False
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", default=argparse.SUPPRESS)
 
 
-def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--config", default=None, help="TOML experiment profile (authoritative behavioural settings)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="parse, validate, resolve and print; launch nothing, write nothing (except --dry-run-output)")
+    parser.add_argument("--dry-run-output", default=None, help="optional path: write the resolved JSON there (dry run only)")
+    parser.add_argument("--run-id", default=None, help="override run.name (operational; recorded)")
+    parser.add_argument("--output-root", default=None, help="override run.output_root (operational; recorded)")
+    parser.add_argument("--resume-from", default=None,
+                        help="checkpoint-set directory: run.mode = resume, resume.source_checkpoint (operational; recorded)")
+    sub = parser.add_subparsers(dest="command", required=False, metavar="{train,compare,pilot,resume}",
+                                help="legacy M7a subcommands (compatibility path)")
     t = sub.add_parser("train")
     _common(t)
     t.add_argument("--n-envs", type=int, required=True)
     t.add_argument("--total-timesteps", type=int, required=True)
-    t.add_argument("--run-id", default=None)
+    t.add_argument("--run-id", dest="legacy_run_id", default=None)
     t.add_argument("--eval-interval", type=int, default=0)
     t.add_argument("--eval-initial", action="store_true")
     t.add_argument("--eval-final", action="store_true")
@@ -74,68 +105,136 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     pl = sub.add_parser("pilot")
     _common(pl)
     pl.add_argument("--n-envs", type=int, required=True)
-    pl.add_argument("--run-id", default=None)
+    pl.add_argument("--run-id", dest="legacy_run_id", default=None)
     r = sub.add_parser("resume")
     _common(r)
     r.add_argument("--from", dest="source", required=True, help="checkpoint set directory to continue from")
     r.add_argument("--n-envs", type=int, required=True)
     r.add_argument("--total-timesteps", type=int, required=True, help="additional transitions")
-    r.add_argument("--run-id", default=None)
-    return parser.parse_args(argv)
+    r.add_argument("--run-id", dest="legacy_run_id", default=None)
+    return parser
+
+
+def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
+    return build_parser().parse_args(argv)
+
+
+def _legacy_namespace(args: argparse.Namespace) -> Dict[str, Any]:
+    """The legacy argparse values under the M7a names expected by experiment_config.from_legacy_arguments."""
+    d = dict(vars(args))
+    d["run_id"] = d.pop("legacy_run_id", None)
+    return d
+
+
+def dry_run(exp: Any, output: Optional[str]) -> int:
+    """Print the resolved configuration, contract identities and fingerprints; write nothing unless asked."""
+    import experiment_config as ec
+
+    meta = None
+    if exp.mode == "resume" and exp.resume_source is not None:
+        meta_path = Path(exp.resume_source) / "checkpoint.json"
+        if meta_path.is_file():
+            with open(meta_path, encoding="utf-8") as fp:
+                meta = json.load(fp)
+        else:
+            print(f"resume source has no checkpoint.json: {meta_path}", flush=True)
+    print(ec.describe(exp, checkpoint_meta=meta), flush=True)
+    resolved = exp.resolved_json()
+    print("resolved configuration (JSON):", flush=True)
+    print(json.dumps(resolved, indent=2, sort_keys=True), flush=True)
+    print("dry run: no process launched, no file written" + (f" except {output}" if output else ""), flush=True)
+    if output:
+        out = Path(output)
+        with open(out, "w", encoding="utf-8", newline="\n") as fp:
+            json.dump(resolved, fp, indent=2, sort_keys=True)
+            fp.write("\n")
+    return EXIT_OK
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    args = parse_args(argv)
+    argv_list = list(sys.argv[1:] if argv is None else argv)
+    parser = build_parser()
+    args = parser.parse_args(argv_list)
+    if args.config is None and args.command is None:
+        parser.print_usage()
+        print("ERROR: give --config <profile.toml> (or a legacy subcommand)", flush=True)
+        return EXIT_USAGE
+    if args.config is not None and args.command is not None:
+        print("ERROR: --config and a legacy subcommand are exclusive", flush=True)
+        return EXIT_USAGE
     signal.signal(signal.SIGINT, _raise_keyboard_interrupt)
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, _raise_keyboard_interrupt)
-    import m7_trainer as tr  # heavy imports only in the parent process
-    from m7_evaluation import CheckpointError
+    import experiment_config as ec  # light: no torch
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    common = {"base_seed": args.seed, "horizon": args.horizon, "periodic_episodes": args.periodic_episodes,
-              "eval_workers": args.eval_workers, "eval_seed": args.eval_seed,
-              "eval_stochastic_episodes": args.eval_stochastic_episodes,
-              "eval_deterministic_episodes": args.eval_deterministic_episodes}
-    if args.runs_dir:
-        common["runs_dir"] = Path(args.runs_dir)
-    if args.exe:
-        common["executable"] = Path(args.exe)
-        if not Path(args.exe).is_file():
-            print(f"ERROR: executable not found: {args.exe}", flush=True)
-            return EXIT_USAGE
     try:
-        if args.command == "train":
-            cfg = tr.M7Config(run_id=args.run_id or f"m7_train_{stamp}", n_envs=args.n_envs,
-                              total_timesteps=args.total_timesteps, purpose="training",
-                              checkpoint_interval=args.checkpoint_interval if args.checkpoint_interval is not None else 51200,
-                              eval_interval=args.eval_interval, eval_initial=args.eval_initial,
-                              eval_final=args.eval_final, **common)
-            summary = tr.run_training(cfg)
-        elif args.command == "compare":
-            order = [int(v) for v in args.order.split(",")]
-            base = tr.M7Config(run_id="unused", n_envs=order[0], total_timesteps=args.total_timesteps,
-                               purpose="process_count_comparison",
-                               checkpoint_interval=args.checkpoint_interval if args.checkpoint_interval is not None else 25600,
-                               **common)
-            report = tr.run_comparison(base, order, args.compare_id or f"m7_compare_{stamp}")
-            print(f"selection: {report['selection']}", flush=True)
-            return EXIT_OK
-        elif args.command == "pilot":
-            cfg = tr.M7Config(run_id=args.run_id or f"m7_pilot_{stamp}", n_envs=args.n_envs,
-                              total_timesteps=PILOT_TOTAL, purpose="pilot",
-                              checkpoint_interval=args.checkpoint_interval if args.checkpoint_interval is not None else PILOT_CHECKPOINT,
-                              eval_interval=PILOT_EVAL, eval_initial=True, eval_final=True, **common)
+        if args.config is not None:
+            exp = ec.load_experiment(args.config)
+            overrides: Dict[str, Any] = {}
+            if args.run_id:
+                overrides["run.name"] = args.run_id
+            if args.output_root:
+                overrides["run.output_root"] = args.output_root
+            if args.resume_from:
+                overrides["run.mode"] = "resume"
+                overrides["resume.source_checkpoint"] = args.resume_from
+            if overrides:
+                exp = exp.with_overrides(overrides)
+            if args.dry_run:
+                return dry_run(exp, args.dry_run_output)
+            print(f"[m7] experiment {exp.name}: reward {exp.reward.contract}, semantic fingerprint "
+                  f"{exp.semantic_fingerprint[:16]}..., source sha256 {exp.source.sha256[:16]}...", flush=True)
+            import m7_trainer as tr  # heavy imports only in the parent process
+            from m7_evaluation import CheckpointError
+
+            cfg = tr.config_from_experiment(exp)
             summary = tr.run_training(cfg)
         else:
-            cfg = tr.M7Config(run_id=args.run_id or f"m7_resume_{stamp}", n_envs=args.n_envs,
-                              total_timesteps=args.total_timesteps, purpose="resume",
-                              checkpoint_interval=args.checkpoint_interval if args.checkpoint_interval is not None else 51200,
-                              resume_from=Path(args.source), **common)
+            legacy = _legacy_namespace(args)
+            command = args.command
+            print(f"[m7] legacy compatibility path: 'train_m7.py {command}' arguments are translated into the "
+                  "experiment schema (rl/experiment_config.py); behaviour identical to M7a", flush=True)
+            if command == "compare":
+                compare_id = args.compare_id or f"m7_compare_{stamp}"
+                order = [int(v) for v in args.order.split(",")]
+                runs_dir = Path(args.runs_dir) if args.runs_dir else Path(ec.REPO_ROOT) / "runs"
+                root = (runs_dir / compare_id).resolve()
+                legacy_cmp = dict(legacy, runs_dir=str(root))
+
+                def make(k: int, n: int, run_id: str) -> Any:
+                    e = ec.from_legacy_arguments("compare", legacy_cmp, argv=argv_list, n_envs=n, run_name=run_id)
+                    return tr.config_from_experiment(e, purpose="process_count_comparison")
+
+                first = ec.from_legacy_arguments("compare", legacy_cmp, argv=argv_list, n_envs=order[0], run_name="run1")
+                if args.dry_run:
+                    return dry_run(first, args.dry_run_output)
+                import m7_trainer as tr
+
+                base = tr.config_from_experiment(first, purpose="process_count_comparison")
+                report = tr.run_comparison(base, order, compare_id, config_factory=make, root=root)
+                print(f"selection: {report['selection']}", flush=True)
+                return EXIT_OK
+            run_name = legacy.get("run_id") or f"m7_{command}_{stamp}"
+            exp = ec.from_legacy_arguments(command, legacy, argv=argv_list, run_name=run_name)
+            if args.dry_run:
+                return dry_run(exp, args.dry_run_output)
+            import m7_trainer as tr
+            from m7_evaluation import CheckpointError
+
+            cfg = tr.config_from_experiment(exp)
             summary = tr.run_training(cfg)
-    except (CheckpointError, FileExistsError, ValueError) as exc:
+    except ec.ConfigError as exc:
         print(f"ERROR: {exc}", flush=True)
         return EXIT_USAGE
+    except (FileExistsError, ValueError) as exc:
+        print(f"ERROR: {exc}", flush=True)
+        return EXIT_USAGE
+    except RuntimeError as exc:
+        if type(exc).__name__ == "CheckpointError":
+            print(f"ERROR: {exc}", flush=True)
+            return EXIT_USAGE
+        raise
     except KeyboardInterrupt:
         print("interrupted", flush=True)
         return EXIT_INTERRUPTED

@@ -114,6 +114,8 @@ def pilot_report(pilot_dir: Path, random_dir: Path) -> Dict[str, Any]:
         "pilot_run": summary["run_id"],
         "status": summary["status"],
         "config": summary["config"],
+        "experiment": summary.get("experiment"),                       # M7b: profile identity + fingerprints
+        "reward_contract": summary.get("reward_contract") or (summary["contracts"] or {}).get("reward_constants"),
         "ppo": summary["ppo"],
         "contracts": summary["contracts"],
         "seeds": summary["seeds"],
@@ -131,6 +133,7 @@ def pilot_report(pilot_dir: Path, random_dir: Path) -> Dict[str, Any]:
         "rollout_curve": rollout_curve,
         "evaluation_curve": curve,
         "random_baseline": {"label": random_eval.get("label"), "policy": random_eval.get("policy"),
+                            "reward_contract": random_eval.get("reward_contract"),
                             "aggregate": (random_eval["modes"]["random"] or {}).get("aggregate"),
                             "workers": random_eval["modes"]["random"].get("workers"),
                             "wall_s": random_eval.get("wall_s")},

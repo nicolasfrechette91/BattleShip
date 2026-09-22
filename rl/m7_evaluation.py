@@ -35,7 +35,7 @@ import os
 import statistics
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -55,7 +55,15 @@ from btt_parallel import (  # noqa: E402
     WorkerSpec,
     initial_coordination_state,
 )
-from m7_runtime import check_path_budget, portable_path, prepare_worker_runtime, validate_port_blocks  # noqa: E402
+from btt_rewards import REWARD_V1, RewardContract, RewardContractError, reward_contract_from_json  # noqa: E402
+from m7_runtime import (  # noqa: E402
+    PORT_BLOCK_BASE,
+    PORT_BLOCK_SIZE,
+    check_path_budget,
+    portable_path,
+    prepare_worker_runtime,
+    validate_port_blocks,
+)
 from m7_vec_env import M7SubprocVecEnv  # noqa: E402
 
 EVALUATION_SCHEMA = 1
@@ -210,13 +218,29 @@ def read_checkpoint_set(directory: os.PathLike | str, *, expected_contracts: Opt
         actual = _sha256(path)
         if actual != expected:
             raise CheckpointError(f"{name} sha256 {actual[:16]}... does not match checkpoint.json {expected[:16]}...")
+    stored = dict(meta.get("contracts") or {})
+    if stored:
+        # M7b: a legacy M7a `reward_constants` record (no failure_penalty) is btt_reward_v1 with 0.0 and is
+        # normalised for the comparison; an inconsistent record is refused.
+        try:
+            reward = reward_contract_from_json(stored.get("reward_constants"), contract_id=stored.get("reward_contract"))
+        except RewardContractError as exc:
+            raise CheckpointError(f"{meta_path}: {exc}") from exc
+        stored["reward_constants"] = reward.to_json()
+        stored["reward_contract"] = reward.contract
+        meta["contracts"] = stored
     if expected_contracts is not None:
-        stored = meta.get("contracts") or {}
         diffs = {k: {"checkpoint": stored.get(k), "expected": v} for k, v in expected_contracts.items()
                  if stored.get(k) != v}
         if diffs:
             raise CheckpointError(f"incompatible contracts: {json.dumps(diffs)[:2000]}")
     return meta
+
+
+def checkpoint_reward_contract(meta: Mapping[str, Any]) -> RewardContract:
+    """The reward contract a checkpoint set was trained under (never reinterpreted)."""
+    contracts = meta.get("contracts") or {}
+    return reward_contract_from_json(contracts.get("reward_constants"), contract_id=contracts.get("reward_contract"))
 
 
 def policy_parameter_digest(model: Any) -> str:
@@ -250,6 +274,12 @@ class EvaluationSettings:
     request_timeout: float = 10.0
     step_timeout: float = 900.0
     retain_failed_cap: int = 20
+    # M7b: the reward contract of the diagnostic raw return (a checkpoint evaluation uses the checkpoint's own
+    # contract), the experiment summary block for artifact labels, and the port block geometry.
+    reward: RewardContract = REWARD_V1
+    experiment: Optional[Dict[str, Any]] = None
+    port_block_base: int = PORT_BLOCK_BASE
+    port_block_size: int = PORT_BLOCK_SIZE
 
 
 def _prepare_workers(root: Path, n: int, role: str, run_id: str, settings: EvaluationSettings, *,
@@ -258,7 +288,7 @@ def _prepare_workers(root: Path, n: int, role: str, run_id: str, settings: Evalu
     executable = Path(settings.executable).resolve()
     coord_dir = root / "coordination"
     RunCoordinator.create(coord_dir, initial_coordination_state(run_id, role, None))
-    validate_port_blocks(range(n))
+    validate_port_blocks(range(n), settings.port_block_base, settings.port_block_size)
     factories = []
     for rank in range(n):
         wdir = root / "workers" / f"w{rank:02d}"
@@ -266,8 +296,10 @@ def _prepare_workers(root: Path, n: int, role: str, run_id: str, settings: Evalu
         spec = WorkerSpec(rank=rank, run_id=run_id, role=role, worker_dir=str(wdir),
                           coordination_dir=str(coord_dir), executable=str(executable),
                           horizon=settings.horizon, base_seed=settings.seed, extra_env=tuple(settings.extra_env),
+                          reward_contract=settings.reward, experiment=settings.experiment,
                           retain_failed_cap=settings.retain_failed_cap, startup_attempts=settings.startup_attempts,
-                          request_timeout=settings.request_timeout, preserve_all=preserve_all)
+                          request_timeout=settings.request_timeout, preserve_all=preserve_all,
+                          port_block_base=settings.port_block_base, port_block_size=settings.port_block_size)
         factories.append(WorkerFactory(spec))
     return factories, coord_dir
 
@@ -343,6 +375,8 @@ def run_episodes(*, mode: str, episodes: int, out_dir: Path, run_id: str, settin
         "episodes_requested": episodes,
         "workers": n,
         "seed": settings.seed,
+        "reward_contract": settings.reward.to_json(),
+        "experiment": settings.experiment,
         "wall_s": round(wall, 3),
         "vec_steps": vec_steps,
         "excess_episodes_not_counted": excess,
@@ -374,16 +408,31 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
     if int(meta["contracts"]["horizon_native_ticks"]) != int(settings.horizon):
         raise CheckpointError(f"checkpoint horizon {meta['contracts']['horizon_native_ticks']} != evaluation horizon "
                               f"{settings.horizon}")
+    # M7b: the diagnostic raw return is computed under the checkpoint's OWN reward contract (never the caller's),
+    # and the checkpoint's experiment block travels into every evaluation artifact label.
+    reward = checkpoint_reward_contract(meta)
+    if settings.reward.contract != reward.contract and settings.reward != REWARD_V1:
+        raise CheckpointError(f"evaluation reward {settings.reward.contract} differs from the checkpoint's "
+                              f"{reward.contract}; a checkpoint is always evaluated under its own contract")
+    settings = replace(settings, reward=reward, experiment=meta.get("experiment") or settings.experiment)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=False)
     t0 = time.perf_counter()
     model = M7PPO.load(str(ckpt / MODEL_FILE), device="cpu")
+    model_reward = getattr(model, "m7_reward_contract", None)
+    if model_reward is not None and model_reward.get("contract") != reward.contract:
+        raise CheckpointError(f"model.zip records reward contract {model_reward.get('contract')!r} but checkpoint.json "
+                              f"records {reward.contract!r}")
     result: Dict[str, Any] = {
         "evaluation_schema": EVALUATION_SCHEMA,
         "label": label or ckpt.name,
         "checkpoint": portable_path(ckpt),
         "checkpoint_num_timesteps": meta.get("num_timesteps"),
         "checkpoint_n_updates": meta.get("n_updates"),
+        "reward_contract": reward.to_json(),
+        "experiment": meta.get("experiment"),
+        "model_reward_contract": model_reward,
+        "model_experiment": getattr(model, "m7_experiment", None),
         "horizon": settings.horizon,
         "observation_note": "raw native observations -> btt_policy_obs_v1 (15 float32, unchanged) -> "
                             "VecNormalize (frozen statistics of the checkpoint) -> policy input",
@@ -409,8 +458,9 @@ def evaluate_random(out_dir: os.PathLike | str, *, settings: EvaluationSettings,
     out.mkdir(parents=True, exist_ok=False)
     r = run_episodes(mode="random", episodes=episodes, out_dir=out / "random", run_id="eval:random", settings=settings)
     result = {"evaluation_schema": EVALUATION_SCHEMA, "label": "random_track1", "horizon": settings.horizon,
-              "policy": "uniform MultiDiscrete([9, 8]) from numpy.random.default_rng(seed)", "modes": {"random": r},
-              "wall_s": r["wall_s"]}
+              "policy": "uniform MultiDiscrete([9, 8]) from numpy.random.default_rng(seed)",
+              "reward_contract": settings.reward.to_json(), "experiment": settings.experiment,
+              "modes": {"random": r}, "wall_s": r["wall_s"]}
     with open(out / "evaluation_summary.json", "w", encoding="utf-8", newline="\n") as fp:
         json.dump(result, fp, indent=2)
         fp.write("\n")

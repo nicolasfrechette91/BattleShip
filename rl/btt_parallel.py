@@ -67,16 +67,14 @@ from battleship_client import Observation, StepState  # noqa: E402
 from battleship_env import DEFAULT_EXECUTABLE, BattleShipBTTEnv  # noqa: E402
 from battleship_process import EpisodeFailure, EpisodeOutcome, LaunchConfig  # noqa: E402
 from btt_learning import (  # noqa: E402
-    DEFAULT_REWARD_CONFIG,
     REWARD_CONTRACT,
     TARGETS_TOTAL,
-    RewardV1Config,
     RewardV1Wrapper,
     Track1PolicyWrapper,
     contracts as m5_contracts,
     live_targets,
-    reward_v1,
 )
+from btt_rewards import REWARD_V1, RewardContract, reward_step  # noqa: E402
 from m7_runtime import (  # noqa: E402
     IS_WINDOWS,
     PORT_BLOCK_BASE,
@@ -131,17 +129,22 @@ def is_native_failure(observation: Observation, state: StepState) -> bool:
     )
 
 
-def m7_contracts(horizon: int) -> Dict[str, Any]:
-    """Every contract a checkpoint depends on (compared on load/resume)."""
+def m7_contracts(horizon: int, reward: RewardContract = REWARD_V1) -> Dict[str, Any]:
+    """Every contract a checkpoint depends on (compared on load/resume).
+
+    M7b: `reward_contract` / `reward_constants` describe the actual reward
+    contract of the run (btt_reward_v1 unless configured otherwise); the M5
+    identifiers of the other contracts are unchanged."""
     c = dict(m5_contracts())
     c.update({
+        "reward_contract": reward.contract,
         "failure_contract": FAILURE_CONTRACT,
         "failure_rule": "first post-update observation with game_status == 5, btt_active == 1, "
                         "targets_remaining > 0 and no native EpisodeEnded -> terminated, reason native_failure",
         "termination_reasons": [TERMINATION_NATIVE_CLEAR, TERMINATION_NATIVE_FAILURE],
         "truncation_reasons": ["max_episode_steps", "episode_failure"],
         "horizon_native_ticks": int(horizon),
-        "reward_constants": DEFAULT_REWARD_CONFIG.to_json(),
+        "reward_constants": reward.to_json(),
     })
     return c
 
@@ -423,31 +426,53 @@ class M7BattleShipBTTEnv(BattleShipBTTEnv):
 
 
 class M7RewardWrapper(RewardV1Wrapper):
-    """btt_reward_v1 unchanged, evaluated with the NATIVE CLEAR as its terminal flag.
+    """A versioned reward contract (rl/btt_rewards.py) evaluated on M7 transitions.
 
-    Identical to RewardV1Wrapper except for the one argument: reward_v1()'s
-    `terminated` parameter means "the native EpisodeEnded result" (clear
-    bonus, and the targets_remaining == 0 check). An M7 native_failure step
-    is terminated for the learner but is not a clear, so it receives
-    newly_broken * 1.0 - 0.001 and no bonus; no failure penalty exists."""
+    The target, step and clear terms are the unchanged M5 reward_v1() with
+    the NATIVE CLEAR as its terminal flag (clear bonus and the
+    targets_remaining == 0 check apply to the native EpisodeEnded result
+    only). The contract's failure_penalty is added exactly once, on the step
+    whose termination_reason is native_failure (btt_native_failure_v1); it
+    is 0.0 under btt_reward_v1 and -5.0 under btt_reward_v2. No other step
+    can carry that reason: a horizon truncation, a lifecycle failure (Track 1
+    returns it as a truncation with reward 0.0 above this wrapper), an
+    interruption or a cleanup never reaches this arithmetic as a failure."""
+
+    def __init__(self, env: Any, contract: RewardContract = REWARD_V1, tracker: Optional["M7EpisodeTracker"] = None):
+        super().__init__(env, contract.v1_config(), tracker)
+        self.reward_contract = contract
+        self.episode_failure_terms = 0
+
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        self.episode_failure_terms = 0
+        observation, info = super().reset(seed=seed, options=options)
+        info["reward_contract"] = self.reward_contract.contract
+        return observation, info
 
     def step(self, action: Any):
         observation, _placeholder, terminated, truncated, info = self.env.step(action)  # EpisodeFailure propagates
-        clear = bool(terminated and info.get("termination_reason") == TERMINATION_NATIVE_CLEAR)
+        reason = info.get("termination_reason") if terminated else None
+        clear = reason == TERMINATION_NATIVE_CLEAR
+        native_failure = reason == TERMINATION_NATIVE_FAILURE
         current = live_targets(observation)
-        breakdown = reward_v1(self._previous_targets, current, clear, self.reward_config)
+        terms = reward_step(self._previous_targets, current, clear=clear, native_failure=native_failure,
+                            contract=self.reward_contract)
         self._previous_targets = current
-        self.last_breakdown = breakdown
-        self.episode_return += breakdown.total
+        self.last_breakdown = terms.m5_breakdown()
+        self.episode_return += terms.total
         self.episode_steps += 1
-        self.episode_targets_broken += breakdown.newly_broken
-        info["reward_contract"] = REWARD_CONTRACT
-        info["reward_v1"] = breakdown.to_json()
+        self.episode_targets_broken += terms.newly_broken
+        if terms.failure_term:
+            self.episode_failure_terms += 1
+        info["reward_contract"] = self.reward_contract.contract
+        info["reward_terms"] = terms.to_json()
+        if self.reward_contract.contract == REWARD_CONTRACT:
+            info["reward_v1"] = self.last_breakdown.to_json()   # M7a key, kept for v1 runs
         info["episode_return"] = self.episode_return
         info["episode_targets_broken"] = self.episode_targets_broken
         if self.tracker is not None:
-            self.tracker.note_step(breakdown, terminated, truncated, info)
-        return observation, breakdown.total, terminated, truncated, info
+            self.tracker.note_step(terms, terminated, truncated, info)
+        return observation, terms.total, terminated, truncated, info
 
 
 # -- cross-worker coordination --------------------------------------------------------------------------
@@ -633,9 +658,10 @@ class M7EpisodeTracker:
         artifact_root: Path,
         ledger_path: Path,
         env: M7BattleShipBTTEnv,
-        reward_config: RewardV1Config = DEFAULT_REWARD_CONFIG,
+        reward: RewardContract = REWARD_V1,
         retain_failed_cap: int = 20,
         preserve_all: bool = False,
+        experiment: Optional[Mapping[str, Any]] = None,
     ):
         self.run_id = run_id
         self.role = role
@@ -644,7 +670,8 @@ class M7EpisodeTracker:
         self.artifact_root = Path(artifact_root)
         self.ledger_path = Path(ledger_path)
         self.env = env
-        self.reward_config = reward_config
+        self.reward = reward
+        self.experiment = dict(experiment) if experiment else None   # M7b summary block (fingerprints, reward id)
         self.retain_failed_cap = int(retain_failed_cap)
         self.preserve_all = bool(preserve_all)
         self.episodes_started = 0
@@ -670,7 +697,8 @@ class M7EpisodeTracker:
         startup = dict(self.env.current_startup or {})
         self._current = {"worker_episode": self.episodes_started, "steps": 0, "return": 0.0, "targets_broken": 0,
                          "termination_reason": None, "truncation_reason": None, "episode_dir": None,
-                         "pid": None, "port": None, "startup": startup, "digest": hashlib.sha256()}
+                         "pid": None, "port": None, "startup": startup, "digest": hashlib.sha256(),
+                         "failure_term_total": 0.0, "failure_terms": 0}
         return {
             "milestone": M7_MILESTONE,
             "role": self.role,
@@ -680,7 +708,10 @@ class M7EpisodeTracker:
             "native_steps_at_start": self.native_steps,
             "sb3_num_timesteps_at_start": self.sb3_num_timesteps,
             "checkpoint_label": self.checkpoint_label,
-            "contracts": m7_contracts(self.env.max_episode_steps or 0),
+            "contracts": m7_contracts(self.env.max_episode_steps or 0, self.reward),
+            "reward_contract": self.reward.contract,
+            "reward_constants": self.reward.to_json(),
+            "experiment": self.experiment,
             "startup": startup,
         }
 
@@ -692,6 +723,10 @@ class M7EpisodeTracker:
         cur["steps"] += 1
         cur["return"] += breakdown.total
         cur["targets_broken"] += breakdown.newly_broken
+        failure_term = float(getattr(breakdown, "failure_term", 0.0) or 0.0)
+        if failure_term:
+            cur["failure_term_total"] += failure_term
+            cur["failure_terms"] += 1
         cur["termination_reason"] = info.get("termination_reason")
         cur["truncation_reason"] = info.get("truncation_reason")
         cur["episode_dir"] = info.get("episode_dir") or cur["episode_dir"]
@@ -708,7 +743,8 @@ class M7EpisodeTracker:
     def on_episode_end(self, recorder: EpisodeRecorder) -> None:
         cur = self._current or {"worker_episode": self.episodes_started, "steps": 0, "return": 0.0, "targets_broken": 0,
                                 "termination_reason": None, "truncation_reason": None, "episode_dir": None,
-                                "pid": None, "port": None, "startup": {}, "digest": hashlib.sha256()}
+                                "pid": None, "port": None, "startup": {}, "digest": hashlib.sha256(),
+                                "failure_term_total": 0.0, "failure_terms": 0}
         self._current = {}
         status = recorder.status
         if status == EpisodeStatus.TERMINAL:
@@ -760,6 +796,9 @@ class M7EpisodeTracker:
             "episode_steps": cur["steps"],
             "episode_return": cur["return"],
             "targets_broken": cur["targets_broken"],
+            "reward_contract": self.reward.contract,
+            "failure_penalty_applied": bool(cur["failure_terms"]),
+            "failure_penalty_total": cur["failure_term_total"],
             "cleared": cleared,
             "completion_time_passed": ctp,
             "completion_input_tick": cit,
@@ -811,6 +850,10 @@ class M7EpisodeTracker:
             "steps": cur["steps"],
             "return": cur["return"],
             "targets_broken": cur["targets_broken"],
+            "reward_contract": self.reward.contract,
+            "failure_penalty_applied": bool(cur["failure_terms"]),
+            "failure_penalty_terms": cur["failure_terms"],
+            "failure_penalty_total": cur["failure_term_total"],
             "cleared": cleared,
             "completion_time_passed": ctp,
             "completion_input_tick": cit,
@@ -989,8 +1032,8 @@ class WorkerSpec:
     horizon: int = M7_HORIZON
     base_seed: int = 0
     extra_env: Tuple[Tuple[str, str], ...] = (("SSB64_RL_NO_RENDER", "1"), ("SSB64_RAPHNET_DISABLE", "1"))
-    reward: Tuple[float, float, float] = (DEFAULT_REWARD_CONFIG.target_broken, DEFAULT_REWARD_CONFIG.per_step,
-                                          DEFAULT_REWARD_CONFIG.clear_bonus)
+    reward_contract: RewardContract = REWARD_V1   # M7b: versioned contract (rl/btt_rewards.py); default v1
+    experiment: Optional[Dict[str, Any]] = None   # M7b: experiment summary block written into every artifact label
     position_delta_threshold: float = DEFAULT_POSITION_DELTA_THRESHOLD
     retain_failed_cap: int = 20
     startup_attempts: int = 3
@@ -1080,9 +1123,10 @@ def build_worker_env(spec: WorkerSpec) -> M7WorkerWrapper:
                               port_claim_hook=_PortSquatter(spec.squat_first_attempt) if spec.squat_first_attempt else None)
     tracker = M7EpisodeTracker(run_id=spec.run_id, role=spec.role, rank=spec.rank,
                                coordinator=RunCoordinator(spec.coordination_dir), artifact_root=paths["artifacts"],
-                               ledger_path=paths["ledger"], env=base, reward_config=RewardV1Config(*spec.reward),
-                               retain_failed_cap=spec.retain_failed_cap, preserve_all=spec.preserve_all)
-    rewarded = M7RewardWrapper(base, RewardV1Config(*spec.reward), tracker)
+                               ledger_path=paths["ledger"], env=base, reward=spec.reward_contract,
+                               retain_failed_cap=spec.retain_failed_cap, preserve_all=spec.preserve_all,
+                               experiment=spec.experiment)
+    rewarded = M7RewardWrapper(base, spec.reward_contract, tracker)
     recording = EpisodeRecordingWrapper(rewarded, paths["artifacts"],
                                         detectors=[PositionDeltaDetector(spec.position_delta_threshold)],
                                         labels=tracker.labels_for_new_episode, on_episode_end=tracker.on_episode_end,
