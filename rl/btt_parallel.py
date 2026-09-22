@@ -1093,7 +1093,7 @@ class M7EpisodeTracker:
         self._current = {"worker_episode": self.episodes_started, "steps": 0, "return": 0.0, "targets_broken": 0,
                          "termination_reason": None, "truncation_reason": None, "episode_dir": None,
                          "pid": None, "port": None, "startup": startup, "digest": hashlib.sha256(),
-                         "failure_term_total": 0.0, "failure_terms": 0}
+                         "failure_term_total": 0.0, "failure_terms": 0, "target_break_ticks": []}
         return {
             "milestone": M7_MILESTONE,
             "role": self.role,
@@ -1122,6 +1122,9 @@ class M7EpisodeTracker:
         cur["steps"] += 1
         cur["return"] += breakdown.total
         cur["targets_broken"] += breakdown.newly_broken
+        if breakdown.newly_broken:
+            # M7d: consumed tick of every target break (summary only; artifacts and labels are unchanged)
+            cur["target_break_ticks"].extend([info.get("consumed_tick")] * int(breakdown.newly_broken))
         failure_term = float(getattr(breakdown, "failure_term", 0.0) or 0.0)
         if failure_term:
             cur["failure_term_total"] += failure_term
@@ -1143,7 +1146,7 @@ class M7EpisodeTracker:
         cur = self._current or {"worker_episode": self.episodes_started, "steps": 0, "return": 0.0, "targets_broken": 0,
                                 "termination_reason": None, "truncation_reason": None, "episode_dir": None,
                                 "pid": None, "port": None, "startup": {}, "digest": hashlib.sha256(),
-                                "failure_term_total": 0.0, "failure_terms": 0}
+                                "failure_term_total": 0.0, "failure_terms": 0, "target_break_ticks": []}
         self._current = {}
         status = recorder.status
         if status == EpisodeStatus.TERMINAL:
@@ -1251,6 +1254,7 @@ class M7EpisodeTracker:
             "steps": cur["steps"],
             "return": cur["return"],
             "targets_broken": cur["targets_broken"],
+            "target_break_ticks": list(cur.get("target_break_ticks") or []),   # M7d: consumed tick of each break
             "reward_contract": self.reward.contract,
             "failure_penalty_applied": bool(cur["failure_terms"]),
             "failure_penalty_terms": cur["failure_terms"],

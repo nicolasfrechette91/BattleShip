@@ -1,0 +1,120 @@
+# M7d controlled reward comparison: btt_reward_v1, seed 1.
+# Pair partner (same seed, other reward): rl/configs/m7d/m7d_s1_v2.toml.
+#
+# Every resolved value equals the M7c standby profile rl/configs/m7_mario_us_reward_v1_standby.toml except:
+#   [run]        name, notes, base_seed (1; the canonical profiles use 0, M7d adds the adjacent seeds 1 and 2)
+#                and output_root = "runs/m7d" (a new tree; no historical run directory is reused)
+#   [evaluation] interval = 0, initial = false, final = false: nothing is evaluated inside the training
+#                process. In-process evaluation keeps the training workers' active and standby games alive
+#                (up to 20 BattleShip processes at N=5 with standby) and reseeds the trainer's global RNGs
+#                (m7_evaluation.run_episodes set_random_seed, SB3 PPO.load), so every M7d evaluation runs
+#                after training, in its own process, on the saved checkpoint sets (rl/m7d_run.py evaluate;
+#                protocol recorded in the manifest). The episode counts and seed below stay the canonical
+#                curve protocol (2 deterministic + 20 stochastic, seed 12345).
+# The v1 / v2 twin of the same seed differs only in contracts.reward, reward.failure_penalty, run.name and
+# run.notes; rl/m7d_matrix.py proves it field by field and writes the resolved comparison manifest.
+#
+#   python rl/m7d_run.py manifest
+#   python rl/train_m7.py --config rl/configs/m7d/m7d_s1_v1.toml --dry-run
+#
+# Relative paths resolve against the repository root. Schema: rl/experiment_config.py,
+# documentation: docs/rl_reward_comparison_m7d.md.
+
+schema = "battleship_experiment_v1"
+
+[run]
+name = "m7d_s1_v1"
+mode = "pilot"
+base_seed = 1
+total_transitions = 1024000
+output_root = "runs/m7d"
+notes = "M7d controlled reward comparison: btt_reward_v1, seed 1, N=5 standby, 1,024,000 transitions, no in-process evaluation (post-hoc protocol in the M7d manifest)"
+
+[task]
+id = "ssb64_us_mario_btt_v1"
+game_version = "us"
+character = "mario"
+stage = "btt_mario"
+player = 0
+costume = 0
+
+[contracts]
+protocol_version = 1
+observation = "btt_policy_obs_v1"
+action = "btt_s9_b8_v1"
+reward = "btt_reward_v1"
+artifact_schema = 1
+
+[reward]
+# btt_reward_v1 is frozen: these values are enforced, not configurable.
+target_broken = 1.0
+per_step = -0.001
+clear_bonus = 10.0
+failure_penalty = 0.0
+
+[environment]
+executable = "build-us/Release/BattleShip.exe"
+horizon = 3600
+process_count = 5
+no_render = true
+raphnet_disable = true
+startup_attempts = 3
+startup_timeout_s = 20.0
+ready_timeout_s = 60.0
+request_timeout_s = 10.0
+exit_timeout_s = 30.0
+step_timeout_s = 900.0
+worker_runtime_root = ""
+port_block_base = 30000
+port_block_size = 250
+position_delta_threshold = 300.0
+standby_preboot = true
+standby_count = 1
+standby_wait_timeout_s = 120.0
+
+[ppo]
+policy = "MlpPolicy"
+net_arch = [64, 64]
+activation = "tanh"
+learning_rate = 3e-4
+rollout_size = 5120
+n_steps = 1024
+batch_size = 512
+n_epochs = 10
+gamma = 0.999
+gae_lambda = 0.995
+clip_range = 0.2
+ent_coef = 0.0
+vf_coef = 0.5
+max_grad_norm = 0.5
+torch_threads = 1
+device = "cpu"
+
+[ppo.vecnormalize]
+normalize_observations = true
+normalize_rewards = false
+clip_obs = 10.0
+
+[checkpoint]
+interval = 51200
+initial = true
+
+[evaluation]
+# M7d: no in-process evaluation during training (see the header); evaluations run post hoc.
+interval = 0
+initial = false
+final = false
+deterministic_episodes = 2
+stochastic_episodes = 20
+random_baseline_episodes = 100
+seed = 12345
+workers = 0
+
+[artifacts]
+periodic_episodes = 10
+retain_failed_cap = 20
+
+[resume]
+source_checkpoint = ""
+allow_executable_change = false
+allow_lifecycle_change = false

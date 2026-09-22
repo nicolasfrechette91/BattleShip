@@ -174,6 +174,11 @@ def _row(e: Mapping[str, Any]) -> Dict[str, Any]:
         "artifact_dir": e.get("artifact_dir"),
         "native_action_digest": e.get("native_action_digest"),
         "anomaly_events": e.get("anomaly_events"),
+        # M7d (additive): break timing, lifecycle and penalty facts of the worker episode summary
+        "target_break_ticks": e.get("target_break_ticks"),
+        "last_consumed_tick": e.get("last_consumed_tick"),
+        "startup_mode": e.get("startup_mode"),
+        "failure_penalty_terms": e.get("failure_penalty_terms"),
     }
 
 
@@ -317,12 +322,16 @@ def _prepare_workers(root: Path, n: int, role: str, run_id: str, settings: Evalu
 
 
 def run_episodes(*, mode: str, episodes: int, out_dir: Path, run_id: str, settings: EvaluationSettings,
-                 model: Any = None, vecnorm_path: Optional[Path] = None, n_workers: Optional[int] = None) -> Dict[str, Any]:
+                 model: Any = None, vecnorm_path: Optional[Path] = None, n_workers: Optional[int] = None,
+                 preserve_all: Optional[bool] = None) -> Dict[str, Any]:
     """Run `episodes` complete episodes in one mode; returns per-episode rows and aggregates.
 
     Collection order is deterministic: the first `episodes` completed
     episodes by vector step, then by rank. Episodes still running when the
-    quota is met are aborted at close and never counted (reported as excess)."""
+    quota is met are aborted at close and never counted (reported as excess).
+    preserve_all (M7d): None keeps the default (every deterministic episode is
+    preserved, other modes preserve new-best / clear / anomaly episodes only);
+    True preserves the canonical artifact of every episode of this set."""
     if mode not in MODES:
         raise ValueError(mode)
     if (mode == "random") != (model is None):
@@ -332,7 +341,8 @@ def run_episodes(*, mode: str, episodes: int, out_dir: Path, run_id: str, settin
     check_path_budget(out_dir, suffix=70)
     out_dir.mkdir(parents=True, exist_ok=False)
     role = "random_baseline" if mode == "random" else "evaluation"
-    factories, coord_dir = _prepare_workers(out_dir, n, role, run_id, settings, preserve_all=(mode == "deterministic"))
+    keep_all = (mode == "deterministic") if preserve_all is None else bool(preserve_all)
+    factories, coord_dir = _prepare_workers(out_dir, n, role, run_id, settings, preserve_all=keep_all)
     t0 = time.perf_counter()
     venv = M7SubprocVecEnv(factories, step_timeout=settings.step_timeout)
     env: Any = venv
@@ -392,6 +402,7 @@ def run_episodes(*, mode: str, episodes: int, out_dir: Path, run_id: str, settin
         "wall_s": round(wall, 3),
         "vec_steps": vec_steps,
         "excess_episodes_not_counted": excess,
+        "preserve_all": keep_all,
         "frozen_check": unchanged,
         "aggregate": aggregate(collected, seed=settings.seed),
         "episodes": [_row(e) | {"mode": mode, "order": e["order"]} for e in collected],
@@ -415,8 +426,11 @@ def run_episodes(*, mode: str, episodes: int, out_dir: Path, run_id: str, settin
 
 def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike | str, *, settings: EvaluationSettings,
                         deterministic_episodes: int = 2, stochastic_episodes: int = 20,
-                        expected_contracts: Optional[Mapping[str, Any]] = None, label: Optional[str] = None) -> Dict[str, Any]:
-    """Full evaluation protocol for one checkpoint set (deterministic + stochastic sessions)."""
+                        expected_contracts: Optional[Mapping[str, Any]] = None, label: Optional[str] = None,
+                        preserve_all: Optional[bool] = None) -> Dict[str, Any]:
+    """Full evaluation protocol for one checkpoint set (deterministic + stochastic sessions).
+
+    preserve_all (M7d): passed to run_episodes for both modes (None = default preservation policy)."""
     from m7_trainer import M7PPO  # local: m7_trainer imports this module
 
     ckpt = Path(checkpoint_dir)
@@ -459,11 +473,13 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
     if deterministic_episodes > 0:
         result["modes"]["deterministic"] = run_episodes(
             mode="deterministic", episodes=deterministic_episodes, out_dir=out / "deterministic",
-            run_id=f"eval:{result['label']}", settings=settings, model=model, vecnorm_path=ckpt / VECNORM_FILE)
+            run_id=f"eval:{result['label']}", settings=settings, model=model, vecnorm_path=ckpt / VECNORM_FILE,
+            preserve_all=preserve_all)
     if stochastic_episodes > 0:
         result["modes"]["stochastic"] = run_episodes(
             mode="stochastic", episodes=stochastic_episodes, out_dir=out / "stochastic",
-            run_id=f"eval:{result['label']}", settings=settings, model=model, vecnorm_path=ckpt / VECNORM_FILE)
+            run_id=f"eval:{result['label']}", settings=settings, model=model, vecnorm_path=ckpt / VECNORM_FILE,
+            preserve_all=preserve_all)
     result["wall_s"] = round(time.perf_counter() - t0, 3)
     with open(out / "evaluation_summary.json", "w", encoding="utf-8", newline="\n") as fp:
         json.dump(result, fp, indent=2)
