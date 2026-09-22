@@ -1,0 +1,1133 @@
+{
+  "milestone": "M7c",
+  "compare_id": "m7c_stage2",
+  "created_utc": "2026-09-22T14:24:21+00:00",
+  "partial": false,
+  "order": [
+    {
+      "n_envs": 4,
+      "standby": true
+    },
+    {
+      "n_envs": 5,
+      "standby": true
+    },
+    {
+      "n_envs": 5,
+      "standby": true
+    },
+    {
+      "n_envs": 4,
+      "standby": true
+    }
+  ],
+  "base_profile": "m7_mario_us_reward_v1.toml",
+  "equal_workload": {
+    "run.mode": "train",
+    "run.total_transitions": 51200,
+    "checkpoint.interval": 25600,
+    "checkpoint.initial": true,
+    "evaluation.interval": 0,
+    "evaluation.initial": false,
+    "evaluation.final": false,
+    "artifacts.periodic_episodes": 10,
+    "rollout_size": 5120,
+    "batch_size": 512,
+    "n_epochs": 10,
+    "gamma": 0.999,
+    "gae_lambda": 0.995,
+    "horizon": 3600,
+    "base_seed": 0,
+    "reward_contract": "btt_reward_v1",
+    "vecnormalize": "observations only, clip 10",
+    "network": "MlpPolicy 64x64 tanh, lr 3e-4"
+  },
+  "runs": [
+    {
+      "run_id": "run1_n4_standby",
+      "n_envs": 4,
+      "n_steps": 1280,
+      "status": "completed",
+      "transitions": 51200,
+      "rollouts": 10,
+      "learn_s": 58.356,
+      "end_to_end_transitions_per_s": 878.1,
+      "collection_transitions_per_s": 1082.0,
+      "native_ticks_per_s_aggregate_capacity": 3786.9,
+      "collect_s": 47.322,
+      "optimize_wall_s": 5.851,
+      "train_s": 5.845,
+      "collect_pct": 89.0,
+      "optimize_pct": 11.0,
+      "policy_inference_s": 13.405,
+      "native_step_s": 54.184,
+      "initial_reset_s": 5.119,
+      "restart_s": {
+        "n": 19,
+        "mean": 0.832,
+        "median": 0.004,
+        "p90": 5.012,
+        "min": 0.001,
+        "max": 5.118
+      },
+      "synchronous_stall_s": 48.49,
+      "reset_vec_steps_wall_s": 0.8134,
+      "episodes_started": 19,
+      "episodes_finished": 15,
+      "end_reasons": {
+        "clear": 0,
+        "fall": 6,
+        "horizon": 9,
+        "lifecycle_failure": 0
+      },
+      "length_mean": 2985.67,
+      "return_mean": -0.119,
+      "return_max": 1.096,
+      "targets_mean": 2.8667,
+      "targets_max": 4,
+      "clears": 0,
+      "fastest_clear": null,
+      "startup_retries": 0,
+      "startup_failures": 0,
+      "request_timeouts": 0,
+      "transport_failures": 0,
+      "action_legality_failures": 0,
+      "anomalies": 0,
+      "cpu_util_collect": 0.8388,
+      "cpu_util_optimize": 0.6754,
+      "parent_peak_working_set_mib": 287.4,
+      "parent_peak_private_mib": 460.5,
+      "worker_peak_working_set_mib_max": 47.1,
+      "game_peak_working_set_mib_max": 110.0,
+      "game_private_mib_max": 369.3,
+      "native_step_latency": {
+        "n": 51200,
+        "mean_ms": 1.0583,
+        "min_ms": 0.3945,
+        "max_ms": 45.145,
+        "p50_ms": 0.8913,
+        "p90_ms": 1.7783,
+        "p99_ms": 3.9811,
+        "p99.9_ms": 10.0
+      },
+      "worker_service_latency": {
+        "n": 51200,
+        "mean_ms": 1.2177,
+        "min_ms": 0.489,
+        "max_ms": 86.178,
+        "p50_ms": 1.0,
+        "p90_ms": 1.9953,
+        "p99_ms": 3.9811,
+        "p99.9_ms": 12.5893
+      },
+      "vector_step_wall": {
+        "n": 12800,
+        "mean_ms": 2.1662,
+        "min_ms": 0.9247,
+        "max_ms": 92.969,
+        "p50_ms": 1.9953,
+        "p90_ms": 3.1623,
+        "p99_ms": 6.3096,
+        "p99.9_ms": 50.1187
+      },
+      "artifacts_preserved": 3,
+      "artifacts_discarded": 12,
+      "checkpoints_written": 3,
+      "leak_free": true,
+      "workers_closed_cleanly": true,
+      "forced_terminations": [],
+      "user_config_byte_identical": true,
+      "standby_preboot": true,
+      "standby_count": 1,
+      "expected_max_game_processes": 8,
+      "observed_max_concurrent_per_worker": 2,
+      "reset_modes": {
+        "standby_promoted": 15
+      },
+      "standby_metrics": {
+        "promotions": 15,
+        "hits_ready_at_reset": 15,
+        "late_hits_waited": 0,
+        "cold_fallbacks": 0,
+        "fallback_reasons": {},
+        "hit_rate_of_auto_resets": 1.0,
+        "promotion_rate_of_auto_resets": 1.0,
+        "standby_startup_s": {
+          "n": 19,
+          "mean": 2.631,
+          "median": 2.744,
+          "p90": 2.865,
+          "min": 2.38,
+          "max": 2.865
+        },
+        "hidden_startup_s_total": 39.975,
+        "exposed_wait_s": {
+          "n": 15,
+          "mean": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "exposed_wait_s_total": 0.0,
+        "ready_before_promotion_s": {
+          "n": 15,
+          "mean": 9.926,
+          "median": 11.749,
+          "p90": 14.299,
+          "min": 2.778,
+          "max": 14.54
+        },
+        "promotion_s_total": 0.0023,
+        "retire_s": {
+          "n": 0
+        },
+        "standby_failed_attempts": 0,
+        "standby_failures": 0,
+        "standby_lost": 0,
+        "standby_wait_timeouts": 0,
+        "standby_starting_errors": 0,
+        "threads": {
+          "started": 19,
+          "joined": 19,
+          "alive_at_close": 0
+        },
+        "parked_resource": {
+          "samples": 15,
+          "cpu_s_while_parked_max": 0.1562,
+          "cpu_s_while_parked_mean": 0.0469,
+          "parked_s_mean": 9.926,
+          "ws_mib_at_ready_max": 110.0,
+          "private_mib_at_ready_max": 369.3,
+          "boot_cpu_s_mean": 1.951
+        }
+      },
+      "standby_failed_attempts": 0,
+      "reset_vec_step_wall_hist": {
+        "n": 15,
+        "mean_ms": 4.814,
+        "min_ms": 1.287,
+        "max_ms": 16.302,
+        "p50_ms": 3.9811,
+        "p90_ms": 7.0795,
+        "p99_ms": 16.3024,
+        "p99.9_ms": 16.3024
+      },
+      "promotions": 15,
+      "hits_ready_at_reset": 15,
+      "late_hits_waited": 0,
+      "cold_fallbacks": 0,
+      "fallback_reasons": {},
+      "hit_rate_of_auto_resets": 1.0,
+      "standby_startup_s": {
+        "n": 19,
+        "mean": 2.631,
+        "median": 2.744,
+        "p90": 2.865,
+        "min": 2.38,
+        "max": 2.865
+      },
+      "hidden_startup_s_total": 39.975,
+      "exposed_wait_s": {
+        "n": 15,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "exposed_wait_s_total": 0.0,
+      "ready_before_promotion_s": {
+        "n": 15,
+        "mean": 9.926,
+        "median": 11.749,
+        "p90": 14.299,
+        "min": 2.778,
+        "max": 14.54
+      },
+      "promotion_s_total": 0.0023,
+      "retire_s": {
+        "n": 0
+      },
+      "standby_failures": 0,
+      "standby_lost": 0,
+      "standby_wait_timeouts": 0,
+      "threads": {
+        "started": 19,
+        "joined": 19,
+        "alive_at_close": 0
+      },
+      "parked_resource": {
+        "samples": 15,
+        "cpu_s_while_parked_max": 0.1562,
+        "cpu_s_while_parked_mean": 0.0469,
+        "parked_s_mean": 9.926,
+        "ws_mib_at_ready_max": 110.0,
+        "private_mib_at_ready_max": 369.3,
+        "boot_cpu_s_mean": 1.951
+      },
+      "per_worker_standby_wait_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_retire_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_reset_s": [
+        0.0152,
+        0.0148,
+        0.0142,
+        0.0281
+      ],
+      "reset_ms": {
+        "n": 15,
+        "mean_ms": 4.814,
+        "min_ms": 1.287,
+        "max_ms": 16.302,
+        "p50_ms": 3.9811,
+        "p90_ms": 7.0795,
+        "p99_ms": 16.3024,
+        "p99.9_ms": 16.3024
+      },
+      "total_game_process_memory_mib_est": {
+        "processes": 8,
+        "working_set_mib_sum_at_peak_per_process": 880.0,
+        "private_mib_sum_at_peak_per_process": 2954.4,
+        "note": "upper bound: every process at its own peak; standbys parked at tick 0 measured about 112 MiB working set"
+      },
+      "worker_private_mib_max": 189.9,
+      "semantic_fingerprint": "717404764a051dc4c3f75377a6bd464fad74640e9ab400ff6edbd5a5236855a7"
+    },
+    {
+      "run_id": "run2_n5_standby",
+      "n_envs": 5,
+      "n_steps": 1024,
+      "status": "completed",
+      "transitions": 51200,
+      "rollouts": 10,
+      "learn_s": 52.568,
+      "end_to_end_transitions_per_s": 974.7,
+      "collection_transitions_per_s": 1254.7,
+      "native_ticks_per_s_aggregate_capacity": 4321.0,
+      "collect_s": 40.808,
+      "optimize_wall_s": 6.136,
+      "train_s": 6.13,
+      "collect_pct": 86.93,
+      "optimize_pct": 13.07,
+      "policy_inference_s": 10.495,
+      "native_step_s": 59.484,
+      "initial_reset_s": 5.573,
+      "restart_s": {
+        "n": 16,
+        "mean": 1.407,
+        "median": 0.005,
+        "p90": 5.515,
+        "min": 0.001,
+        "max": 5.572
+      },
+      "synchronous_stall_s": 59.671,
+      "reset_vec_steps_wall_s": 0.8246,
+      "episodes_started": 16,
+      "episodes_finished": 11,
+      "end_reasons": {
+        "clear": 0,
+        "fall": 5,
+        "horizon": 6,
+        "lifecycle_failure": 0
+      },
+      "length_mean": 3359.27,
+      "return_mean": -0.0865,
+      "return_max": 0.4,
+      "targets_mean": 3.2727,
+      "targets_max": 4,
+      "clears": 0,
+      "fastest_clear": null,
+      "startup_retries": 0,
+      "startup_failures": 0,
+      "request_timeouts": 0,
+      "transport_failures": 0,
+      "action_legality_failures": 0,
+      "anomalies": 0,
+      "cpu_util_collect": 0.7652,
+      "cpu_util_optimize": 0.583,
+      "parent_peak_working_set_mib": 288.5,
+      "parent_peak_private_mib": 460.5,
+      "worker_peak_working_set_mib_max": 47.0,
+      "game_peak_working_set_mib_max": 110.0,
+      "game_private_mib_max": 368.8,
+      "native_step_latency": {
+        "n": 51200,
+        "mean_ms": 1.1618,
+        "min_ms": 0.3939,
+        "max_ms": 348.812,
+        "p50_ms": 0.8913,
+        "p90_ms": 1.9953,
+        "p99_ms": 3.9811,
+        "p99.9_ms": 12.5893
+      },
+      "worker_service_latency": {
+        "n": 51200,
+        "mean_ms": 1.3188,
+        "min_ms": 0.4977,
+        "max_ms": 348.957,
+        "p50_ms": 1.122,
+        "p90_ms": 2.2387,
+        "p99_ms": 4.4668,
+        "p99.9_ms": 14.1254
+      },
+      "vector_step_wall": {
+        "n": 10240,
+        "mean_ms": 2.4851,
+        "min_ms": 0.9948,
+        "max_ms": 350.299,
+        "p50_ms": 2.2387,
+        "p90_ms": 3.9811,
+        "p99_ms": 7.9433,
+        "p99.9_ms": 56.2341
+      },
+      "artifacts_preserved": 4,
+      "artifacts_discarded": 7,
+      "checkpoints_written": 3,
+      "leak_free": true,
+      "workers_closed_cleanly": true,
+      "forced_terminations": [],
+      "user_config_byte_identical": true,
+      "standby_preboot": true,
+      "standby_count": 1,
+      "expected_max_game_processes": 10,
+      "observed_max_concurrent_per_worker": 2,
+      "reset_modes": {
+        "standby_promoted": 11
+      },
+      "standby_metrics": {
+        "promotions": 11,
+        "hits_ready_at_reset": 11,
+        "late_hits_waited": 0,
+        "cold_fallbacks": 0,
+        "fallback_reasons": {},
+        "hit_rate_of_auto_resets": 1.0,
+        "promotion_rate_of_auto_resets": 1.0,
+        "standby_startup_s": {
+          "n": 16,
+          "mean": 3.236,
+          "median": 3.23,
+          "p90": 4.016,
+          "min": 2.526,
+          "max": 4.016
+        },
+        "hidden_startup_s_total": 35.18,
+        "exposed_wait_s": {
+          "n": 11,
+          "mean": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "exposed_wait_s_total": 0.0,
+        "ready_before_promotion_s": {
+          "n": 11,
+          "mean": 12.598,
+          "median": 12.221,
+          "p90": 14.973,
+          "min": 10.23,
+          "max": 15.8
+        },
+        "promotion_s_total": 0.0014,
+        "retire_s": {
+          "n": 0
+        },
+        "standby_failed_attempts": 0,
+        "standby_failures": 0,
+        "standby_lost": 0,
+        "standby_wait_timeouts": 0,
+        "standby_starting_errors": 0,
+        "threads": {
+          "started": 16,
+          "joined": 16,
+          "alive_at_close": 0
+        },
+        "parked_resource": {
+          "samples": 11,
+          "cpu_s_while_parked_max": 0.0938,
+          "cpu_s_while_parked_mean": 0.0483,
+          "parked_s_mean": 12.598,
+          "ws_mib_at_ready_max": 109.8,
+          "private_mib_at_ready_max": 368.9,
+          "boot_cpu_s_mean": 2.041
+        }
+      },
+      "standby_failed_attempts": 0,
+      "reset_vec_step_wall_hist": {
+        "n": 11,
+        "mean_ms": 4.0771,
+        "min_ms": 1.255,
+        "max_ms": 9.209,
+        "p50_ms": 4.4668,
+        "p90_ms": 5.0119,
+        "p99_ms": 9.2094,
+        "p99.9_ms": 9.2094
+      },
+      "promotions": 11,
+      "hits_ready_at_reset": 11,
+      "late_hits_waited": 0,
+      "cold_fallbacks": 0,
+      "fallback_reasons": {},
+      "hit_rate_of_auto_resets": 1.0,
+      "standby_startup_s": {
+        "n": 16,
+        "mean": 3.236,
+        "median": 3.23,
+        "p90": 4.016,
+        "min": 2.526,
+        "max": 4.016
+      },
+      "hidden_startup_s_total": 35.18,
+      "exposed_wait_s": {
+        "n": 11,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "exposed_wait_s_total": 0.0,
+      "ready_before_promotion_s": {
+        "n": 11,
+        "mean": 12.598,
+        "median": 12.221,
+        "p90": 14.973,
+        "min": 10.23,
+        "max": 15.8
+      },
+      "promotion_s_total": 0.0014,
+      "retire_s": {
+        "n": 0
+      },
+      "standby_failures": 0,
+      "standby_lost": 0,
+      "standby_wait_timeouts": 0,
+      "threads": {
+        "started": 16,
+        "joined": 16,
+        "alive_at_close": 0
+      },
+      "parked_resource": {
+        "samples": 11,
+        "cpu_s_while_parked_max": 0.0938,
+        "cpu_s_while_parked_mean": 0.0483,
+        "parked_s_mean": 12.598,
+        "ws_mib_at_ready_max": 109.8,
+        "private_mib_at_ready_max": 368.9,
+        "boot_cpu_s_mean": 2.041
+      },
+      "per_worker_standby_wait_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_retire_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_reset_s": [
+        0.0062,
+        0.0125,
+        0.0093,
+        0.0078,
+        0.009
+      ],
+      "reset_ms": {
+        "n": 11,
+        "mean_ms": 4.0771,
+        "min_ms": 1.255,
+        "max_ms": 9.209,
+        "p50_ms": 4.4668,
+        "p90_ms": 5.0119,
+        "p99_ms": 9.2094,
+        "p99.9_ms": 9.2094
+      },
+      "total_game_process_memory_mib_est": {
+        "processes": 10,
+        "working_set_mib_sum_at_peak_per_process": 1100.0,
+        "private_mib_sum_at_peak_per_process": 3688.0,
+        "note": "upper bound: every process at its own peak; standbys parked at tick 0 measured about 112 MiB working set"
+      },
+      "worker_private_mib_max": 190.0,
+      "semantic_fingerprint": "186be74ca4078e65c4c0685bcabb0c62bf0f0ef65dcd402a549c92121154e172"
+    },
+    {
+      "run_id": "run3_n5_standby",
+      "n_envs": 5,
+      "n_steps": 1024,
+      "status": "completed",
+      "transitions": 51200,
+      "rollouts": 10,
+      "learn_s": 50.755,
+      "end_to_end_transitions_per_s": 1010.2,
+      "collection_transitions_per_s": 1258.9,
+      "native_ticks_per_s_aggregate_capacity": 4425.7,
+      "collect_s": 40.669,
+      "optimize_wall_s": 5.976,
+      "train_s": 5.971,
+      "collect_pct": 87.19,
+      "optimize_pct": 12.81,
+      "policy_inference_s": 10.314,
+      "native_step_s": 57.986,
+      "initial_reset_s": 4.019,
+      "restart_s": {
+        "n": 16,
+        "mean": 1.014,
+        "median": 0.005,
+        "p90": 3.412,
+        "min": 0.001,
+        "max": 4.018
+      },
+      "synchronous_stall_s": 61.244,
+      "reset_vec_steps_wall_s": 1.1797,
+      "episodes_started": 16,
+      "episodes_finished": 11,
+      "end_reasons": {
+        "clear": 0,
+        "fall": 5,
+        "horizon": 6,
+        "lifecycle_failure": 0
+      },
+      "length_mean": 3359.27,
+      "return_mean": -0.0865,
+      "return_max": 0.4,
+      "targets_mean": 3.2727,
+      "targets_max": 4,
+      "clears": 0,
+      "fastest_clear": null,
+      "startup_retries": 0,
+      "startup_failures": 0,
+      "request_timeouts": 0,
+      "transport_failures": 0,
+      "action_legality_failures": 0,
+      "anomalies": 0,
+      "cpu_util_collect": 0.7852,
+      "cpu_util_optimize": 0.584,
+      "parent_peak_working_set_mib": 289.4,
+      "parent_peak_private_mib": 460.5,
+      "worker_peak_working_set_mib_max": 47.0,
+      "game_peak_working_set_mib_max": 117.5,
+      "game_private_mib_max": 369.4,
+      "native_step_latency": {
+        "n": 51200,
+        "mean_ms": 1.1326,
+        "min_ms": 0.3945,
+        "max_ms": 51.898,
+        "p50_ms": 0.8913,
+        "p90_ms": 1.9953,
+        "p99_ms": 5.0119,
+        "p99.9_ms": 11.2202
+      },
+      "worker_service_latency": {
+        "n": 51200,
+        "mean_ms": 1.2996,
+        "min_ms": 0.5022,
+        "max_ms": 506.021,
+        "p50_ms": 1.0,
+        "p90_ms": 2.2387,
+        "p99_ms": 5.0119,
+        "p99.9_ms": 12.5893
+      },
+      "vector_step_wall": {
+        "n": 10240,
+        "mean_ms": 2.4967,
+        "min_ms": 0.983,
+        "max_ms": 511.8,
+        "p50_ms": 1.9953,
+        "p90_ms": 3.9811,
+        "p99_ms": 8.9125,
+        "p99.9_ms": 50.1187
+      },
+      "artifacts_preserved": 4,
+      "artifacts_discarded": 7,
+      "checkpoints_written": 3,
+      "leak_free": true,
+      "workers_closed_cleanly": true,
+      "forced_terminations": [],
+      "user_config_byte_identical": true,
+      "standby_preboot": true,
+      "standby_count": 1,
+      "expected_max_game_processes": 10,
+      "observed_max_concurrent_per_worker": 2,
+      "reset_modes": {
+        "standby_promoted": 11
+      },
+      "standby_metrics": {
+        "promotions": 11,
+        "hits_ready_at_reset": 11,
+        "late_hits_waited": 0,
+        "cold_fallbacks": 0,
+        "fallback_reasons": {},
+        "hit_rate_of_auto_resets": 1.0,
+        "promotion_rate_of_auto_resets": 1.0,
+        "standby_startup_s": {
+          "n": 16,
+          "mean": 3.013,
+          "median": 2.864,
+          "p90": 3.631,
+          "min": 2.839,
+          "max": 3.631
+        },
+        "hidden_startup_s_total": 34.585,
+        "exposed_wait_s": {
+          "n": 11,
+          "mean": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "exposed_wait_s_total": 0.0,
+        "ready_before_promotion_s": {
+          "n": 11,
+          "mean": 12.562,
+          "median": 13.328,
+          "p90": 14.562,
+          "min": 6.16,
+          "max": 15.118
+        },
+        "promotion_s_total": 0.0015,
+        "retire_s": {
+          "n": 0
+        },
+        "standby_failed_attempts": 0,
+        "standby_failures": 0,
+        "standby_lost": 0,
+        "standby_wait_timeouts": 0,
+        "standby_starting_errors": 0,
+        "threads": {
+          "started": 16,
+          "joined": 16,
+          "alive_at_close": 0
+        },
+        "parked_resource": {
+          "samples": 11,
+          "cpu_s_while_parked_max": 0.1094,
+          "cpu_s_while_parked_mean": 0.0412,
+          "parked_s_mean": 12.562,
+          "ws_mib_at_ready_max": 117.4,
+          "private_mib_at_ready_max": 369.5,
+          "boot_cpu_s_mean": 2.148
+        }
+      },
+      "standby_failed_attempts": 0,
+      "reset_vec_step_wall_hist": {
+        "n": 11,
+        "mean_ms": 4.3361,
+        "min_ms": 1.3562,
+        "max_ms": 12.77,
+        "p50_ms": 3.9811,
+        "p90_ms": 7.0795,
+        "p99_ms": 12.7703,
+        "p99.9_ms": 12.7703
+      },
+      "promotions": 11,
+      "hits_ready_at_reset": 11,
+      "late_hits_waited": 0,
+      "cold_fallbacks": 0,
+      "fallback_reasons": {},
+      "hit_rate_of_auto_resets": 1.0,
+      "standby_startup_s": {
+        "n": 16,
+        "mean": 3.013,
+        "median": 2.864,
+        "p90": 3.631,
+        "min": 2.839,
+        "max": 3.631
+      },
+      "hidden_startup_s_total": 34.585,
+      "exposed_wait_s": {
+        "n": 11,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "exposed_wait_s_total": 0.0,
+      "ready_before_promotion_s": {
+        "n": 11,
+        "mean": 12.562,
+        "median": 13.328,
+        "p90": 14.562,
+        "min": 6.16,
+        "max": 15.118
+      },
+      "promotion_s_total": 0.0015,
+      "retire_s": {
+        "n": 0
+      },
+      "standby_failures": 0,
+      "standby_lost": 0,
+      "standby_wait_timeouts": 0,
+      "threads": {
+        "started": 16,
+        "joined": 16,
+        "alive_at_close": 0
+      },
+      "parked_resource": {
+        "samples": 11,
+        "cpu_s_while_parked_max": 0.1094,
+        "cpu_s_while_parked_mean": 0.0412,
+        "parked_s_mean": 12.562,
+        "ws_mib_at_ready_max": 117.4,
+        "private_mib_at_ready_max": 369.5,
+        "boot_cpu_s_mean": 2.148
+      },
+      "per_worker_standby_wait_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_retire_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_reset_s": [
+        0.0065,
+        0.0053,
+        0.0164,
+        0.0089,
+        0.0107
+      ],
+      "reset_ms": {
+        "n": 11,
+        "mean_ms": 4.3361,
+        "min_ms": 1.3562,
+        "max_ms": 12.77,
+        "p50_ms": 3.9811,
+        "p90_ms": 7.0795,
+        "p99_ms": 12.7703,
+        "p99.9_ms": 12.7703
+      },
+      "total_game_process_memory_mib_est": {
+        "processes": 10,
+        "working_set_mib_sum_at_peak_per_process": 1175.0,
+        "private_mib_sum_at_peak_per_process": 3694.0,
+        "note": "upper bound: every process at its own peak; standbys parked at tick 0 measured about 112 MiB working set"
+      },
+      "worker_private_mib_max": 189.9,
+      "semantic_fingerprint": "186be74ca4078e65c4c0685bcabb0c62bf0f0ef65dcd402a549c92121154e172"
+    },
+    {
+      "run_id": "run4_n4_standby",
+      "n_envs": 4,
+      "n_steps": 1280,
+      "status": "completed",
+      "transitions": 51200,
+      "rollouts": 10,
+      "learn_s": 58.169,
+      "end_to_end_transitions_per_s": 880.8,
+      "collection_transitions_per_s": 1098.7,
+      "native_ticks_per_s_aggregate_capacity": 3840.9,
+      "collect_s": 46.601,
+      "optimize_wall_s": 6.25,
+      "train_s": 6.244,
+      "collect_pct": 88.17,
+      "optimize_pct": 11.83,
+      "policy_inference_s": 13.134,
+      "native_step_s": 53.45,
+      "initial_reset_s": 5.235,
+      "restart_s": {
+        "n": 19,
+        "mean": 0.811,
+        "median": 0.004,
+        "p90": 3.669,
+        "min": 0.001,
+        "max": 5.233
+      },
+      "synchronous_stall_s": 47.736,
+      "reset_vec_steps_wall_s": 1.0069,
+      "episodes_started": 19,
+      "episodes_finished": 15,
+      "end_reasons": {
+        "clear": 0,
+        "fall": 6,
+        "horizon": 9,
+        "lifecycle_failure": 0
+      },
+      "length_mean": 2985.67,
+      "return_mean": -0.119,
+      "return_max": 1.096,
+      "targets_mean": 2.8667,
+      "targets_max": 4,
+      "clears": 0,
+      "fastest_clear": null,
+      "startup_retries": 0,
+      "startup_failures": 0,
+      "request_timeouts": 0,
+      "transport_failures": 0,
+      "action_legality_failures": 0,
+      "anomalies": 0,
+      "cpu_util_collect": 0.8104,
+      "cpu_util_optimize": 0.703,
+      "parent_peak_working_set_mib": 289.8,
+      "parent_peak_private_mib": 460.5,
+      "worker_peak_working_set_mib_max": 47.2,
+      "game_peak_working_set_mib_max": 110.2,
+      "game_private_mib_max": 368.8,
+      "native_step_latency": {
+        "n": 51200,
+        "mean_ms": 1.0439,
+        "min_ms": 0.3844,
+        "max_ms": 97.924,
+        "p50_ms": 0.8913,
+        "p90_ms": 1.7783,
+        "p99_ms": 3.5481,
+        "p99.9_ms": 10.0
+      },
+      "worker_service_latency": {
+        "n": 51200,
+        "mean_ms": 1.2061,
+        "min_ms": 0.4855,
+        "max_ms": 266.759,
+        "p50_ms": 1.0,
+        "p90_ms": 1.9953,
+        "p99_ms": 3.9811,
+        "p99.9_ms": 12.5893
+      },
+      "vector_step_wall": {
+        "n": 12800,
+        "mean_ms": 2.1396,
+        "min_ms": 0.9016,
+        "max_ms": 273.911,
+        "p50_ms": 1.9953,
+        "p90_ms": 3.1623,
+        "p99_ms": 6.3096,
+        "p99.9_ms": 56.2341
+      },
+      "artifacts_preserved": 3,
+      "artifacts_discarded": 12,
+      "checkpoints_written": 3,
+      "leak_free": true,
+      "workers_closed_cleanly": true,
+      "forced_terminations": [],
+      "user_config_byte_identical": true,
+      "standby_preboot": true,
+      "standby_count": 1,
+      "expected_max_game_processes": 8,
+      "observed_max_concurrent_per_worker": 2,
+      "reset_modes": {
+        "standby_promoted": 15
+      },
+      "standby_metrics": {
+        "promotions": 15,
+        "hits_ready_at_reset": 15,
+        "late_hits_waited": 0,
+        "cold_fallbacks": 0,
+        "fallback_reasons": {},
+        "hit_rate_of_auto_resets": 1.0,
+        "promotion_rate_of_auto_resets": 1.0,
+        "standby_startup_s": {
+          "n": 19,
+          "mean": 2.89,
+          "median": 2.826,
+          "p90": 3.283,
+          "min": 2.656,
+          "max": 3.283
+        },
+        "hidden_startup_s_total": 44.944,
+        "exposed_wait_s": {
+          "n": 15,
+          "mean": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "exposed_wait_s_total": 0.0,
+        "ready_before_promotion_s": {
+          "n": 15,
+          "mean": 9.613,
+          "median": 11.982,
+          "p90": 12.7,
+          "min": 2.258,
+          "max": 12.834
+        },
+        "promotion_s_total": 0.002,
+        "retire_s": {
+          "n": 0
+        },
+        "standby_failed_attempts": 0,
+        "standby_failures": 0,
+        "standby_lost": 0,
+        "standby_wait_timeouts": 0,
+        "standby_starting_errors": 0,
+        "threads": {
+          "started": 19,
+          "joined": 19,
+          "alive_at_close": 0
+        },
+        "parked_resource": {
+          "samples": 15,
+          "cpu_s_while_parked_max": 0.1094,
+          "cpu_s_while_parked_mean": 0.0365,
+          "parked_s_mean": 9.613,
+          "ws_mib_at_ready_max": 110.0,
+          "private_mib_at_ready_max": 368.8,
+          "boot_cpu_s_mean": 1.936
+        }
+      },
+      "standby_failed_attempts": 0,
+      "reset_vec_step_wall_hist": {
+        "n": 15,
+        "mean_ms": 3.9232,
+        "min_ms": 1.0811,
+        "max_ms": 6.5,
+        "p50_ms": 3.9811,
+        "p90_ms": 6.4996,
+        "p99_ms": 6.4996,
+        "p99.9_ms": 6.4996
+      },
+      "promotions": 15,
+      "hits_ready_at_reset": 15,
+      "late_hits_waited": 0,
+      "cold_fallbacks": 0,
+      "fallback_reasons": {},
+      "hit_rate_of_auto_resets": 1.0,
+      "standby_startup_s": {
+        "n": 19,
+        "mean": 2.89,
+        "median": 2.826,
+        "p90": 3.283,
+        "min": 2.656,
+        "max": 3.283
+      },
+      "hidden_startup_s_total": 44.944,
+      "exposed_wait_s": {
+        "n": 15,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "exposed_wait_s_total": 0.0,
+      "ready_before_promotion_s": {
+        "n": 15,
+        "mean": 9.613,
+        "median": 11.982,
+        "p90": 12.7,
+        "min": 2.258,
+        "max": 12.834
+      },
+      "promotion_s_total": 0.002,
+      "retire_s": {
+        "n": 0
+      },
+      "standby_failures": 0,
+      "standby_lost": 0,
+      "standby_wait_timeouts": 0,
+      "threads": {
+        "started": 19,
+        "joined": 19,
+        "alive_at_close": 0
+      },
+      "parked_resource": {
+        "samples": 15,
+        "cpu_s_while_parked_max": 0.1094,
+        "cpu_s_while_parked_mean": 0.0365,
+        "parked_s_mean": 9.613,
+        "ws_mib_at_ready_max": 110.0,
+        "private_mib_at_ready_max": 368.8,
+        "boot_cpu_s_mean": 1.936
+      },
+      "per_worker_standby_wait_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_retire_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_reset_s": [
+        0.0148,
+        0.011,
+        0.0123,
+        0.0208
+      ],
+      "reset_ms": {
+        "n": 15,
+        "mean_ms": 3.9232,
+        "min_ms": 1.0811,
+        "max_ms": 6.5,
+        "p50_ms": 3.9811,
+        "p90_ms": 6.4996,
+        "p99_ms": 6.4996,
+        "p99.9_ms": 6.4996
+      },
+      "total_game_process_memory_mib_est": {
+        "processes": 8,
+        "working_set_mib_sum_at_peak_per_process": 881.6,
+        "private_mib_sum_at_peak_per_process": 2950.4,
+        "note": "upper bound: every process at its own peak; standbys parked at tick 0 measured about 112 MiB working set"
+      },
+      "worker_private_mib_max": 189.8,
+      "semantic_fingerprint": "717404764a051dc4c3f75377a6bd464fad74640e9ab400ff6edbd5a5236855a7"
+    }
+  ],
+  "standby_off_vs_on": {},
+  "selection": {
+    "per_n": {
+      "4": {
+        "runs": [
+          "run1_n4_standby",
+          "run4_n4_standby"
+        ],
+        "end_to_end_tps": [
+          878.1,
+          880.8
+        ],
+        "mean_end_to_end_tps": 879.5,
+        "spread_pct": 0.31,
+        "mean_optimize_pct": 11.41,
+        "mean_cpu_util_collect": 0.8246,
+        "reliability_problems": []
+      },
+      "5": {
+        "runs": [
+          "run2_n5_standby",
+          "run3_n5_standby"
+        ],
+        "end_to_end_tps": [
+          974.7,
+          1010.2
+        ],
+        "mean_end_to_end_tps": 992.5,
+        "spread_pct": 3.58,
+        "mean_optimize_pct": 12.94,
+        "mean_cpu_util_collect": 0.7752,
+        "reliability_problems": []
+      }
+    },
+    "tolerance": 0.05,
+    "n5_vs_n4_gain": 0.1285,
+    "selected": 5,
+    "reason": "N=5 end-to-end throughput 12.8 % above N=4 (> 5 %) with equal reliability"
+  },
+  "selection_rule": "reliable end-to-end PPO transitions/s; within 5 % choose N=4; reliability, memory, CPU headroom and latency tails outrank marginal throughput (rl/m7_trainer.select_process_count)"
+}

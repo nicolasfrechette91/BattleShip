@@ -1,0 +1,191 @@
+{
+  "park_s": 20.0,
+  "job_active": true,
+  "boot_to_fresh_s": 8.485,
+  "initial": {
+    "state": "WaitingForAction",
+    "can_step": true,
+    "step_count": 0,
+    "input_tick": 0,
+    "time_passed": 0,
+    "host_frame": 64,
+    "game_status": 1,
+    "btt_active": 1,
+    "targets_remaining": 10,
+    "position": [
+      0.0,
+      -2550.0
+    ]
+  },
+  "after_park": {
+    "state": "WaitingForAction",
+    "can_step": true,
+    "step_count": 0,
+    "input_tick": 0,
+    "time_passed": 0,
+    "host_frame": 64,
+    "position": [
+      0.0,
+      -2550.0
+    ],
+    "status_step_count": 0
+  },
+  "observation_fields_changed_while_parked": [],
+  "parked_cpu": {
+    "total_cpu_s_over_park": 0.0625,
+    "cpu_pct_of_one_core": 0.312,
+    "boot_cpu_s": 2.062
+  },
+  "parked_memory": {
+    "ws_mib": 112.0,
+    "peak_ws_mib": 112.0,
+    "private_mib": 366.7,
+    "peak_private_mib": 366.7
+  },
+  "samples": [
+    {
+      "t": 1.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 109.2,
+      "private_mib": 366.7
+    },
+    {
+      "t": 2.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 3.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 4.0,
+      "cpu_delta_s": 0.0156,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 5.0,
+      "cpu_delta_s": 0.0156,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 6.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 7.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 8.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 9.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 10.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 11.0,
+      "cpu_delta_s": 0.0156,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 12.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 13.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 14.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 15.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 16.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 17.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 18.0,
+      "cpu_delta_s": 0.0156,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 19.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    },
+    {
+      "t": 20.0,
+      "cpu_delta_s": 0.0,
+      "ws_mib": 112.0,
+      "private_mib": 366.7
+    }
+  ],
+  "first_pid_in_job": true,
+  "first_step_after_park": {
+    "consumed_tick": 0,
+    "input_tick": 1,
+    "step_count": 1,
+    "time_passed": 0
+  },
+  "thread_launch": {
+    "pid": 16668,
+    "boot_s": 2.51,
+    "port": 37989,
+    "in_job": true,
+    "thread": "standby-launcher",
+    "fresh": {
+      "input_tick": 0,
+      "step_count": 0,
+      "state": "WaitingForAction"
+    },
+    "close": "terminated"
+  },
+  "thread_joined": true,
+  "first_close": "terminated",
+  "battleship_after": [],
+  "note": "Phase A probe: one BattleShip parked at tick 0 for 20 s (both M6 flags), then a second one launched from a background thread while the first was alive"
+}

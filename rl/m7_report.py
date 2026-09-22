@@ -148,6 +148,8 @@ def pilot_report(pilot_dir: Path, random_dir: Path) -> Dict[str, Any]:
         "failures": summary["failures"],
         "restarts": {k: v for k, v in summary["restarts"].items() if k != "startup_failures"}
         | {"startup_failures": summary["restarts"]["startup_failures"]},
+        # M7c: process lifecycle of the run (standby settings, promotions, fallbacks, hidden/exposed time); None for M7a/M7b runs
+        "lifecycle": {k: v for k, v in (summary.get("lifecycle") or {}).items() if k != "per_worker"} or None,
         "cleanup": summary["cleanup"],
         "user_config": summary["user_config"],
         "evaluation_overhead_s": summary["wall"]["eval_s_total"],

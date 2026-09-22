@@ -1,0 +1,165 @@
+{
+  "note": "one rollout of 5120 transitions per run, horizon 3600, standby off vs on, N=4 and N=5; measures the initial boot burst (N active + N standby) only",
+  "runs": {
+    "contention_n4_off": {
+      "initial_reset_s": 5.009,
+      "e2e_tps": 468.9,
+      "first_standby_startup_s": {
+        "0": null,
+        "1": null,
+        "2": null,
+        "3": null
+      },
+      "observed_max_concurrent_per_worker": 1,
+      "expected_max_game_processes": 4,
+      "standby": {
+        "promotions": 0,
+        "hits_ready_at_reset": 0,
+        "late_hits_waited": 0,
+        "cold_fallbacks": 0,
+        "standby_startup_s": {
+          "n": 0
+        },
+        "exposed_wait_s": {
+          "n": 0
+        }
+      },
+      "cpu_util_collect": 0.8803,
+      "native_step": {
+        "n": 5120,
+        "mean_ms": 1.0611,
+        "min_ms": 0.4388,
+        "max_ms": 7.488,
+        "p50_ms": 0.8913,
+        "p90_ms": 1.7783,
+        "p99_ms": 3.5481,
+        "p99.9_ms": 5.6234
+      },
+      "episodes": 0,
+      "reset_modes": {}
+    },
+    "contention_n4_on": {
+      "initial_reset_s": 5.766,
+      "e2e_tps": 366.3,
+      "first_standby_startup_s": {
+        "0": 4.1062,
+        "1": 3.0125,
+        "2": 3.3568,
+        "3": 2.2634
+      },
+      "observed_max_concurrent_per_worker": 2,
+      "expected_max_game_processes": 8,
+      "standby": {
+        "promotions": 0,
+        "hits_ready_at_reset": 0,
+        "late_hits_waited": 0,
+        "cold_fallbacks": 0,
+        "standby_startup_s": {
+          "n": 4,
+          "mean": 3.185,
+          "median": 3.185,
+          "p90": 4.106,
+          "min": 2.263,
+          "max": 4.106
+        },
+        "exposed_wait_s": {
+          "n": 0
+        }
+      },
+      "cpu_util_collect": 0.9975,
+      "native_step": {
+        "n": 5120,
+        "mean_ms": 1.7194,
+        "min_ms": 0.478,
+        "max_ms": 84.371,
+        "p50_ms": 1.4125,
+        "p90_ms": 3.1623,
+        "p99_ms": 7.9433,
+        "p99.9_ms": 17.7828
+      },
+      "episodes": 0,
+      "reset_modes": {}
+    },
+    "contention_n5_off": {
+      "initial_reset_s": 5.093,
+      "e2e_tps": 453.7,
+      "first_standby_startup_s": {
+        "0": null,
+        "1": null,
+        "2": null,
+        "3": null,
+        "4": null
+      },
+      "observed_max_concurrent_per_worker": 1,
+      "expected_max_game_processes": 5,
+      "standby": {
+        "promotions": 0,
+        "hits_ready_at_reset": 0,
+        "late_hits_waited": 0,
+        "cold_fallbacks": 0,
+        "standby_startup_s": {
+          "n": 0
+        },
+        "exposed_wait_s": {
+          "n": 0
+        }
+      },
+      "cpu_util_collect": 0.9616,
+      "native_step": {
+        "n": 5120,
+        "mean_ms": 1.3908,
+        "min_ms": 0.478,
+        "max_ms": 13.77,
+        "p50_ms": 1.122,
+        "p90_ms": 2.5119,
+        "p99_ms": 4.4668,
+        "p99.9_ms": 8.9125
+      },
+      "episodes": 0,
+      "reset_modes": {}
+    },
+    "contention_n5_on": {
+      "initial_reset_s": 6.452,
+      "e2e_tps": 351.0,
+      "first_standby_startup_s": {
+        "0": 6.2278,
+        "1": 3.7403,
+        "2": 6.0221,
+        "3": 2.6992,
+        "4": 3.1112
+      },
+      "observed_max_concurrent_per_worker": 2,
+      "expected_max_game_processes": 10,
+      "standby": {
+        "promotions": 0,
+        "hits_ready_at_reset": 0,
+        "late_hits_waited": 0,
+        "cold_fallbacks": 0,
+        "standby_startup_s": {
+          "n": 5,
+          "mean": 4.36,
+          "median": 3.74,
+          "p90": 6.228,
+          "min": 2.699,
+          "max": 6.228
+        },
+        "exposed_wait_s": {
+          "n": 0
+        }
+      },
+      "cpu_util_collect": 0.9982,
+      "native_step": {
+        "n": 5120,
+        "mean_ms": 2.2464,
+        "min_ms": 0.5051,
+        "max_ms": 130.668,
+        "p50_ms": 1.7783,
+        "p90_ms": 3.9811,
+        "p99_ms": 11.2202,
+        "p99.9_ms": 70.7946
+      },
+      "episodes": 0,
+      "reset_modes": {}
+    }
+  }
+}

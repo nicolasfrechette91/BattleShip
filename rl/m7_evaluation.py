@@ -51,6 +51,7 @@ from btt_parallel import (  # noqa: E402
     END_CLEAR,
     M7_HORIZON,
     RunCoordinator,
+    StandbySettings,
     WorkerFactory,
     WorkerSpec,
     initial_coordination_state,
@@ -280,6 +281,15 @@ class EvaluationSettings:
     experiment: Optional[Dict[str, Any]] = None
     port_block_base: int = PORT_BLOCK_BASE
     port_block_size: int = PORT_BLOCK_SIZE
+    # M7c standby lifecycle of the evaluation workers (same contract as training; defaults = off)
+    standby_preboot: bool = False
+    standby_count: int = 0
+    standby_wait_timeout: float = 120.0
+
+    def lifecycle(self) -> Dict[str, Any]:
+        s = StandbySettings(preboot=self.standby_preboot, count=self.standby_count, wait_timeout=self.standby_wait_timeout).to_json()
+        s["max_game_processes"] = int(self.n_workers) * (1 + int(self.standby_count))
+        return s
 
 
 def _prepare_workers(root: Path, n: int, role: str, run_id: str, settings: EvaluationSettings, *,
@@ -299,7 +309,9 @@ def _prepare_workers(root: Path, n: int, role: str, run_id: str, settings: Evalu
                           reward_contract=settings.reward, experiment=settings.experiment,
                           retain_failed_cap=settings.retain_failed_cap, startup_attempts=settings.startup_attempts,
                           request_timeout=settings.request_timeout, preserve_all=preserve_all,
-                          port_block_base=settings.port_block_base, port_block_size=settings.port_block_size)
+                          port_block_base=settings.port_block_base, port_block_size=settings.port_block_size,
+                          standby_preboot=settings.standby_preboot, standby_count=settings.standby_count,
+                          standby_wait_timeout=settings.standby_wait_timeout)
         factories.append(WorkerFactory(spec))
     return factories, coord_dir
 
@@ -387,6 +399,10 @@ def run_episodes(*, mode: str, episodes: int, out_dir: Path, run_id: str, settin
         "workers_closed_cleanly": all(bool(e.get("closed_cleanly")) for e in close.get("ranks", {}).values()),
         "startup_failures": sum(len((r or {}).get("startup_failures", [])) for r in reports.values()),
         "coordination_state": RunCoordinator(coord_dir).read(),
+        # M7c: lifecycle of the evaluation workers and their standby statistics
+        "lifecycle": dict(settings.lifecycle(), timing_reset_modes=venv.timing.to_json().get("reset_modes"),
+                          per_worker={rank: (r or {}).get("standby") for rank, r in reports.items()},
+                          startup_modes={rank: (r or {}).get("startup_modes") for rank, r in reports.items()}),
     }
     if mode == "deterministic":
         digests = {e["native_action_digest"] for e in collected}
@@ -433,6 +449,8 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
         "experiment": meta.get("experiment"),
         "model_reward_contract": model_reward,
         "model_experiment": getattr(model, "m7_experiment", None),
+        "lifecycle": settings.lifecycle(),
+        "checkpoint_lifecycle": meta.get("lifecycle"),
         "horizon": settings.horizon,
         "observation_note": "raw native observations -> btt_policy_obs_v1 (15 float32, unchanged) -> "
                             "VecNormalize (frozen statistics of the checkpoint) -> policy input",
@@ -460,6 +478,7 @@ def evaluate_random(out_dir: os.PathLike | str, *, settings: EvaluationSettings,
     result = {"evaluation_schema": EVALUATION_SCHEMA, "label": "random_track1", "horizon": settings.horizon,
               "policy": "uniform MultiDiscrete([9, 8]) from numpy.random.default_rng(seed)",
               "reward_contract": settings.reward.to_json(), "experiment": settings.experiment,
+              "lifecycle": settings.lifecycle(),
               "modes": {"random": r}, "wall_s": r["wall_s"]}
     with open(out / "evaluation_summary.json", "w", encoding="utf-8", newline="\n") as fp:
         json.dump(result, fp, indent=2)

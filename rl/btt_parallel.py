@@ -51,6 +51,7 @@ import random
 import shutil
 import signal
 import sys
+import threading
 import time
 import traceback
 from dataclasses import dataclass, field, replace
@@ -63,9 +64,18 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
 
-from battleship_client import Observation, StepState  # noqa: E402
-from battleship_env import DEFAULT_EXECUTABLE, BattleShipBTTEnv  # noqa: E402
-from battleship_process import EpisodeFailure, EpisodeOutcome, LaunchConfig  # noqa: E402
+from battleship_client import BattleShipError, Observation, StepState  # noqa: E402
+from battleship_env import DEFAULT_EXECUTABLE, BattleShipBTTEnv, BattleShipEnvError, observation_to_gym  # noqa: E402
+from battleship_process import BattleShipEpisode, EpisodeFailure, EpisodeOutcome, LaunchConfig  # noqa: E402
+from m7_standby import (  # noqa: E402
+    MAX_STANDBY_COUNT,
+    STANDBY_CONTRACT,
+    AcquireResult,
+    LaunchOutcome,
+    StandbyManager,
+    StandbyState,
+    verify_readiness,
+)
 from btt_learning import (  # noqa: E402
     REWARD_CONTRACT,
     TARGETS_TOTAL,
@@ -82,6 +92,8 @@ from m7_runtime import (  # noqa: E402
     PortCandidates,
     pid_alive,
     portable_path,
+    prepare_worker_runtime,
+    remove_worker_runtime,
     replace_with_retry,
 )
 from run_artifacts import (  # noqa: E402
@@ -117,6 +129,43 @@ END_ABORTED = "aborted"
 # The M2 lifecycle outcomes a startup attempt may end with and be retried
 # (a new process on a new port). A process that survives kill is not retried.
 NON_RETRYABLE_STARTUP = (EpisodeOutcome.CLEANUP_FAILURE,)
+
+# M7c standby lifecycle (rl/m7_standby.py). Reset modes recorded in info["m7_startup"]["mode"], artifact labels
+# and episode summaries: how the active process of an episode came to exist.
+STARTUP_MODE_COLD_START = "cold_start"            # standby off, or the worker's very first process
+STARTUP_MODE_STANDBY_PROMOTED = "standby_promoted"  # a ready standby became active (no launch waited for)
+STARTUP_MODE_COLD_FALLBACK = "cold_fallback"      # standby on, but none usable: synchronous fresh launch
+STANDBY_STATUS_FLAGS = {"SSB64_RL_NO_RENDER": "no_render", "SSB64_RAPHNET_DISABLE": "raphnet_disabled"}
+
+
+@dataclass(frozen=True)
+class StandbySettings:
+    """M7c lifecycle configuration of one worker (plain data, picklable)."""
+
+    preboot: bool = False
+    count: int = 0                     # 0 or 1 in M7c
+    wait_timeout: float = 120.0        # bound on waiting for a launch in flight at reset (then cancel + cold fallback)
+
+    def __post_init__(self) -> None:
+        if self.count < 0 or self.count > MAX_STANDBY_COUNT:
+            raise ValueError(f"standby_count must be 0..{MAX_STANDBY_COUNT}")
+        if bool(self.preboot) != (self.count == 1):
+            raise ValueError("standby_preboot = true requires standby_count = 1 (and false requires 0)")
+        if self.wait_timeout <= 0:
+            raise ValueError("standby_wait_timeout must be > 0")
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.preboot) and self.count >= 1
+
+    def to_json(self) -> Dict[str, Any]:
+        return {"contract": STANDBY_CONTRACT, "standby_preboot": bool(self.preboot), "standby_count": int(self.count),
+                "standby_wait_timeout_s": float(self.wait_timeout), "max_processes_per_worker": 1 + int(self.count)}
+
+
+def expected_status_flags(extra_env: Mapping[str, str]) -> Dict[str, bool]:
+    """The status flags (M6 no_render / raphnet_disabled) every process of this worker must report."""
+    return {flag: extra_env.get(var) == "1" for var, flag in STANDBY_STATUS_FLAGS.items()}
 
 
 def is_native_failure(observation: Observation, state: StepState) -> bool:
@@ -261,6 +310,14 @@ class M7BattleShipBTTEnv(BattleShipBTTEnv):
       termination_reason native_clear on the native EpisodeEnded result.
     - timing of every native round trip (M1d `step` request) and periodic
       memory/CPU samples of the live game process.
+    - M7c standby lifecycle (rl/m7_standby.py) when `standby.enabled`: after
+      every reset the next process boots in a background thread; the next
+      reset promotes it (cached tick-0 observation, no hidden action) or
+      falls back to the synchronous launch above. In standby mode every
+      launch gets its own generation runtime directory (private config /
+      imgui / logs) so two processes of one worker never share a mutable
+      file; with standby off the M7a layout (one runtime directory per
+      worker) is unchanged.
     """
 
     def __init__(
@@ -274,6 +331,11 @@ class M7BattleShipBTTEnv(BattleShipBTTEnv):
         detect_native_failure: bool = True,
         sample_every: int = 1024,
         port_claim_hook: Optional[Callable[[int, int], None]] = None,
+        standby: Optional[StandbySettings] = None,
+        generation_runtime_root: Optional[Path] = None,
+        profile: Optional[Mapping[str, Any]] = None,
+        standby_fault: Optional[Mapping[str, Any]] = None,
+        retain_failed_cap: int = 20,
     ):
         super().__init__(launch_config, max_episode_steps=max_episode_steps)
         if startup_attempts < 1:
@@ -294,51 +356,353 @@ class M7BattleShipBTTEnv(BattleShipBTTEnv):
         self._current_sample: Optional[Dict[str, Any]] = None
         self.deferred_deletions: List[Tuple[Path, Dict[str, Any]]] = []
         self.deletion_log: List[Dict[str, Any]] = []
+        # M7c
+        self.standby_settings = standby or StandbySettings()
+        self.expected_flags = expected_status_flags(dict(launch_config.extra_env))
+        self.profile: Dict[str, Any] = dict(profile or {})
+        self.standby_fault = dict(standby_fault or {})
+        self.retain_failed_cap = int(retain_failed_cap)
+        self._base_launch = self.launch_config          # M3 may have added a run_root; keep that version as the base
+        self._generation = 0                            # unique per launch attempt (cold or standby) of this worker
+        self._port_lock = threading.Lock()
+        self._dir_lock = threading.Lock()
+        self._runtime_by_episode_dir: Dict[str, Optional[str]] = {}   # episode dir -> generation runtime dir
+        self._standby_dirs: Dict[int, List[Tuple[Optional[str], Optional[str]]]] = {}  # generation -> attempt dirs
+        self._squat_sockets: List[Any] = []
+        self.standby_failed_dirs_kept = 0
+        self.ledger_hook: Optional[Callable[[Dict[str, Any]], None]] = None
+        self.max_concurrent_processes = 0
+        self.retire_s: List[float] = []
+        self.last_reset_timing: Dict[str, Any] = {}
+        self.standby_events: List[Dict[str, Any]] = []
+        self.last_standby_close: Optional[Dict[str, Any]] = None
+        self.standby: Optional[StandbyManager] = None
+        if self.standby_settings.enabled:
+            if generation_runtime_root is None:
+                raise ValueError("standby mode needs generation_runtime_root")
+            self.generation_runtime_root: Optional[Path] = Path(generation_runtime_root)
+            self.standby = StandbyManager(rank=self.rank, launch_fn=self._standby_launch,
+                                          startup_attempts=self.startup_attempts,
+                                          join_timeout=float(launch_config.request_timeout) + float(launch_config.exit_timeout) + 5.0,
+                                          request_timeout=float(launch_config.request_timeout))
+        else:
+            self.generation_runtime_root = Path(generation_runtime_root) if generation_runtime_root else None
 
-    # -- reset with bounded startup retry ------------------------------------------------------
+    # -- generations, ports and directories -------------------------------------------------------------------
+
+    def _next_generation(self) -> int:
+        with self._dir_lock:
+            self._generation += 1
+            return self._generation
+
+    def _claim_port(self) -> Tuple[int, List[int]]:
+        with self._port_lock:
+            return self.ports.claim()
+
+    def _prepare_generation_runtime(self, generation: int, attempt: int) -> Path:
+        """A private runtime directory (config copy, imgui copy, .tcc junction) for one launch attempt."""
+        assert self.generation_runtime_root is not None
+        d = self.generation_runtime_root / f"g{generation:04d}_a{attempt}"
+        prepare_worker_runtime(d, Path(self._base_launch.executable))
+        return d
+
+    def _launch_config_for(self, port: int, runtime_dir: Optional[Path]) -> LaunchConfig:
+        if runtime_dir is None:
+            return replace(self._base_launch, port=port)
+        return replace(self._base_launch, port=port, working_dir=runtime_dir)
+
+    def _note_dirs(self, episode_dir: Optional[str], runtime_dir: Optional[Path]) -> None:
+        if episode_dir is not None:
+            with self._dir_lock:
+                self._runtime_by_episode_dir[str(episode_dir)] = str(runtime_dir) if runtime_dir else None
+
+    def runtime_dir_for(self, episode_dir: Optional[os.PathLike | str]) -> Optional[str]:
+        if episode_dir is None:
+            return None
+        with self._dir_lock:
+            return self._runtime_by_episode_dir.get(str(episode_dir))
+
+    def live_processes(self) -> int:
+        """Live BattleShip processes this worker owns right now (active + standby); never more than 2."""
+        n = 1 if self.owned_process_alive else 0
+        if self.standby is not None:
+            n += self.standby.live_standby_processes()
+        return n
+
+    def _note_concurrency(self) -> int:
+        n = self.live_processes()
+        if n > self.max_concurrent_processes:
+            self.max_concurrent_processes = n
+        return n
+
+    # -- reset: promotion, cold start, cold fallback -----------------------------------------------------------
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
-        self._dispose_episode()      # the previous process is gone before its directory is touched
+        t_reset = time.perf_counter()
+        retire = self._dispose_episode()      # the previous process is gone before its directory is touched
+        retire_s = time.perf_counter() - t_reset
+        if retire is not None:
+            self.retire_s.append(retire_s)
         self._flush_process_sample()
         self.drain_deletions()
         self.reset_count += 1
         self.last_failure_outcome = None
+        timing: Dict[str, Any] = {"retire_s": round(retire_s, 4), "retire_action": retire, "standby_wait_s": 0.0,
+                                  "promotion_s": None}
+        if self.standby is None:
+            observation, info = self._cold_reset(seed, options, t_reset, mode=STARTUP_MODE_COLD_START, fallback=None)
+        else:
+            acquired = self.standby.acquire(self.standby_settings.wait_timeout, targets_total=TARGETS_TOTAL)
+            timing["standby_wait_s"] = round(acquired.waited_s, 4)
+            if acquired.kind == "ready":
+                assert acquired.record is not None and acquired.observe is not None
+                t0 = time.perf_counter()
+                try:
+                    observation, info = self._promote(acquired, seed, t_reset)
+                except BaseException:
+                    if self.standby.state == StandbyState.PROMOTING:
+                        self.standby.abandon_promotion("promotion raised in the worker")
+                    raise
+                timing["promotion_s"] = round(time.perf_counter() - t0, 4)
+            else:
+                rec = acquired.record
+                fallback = {"reason": acquired.kind, "generation": rec.generation if rec else None,
+                            "standby_attempts": list(rec.attempts) if rec else [],
+                            "standby_error": rec.error if rec else None, "lost_reason": rec.lost_reason if rec else None}
+                if acquired.kind == "starting_error":
+                    raise RuntimeError(f"worker {self.rank}: standby launcher raised unexpectedly: {rec.error if rec else None}")
+                if rec is not None:
+                    self._dispose_standby_record(rec.generation, rec.outcome)
+                first = acquired.kind == "none" and self.reset_count == 1
+                mode = STARTUP_MODE_COLD_START if first else STARTUP_MODE_COLD_FALLBACK
+                if not first:
+                    self.standby_events.append({"reset": self.reset_count, "event": acquired.kind, **fallback})
+                observation, info = self._cold_reset(seed, options, t_reset, mode=mode, fallback=None if first else fallback)
+            # The active process exists with its own generation; only now does the next standby start.
+            self._launch_standby()
+        timing["reset_s"] = round(time.perf_counter() - t_reset, 4)
+        self.last_reset_timing = timing
+        assert self.current_startup is not None
+        self.current_startup.update({"retire_s": timing["retire_s"], "standby_wait_s": timing["standby_wait_s"],
+                                     "promotion_s": timing["promotion_s"], "reset_s": timing["reset_s"],
+                                     "live_processes_after_reset": self._note_concurrency()})
+        info["m7_startup"] = self.current_startup
+        return observation, info
+
+    def _cold_reset(self, seed: Optional[int], options: Optional[dict], t_reset: float, *, mode: str,
+                    fallback: Optional[Dict[str, Any]]):
         attempts: List[Dict[str, Any]] = []
-        t_reset = time.perf_counter()
         for attempt in range(1, self.startup_attempts + 1):
-            port, busy = self.ports.claim()
+            port, busy = self._claim_port()
             if self.port_claim_hook is not None:
                 self.port_claim_hook(attempt, port)  # test hook only (simulates a squatter after the probe)
-            self.launch_config = replace(self.launch_config, port=port)
+            generation = self._next_generation()
+            runtime_dir = self._prepare_generation_runtime(generation, attempt) if self.standby is not None else None
+            self.launch_config = self._launch_config_for(port, runtime_dir)
+            self._episode_index = generation - 1      # M3 increments once per launch: the episode index IS the generation
             t_attempt = time.perf_counter()
             try:
                 observation, info = super().reset(seed=seed if attempt == 1 else None, options=options)
             except EpisodeFailure as exc:
                 pid = exc.diagnostics.get("pid")
-                record = {"reset": self.reset_count, "attempt": attempt, "port": port, "busy_ports_skipped": busy,
-                          "outcome": exc.outcome.value, "message": exc.message.splitlines()[0][:300], "pid": pid,
+                record = {"reset": self.reset_count, "generation": generation, "attempt": attempt, "port": port,
+                          "busy_ports_skipped": busy, "outcome": exc.outcome.value,
+                          "message": exc.message.splitlines()[0][:300], "pid": pid,
                           "elapsed_s": round(time.perf_counter() - t_attempt, 3),
-                          "process_alive_after": pid_alive(pid),
-                          "episode_dir": exc.diagnostics.get("episode_dir")}
+                          "process_alive_after": pid_alive(pid), "episode_dir": exc.diagnostics.get("episode_dir"),
+                          "runtime_dir": str(runtime_dir) if runtime_dir else None}
                 attempts.append(record)
                 self.startup_attempt_log.append(record)
+                self._note_dirs(exc.diagnostics.get("episode_dir"), runtime_dir)
                 if exc.outcome in NON_RETRYABLE_STARTUP:
                     raise M7StartupError(self.rank, self.reset_count, attempts) from exc
                 continue
             elapsed = time.perf_counter() - t_attempt
-            record = {"reset": self.reset_count, "attempt": attempt, "port": port, "busy_ports_skipped": busy,
-                      "outcome": "fresh", "pid": info.get("pid"), "elapsed_s": round(elapsed, 3)}
+            record = {"reset": self.reset_count, "generation": generation, "attempt": attempt, "port": port,
+                      "busy_ports_skipped": busy, "outcome": "fresh", "pid": info.get("pid"), "elapsed_s": round(elapsed, 3),
+                      "runtime_dir": str(runtime_dir) if runtime_dir else None}
             attempts.append(record)
             self.startup_attempt_log.append(record)
+            self._note_dirs(info.get("episode_dir"), runtime_dir)
             self._time_client()
             self._current_sample = None
-            self.current_startup = {"attempts": len(attempts), "failed_attempts": len(attempts) - 1,
-                                    "ports": [a["port"] for a in attempts], "reset_s": round(time.perf_counter() - t_reset, 3),
-                                    "fresh_attempt_s": round(elapsed, 3),
-                                    "failures": [a for a in attempts if a["outcome"] != "fresh"]}
-            info["m7_startup"] = self.current_startup
+            self.current_startup = {"mode": mode, "generation": generation, "attempts": len(attempts),
+                                    "failed_attempts": len(attempts) - 1, "ports": [a["port"] for a in attempts],
+                                    "reset_s": round(time.perf_counter() - t_reset, 3), "fresh_attempt_s": round(elapsed, 3),
+                                    "failures": [a for a in attempts if a["outcome"] != "fresh"],
+                                    "runtime_dir": str(runtime_dir) if runtime_dir else None,
+                                    "lifecycle": self.standby_settings.to_json(), "fallback": fallback,
+                                    "standby_startup_s": None, "ready_before_promotion_s": None}
             return observation, info
         raise M7StartupError(self.rank, self.reset_count, attempts)
+
+    def _promote(self, acquired: AcquireResult, seed: Optional[int], t_reset: float):
+        """Install a verified ready standby as the active process: no launch, no reset op, no step, no hidden action."""
+        assert self.standby is not None
+        gym.Env.reset(self, seed=seed)   # exactly what M3's reset does first (Python-side RNG only)
+        if self._phase == "closed":
+            raise BattleShipEnvError("reset() after close()")
+        rec = acquired.record
+        assert rec is not None and rec.episode is not None and acquired.observe is not None
+        if rec.profile != self.profile:
+            raise RuntimeError(f"worker {self.rank}: standby generation {rec.generation} was booted for another profile "
+                               f"({rec.profile} vs {self.profile})")
+        episode = rec.episode
+        observe = acquired.observe
+        self._require_initial(0, observe, episode)     # M3's own tick-0 contract, on the fresh re-observation
+        self._steps = 0
+        self.last_step_result = None
+        self.last_episode_exit = None
+        self._episode_index = rec.generation
+        self._episode = episode
+        self.launch_config = episode.config
+        self._phase = "active"
+        self.last_observe = observe
+        self._time_client()
+        self._current_sample = None
+        self._sample_process()
+        resource = dict(self._current_sample) if self._current_sample else None
+        promoted = self.standby.promoted(resource)
+        self.standby_events.append({"reset": self.reset_count, "event": "promoted", "generation": promoted.generation,
+                                    "standby_startup_s": promoted.startup_s,
+                                    "ready_before_promotion_s": promoted.ready_before_promotion_s,
+                                    "exposed_wait_s": round(acquired.waited_s, 4)})
+        record = {"reset": self.reset_count, "generation": promoted.generation, "attempt": len(promoted.attempts),
+                  "port": episode.port, "outcome": "promoted", "pid": episode.pid, "elapsed_s": promoted.startup_s,
+                  "runtime_dir": promoted.runtime_dir, "standby": True}
+        self.startup_attempt_log.append(record)
+        self.current_startup = {"mode": STARTUP_MODE_STANDBY_PROMOTED, "generation": promoted.generation,
+                                "attempts": len(promoted.attempts), "failed_attempts": len(promoted.attempts) - 1,
+                                "ports": [a["port"] for a in promoted.attempts],
+                                "reset_s": round(time.perf_counter() - t_reset, 3), "fresh_attempt_s": None,
+                                "failures": [a for a in promoted.attempts if a["outcome"] != "fresh"],
+                                "runtime_dir": promoted.runtime_dir, "lifecycle": self.standby_settings.to_json(),
+                                "fallback": None, "standby_startup_s": promoted.startup_s,
+                                "ready_before_promotion_s": promoted.ready_before_promotion_s,
+                                "readiness_proof": promoted.proof, "standby_ready_utc": promoted.ready_utc}
+        info = self._base_info(observe.observation, observe.state, observe.state_name, observe.step_count)
+        info["consumed_tick"] = None
+        return observation_to_gym(observe.observation), info
+
+    def _launch_standby(self) -> None:
+        if self.standby is None or self.standby.state != StandbyState.NO_STANDBY:
+            return
+        generation = self._next_generation()
+        self.standby.launch(generation, profile=self.profile)
+        self._note_concurrency()
+
+    # -- background launch (runs in the StandbyManager thread) -------------------------------------------------------
+
+    def _standby_fault_for(self, generation: int, attempt: int) -> Optional[str]:
+        f = self.standby_fault
+        if not f:
+            return None
+        gens = f.get("generations")
+        if gens is not None and generation not in gens:
+            return None
+        if f.get("squat_attempts") == "all" or attempt in (f.get("squat_attempts") or []):
+            return "squat_post_launch"
+        if attempt in (f.get("startup_timeout_attempts") or []):
+            return "startup_timeout"
+        return None
+
+    def _squat(self, port: int) -> None:
+        import socket
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.bind(("127.0.0.1", port))
+            s.listen(4)
+            self._squat_sockets.append(s)
+        except OSError:
+            s.close()
+
+    def _standby_launch(self, generation: int, attempt: int, manager: StandbyManager) -> LaunchOutcome:
+        port, busy = self._claim_port()
+        fault = self._standby_fault_for(generation, attempt)
+        runtime_dir = self._prepare_generation_runtime(generation, attempt)
+        cfg = self._launch_config_for(port, runtime_dir)
+        if fault == "startup_timeout":
+            # a loopback connect to a not-yet-listening port can block until the game listens: bound it too
+            cfg = replace(cfg, startup_timeout=0.3, request_timeout=0.05)
+        episode = BattleShipEpisode(cfg, index=generation)
+        episode.m7_busy_ports_skipped = busy  # type: ignore[attr-defined]
+        with self._dir_lock:
+            self._standby_dirs.setdefault(generation, [])
+        try:
+            episode.launch()
+            manager.note_inflight(episode.process, episode.pid, port)
+            assert episode.paths is not None
+            with self._dir_lock:
+                self._standby_dirs[generation].append((str(episode.paths.directory), str(runtime_dir)))
+            self._note_dirs(str(episode.paths.directory), runtime_dir)
+            self._note_concurrency()
+            if fault == "squat_post_launch":
+                self._squat(port)   # taken before the game binds: its bind fails, the attempt ends as a startup failure
+            episode.wait_for_transport()
+            episode.wait_for_fresh_episode()
+            assert episode.client is not None
+            try:
+                observe = episode.client.observe()
+                raw = episode.client.request("status")
+            except BattleShipError as exc:
+                raise episode.classify_step_failure(exc) from exc
+            flags = {k: raw.get(k) for k in self.expected_flags}
+            proof = verify_readiness(observe, flags, self.expected_flags, TARGETS_TOTAL)
+            resource = self.metrics.sample(episode.pid) if self.metrics is not None else None
+            return LaunchOutcome(episode=episode, observe=observe, proof=proof, runtime_dir=str(runtime_dir), resource=resource)
+        except EpisodeFailure as exc:
+            action = self._close_quietly(episode)
+            exc.diagnostics.update({"port": port, "busy_ports_skipped": busy, "runtime_dir": str(runtime_dir),
+                                    "cleanup_action": action, "cancelled": manager.cancelled()})
+            raise
+        except BaseException:
+            self._close_quietly(episode)
+            raise
+
+    @staticmethod
+    def _close_quietly(episode: BattleShipEpisode) -> str:
+        try:
+            return episode.close()
+        except EpisodeFailure as exc:
+            return f"cleanup_failure: {exc.message}"
+
+    def _dispose_standby_record(self, generation: int, outcome: str) -> None:
+        """Queue the directories of a standby generation that never became active (failed, lost, cancelled)."""
+        with self._dir_lock:
+            dirs = list(self._standby_dirs.pop(generation, []))
+        for episode_dir, runtime_dir in dirs:
+            # A launch cancelled by shutdown is not a failure: its files are removed. Failed and lost generations
+            # are kept for debugging under the same cap as lifecycle-failure episode directories.
+            failure = outcome in ("failed", "lost")
+            keep = failure and self.standby_failed_dirs_kept < self.retain_failed_cap
+            record = {"kind": "standby_dir", "rank": self.rank, "generation": generation, "outcome": outcome,
+                      "episode_dir": portable_path(episode_dir), "runtime_dir": portable_path(runtime_dir),
+                      "decision": "kept_failure_debug" if keep else ("deleted_failure_over_cap" if failure
+                                                                      else "deleted_cancelled")}
+            if keep:
+                self.standby_failed_dirs_kept += 1
+            else:
+                self.queue_deletion(episode_dir, record)
+            if self.ledger_hook is not None:
+                self.ledger_hook(record)
+
+    def standby_snapshot(self) -> Dict[str, Any]:
+        """Control/inspection method (env_method): the standby state and pid, without touching anything."""
+        if self.standby is None:
+            return {"enabled": False, "state": None, "pid": None, "live_processes": self.live_processes()}
+        rec = self.standby.record
+        return {"enabled": True, "state": self.standby.state.value, "pid": self.standby.standby_pid(),
+                "generation": rec.generation if rec else None, "live_processes": self.live_processes(),
+                "active_pid": self._episode.pid if self._episode is not None else None,
+                "thread_alive": self.standby.thread_alive()}
+
+    def wait_standby_settled(self, timeout: float = 120.0) -> Dict[str, Any]:
+        """Test helper (env_method): block until the standby is no longer starting."""
+        deadline = time.monotonic() + timeout
+        while self.standby is not None and self.standby.state == StandbyState.STARTING and time.monotonic() < deadline:
+            time.sleep(0.05)
+        return self.standby_snapshot()
 
     def _time_client(self) -> None:
         client = self._episode.client if self._episode is not None else None
@@ -384,8 +748,20 @@ class M7BattleShipBTTEnv(BattleShipBTTEnv):
 
     def close(self):
         try:
+            if self.standby is not None:
+                self.last_standby_close = self.standby.close()   # cancel + join + close first: no new process can appear
             super().close()
         finally:
+            if self.standby is not None:
+                for h in list(self.standby.history):
+                    if h.get("generation") in self._standby_dirs and h.get("outcome") != "promoted":
+                        self._dispose_standby_record(int(h["generation"]), str(h.get("outcome")))
+            for s in self._squat_sockets:
+                try:
+                    s.close()
+                except OSError:
+                    pass
+            self._squat_sockets = []
             self._flush_process_sample()
             self.drain_deletions()
 
@@ -404,7 +780,8 @@ class M7BattleShipBTTEnv(BattleShipBTTEnv):
             self._current_sample = None
 
     def queue_deletion(self, directory: Optional[os.PathLike | str], record: Dict[str, Any]) -> None:
-        """Delete an M2 episode directory once no process can hold files in it (next reset or close)."""
+        """Delete an M2 episode directory (and its generation runtime directory, standby mode) once no process
+        can hold files in it (next reset or close)."""
         if directory:
             self.deferred_deletions.append((Path(directory), record))
 
@@ -419,7 +796,25 @@ class M7BattleShipBTTEnv(BattleShipBTTEnv):
             except OSError as exc:
                 entry["deleted"] = False
                 entry["error"] = f"{type(exc).__name__}: {exc}"
+            runtime_dir = self.runtime_dir_for(directory)
+            if runtime_dir:
+                try:
+                    remove_worker_runtime(Path(runtime_dir))
+                    entry["runtime_dir_deleted"] = True
+                except (OSError, RuntimeError) as exc:
+                    entry["runtime_dir_deleted"] = False
+                    entry["runtime_dir_error"] = f"{type(exc).__name__}: {exc}"
+                with self._dir_lock:
+                    self._runtime_by_episode_dir.pop(str(directory), None)
             self.deletion_log.append(entry)
+
+    def standby_report(self) -> Dict[str, Any]:
+        base = {"lifecycle": self.standby_settings.to_json(), "max_concurrent_processes": self.max_concurrent_processes,
+                "retire_s": [round(v, 4) for v in self.retire_s], "events": list(self.standby_events),
+                "standby_failed_dirs_kept": self.standby_failed_dirs_kept, "last_close": self.last_standby_close}
+        if self.standby is not None:
+            base["manager"] = self.standby.report()
+        return base
 
 
 # -- reward --------------------------------------------------------------------------------------------
@@ -713,6 +1108,10 @@ class M7EpisodeTracker:
             "reward_constants": self.reward.to_json(),
             "experiment": self.experiment,
             "startup": startup,
+            # M7c: how this episode's process came to exist (cold_start / standby_promoted / cold_fallback) and the
+            # worker's lifecycle configuration; labels only, the artifact format is unchanged.
+            "lifecycle": self.env.standby_settings.to_json(),
+            "startup_mode": startup.get("mode"),
         }
 
     def note_step(self, breakdown: Any, terminated: bool, truncated: bool, info: Mapping[str, Any]) -> None:
@@ -820,6 +1219,8 @@ class M7EpisodeTracker:
         record = {"kind": "episode_dir", "rank": self.rank, "worker_episode": cur["worker_episode"],
                   "episode_id": recorder.episode_id, "end_reason": end_reason,
                   "episode_dir": portable_path(cur["episode_dir"]), "decision": decision,
+                  "runtime_dir": portable_path(self.env.runtime_dir_for(cur["episode_dir"])),
+                  "startup_mode": (cur.get("startup") or {}).get("mode"),
                   "artifact_dir": portable_path(artifact_dir) if preserved else None,
                   "preservation_reasons": [m.reason for m in recorder.marks]}
         if decision.startswith("deleted"):
@@ -868,6 +1269,7 @@ class M7EpisodeTracker:
             "pid": cur["pid"],
             "port": cur["port"],
             "startup": cur["startup"],
+            "startup_mode": (cur.get("startup") or {}).get("mode"),
             "sb3_num_timesteps_at_end": self.sb3_num_timesteps,
             "checkpoint_label": self.checkpoint_label,
         }
@@ -931,6 +1333,16 @@ class M7WorkerWrapper(gym.Wrapper):
         self.reset_times: List[float] = []
         self.step_in_episode = 0
         self.closed = False
+        self._reported_standby_pid: Optional[int] = None
+        base.ledger_hook = tracker._ledger
+
+    def _standby_pid_if_changed(self) -> Optional[int]:
+        """The standby pid when it differs from the last one reported to the parent (for orphan cleanup)."""
+        pid = self.base.standby.standby_pid() if self.base.standby is not None else None
+        if pid != self._reported_standby_pid:
+            self._reported_standby_pid = pid
+            return pid
+        return None
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         t0 = time.perf_counter()
@@ -938,8 +1350,14 @@ class M7WorkerWrapper(gym.Wrapper):
         dt = time.perf_counter() - t0
         self.reset_times.append(dt)
         self.step_in_episode = 0
+        timing = self.base.last_reset_timing
         slim = {"m7_rank": self.worker_spec.rank, "m7_reset_s": dt, "pid": info.get("pid"), "port": info.get("port"),
-                "m7_startup": info.get("m7_startup")}
+                "m7_startup": info.get("m7_startup"), "m7_standby_wait_s": timing.get("standby_wait_s", 0.0),
+                "m7_retire_s": timing.get("retire_s", 0.0), "m7_promotion_s": timing.get("promotion_s"),
+                "m7_startup_mode": (info.get("m7_startup") or {}).get("mode"),
+                "m7_standby_pid": self.base.standby.standby_pid() if self.base.standby is not None else None,
+                "m7_standby_pid_reported": True}
+        self._reported_standby_pid = slim["m7_standby_pid"]
         return observation, slim
 
     def step(self, action):
@@ -960,6 +1378,11 @@ class M7WorkerWrapper(gym.Wrapper):
         summary = self.tracker.pop_summary()
         if summary is not None:
             slim["m7_episode"] = summary
+        if self.base.standby is not None:
+            pid = self._standby_pid_if_changed()
+            if pid is not None:
+                slim["m7_standby_pid"] = pid
+                slim["m7_standby_pid_reported"] = True
         return observation, reward, terminated, truncated, slim
 
     def close(self):
@@ -980,9 +1403,20 @@ class M7WorkerWrapper(gym.Wrapper):
         return True
 
     def error_context(self) -> Dict[str, Any]:
-        return {"worker_episode": self.tracker.episodes_started, "step_in_episode": self.step_in_episode,
-                "game_pid": self.base.episode.pid if self.base.episode is not None else None,
-                "phase": self.base.phase}
+        ctx = {"worker_episode": self.tracker.episodes_started, "step_in_episode": self.step_in_episode,
+               "game_pid": self.base.episode.pid if self.base.episode is not None else None,
+               "phase": self.base.phase}
+        try:
+            ctx["standby"] = self.base.standby_snapshot()
+        except Exception:  # noqa: BLE001 - context only
+            pass
+        return ctx
+
+    def standby_snapshot(self) -> Dict[str, Any]:
+        return self.base.standby_snapshot()
+
+    def wait_standby_settled(self, timeout: float = 120.0) -> Dict[str, Any]:
+        return self.base.wait_standby_settled(timeout)
 
     def worker_report(self) -> Dict[str, Any]:
         own = None
@@ -1007,12 +1441,16 @@ class M7WorkerWrapper(gym.Wrapper):
             "resets": self.base.reset_count,
             "reset_times_s": [round(t, 4) for t in self.reset_times],
             "startup_attempts": list(self.base.startup_attempt_log),
-            "startup_failures": [a for a in self.base.startup_attempt_log if a["outcome"] != "fresh"],
+            "startup_failures": [a for a in self.base.startup_attempt_log if a["outcome"] not in ("fresh", "promoted")],
             "native_step_hist": self.base.native_hist.to_json(),
             "service_hist": self.service_hist.to_json(),
             "game_process_samples": samples,
             "episode_dir_deletions": list(self.base.deletion_log),
             "worker_process": own,
+            "standby": self.base.standby_report(),
+            "startup_modes": {STARTUP_MODE_STANDBY_PROMOTED: sum(1 for a in self.base.startup_attempt_log
+                                                                 if a.get("outcome") == "promoted"),
+                              "cold": sum(1 for a in self.base.startup_attempt_log if a.get("outcome") == "fresh")},
         }
 
 
@@ -1047,6 +1485,24 @@ class WorkerSpec:
     port_block_size: int = PORT_BLOCK_SIZE
     fault: Optional[Dict[str, Any]] = None      # test only: {"raise_in_step": (worker_episode, step)}
     squat_first_attempt: Optional[str] = None   # test only: "preflight" | "post_launch" (see _PortSquatter)
+    # M7c standby lifecycle (rl/m7_standby.py); defaults = M7a/M7b behaviour (no standby process)
+    standby_preboot: bool = False
+    standby_count: int = 0
+    standby_wait_timeout: float = 120.0
+    standby_fault: Optional[Dict[str, Any]] = None   # test only: {"generations": [..], "squat_attempts": [..] | "all",
+                                                     #            "startup_timeout_attempts": [..]}
+
+    @property
+    def standby(self) -> StandbySettings:
+        return StandbySettings(preboot=self.standby_preboot, count=self.standby_count, wait_timeout=self.standby_wait_timeout)
+
+    def profile(self) -> Dict[str, Any]:
+        """The task / reward / flag identity every process of this worker must have been booted for."""
+        exp = self.experiment or {}
+        return {"reward_contract": self.reward_contract.contract, "reward_values": self.reward_contract.values(),
+                "semantic_fingerprint": exp.get("semantic_fingerprint"), "task_id": exp.get("task_id"),
+                "horizon": int(self.horizon), "flags": expected_status_flags(dict(self.extra_env)),
+                "executable": str(self.executable)}
 
     @property
     def worker_seed(self) -> int:
@@ -1055,7 +1511,8 @@ class WorkerSpec:
     def paths(self) -> Dict[str, Path]:
         root = Path(self.worker_dir)
         return {"root": root, "runtime": root / "runtime", "episodes": root / "episodes",
-                "artifacts": root / "artifacts", "ledger": root / "dispositions.jsonl"}
+                "artifacts": root / "artifacts", "ledger": root / "dispositions.jsonl",
+                "runtime_gens": root / "runtime_gens"}
 
 
 class _PortSquatter:
@@ -1120,7 +1577,9 @@ def build_worker_env(spec: WorkerSpec) -> M7WorkerWrapper:
     ports = PortCandidates(spec.rank, spec.port_block_base, spec.port_block_size)
     base = M7BattleShipBTTEnv(launch, max_episode_steps=spec.horizon, rank=spec.rank, ports=ports,
                               startup_attempts=spec.startup_attempts, detect_native_failure=spec.detect_native_failure,
-                              port_claim_hook=_PortSquatter(spec.squat_first_attempt) if spec.squat_first_attempt else None)
+                              port_claim_hook=_PortSquatter(spec.squat_first_attempt) if spec.squat_first_attempt else None,
+                              standby=spec.standby, generation_runtime_root=paths["runtime_gens"], profile=spec.profile(),
+                              standby_fault=spec.standby_fault, retain_failed_cap=spec.retain_failed_cap)
     tracker = M7EpisodeTracker(run_id=spec.run_id, role=spec.role, rank=spec.rank,
                                coordinator=RunCoordinator(spec.coordination_dir), artifact_root=paths["artifacts"],
                                ledger_path=paths["ledger"], env=base, reward=spec.reward_contract,
@@ -1223,6 +1682,8 @@ def m7_worker(remote: Any, parent_remote: Any, env_factory: Callable[[], Any]) -
                     if report is not None:
                         report["closed_cleanly"] = True
                         report["episode_dir_deletions"] = list(closed_env.base.deletion_log)
+                        # M7c: the standby report must describe the state AFTER close (thread joined, standby closed)
+                        report["standby"] = closed_env.base.standby_report()
                     remote.send(("closed", report))
                     break
                 elif cmd == "get_spaces":

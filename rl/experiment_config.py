@@ -18,7 +18,8 @@ unless a default is listed in FIELDS:
     [reward]       target_broken, per_step, clear_bonus, failure_penalty
     [environment]  executable, horizon, process_count, no_render, raphnet_disable, startup_attempts,
                    startup_timeout_s, ready_timeout_s, request_timeout_s, exit_timeout_s, step_timeout_s,
-                   worker_runtime_root, port_block_base, port_block_size, position_delta_threshold
+                   worker_runtime_root, port_block_base, port_block_size, position_delta_threshold,
+                   standby_preboot, standby_count, standby_wait_timeout_s (M7c lifecycle; defaults = off)
     [ppo]          policy, net_arch, activation, learning_rate, rollout_size, n_steps, batch_size, n_epochs,
                    gamma, gae_lambda, clip_range, ent_coef, vf_coef, max_grad_norm, torch_threads, device
     [ppo.vecnormalize]  normalize_observations, normalize_rewards, clip_obs
@@ -26,13 +27,17 @@ unless a default is listed in FIELDS:
     [evaluation]   interval, initial, final, deterministic_episodes, stochastic_episodes,
                    random_baseline_episodes, seed, workers
     [artifacts]    periodic_episodes, retain_failed_cap
-    [resume]       source_checkpoint, allow_executable_change
+    [resume]       source_checkpoint, allow_executable_change, allow_lifecycle_change
 
 Field classes (FIELDS[...].cls):
 
     immutable    behaviour-affecting AND compatibility-affecting: a resume must not change it
     semantic     behaviour-affecting, permitted to change on resume (seed, transition target,
                  evaluation protocol, artifact policy)
+    lifecycle    M7c process-lifecycle mode (standby preboot): by contract it changes no
+                 trajectory, reward, artifact or seed, but it is recorded in both fingerprints and
+                 compared on resume like an immutable field; a resume across lifecycle modes is
+                 refused unless resume.allow_lifecycle_change = true (then recorded in the lineage)
     operational  timeouts, cadence, retention, threads, ports, paths: never change what the
                  experiment means; recorded as run metadata only
     output       names, notes, output locations
@@ -92,7 +97,9 @@ from run_artifacts import ARTIFACT_SCHEMA  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_ID = "battleship_experiment_v1"
-CONFIG_MODULE_VERSION = 1
+CONFIG_MODULE_VERSION = 2   # 2 (M7c): lifecycle fields (standby preboot) in the schema and both fingerprints
+MAX_STANDBY_COUNT = 1       # M7c: exactly one standby per worker at most
+LIFECYCLE_PATHS_DEFAULTS: Dict[str, Any] = {"environment.standby_preboot": False, "environment.standby_count": 0}
 PROTOCOL_VERSION = 1            # M1d loopback NDJSON protocol
 M7_POLICY = "MlpPolicy"
 IANA_DYNAMIC_PORT_START = 49152  # static upper bound for port blocks; the live OS range is checked at run time
@@ -199,6 +206,13 @@ FIELDS: Tuple[Field, ...] = (
     _F("environment.port_block_size", "int", "operational", minimum=1, maximum=4096),
     _F("environment.position_delta_threshold", "float", "semantic", minimum=0.0, maximum=1_000_000.0,
        exclusive_minimum=True, doc="M4 anomaly detector threshold in units per native tick (Mario: 300)"),
+    _F("environment.standby_preboot", "bool", "lifecycle", required=False, default=False,
+       doc="M7c: boot the next BattleShip process in the background while the active episode runs and promote it at reset"),
+    _F("environment.standby_count", "int", "lifecycle", required=False, default=0, choices=(0, MAX_STANDBY_COUNT),
+       doc="standby processes per worker: 0 (off) or 1; must agree with standby_preboot"),
+    _F("environment.standby_wait_timeout_s", "float", "operational", required=False, default=120.0, minimum=0.0,
+       maximum=3600.0, exclusive_minimum=True,
+       doc="M7c: bound on waiting at reset for a standby still booting; then it is cancelled and a cold fallback launch runs"),
     _F("ppo.policy", "str", "immutable", choices=(M7_POLICY,)),
     _F("ppo.net_arch", "int_list", "immutable", doc="hidden layer widths shared by the pi and vf heads"),
     _F("ppo.activation", "str", "immutable", choices=ACTIVATIONS),
@@ -238,11 +252,14 @@ FIELDS: Tuple[Field, ...] = (
        doc="checkpoint-set directory; required when run.mode = 'resume', must be empty otherwise"),
     _F("resume.allow_executable_change", "bool", "operational", required=False, default=False,
        doc="accept a different executable sha256 on resume (recorded in the lineage)"),
+    _F("resume.allow_lifecycle_change", "bool", "operational", required=False, default=False,
+       doc="M7c: accept a different standby lifecycle mode on resume (recorded in the lineage)"),
 )
 FIELD_BY_PATH: Dict[str, Field] = {f.path: f for f in FIELDS}
 TABLES: Tuple[str, ...] = tuple(dict.fromkeys(p.rsplit(".", 1)[0] for p in FIELD_BY_PATH))
-IMMUTABLE_PATHS = tuple(f.path for f in FIELDS if f.cls == "immutable")
-SEMANTIC_PATHS = tuple(f.path for f in FIELDS if f.cls in ("immutable", "semantic"))
+LIFECYCLE_PATHS = tuple(f.path for f in FIELDS if f.cls == "lifecycle")
+IMMUTABLE_PATHS = tuple(f.path for f in FIELDS if f.cls in ("immutable", "lifecycle"))
+SEMANTIC_PATHS = tuple(f.path for f in FIELDS if f.cls in ("immutable", "lifecycle", "semantic"))
 OPERATIONAL_PATHS = tuple(f.path for f in FIELDS if f.cls == "operational")
 OUTPUT_PATHS = tuple(f.path for f in FIELDS if f.cls == "output")
 # Operational fields a resume may change freely (documented in docs/rl_experiment_configuration_m7b.md).
@@ -431,6 +448,25 @@ class Experiment:
     def eval_workers(self) -> int:
         return int(self.values["evaluation.workers"]) or self.process_count
 
+    @property
+    def standby_preboot(self) -> bool:
+        return bool(self.values["environment.standby_preboot"])
+
+    @property
+    def standby_count(self) -> int:
+        return int(self.values["environment.standby_count"])
+
+    @property
+    def max_game_processes(self) -> int:
+        """Upper bound on simultaneous BattleShip processes of a training run (active + standby per worker)."""
+        return self.process_count * (1 + self.standby_count)
+
+    def lifecycle(self) -> Dict[str, Any]:
+        return {"standby_preboot": self.standby_preboot, "standby_count": self.standby_count,
+                "standby_wait_timeout_s": float(self.values["environment.standby_wait_timeout_s"]),
+                "max_processes_per_worker": 1 + self.standby_count, "max_game_processes": self.max_game_processes,
+                "eval_max_game_processes": self.eval_workers * (1 + self.standby_count)}
+
     def nested(self) -> Dict[str, Any]:
         return _nest(self.values)
 
@@ -479,6 +515,7 @@ class Experiment:
             "semantic_fingerprint": self.semantic_fingerprint,
             "compatibility_fingerprint": self.compatibility_fingerprint,
             "cli_overrides": dict(self.cli_overrides),
+            "lifecycle": self.lifecycle(),
         }
 
     def resolved_json(self) -> Dict[str, Any]:
@@ -502,6 +539,7 @@ class Experiment:
                 "rollouts": self.values["run.total_transitions"] // self.rollout_size,
                 "minibatches_per_epoch": self.rollout_size // self.values["ppo.batch_size"],
                 "eval_workers": self.eval_workers,
+                "lifecycle": self.lifecycle(),
                 "port_blocks": {r: [self.values["environment.port_block_base"] + r * self.values["environment.port_block_size"],
                                     self.values["environment.port_block_base"] + (r + 1) * self.values["environment.port_block_size"] - 1]
                                 for r in range(self.process_count)},
@@ -661,6 +699,15 @@ def _cross_field(v: Dict[str, Any], problems: List[str]) -> Optional[RewardContr
         problems.append(f"resume.source_checkpoint = {_repr_value(src)}: only allowed with run.mode = \"resume\"")
     if g("resume.allow_executable_change") is True and g("run.mode") != "resume":
         problems.append("resume.allow_executable_change = true: only meaningful with run.mode = \"resume\"")
+    if g("resume.allow_lifecycle_change") is True and g("run.mode") != "resume":
+        problems.append("resume.allow_lifecycle_change = true: only meaningful with run.mode = \"resume\"")
+    # M7c lifecycle: the two standby fields must agree (explicit, never inferred).
+    sp, sc = g("environment.standby_preboot"), g("environment.standby_count")
+    if isinstance(sp, bool) and _is_int(sc):
+        if sp and sc != 1:
+            problems.append(f"environment.standby_count = {sc}: standby_preboot = true requires standby_count = 1")
+        if not sp and sc != 0:
+            problems.append(f"environment.standby_count = {sc}: standby_preboot = false requires standby_count = 0")
     # Names and paths.
     name = g("run.name")
     if isinstance(name, str) and not RUN_NAME_RE.match(name):
@@ -792,6 +839,9 @@ M7A_DEFAULTS: Dict[str, Any] = {
     "ppo.vecnormalize.clip_obs": 10.0,
     "checkpoint.initial": True, "evaluation.workers": 0, "artifacts.retain_failed_cap": 20,
     "resume.source_checkpoint": "", "resume.allow_executable_change": False,
+    # M7c: the legacy M7a path never had a standby process
+    "environment.standby_preboot": False, "environment.standby_count": 0, "environment.standby_wait_timeout_s": 120.0,
+    "resume.allow_lifecycle_change": False,
 }
 
 
@@ -869,8 +919,16 @@ COMPAT_KEYS: Tuple[str, ...] = (
     "ppo.batch_size", "ppo.n_epochs", "ppo.gamma", "ppo.gae_lambda", "ppo.clip_range", "ppo.ent_coef", "ppo.vf_coef",
     "ppo.max_grad_norm", "ppo.device", "ppo.vecnormalize.normalize_observations", "ppo.vecnormalize.normalize_rewards",
     "ppo.vecnormalize.clip_obs",
+    # M7c lifecycle keys: compared on resume; a checkpoint written before M7c had no standby (defaults below)
+    "environment.standby_preboot", "environment.standby_count",
 )
+LIFECYCLE_COMPAT_KEYS: Tuple[str, ...] = ("environment.standby_preboot", "environment.standby_count")
 _ACTIVATION_NAMES = {"Tanh": "tanh", "ReLU": "relu"}
+
+
+def lifecycle_only_diffs(diffs: Mapping[str, Any]) -> bool:
+    """True when every compatibility difference is a lifecycle key (resumable with resume.allow_lifecycle_change)."""
+    return bool(diffs) and all(k in LIFECYCLE_COMPAT_KEYS for k in diffs)
 
 
 def _parse_m7a_net_arch(text: Any) -> Any:
@@ -890,7 +948,10 @@ def checkpoint_compatibility_view(meta: Mapping[str, Any]) -> Dict[str, Any]:
     """The compatibility view of a checkpoint set's checkpoint.json (M7b block if present, else derived from M7a)."""
     exp_block = meta.get("experiment") or {}
     if isinstance(exp_block, Mapping) and isinstance(exp_block.get("compatibility_view"), Mapping):
-        return dict(exp_block["compatibility_view"])
+        view = dict(exp_block["compatibility_view"])
+        for key, default in LIFECYCLE_PATHS_DEFAULTS.items():   # M7b checkpoints: no standby existed
+            view.setdefault(key, default)
+        return view
     contracts = meta.get("contracts") or {}
     ppo = meta.get("ppo") or {}
     vn = meta.get("vecnormalize") or {}
@@ -924,6 +985,9 @@ def checkpoint_compatibility_view(meta: Mapping[str, Any]) -> Dict[str, Any]:
         "ppo.vecnormalize.normalize_rewards": vn.get("norm_reward"),
         "ppo.vecnormalize.clip_obs": vn.get("clip_obs"),
     }
+    lifecycle = meta.get("lifecycle") or {}
+    for key, default in LIFECYCLE_PATHS_DEFAULTS.items():   # M7a checkpoints: no standby existed
+        view[key] = lifecycle.get(key.rsplit(".", 1)[1], default)
     return view
 
 
@@ -999,6 +1063,10 @@ def describe(exp: Experiment, *, checkpoint_meta: Optional[Mapping[str, Any]] = 
         f"det {v['evaluation.deterministic_episodes']}  stoch {v['evaluation.stochastic_episodes']}  "
         f"random {v['evaluation.random_baseline_episodes']}  seed {v['evaluation.seed']}  workers {exp.eval_workers}",
         f"artifacts   : periodic {v['artifacts.periodic_episodes']}  retain_failed_cap {v['artifacts.retain_failed_cap']}",
+        f"lifecycle   : standby_preboot {v['environment.standby_preboot']}  standby_count {v['environment.standby_count']}  "
+        f"standby_wait_timeout_s {v['environment.standby_wait_timeout_s']}  max processes per worker "
+        f"{1 + exp.standby_count}  expected maximum game processes {exp.max_game_processes} (training, N={exp.process_count}) / "
+        f"{exp.eval_workers * (1 + exp.standby_count)} (evaluation, {exp.eval_workers} workers)",
         f"fingerprints: source {exp.source.sha256}",
         f"              semantic {exp.semantic_fingerprint}",
         f"              compatibility {exp.compatibility_fingerprint}",
@@ -1007,6 +1075,7 @@ def describe(exp: Experiment, *, checkpoint_meta: Optional[Mapping[str, Any]] = 
     for p in IMMUTABLE_PATHS:
         lines.append(f"    {p} = {_repr_value(v[p])}")
     lines.append("    executable sha256 (unless resume.allow_executable_change)")
+    lines.append("    lifecycle fields (" + ", ".join(LIFECYCLE_PATHS) + ") unless resume.allow_lifecycle_change")
     lines.append("behaviour-affecting, permitted on resume: " + ", ".join(p for p in SEMANTIC_PATHS if p not in IMMUTABLE_PATHS))
     lines.append("operational: " + ", ".join(OPERATIONAL_PATHS))
     lines.append("output only: " + ", ".join(OUTPUT_PATHS))

@@ -36,6 +36,15 @@ The M7a numbers in this document were produced under `btt_reward_v1` and
 stay valid; `reward_constants` records gain a `failure_penalty` key (0.0
 for v1) and legacy records without it are read as v1.
 
+M7c (`docs/rl_standby_lifecycle_m7c.md`) attacked the dominant cost named
+below (process restarts, 56 % of collection wall time in the pilot) with one
+pre-booted standby BattleShip process per worker, promoted at reset without
+any hidden action. It is opt-in (`environment.standby_preboot = true` in the
+new `rl/configs/*_standby.toml` profiles); with it off, every path, number
+and file layout in this document is unchanged. The M7a comparison and pilot
+numbers here are historical measurements of the standby-off lifecycle and
+were not rerun.
+
 ## Files
 
 | File | Role |

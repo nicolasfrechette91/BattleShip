@@ -73,9 +73,15 @@ class StepTiming:
         self.reset_steps = 0            # vector steps in which at least one worker restarted its process
         self.reset_steps_wall_s = 0.0
         self.service_s = [0.0] * n_envs  # each worker's own env.step time
-        self.reset_s = [0.0] * n_envs    # each worker's auto-reset (process restart) time
+        self.reset_s = [0.0] * n_envs    # each worker's auto-reset (process restart or promotion) time
         self.idle_s = [0.0] * n_envs     # each worker's wait for the slowest worker + IPC
         self.resets = [0] * n_envs
+        # M7c: parts of the reset time that the standby lifecycle exposes or removes
+        self.standby_wait_s = [0.0] * n_envs   # exposed wait for a standby still starting at reset
+        self.retire_s = [0.0] * n_envs         # closing + reaping the retired active process at reset
+        self.promotion_s = [0.0] * n_envs      # installing a ready standby (re-verification included)
+        self.reset_modes: Dict[str, int] = {}
+        self.reset_hist = LatencyHistogram()   # every worker reset (promotion or cold launch)
 
     def add(self, wall: float, infos: Sequence[Dict[str, Any]], reset_infos: Sequence[Dict[str, Any]]) -> None:
         self.vec_steps += 1
@@ -84,13 +90,20 @@ class StepTiming:
         any_reset = False
         for i in range(self.n_envs):
             svc = float(infos[i].get("m7_service_s", 0.0) or 0.0)
-            rst = float((reset_infos[i] or {}).get("m7_reset_s", 0.0) or 0.0)
+            ri = reset_infos[i] or {}
+            rst = float(ri.get("m7_reset_s", 0.0) or 0.0)
             self.service_s[i] += svc
             self.reset_s[i] += rst
             self.idle_s[i] += max(0.0, wall - svc - rst)
             if rst > 0:
                 self.resets[i] += 1
                 any_reset = True
+                self.reset_hist.add(rst)
+                self.standby_wait_s[i] += float(ri.get("m7_standby_wait_s", 0.0) or 0.0)
+                self.retire_s[i] += float(ri.get("m7_retire_s", 0.0) or 0.0)
+                self.promotion_s[i] += float(ri.get("m7_promotion_s", 0.0) or 0.0)
+                mode = ri.get("m7_startup_mode") or "unknown"
+                self.reset_modes[mode] = self.reset_modes.get(mode, 0) + 1
         if any_reset:
             self.reset_steps += 1
             self.reset_steps_wall_s += wall
@@ -106,6 +119,11 @@ class StepTiming:
             "per_worker_reset_s": [round(v, 4) for v in self.reset_s],
             "per_worker_idle_s": [round(v, 4) for v in self.idle_s],
             "per_worker_resets": list(self.resets),
+            "per_worker_standby_wait_s": [round(v, 4) for v in self.standby_wait_s],
+            "per_worker_retire_s": [round(v, 4) for v in self.retire_s],
+            "per_worker_promotion_s": [round(v, 4) for v in self.promotion_s],
+            "reset_modes": dict(self.reset_modes),
+            "reset_ms": LatencyHistogram.summary(self.reset_hist.to_json()),
         }
 
 
@@ -122,6 +140,7 @@ class M7SubprocVecEnv(SubprocVecEnv):
         self._pending: set = set()
         self._t_step = 0.0
         self.game_pids: List[Optional[int]] = [None] * len(factories)
+        self.standby_pids: List[Optional[int]] = [None] * len(factories)   # M7c: last standby pid each worker reported
         self.close_report: Optional[Dict[str, Any]] = None
         self.timing = StepTiming(len(factories))
         ctx = mp.get_context(start_method)
@@ -169,10 +188,15 @@ class M7SubprocVecEnv(SubprocVecEnv):
             self._alive[i] = False
             raise M7WorkerDied(self.ranks[i], self.processes[i].exitcode, f"send {message[0]}: {exc}") from exc
 
-    def _note_pids(self, reset_infos: Sequence[Dict[str, Any]]) -> None:
+    def _note_pids(self, reset_infos: Sequence[Dict[str, Any]], infos: Optional[Sequence[Dict[str, Any]]] = None) -> None:
         for i, info in enumerate(reset_infos):
             if info and info.get("pid"):
                 self.game_pids[i] = int(info["pid"])
+            if info and info.get("m7_standby_pid_reported"):
+                self.standby_pids[i] = info.get("m7_standby_pid")
+        for i, info in enumerate(infos or ()):
+            if info and info.get("m7_standby_pid_reported"):
+                self.standby_pids[i] = info.get("m7_standby_pid")
 
     # -- VecEnv API -------------------------------------------------------------------------------------
 
@@ -191,7 +215,7 @@ class M7SubprocVecEnv(SubprocVecEnv):
         self.waiting = False
         obs, rews, dones, infos, reset_infos = zip(*results, strict=True)
         self.reset_infos = list(reset_infos)
-        self._note_pids(self.reset_infos)
+        self._note_pids(self.reset_infos, infos)
         self.timing.add(time.perf_counter() - self._t_step, infos, self.reset_infos)
         return _stack_obs(obs, self.observation_space), np.stack(rews), np.stack(dones), infos
 
@@ -266,13 +290,15 @@ class M7SubprocVecEnv(SubprocVecEnv):
                 process.join(timeout=10)
                 report["forced_terminations"].append(self.ranks[i])
             report["ranks"][self.ranks[i]]["exitcode"] = process.exitcode
-        # A worker that died or was terminated cannot have closed its game: kill it by pid.
+        # A worker that died or was terminated cannot have closed its game(s): kill them by pid
+        # (active and, M7c, the last standby it reported; image name checked against pid reuse).
         for i, rank in enumerate(self.ranks):
             entry = report["ranks"][rank]
-            pid = self.game_pids[i]
-            if not entry.get("closed_cleanly") and pid is not None and pid_alive(pid):
-                if kill_pid(pid, expected_image=BATTLESHIP_IMAGE):
-                    report["orphan_games_killed"].append({"rank": rank, "pid": pid})
+            if entry.get("closed_cleanly"):
+                continue
+            for role, pid in (("active", self.game_pids[i]), ("standby", self.standby_pids[i])):
+                if pid is not None and pid_alive(pid) and kill_pid(pid, expected_image=BATTLESHIP_IMAGE):
+                    report["orphan_games_killed"].append({"rank": rank, "pid": pid, "role": role})
         for remote in self.remotes:
             try:
                 remote.close()

@@ -1,0 +1,624 @@
+{
+  "milestone": "M7c",
+  "compare_id": "m7c_stage1",
+  "created_utc": "2026-09-22T14:19:39+00:00",
+  "partial": false,
+  "order": [
+    {
+      "n_envs": 5,
+      "standby": false
+    },
+    {
+      "n_envs": 5,
+      "standby": true
+    }
+  ],
+  "base_profile": "m7_mario_us_reward_v1.toml",
+  "equal_workload": {
+    "run.mode": "train",
+    "run.total_transitions": 51200,
+    "checkpoint.interval": 25600,
+    "checkpoint.initial": true,
+    "evaluation.interval": 0,
+    "evaluation.initial": false,
+    "evaluation.final": false,
+    "artifacts.periodic_episodes": 10,
+    "rollout_size": 5120,
+    "batch_size": 512,
+    "n_epochs": 10,
+    "gamma": 0.999,
+    "gae_lambda": 0.995,
+    "horizon": 3600,
+    "base_seed": 0,
+    "reward_contract": "btt_reward_v1",
+    "vecnormalize": "observations only, clip 10",
+    "network": "MlpPolicy 64x64 tanh, lr 3e-4"
+  },
+  "runs": [
+    {
+      "run_id": "run1_n5_cold",
+      "n_envs": 5,
+      "n_steps": 1024,
+      "status": "completed",
+      "transitions": 51200,
+      "rollouts": 10,
+      "learn_s": 67.792,
+      "end_to_end_transitions_per_s": 755.8,
+      "collection_transitions_per_s": 882.3,
+      "native_ticks_per_s_aggregate_capacity": 5682.4,
+      "collect_s": 58.028,
+      "optimize_wall_s": 5.263,
+      "train_s": 5.258,
+      "collect_pct": 91.69,
+      "optimize_pct": 8.31,
+      "policy_inference_s": 9.537,
+      "native_step_s": 45.263,
+      "initial_reset_s": 4.425,
+      "restart_s": {
+        "n": 16,
+        "mean": 2.724,
+        "median": 2.355,
+        "p90": 4.266,
+        "min": 2.037,
+        "max": 4.423
+      },
+      "synchronous_stall_s": 140.516,
+      "reset_vec_steps_wall_s": 25.6766,
+      "episodes_started": 16,
+      "episodes_finished": 11,
+      "end_reasons": {
+        "clear": 0,
+        "fall": 5,
+        "horizon": 6,
+        "lifecycle_failure": 0
+      },
+      "length_mean": 3359.27,
+      "return_mean": -0.0865,
+      "return_max": 0.4,
+      "targets_mean": 3.2727,
+      "targets_max": 4,
+      "clears": 0,
+      "fastest_clear": null,
+      "startup_retries": 0,
+      "startup_failures": 0,
+      "request_timeouts": 0,
+      "transport_failures": 0,
+      "action_legality_failures": 0,
+      "anomalies": 0,
+      "cpu_util_collect": 0.5881,
+      "cpu_util_optimize": 0.4419,
+      "parent_peak_working_set_mib": 287.3,
+      "parent_peak_private_mib": 460.8,
+      "worker_peak_working_set_mib_max": 45.3,
+      "game_peak_working_set_mib_max": 110.5,
+      "game_private_mib_max": 368.8,
+      "native_step_latency": {
+        "n": 51200,
+        "mean_ms": 0.884,
+        "min_ms": 0.3947,
+        "max_ms": 42.148,
+        "p50_ms": 0.7943,
+        "p90_ms": 1.4125,
+        "p99_ms": 2.8184,
+        "p99.9_ms": 7.9433
+      },
+      "worker_service_latency": {
+        "n": 51200,
+        "mean_ms": 1.0425,
+        "min_ms": 0.4993,
+        "max_ms": 604.342,
+        "p50_ms": 0.8913,
+        "p90_ms": 1.5849,
+        "p99_ms": 3.1623,
+        "p99.9_ms": 8.9125
+      },
+      "vector_step_wall": {
+        "n": 10240,
+        "mean_ms": 4.3032,
+        "min_ms": 0.9743,
+        "max_ms": 4196.991,
+        "p50_ms": 1.5849,
+        "p90_ms": 2.5119,
+        "p99_ms": 5.6234,
+        "p99.9_ms": 44.6684
+      },
+      "artifacts_preserved": 4,
+      "artifacts_discarded": 7,
+      "checkpoints_written": 3,
+      "leak_free": true,
+      "workers_closed_cleanly": true,
+      "forced_terminations": [],
+      "user_config_byte_identical": true,
+      "standby_preboot": false,
+      "standby_count": 0,
+      "expected_max_game_processes": 5,
+      "observed_max_concurrent_per_worker": 1,
+      "reset_modes": {
+        "cold_start": 11
+      },
+      "standby_metrics": {
+        "promotions": 0,
+        "hits_ready_at_reset": 0,
+        "late_hits_waited": 0,
+        "cold_fallbacks": 0,
+        "fallback_reasons": {},
+        "hit_rate_of_auto_resets": 0.0,
+        "promotion_rate_of_auto_resets": 0.0,
+        "standby_startup_s": {
+          "n": 0
+        },
+        "hidden_startup_s_total": 0,
+        "exposed_wait_s": {
+          "n": 0
+        },
+        "exposed_wait_s_total": 0,
+        "ready_before_promotion_s": {
+          "n": 0
+        },
+        "promotion_s_total": 0.0,
+        "retire_s": {
+          "n": 0
+        },
+        "standby_failed_attempts": 0,
+        "standby_failures": 0,
+        "standby_lost": 0,
+        "standby_wait_timeouts": 0,
+        "standby_starting_errors": 0,
+        "threads": {
+          "started": 0,
+          "joined": 0,
+          "alive_at_close": 0
+        },
+        "parked_resource": {
+          "samples": 0,
+          "cpu_s_while_parked_max": null,
+          "cpu_s_while_parked_mean": null,
+          "parked_s_mean": null,
+          "ws_mib_at_ready_max": null,
+          "private_mib_at_ready_max": null,
+          "boot_cpu_s_mean": null
+        }
+      },
+      "standby_failed_attempts": 0,
+      "reset_vec_step_wall_hist": {
+        "n": 11,
+        "mean_ms": 2402.7423,
+        "min_ms": 2036.9197,
+        "max_ms": 4133.347,
+        "p50_ms": 2511.8864,
+        "p90_ms": 2511.8864,
+        "p99_ms": 4133.3472,
+        "p99.9_ms": 4133.3472
+      },
+      "promotions": 0,
+      "hits_ready_at_reset": 0,
+      "late_hits_waited": 0,
+      "cold_fallbacks": 0,
+      "fallback_reasons": {},
+      "hit_rate_of_auto_resets": 0.0,
+      "standby_startup_s": {
+        "n": 0
+      },
+      "hidden_startup_s_total": 0,
+      "exposed_wait_s": {
+        "n": 0
+      },
+      "exposed_wait_s_total": 0,
+      "ready_before_promotion_s": {
+        "n": 0
+      },
+      "promotion_s_total": 0.0,
+      "retire_s": {
+        "n": 0
+      },
+      "standby_failures": 0,
+      "standby_lost": 0,
+      "standby_wait_timeouts": 0,
+      "threads": {
+        "started": 0,
+        "joined": 0,
+        "alive_at_close": 0
+      },
+      "parked_resource": {
+        "samples": 0,
+        "cpu_s_while_parked_max": null,
+        "cpu_s_while_parked_mean": null,
+        "parked_s_mean": null,
+        "ws_mib_at_ready_max": null,
+        "private_mib_at_ready_max": null,
+        "boot_cpu_s_mean": null
+      },
+      "per_worker_standby_wait_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_retire_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_reset_s": [
+        4.8096,
+        6.4288,
+        4.1151,
+        6.9865,
+        4.0901
+      ],
+      "reset_ms": {
+        "n": 11,
+        "mean_ms": 2402.7423,
+        "min_ms": 2036.9197,
+        "max_ms": 4133.347,
+        "p50_ms": 2511.8864,
+        "p90_ms": 2511.8864,
+        "p99_ms": 4133.3472,
+        "p99.9_ms": 4133.3472
+      },
+      "total_game_process_memory_mib_est": {
+        "processes": 5,
+        "working_set_mib_sum_at_peak_per_process": 552.5,
+        "private_mib_sum_at_peak_per_process": 1844.0,
+        "note": "upper bound: every process at its own peak; standbys parked at tick 0 measured about 112 MiB working set"
+      },
+      "worker_private_mib_max": 188.7,
+      "semantic_fingerprint": "ed37e6d2411dd5c74804859cb24dc4f1db2c6bb1a07e19e5791ad51dfe805f87"
+    },
+    {
+      "run_id": "run2_n5_standby",
+      "n_envs": 5,
+      "n_steps": 1024,
+      "status": "completed",
+      "transitions": 51200,
+      "rollouts": 10,
+      "learn_s": 56.398,
+      "end_to_end_transitions_per_s": 908.4,
+      "collection_transitions_per_s": 1153.5,
+      "native_ticks_per_s_aggregate_capacity": 4269.9,
+      "collect_s": 44.388,
+      "optimize_wall_s": 5.958,
+      "train_s": 5.953,
+      "collect_pct": 88.17,
+      "optimize_pct": 11.83,
+      "policy_inference_s": 10.891,
+      "native_step_s": 60.13,
+      "initial_reset_s": 6.003,
+      "restart_s": {
+        "n": 16,
+        "mean": 1.269,
+        "median": 0.013,
+        "p90": 4.446,
+        "min": 0.001,
+        "max": 6.002
+      },
+      "synchronous_stall_s": 70.802,
+      "reset_vec_steps_wall_s": 2.8884,
+      "episodes_started": 16,
+      "episodes_finished": 11,
+      "end_reasons": {
+        "clear": 0,
+        "fall": 5,
+        "horizon": 6,
+        "lifecycle_failure": 0
+      },
+      "length_mean": 3359.27,
+      "return_mean": -0.0865,
+      "return_max": 0.4,
+      "targets_mean": 3.2727,
+      "targets_max": 4,
+      "clears": 0,
+      "fastest_clear": null,
+      "startup_retries": 11,
+      "startup_failures": 11,
+      "request_timeouts": 0,
+      "transport_failures": 0,
+      "action_legality_failures": 0,
+      "anomalies": 0,
+      "cpu_util_collect": 0.8202,
+      "cpu_util_optimize": 0.5753,
+      "parent_peak_working_set_mib": 288.5,
+      "parent_peak_private_mib": 460.8,
+      "worker_peak_working_set_mib_max": 47.1,
+      "game_peak_working_set_mib_max": 109.8,
+      "game_private_mib_max": 369.0,
+      "native_step_latency": {
+        "n": 51200,
+        "mean_ms": 1.1744,
+        "min_ms": 0.4003,
+        "max_ms": 55.717,
+        "p50_ms": 0.8913,
+        "p90_ms": 1.9953,
+        "p99_ms": 5.0119,
+        "p99.9_ms": 12.5893
+      },
+      "worker_service_latency": {
+        "n": 51200,
+        "mean_ms": 1.3912,
+        "min_ms": 0.5104,
+        "max_ms": 1371.412,
+        "p50_ms": 1.122,
+        "p90_ms": 2.2387,
+        "p99_ms": 5.0119,
+        "p99.9_ms": 15.8489
+      },
+      "vector_step_wall": {
+        "n": 10240,
+        "mean_ms": 2.7778,
+        "min_ms": 1.0183,
+        "max_ms": 1390.042,
+        "p50_ms": 2.2387,
+        "p90_ms": 4.4668,
+        "p99_ms": 8.9125,
+        "p99.9_ms": 56.2341
+      },
+      "artifacts_preserved": 4,
+      "artifacts_discarded": 7,
+      "checkpoints_written": 3,
+      "leak_free": true,
+      "workers_closed_cleanly": true,
+      "forced_terminations": [],
+      "user_config_byte_identical": true,
+      "standby_preboot": true,
+      "standby_count": 1,
+      "expected_max_game_processes": 10,
+      "observed_max_concurrent_per_worker": 2,
+      "reset_modes": {
+        "standby_promoted": 11
+      },
+      "standby_metrics": {
+        "promotions": 11,
+        "hits_ready_at_reset": 11,
+        "late_hits_waited": 0,
+        "cold_fallbacks": 0,
+        "fallback_reasons": {},
+        "hit_rate_of_auto_resets": 1.0,
+        "promotion_rate_of_auto_resets": 1.0,
+        "standby_startup_s": {
+          "n": 16,
+          "mean": 3.119,
+          "median": 3.143,
+          "p90": 3.501,
+          "min": 2.772,
+          "max": 3.501
+        },
+        "hidden_startup_s_total": 32.654,
+        "exposed_wait_s": {
+          "n": 11,
+          "mean": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "exposed_wait_s_total": 0.0,
+        "ready_before_promotion_s": {
+          "n": 11,
+          "mean": 14.113,
+          "median": 14.548,
+          "p90": 16.764,
+          "min": 9.058,
+          "max": 16.85
+        },
+        "promotion_s_total": 0.0026,
+        "retire_s": {
+          "n": 0
+        },
+        "standby_failed_attempts": 0,
+        "standby_failures": 0,
+        "standby_lost": 0,
+        "standby_wait_timeouts": 0,
+        "standby_starting_errors": 0,
+        "threads": {
+          "started": 16,
+          "joined": 16,
+          "alive_at_close": 0
+        },
+        "parked_resource": {
+          "samples": 11,
+          "cpu_s_while_parked_max": 0.1406,
+          "cpu_s_while_parked_mean": 0.0653,
+          "parked_s_mean": 14.113,
+          "ws_mib_at_ready_max": 109.8,
+          "private_mib_at_ready_max": 369.1,
+          "boot_cpu_s_mean": 1.928
+        }
+      },
+      "standby_failed_attempts": 0,
+      "reset_vec_step_wall_hist": {
+        "n": 11,
+        "mean_ms": 17.5273,
+        "min_ms": 1.178,
+        "max_ms": 126.059,
+        "p50_ms": 4.4668,
+        "p90_ms": 22.3872,
+        "p99_ms": 126.059,
+        "p99.9_ms": 126.059
+      },
+      "promotions": 11,
+      "hits_ready_at_reset": 11,
+      "late_hits_waited": 0,
+      "cold_fallbacks": 0,
+      "fallback_reasons": {},
+      "hit_rate_of_auto_resets": 1.0,
+      "standby_startup_s": {
+        "n": 16,
+        "mean": 3.119,
+        "median": 3.143,
+        "p90": 3.501,
+        "min": 2.772,
+        "max": 3.501
+      },
+      "hidden_startup_s_total": 32.654,
+      "exposed_wait_s": {
+        "n": 11,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "exposed_wait_s_total": 0.0,
+      "ready_before_promotion_s": {
+        "n": 11,
+        "mean": 14.113,
+        "median": 14.548,
+        "p90": 16.764,
+        "min": 9.058,
+        "max": 16.85
+      },
+      "promotion_s_total": 0.0026,
+      "retire_s": {
+        "n": 0
+      },
+      "standby_failures": 0,
+      "standby_lost": 0,
+      "standby_wait_timeouts": 0,
+      "threads": {
+        "started": 16,
+        "joined": 16,
+        "alive_at_close": 0
+      },
+      "parked_resource": {
+        "samples": 11,
+        "cpu_s_while_parked_max": 0.1406,
+        "cpu_s_while_parked_mean": 0.0653,
+        "parked_s_mean": 14.113,
+        "ws_mib_at_ready_max": 109.8,
+        "private_mib_at_ready_max": 369.1,
+        "boot_cpu_s_mean": 1.928
+      },
+      "per_worker_standby_wait_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_retire_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "per_worker_reset_s": [
+        0.0221,
+        0.02,
+        0.1351,
+        0.0087,
+        0.0069
+      ],
+      "reset_ms": {
+        "n": 11,
+        "mean_ms": 17.5273,
+        "min_ms": 1.178,
+        "max_ms": 126.059,
+        "p50_ms": 4.4668,
+        "p90_ms": 22.3872,
+        "p99_ms": 126.059,
+        "p99.9_ms": 126.059
+      },
+      "total_game_process_memory_mib_est": {
+        "processes": 10,
+        "working_set_mib_sum_at_peak_per_process": 1098.0,
+        "private_mib_sum_at_peak_per_process": 3690.0,
+        "note": "upper bound: every process at its own peak; standbys parked at tick 0 measured about 112 MiB working set"
+      },
+      "worker_private_mib_max": 189.8,
+      "semantic_fingerprint": "186be74ca4078e65c4c0685bcabb0c62bf0f0ef65dcd402a549c92121154e172"
+    }
+  ],
+  "standby_off_vs_on": {
+    "5": {
+      "off_runs": [
+        "run1_n5_cold"
+      ],
+      "on_runs": [
+        "run2_n5_standby"
+      ],
+      "end_to_end_tps_off": 755.8,
+      "end_to_end_tps_on": 908.4,
+      "gain": 0.2019,
+      "reset_vec_steps_wall_s_off": [
+        25.6766
+      ],
+      "reset_vec_steps_wall_s_on": [
+        2.8884
+      ],
+      "synchronous_stall_s_off": [
+        140.516
+      ],
+      "synchronous_stall_s_on": [
+        70.802
+      ],
+      "collect_s_off": [
+        58.028
+      ],
+      "collect_s_on": [
+        44.388
+      ],
+      "optimize_wall_s_off": [
+        5.263
+      ],
+      "optimize_wall_s_on": [
+        5.958
+      ],
+      "native_step_p50_ms": {
+        "off": [
+          0.7943
+        ],
+        "on": [
+          0.8913
+        ]
+      },
+      "native_step_p99_ms": {
+        "off": [
+          2.8184
+        ],
+        "on": [
+          5.0119
+        ]
+      },
+      "cpu_util_collect": {
+        "off": [
+          0.5881
+        ],
+        "on": [
+          0.8202
+        ]
+      },
+      "episodes_finished": {
+        "off": [
+          11
+        ],
+        "on": [
+          11
+        ]
+      },
+      "end_reasons": {
+        "off": [
+          {
+            "clear": 0,
+            "fall": 5,
+            "horizon": 6,
+            "lifecycle_failure": 0
+          }
+        ],
+        "on": [
+          {
+            "clear": 0,
+            "fall": 5,
+            "horizon": 6,
+            "lifecycle_failure": 0
+          }
+        ]
+      }
+    }
+  },
+  "selection": null,
+  "selection_rule": "reliable end-to-end PPO transitions/s; within 5 % choose N=4; reliability, memory, CPU headroom and latency tails outrank marginal throughput (rl/m7_trainer.select_process_count)"
+}

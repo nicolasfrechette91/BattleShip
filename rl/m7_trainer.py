@@ -72,6 +72,7 @@ from btt_parallel import (  # noqa: E402
     M7_MILESTONE,
     LatencyHistogram,
     RunCoordinator,
+    StandbySettings,
     WorkerFactory,
     WorkerSpec,
     initial_coordination_state,
@@ -295,6 +296,13 @@ class M7Config:
     worker_runtime_root: Optional[Path] = None
     allow_executable_change: bool = False
     experiment: Optional[Any] = field(default=None, repr=False, compare=False)  # experiment_config.Experiment
+    # M7c standby lifecycle (rl/m7_standby.py); defaults = M7a/M7b behaviour
+    standby_preboot: bool = False
+    standby_count: int = 0
+    standby_wait_timeout: float = 120.0
+    allow_lifecycle_change: bool = False
+    standby_fault: Optional[Dict[str, Any]] = None      # test hook (worker standby launches), never used by experiments
+    standby_fault_rank: Optional[int] = None
     # test hooks (never used by the comparison or the pilot)
     fault: Optional[Dict[str, Any]] = None
     fault_rank: Optional[int] = None
@@ -351,11 +359,24 @@ class M7Config:
             "ppo.vecnormalize.normalize_observations": bool(self.norm_obs),
             "ppo.vecnormalize.normalize_rewards": False,
             "ppo.vecnormalize.clip_obs": float(self.clip_obs),
+            "environment.standby_preboot": bool(self.standby_preboot),
+            "environment.standby_count": int(self.standby_count),
         }
+
+    @property
+    def standby(self) -> StandbySettings:
+        return StandbySettings(preboot=self.standby_preboot, count=self.standby_count, wait_timeout=self.standby_wait_timeout)
+
+    def lifecycle_json(self) -> Dict[str, Any]:
+        s = self.standby.to_json()
+        s["max_game_processes"] = int(self.n_envs) * (1 + int(self.standby_count))
+        s["eval_max_game_processes"] = int(self.eval_workers or self.n_envs) * (1 + int(self.standby_count))
+        return s
 
     def validate(self) -> None:
         if self.n_envs < 1 or self.n_steps < 1:
             raise ValueError("n_envs and n_steps must be >= 1")
+        self.standby  # noqa: B018 - StandbySettings validates preboot/count/wait_timeout consistency
         if self.activation not in ACTIVATIONS:
             raise ValueError(f"activation {self.activation!r} not in {sorted(ACTIVATIONS)}")
         if not self.net_arch or any(v < 1 for v in self.net_arch):
@@ -394,6 +415,7 @@ class M7Config:
         d["reward"] = self.reward.to_json()
         d["net_arch"] = list(self.net_arch)
         d["experiment"] = self.experiment_summary()
+        d["lifecycle"] = self.lifecycle_json()
         return d
 
 
@@ -447,6 +469,9 @@ def config_from_experiment(exp: "ec.Experiment", *, run_id: Optional[str] = None
         port_block_base=int(v["environment.port_block_base"]), port_block_size=int(v["environment.port_block_size"]),
         worker_runtime_root=exp.worker_runtime_root, allow_executable_change=bool(v["resume.allow_executable_change"]),
         experiment=exp,
+        standby_preboot=bool(v["environment.standby_preboot"]), standby_count=int(v["environment.standby_count"]),
+        standby_wait_timeout=float(v["environment.standby_wait_timeout_s"]),
+        allow_lifecycle_change=bool(v["resume.allow_lifecycle_change"]),
     )
 
 
@@ -534,6 +559,8 @@ def save_checkpoint_set(directory: Path, model: PPO, vecnorm: VecNormalize, *, r
                          "load_rule": "load with training=False and norm_reward=False for evaluation"},
         **{k: run_meta[k] for k in ("run_id", "purpose", "lineage", "contracts", "horizon", "n_envs", "ppo", "seeds",
                                      "executable", "revisions", "m6_flags", "versions", "torch_threads")},
+        # M7c: the process lifecycle this set was trained under (compared on resume; see experiment_config)
+        "lifecycle": run_meta.get("lifecycle"),
         # M7b: reward identity and experiment provenance travel with every set (None for legacy-shaped run_meta)
         "reward_contract": (run_meta.get("contracts") or {}).get("reward_constants"),
         "experiment": run_meta.get("experiment"),
@@ -628,7 +655,10 @@ class M7Run:
                 port_block_base=c.port_block_base, port_block_size=c.port_block_size,
                 detect_native_failure=c.detect_native_failure,
                 fault=c.fault if c.fault_rank == rank else None,
-                squat_first_attempt=("post_launch" if c.squat_first_attempt_rank == rank else None)))
+                squat_first_attempt=("post_launch" if c.squat_first_attempt_rank == rank else None),
+                standby_preboot=c.standby_preboot, standby_count=c.standby_count,
+                standby_wait_timeout=c.standby_wait_timeout,
+                standby_fault=c.standby_fault if c.standby_fault_rank == rank else None))
         return specs
 
     def _source_checkpoint(self) -> Optional[Dict[str, Any]]:
@@ -648,9 +678,16 @@ class M7Run:
         # M7b: the full compatibility view (task, contracts, reward id + values, architecture, VecNormalize,
         # flags, device) and the executable identity.
         compat = ec.compare_compatibility(ec.checkpoint_compatibility_view(meta), c.compatibility_view())
+        if compat and ec.lifecycle_only_diffs(compat) and c.allow_lifecycle_change:
+            # M7c: a different standby lifecycle mode changes no trajectory, reward or artifact by contract, but a
+            # resume across modes is never silent: it needs resume.allow_lifecycle_change and is recorded.
+            meta["_lifecycle_change"] = {"diffs": compat, "accepted_by": "resume.allow_lifecycle_change"}
+            compat = {}
         if compat:
+            hint = (" (only the standby lifecycle differs: set resume.allow_lifecycle_change = true to accept it)"
+                    if ec.lifecycle_only_diffs(compat) else "")
             raise CheckpointError("resume rejected: compatibility-affecting fields differ from the checkpoint: "
-                                  + json.dumps(compat, sort_keys=True, default=str)[:3000])
+                                  + json.dumps(compat, sort_keys=True, default=str)[:3000] + hint)
         stored_exe = (meta.get("executable") or {}).get("sha256")
         current_exe = sha256_file(Path(c.executable))
         if stored_exe != current_exe:
@@ -781,7 +818,9 @@ class M7Run:
                                       request_timeout=c.request_timeout, step_timeout=c.step_timeout,
                                       retain_failed_cap=c.retain_failed_cap, reward=c.reward,
                                       experiment=c.experiment_summary(),
-                                      port_block_base=c.port_block_base, port_block_size=c.port_block_size)
+                                      port_block_base=c.port_block_base, port_block_size=c.port_block_size,
+                                      standby_preboot=c.standby_preboot, standby_count=c.standby_count,
+                                      standby_wait_timeout=c.standby_wait_timeout)
         result = evaluate_checkpoint(checkpoint_dir, self.layout.evaluations / label, settings=settings,
                                      deterministic_episodes=c.eval_deterministic_episodes,
                                      stochastic_episodes=c.eval_stochastic_episodes,
@@ -833,6 +872,8 @@ class M7Run:
                 "reward_contract": (source.get("contracts") or {}).get("reward_contract"),
                 "experiment": source.get("experiment"),
                 "executable_change": source.get("_executable_change"),
+                "lifecycle_change": source.get("_lifecycle_change"),
+                "lifecycle_at_checkpoint": source.get("lifecycle"),
                 "versions_at_checkpoint": source.get("versions")}]
         # M7b provenance: the source profile copy, the resolved configuration and the fingerprints.
         experiment_meta = None
@@ -869,6 +910,7 @@ class M7Run:
                               "workers": "no torch import in workers"},
             "port_blocks": port_blocks,
             "job_object": job.describe(),
+            "lifecycle": c.lifecycle_json(),
             "config": c.to_json(),
         }
         # Coordination state (continued from the source checkpoint on resume).
@@ -1108,7 +1150,11 @@ class M7Run:
                 "vector_step_wall": timing.get("wall_ms"),
             },
             "restarts": {"reset_s": _stats(reset_times), "startup_attempts": startup_attempts,
-                         "startup_retries": len(startup_failures), "startup_failures": startup_failures},
+                         "startup_retries": len(startup_failures), "startup_failures": startup_failures,
+                         "note": "reset_s is the worker-side reset time: a cold launch (about 2.3 s) or, with the M7c "
+                                 "standby lifecycle, the promotion of a ready standby (milliseconds) plus any exposed "
+                                 "wait for one still booting; see lifecycle.standby"},
+            "lifecycle": lifecycle_summary(c, reports, timing),
             "episodes": {
                 "started": sum((r or {}).get("episodes_started", 0) for r in reports.values()),
                 "finished": len(finished),
@@ -1164,6 +1210,92 @@ class M7Run:
                             "byte_identical": user_cfg[0].get("sha256") == user_cfg[1].get("sha256"),
                             "mtime_unchanged": user_cfg[0].get("mtime_ns") == user_cfg[1].get("mtime_ns")},
         }
+
+
+def lifecycle_summary(config: M7Config, reports: Mapping[Any, Optional[Dict[str, Any]]],
+                      timing: Mapping[str, Any]) -> Dict[str, Any]:
+    """M7c: aggregate the workers' standby reports (hits, misses, fallbacks, hidden/exposed time, resources)."""
+    per_worker = {rank: (r or {}).get("standby") for rank, r in reports.items()}
+    managers = [s.get("manager") for s in per_worker.values() if s and s.get("manager")]
+    counts: Dict[str, int] = {}
+    for m in managers:
+        for k, v in m.get("counts", {}).items():
+            counts[k] = counts.get(k, 0) + int(v)
+    events = [e for s in per_worker.values() if s for e in s.get("events", [])]
+    promoted = [e for e in events if e.get("event") == "promoted"]
+    hits = [e for e in promoted if (e.get("exposed_wait_s") or 0.0) < 0.005]
+    late = [e for e in promoted if (e.get("exposed_wait_s") or 0.0) >= 0.005]
+    fallbacks = [e for e in events if e.get("event") not in ("promoted",)]
+    fallback_reasons: Dict[str, int] = {}
+    for e in fallbacks:
+        fallback_reasons[e["event"]] = fallback_reasons.get(e["event"], 0) + 1
+    startup = [v for m in managers for v in _hist_values(m.get("startup_s"))]
+    hidden_startup_s = sum(float(e.get("standby_startup_s") or 0.0) for e in promoted)
+    exposed = [float(e.get("exposed_wait_s") or 0.0) for e in promoted] + \
+              [float(v) for s in per_worker.values() if s for v in []]
+    ready_before = [float(e.get("ready_before_promotion_s") or 0.0) for e in promoted]
+    retire = [v for s in per_worker.values() if s for v in s.get("retire_s", [])]
+    history = [h for m in managers for h in m.get("history", [])]
+    parked: List[Dict[str, Any]] = []
+    for h in history:
+        a, b = h.get("resource_at_ready"), h.get("resource_at_promotion")
+        if a and b and h.get("outcome") == "promoted":
+            parked.append({"cpu_s_while_parked": round((b.get("cpu_user_s") or 0) + (b.get("cpu_kernel_s") or 0)
+                                                        - (a.get("cpu_user_s") or 0) - (a.get("cpu_kernel_s") or 0), 4),
+                           "parked_s": h.get("ready_before_promotion_s"),
+                           "ws_mib_at_ready": round((a.get("working_set_bytes") or 0) / 2 ** 20, 1),
+                           "private_mib_at_ready": round((a.get("private_bytes") or 0) / 2 ** 20, 1),
+                           "boot_cpu_s": round((a.get("cpu_user_s") or 0) + (a.get("cpu_kernel_s") or 0), 3)})
+    threads = {"started": sum(int(m.get("threads_started", 0)) for m in managers),
+               "joined": sum(int(m.get("threads_joined", 0)) for m in managers),
+               "alive_at_close": sum(1 for m in managers if m.get("thread_alive"))}
+    resets_total = sum(int(v) for v in timing.get("per_worker_resets", [])) if timing else 0
+    return {
+        "settings": config.lifecycle_json(),
+        "expected_max_game_processes": config.lifecycle_json()["max_game_processes"],
+        "observed_max_concurrent_per_worker": max((int(s.get("max_concurrent_processes", 0)) for s in per_worker.values() if s),
+                                                  default=0),
+        "reset_modes": dict((timing or {}).get("reset_modes", {})),
+        "standby": {
+            "counts": counts,
+            "promotions": len(promoted),
+            "hits_ready_at_reset": len(hits),
+            "late_hits_waited": len(late),
+            "cold_fallbacks": len(fallbacks),
+            "fallback_reasons": fallback_reasons,
+            "hit_rate_of_auto_resets": round(len(hits) / resets_total, 4) if resets_total else None,
+            "promotion_rate_of_auto_resets": round(len(promoted) / resets_total, 4) if resets_total else None,
+            "standby_startup_s": _stats(startup),
+            "hidden_startup_s_total": round(hidden_startup_s, 3),
+            "exposed_wait_s": _stats(exposed),
+            "exposed_wait_s_total": round(sum(exposed), 3),
+            "ready_before_promotion_s": _stats(ready_before),
+            "promotion_s_total": round(sum((timing or {}).get("per_worker_promotion_s", [])), 4),
+            "retire_s": _stats(retire, 4),
+            "standby_failed_attempts": counts.get("failed_attempts", 0),
+            "standby_failures": counts.get("failed", 0),
+            "standby_lost": counts.get("lost", 0),
+            "standby_wait_timeouts": counts.get("wait_timeouts", 0),
+            "standby_starting_errors": counts.get("starting_errors", 0),
+            "threads": threads,
+            "parked_resource": {"samples": len(parked),
+                                "cpu_s_while_parked_max": max((p["cpu_s_while_parked"] for p in parked), default=None),
+                                "cpu_s_while_parked_mean": round(statistics.fmean([p["cpu_s_while_parked"] for p in parked]), 4)
+                                if parked else None,
+                                "parked_s_mean": round(statistics.fmean([p["parked_s"] or 0.0 for p in parked]), 3) if parked else None,
+                                "ws_mib_at_ready_max": max((p["ws_mib_at_ready"] for p in parked), default=None),
+                                "private_mib_at_ready_max": max((p["private_mib_at_ready"] for p in parked), default=None),
+                                "boot_cpu_s_mean": round(statistics.fmean([p["boot_cpu_s"] for p in parked]), 3) if parked else None},
+        },
+        "per_worker": per_worker,
+    }
+
+
+def _hist_values(stats: Optional[Mapping[str, Any]]) -> List[float]:
+    """The manager reports summary statistics only; expose the mean n times so merged stats stay weighted."""
+    if not stats or not stats.get("n"):
+        return []
+    return [float(stats["mean_s"])] * int(stats["n"])
 
 
 def run_training(config: M7Config) -> Dict[str, Any]:
@@ -1232,6 +1364,16 @@ def comparison_row(summary: Mapping[str, Any]) -> Dict[str, Any]:
         "workers_closed_cleanly": all(e.get("closed_cleanly") for e in summary["cleanup"]["ranks"].values()),
         "forced_terminations": summary["cleanup"]["close"].get("forced_terminations"),
         "user_config_byte_identical": summary["user_config"]["byte_identical"],
+        # M7c lifecycle columns
+        "standby_preboot": (summary.get("lifecycle") or {}).get("settings", {}).get("standby_preboot"),
+        "standby_count": (summary.get("lifecycle") or {}).get("settings", {}).get("standby_count"),
+        "expected_max_game_processes": (summary.get("lifecycle") or {}).get("expected_max_game_processes"),
+        "observed_max_concurrent_per_worker": (summary.get("lifecycle") or {}).get("observed_max_concurrent_per_worker"),
+        "reset_modes": (summary.get("lifecycle") or {}).get("reset_modes"),
+        "standby_metrics": {k: v for k, v in ((summary.get("lifecycle") or {}).get("standby") or {}).items()
+                            if k not in ("counts",)},
+        "standby_failed_attempts": ((summary.get("lifecycle") or {}).get("standby") or {}).get("standby_failed_attempts", 0),
+        "reset_vec_step_wall_hist": (summary["vector"]["timing"] or {}).get("reset_ms"),
     }
 
 
@@ -1245,8 +1387,9 @@ def select_process_count(rows: Sequence[Mapping[str, Any]], tolerance: float = 0
         for r in rs:
             if r["status"] != "completed":
                 out.append(f"{r['run_id']}: status {r['status']}")
-            for key in ("startup_failures", "request_timeouts", "transport_failures", "action_legality_failures"):
-                if r[key]:
+            for key in ("startup_failures", "request_timeouts", "transport_failures", "action_legality_failures",
+                        "standby_failed_attempts"):
+                if r.get(key):
                     out.append(f"{r['run_id']}: {key} {r[key]}")
             if not r["leak_free"] or not r["workers_closed_cleanly"] or r["forced_terminations"]:
                 out.append(f"{r['run_id']}: cleanup problem")
@@ -1313,7 +1456,7 @@ def run_comparison(base: M7Config, order: Sequence[int], compare_id: str,
                                  "gae_lambda": base.gae_lambda, "base_seed": base.base_seed,
                                  "checkpoint_interval": base.checkpoint_interval,
                                  "periodic_episodes": base.periodic_episodes, "m6_flags": dict(base.extra_env),
-                                 "reward_contract": base.reward.to_json()},
+                                 "reward_contract": base.reward.to_json(), "lifecycle": base.standby.to_json()},
               "runs": rows, "selection": decision}
     write_json(root / "comparison_report.json", report)
     return report

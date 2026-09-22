@@ -11,6 +11,18 @@ native RNG inspection, logging, validation, control, comparison or hashing
 exists. The next long training experiment was NOT started, no standby
 process exists, and v1 vs v2 learning quality was NOT compared.
 
+M7c (`docs/rl_standby_lifecycle_m7c.md`) later added the standby-process
+lifecycle on top of this configuration layer: three `[environment]` keys
+(`standby_preboot`, `standby_count`, `standby_wait_timeout_s`), one
+`[resume]` key (`allow_lifecycle_change`), a `lifecycle` field class, and
+`CONFIG_MODULE_VERSION = 2`. The historical profiles below still resolve to
+no standby, but because the lifecycle keys are part of the semantic and
+compatibility views their fingerprints computed by module version 2 differ
+from the module-version-1 values quoted in this document (the resolved
+values, the reward contracts and the resume rules are unchanged; a resume
+compares views key by key, never fingerprints, and treats a checkpoint
+without a lifecycle record as standby-off).
+
 ```text
 rl/configs/*.toml  --tomllib-->  experiment_config.Experiment (validated, resolved, fingerprinted)
                                      |  config_from_experiment()
