@@ -1,0 +1,579 @@
+{
+ "schema": "battleship_m7g_representation_comparison_v1",
+ "stage_source": "native btt_spatial_v1 trace (3601 live snapshots)",
+ "platform_translate_y_measured": [
+  1500.0,
+  3300.0
+ ],
+ "platform_max_speed_measured": 17.9990234375,
+ "targets_measured": {
+  "0": [
+   -1350.0,
+   -2250.0
+  ],
+  "1": [
+   -3450.0,
+   -2550.0
+  ],
+  "2": [
+   2700.0,
+   2750.927001953125
+  ],
+  "3": [
+   4950.0,
+   -1800.0
+  ],
+  "4": [
+   4.999999873689376e-06,
+   -900.0
+  ],
+  "5": [
+   1.9999999494757503e-05,
+   300.0
+  ],
+  "6": [
+   -3300.0,
+   3300.0
+  ],
+  "7": [
+   0.0,
+   1650.0
+  ],
+  "8": [
+   -3300.0,
+   600.0
+  ],
+  "9": [
+   1650.0,
+   -2250.0
+  ]
+ },
+ "grid": {
+  "resolutions": {
+   "50": {
+    "shape_chw": [
+     4,
+     168,
+     186
+    ],
+    "cells": 31248,
+    "values": 124992,
+    "bytes_uint8": 124992,
+    "solid_features": {
+     "tall_wall_column (x -2100..-1800, 300 wide)": {
+      "full_cells": 6,
+      "solid_cells": 6
+     },
+     "wall_top_ledge (y 2700..3000 under L0, 300 thick)": {
+      "full_cells": 6,
+      "solid_cells": 6
+     },
+     "right_column (x 2100..2400)": {
+      "full_cells": 6,
+      "solid_cells": 6
+     },
+     "right_step_ledge (y -750..-450, under L1)": {
+      "full_cells": 6,
+      "solid_cells": 6
+     },
+     "left_platform (y -2250..-1950)": {
+      "full_cells": 6,
+      "solid_cells": 6
+     },
+     "bottom_slab (y -2850..-2550)": {
+      "full_cells": 6,
+      "solid_cells": 6
+     }
+    },
+    "diagonal_band_full_cells": 5,
+    "gap_above_wall_free_rows": 12,
+    "shaft_free_columns": 12,
+    "target0_floor_gap_free_rows": 3,
+    "erased_features": [],
+    "platform_distinct_rows": 37,
+    "platform_quantization_max_error": 25.0,
+    "mario_quantization_max_error": 25.0,
+    "static_vertices_on_cell_lines": true,
+    "target_boxes_on_cell_lines": true,
+    "example_channel_sums": [
+     1998,
+     42,
+     378,
+     1
+    ]
+   },
+   "75": {
+    "shape_chw": [
+     4,
+     112,
+     124
+    ],
+    "cells": 13888,
+    "values": 55552,
+    "bytes_uint8": 55552,
+    "solid_features": {
+     "tall_wall_column (x -2100..-1800, 300 wide)": {
+      "full_cells": 4,
+      "solid_cells": 4
+     },
+     "wall_top_ledge (y 2700..3000 under L0, 300 thick)": {
+      "full_cells": 4,
+      "solid_cells": 4
+     },
+     "right_column (x 2100..2400)": {
+      "full_cells": 4,
+      "solid_cells": 4
+     },
+     "right_step_ledge (y -750..-450, under L1)": {
+      "full_cells": 4,
+      "solid_cells": 4
+     },
+     "left_platform (y -2250..-1950)": {
+      "full_cells": 4,
+      "solid_cells": 4
+     },
+     "bottom_slab (y -2850..-2550)": {
+      "full_cells": 4,
+      "solid_cells": 4
+     }
+    },
+    "diagonal_band_full_cells": 3,
+    "gap_above_wall_free_rows": 8,
+    "shaft_free_columns": 8,
+    "target0_floor_gap_free_rows": 2,
+    "erased_features": [],
+    "platform_distinct_rows": 25,
+    "platform_quantization_max_error": 37.5,
+    "mario_quantization_max_error": 37.5,
+    "static_vertices_on_cell_lines": true,
+    "target_boxes_on_cell_lines": true,
+    "example_channel_sums": [
+     888,
+     28,
+     172,
+     1
+    ]
+   },
+   "100": {
+    "shape_chw": [
+     4,
+     84,
+     93
+    ],
+    "cells": 7812,
+    "values": 31248,
+    "bytes_uint8": 31248,
+    "solid_features": {
+     "tall_wall_column (x -2100..-1800, 300 wide)": {
+      "full_cells": 2,
+      "solid_cells": 4
+     },
+     "wall_top_ledge (y 2700..3000 under L0, 300 thick)": {
+      "full_cells": 3,
+      "solid_cells": 3
+     },
+     "right_column (x 2100..2400)": {
+      "full_cells": 2,
+      "solid_cells": 4
+     },
+     "right_step_ledge (y -750..-450, under L1)": {
+      "full_cells": 2,
+      "solid_cells": 4
+     },
+     "left_platform (y -2250..-1950)": {
+      "full_cells": 2,
+      "solid_cells": 4
+     },
+     "bottom_slab (y -2850..-2550)": {
+      "full_cells": 2,
+      "solid_cells": 4
+     }
+    },
+    "diagonal_band_full_cells": 2,
+    "gap_above_wall_free_rows": 6,
+    "shaft_free_columns": 6,
+    "target0_floor_gap_free_rows": 1,
+    "erased_features": [],
+    "platform_distinct_rows": 19,
+    "platform_quantization_max_error": 50.0,
+    "mario_quantization_max_error": 50.0,
+    "static_vertices_on_cell_lines": false,
+    "target_boxes_on_cell_lines": false,
+    "example_channel_sums": [
+     646,
+     23,
+     129,
+     1
+    ]
+   },
+   "150": {
+    "shape_chw": [
+     4,
+     56,
+     62
+    ],
+    "cells": 3472,
+    "values": 13888,
+    "bytes_uint8": 13888,
+    "solid_features": {
+     "tall_wall_column (x -2100..-1800, 300 wide)": {
+      "full_cells": 2,
+      "solid_cells": 2
+     },
+     "wall_top_ledge (y 2700..3000 under L0, 300 thick)": {
+      "full_cells": 2,
+      "solid_cells": 2
+     },
+     "right_column (x 2100..2400)": {
+      "full_cells": 2,
+      "solid_cells": 2
+     },
+     "right_step_ledge (y -750..-450, under L1)": {
+      "full_cells": 2,
+      "solid_cells": 2
+     },
+     "left_platform (y -2250..-1950)": {
+      "full_cells": 2,
+      "solid_cells": 2
+     },
+     "bottom_slab (y -2850..-2550)": {
+      "full_cells": 2,
+      "solid_cells": 2
+     }
+    },
+    "diagonal_band_full_cells": 1,
+    "gap_above_wall_free_rows": 4,
+    "shaft_free_columns": 4,
+    "target0_floor_gap_free_rows": 1,
+    "erased_features": [],
+    "platform_distinct_rows": 13,
+    "platform_quantization_max_error": 75.0,
+    "mario_quantization_max_error": 75.0,
+    "static_vertices_on_cell_lines": true,
+    "target_boxes_on_cell_lines": true,
+    "example_channel_sums": [
+     222,
+     14,
+     46,
+     1
+    ]
+   },
+   "200": {
+    "shape_chw": [
+     4,
+     42,
+     46
+    ],
+    "cells": 1932,
+    "values": 7728,
+    "bytes_uint8": 7728,
+    "solid_features": {
+     "tall_wall_column (x -2100..-1800, 300 wide)": {
+      "full_cells": 1,
+      "solid_cells": 1
+     },
+     "wall_top_ledge (y 2700..3000 under L0, 300 thick)": {
+      "full_cells": 1,
+      "solid_cells": 2
+     },
+     "right_column (x 2100..2400)": {
+      "full_cells": 1,
+      "solid_cells": 1
+     },
+     "right_step_ledge (y -750..-450, under L1)": {
+      "full_cells": 0,
+      "solid_cells": 2
+     },
+     "left_platform (y -2250..-1950)": {
+      "full_cells": 1,
+      "solid_cells": 1
+     },
+     "bottom_slab (y -2850..-2550)": {
+      "full_cells": 1,
+      "solid_cells": 1
+     }
+    },
+    "diagonal_band_full_cells": 0,
+    "gap_above_wall_free_rows": 3,
+    "shaft_free_columns": 4,
+    "target0_floor_gap_free_rows": 1,
+    "erased_features": [
+     "diagonal_band"
+    ],
+    "platform_distinct_rows": 10,
+    "platform_quantization_max_error": 100.0,
+    "mario_quantization_max_error": 100.0,
+    "static_vertices_on_cell_lines": false,
+    "target_boxes_on_cell_lines": false,
+    "example_channel_sums": [
+     94,
+     12,
+     56,
+     1
+    ]
+   },
+   "300": {
+    "shape_chw": [
+     4,
+     28,
+     31
+    ],
+    "cells": 868,
+    "values": 3472,
+    "bytes_uint8": 3472,
+    "solid_features": {
+     "tall_wall_column (x -2100..-1800, 300 wide)": {
+      "full_cells": 0,
+      "solid_cells": 2
+     },
+     "wall_top_ledge (y 2700..3000 under L0, 300 thick)": {
+      "full_cells": 1,
+      "solid_cells": 1
+     },
+     "right_column (x 2100..2400)": {
+      "full_cells": 0,
+      "solid_cells": 2
+     },
+     "right_step_ledge (y -750..-450, under L1)": {
+      "full_cells": 0,
+      "solid_cells": 2
+     },
+     "left_platform (y -2250..-1950)": {
+      "full_cells": 0,
+      "solid_cells": 2
+     },
+     "bottom_slab (y -2850..-2550)": {
+      "full_cells": 0,
+      "solid_cells": 2
+     }
+    },
+    "diagonal_band_full_cells": 0,
+    "gap_above_wall_free_rows": 2,
+    "shaft_free_columns": 2,
+    "target0_floor_gap_free_rows": 0,
+    "erased_features": [
+     "diagonal_band"
+    ],
+    "platform_distinct_rows": 7,
+    "platform_quantization_max_error": 150.0,
+    "mario_quantization_max_error": 150.0,
+    "static_vertices_on_cell_lines": false,
+    "target_boxes_on_cell_lines": false,
+    "example_channel_sums": [
+     98,
+     9,
+     25,
+     1
+    ]
+   }
+  },
+  "coarsest_preserving_resolution": 150,
+  "channels": [
+   "solid",
+   "one_way_surface",
+   "live_target",
+   "mario"
+  ],
+  "extent": {
+   "x": [
+    -4050.0,
+    5250.0
+   ],
+   "y": [
+    -4200.0,
+    4200.0
+   ]
+  }
+ },
+ "segments": {
+  "segments_on_stage": 24,
+  "slots": 32,
+  "values": 510,
+  "values_with_state": 525,
+  "max_float32_error_world_units_over_blast_zone": 0.0006103515625,
+  "platform_position": "exact (native float32 translate; no quantization)",
+  "thin_features": "zero-thickness one-way lines and 300-wide solids are exact segments; nothing erased"
+ },
+ "rays": {
+  "configs": {
+   "n16_r2500": {
+    "rays": 16,
+    "range": 2500.0,
+    "values": 112,
+    "angular_step_deg": 22.5,
+    "ledge_top_L0_seen_from_right_step_L1": 0.0,
+    "ledge_top_L0_seen_from_moving_platform": 0.0,
+    "wall_or_ledge_seen_from_right_step_L1": 0.0,
+    "left_targets_seen_from_crossing_takeoffs": 0.0,
+    "mean_fraction_of_lines_hit": 0.0862,
+    "positions": 192
+   },
+   "n16_r3500": {
+    "rays": 16,
+    "range": 3500.0,
+    "values": 112,
+    "angular_step_deg": 22.5,
+    "ledge_top_L0_seen_from_right_step_L1": 0.0,
+    "ledge_top_L0_seen_from_moving_platform": 0.0,
+    "wall_or_ledge_seen_from_right_step_L1": 0.0,
+    "left_targets_seen_from_crossing_takeoffs": 0.0,
+    "mean_fraction_of_lines_hit": 0.1109,
+    "positions": 192
+   },
+   "n16_r5000": {
+    "rays": 16,
+    "range": 5000.0,
+    "values": 112,
+    "angular_step_deg": 22.5,
+    "ledge_top_L0_seen_from_right_step_L1": 0.0,
+    "ledge_top_L0_seen_from_moving_platform": 0.0,
+    "wall_or_ledge_seen_from_right_step_L1": 1.0,
+    "left_targets_seen_from_crossing_takeoffs": 0.0,
+    "mean_fraction_of_lines_hit": 0.1383,
+    "positions": 192
+   },
+   "n32_r2500": {
+    "rays": 32,
+    "range": 2500.0,
+    "values": 224,
+    "angular_step_deg": 11.25,
+    "ledge_top_L0_seen_from_right_step_L1": 0.0,
+    "ledge_top_L0_seen_from_moving_platform": 0.0,
+    "wall_or_ledge_seen_from_right_step_L1": 0.0,
+    "left_targets_seen_from_crossing_takeoffs": 0.0,
+    "mean_fraction_of_lines_hit": 0.0966,
+    "positions": 192
+   },
+   "n32_r3500": {
+    "rays": 32,
+    "range": 3500.0,
+    "values": 224,
+    "angular_step_deg": 11.25,
+    "ledge_top_L0_seen_from_right_step_L1": 0.0,
+    "ledge_top_L0_seen_from_moving_platform": 0.0,
+    "wall_or_ledge_seen_from_right_step_L1": 0.0,
+    "left_targets_seen_from_crossing_takeoffs": 0.0,
+    "mean_fraction_of_lines_hit": 0.1294,
+    "positions": 192
+   },
+   "n32_r5000": {
+    "rays": 32,
+    "range": 5000.0,
+    "values": 224,
+    "angular_step_deg": 11.25,
+    "ledge_top_L0_seen_from_right_step_L1": 0.0,
+    "ledge_top_L0_seen_from_moving_platform": 0.022,
+    "wall_or_ledge_seen_from_right_step_L1": 1.0,
+    "left_targets_seen_from_crossing_takeoffs": 0.0,
+    "mean_fraction_of_lines_hit": 0.1656,
+    "positions": 192
+   },
+   "n64_r2500": {
+    "rays": 64,
+    "range": 2500.0,
+    "values": 448,
+    "angular_step_deg": 5.625,
+    "ledge_top_L0_seen_from_right_step_L1": 0.0,
+    "ledge_top_L0_seen_from_moving_platform": 0.0,
+    "wall_or_ledge_seen_from_right_step_L1": 0.0,
+    "left_targets_seen_from_crossing_takeoffs": 0.0,
+    "mean_fraction_of_lines_hit": 0.1018,
+    "positions": 192
+   },
+   "n64_r3500": {
+    "rays": 64,
+    "range": 3500.0,
+    "values": 448,
+    "angular_step_deg": 5.625,
+    "ledge_top_L0_seen_from_right_step_L1": 0.0,
+    "ledge_top_L0_seen_from_moving_platform": 0.011,
+    "wall_or_ledge_seen_from_right_step_L1": 0.0,
+    "left_targets_seen_from_crossing_takeoffs": 0.0,
+    "mean_fraction_of_lines_hit": 0.1406,
+    "positions": 192
+   },
+   "n64_r5000": {
+    "rays": 64,
+    "range": 5000.0,
+    "values": 448,
+    "angular_step_deg": 5.625,
+    "ledge_top_L0_seen_from_right_step_L1": 0.0,
+    "ledge_top_L0_seen_from_moving_platform": 0.033,
+    "wall_or_ledge_seen_from_right_step_L1": 1.0,
+    "left_targets_seen_from_crossing_takeoffs": 0.0,
+    "mean_fraction_of_lines_hit": 0.1854,
+    "positions": 192
+   }
+  },
+  "kinds": [
+   "floor",
+   "ceiling",
+   "wall",
+   "one_way",
+   "moving",
+   "target"
+  ],
+  "origin": "Mario collision-diamond centre (TopN + 190)",
+  "distance_to_ledge_corner": {
+   "from_right_step_corner": 4638.7,
+   "from_platform_left_end_top": 3393.2,
+   "from_platform_left_end_bottom": 3451.1
+  },
+  "human_view_half_extents": {
+   "up": 2710.0,
+   "down": 2440.0,
+   "half_width_4_3": 3476.0,
+   "half_width_16_9": 4635.0
+  }
+ },
+ "build_costs": {
+  "segments_us": 42.58,
+  "grid150_us": 24.93,
+  "rays32_us": 140.47,
+  "snapshot_construction_us_included_above": 6.57
+ },
+ "networks": {
+  "policies": {
+   "v1_mlp (control)": {
+    "parameters": 11538,
+    "features_dim": 15,
+    "batch5_ms": 0.7065,
+    "batch512_ms": 1.6519,
+    "obs_bytes": 60,
+    "rollout_buffer_obs_mib_5120": 0.293,
+    "ppo_update_compute_estimate_s": 0.496
+   },
+   "segments (v2 candidate)": {
+    "parameters": 76818,
+    "features_dim": 525,
+    "batch5_ms": 0.7497,
+    "batch512_ms": 2.3833,
+    "obs_bytes": 2100,
+    "rollout_buffer_obs_mib_5120": 10.254,
+    "ppo_update_compute_estimate_s": 0.715
+   },
+   "rays32 + targets": {
+    "parameters": 44050,
+    "features_dim": 269,
+    "batch5_ms": 0.7137,
+    "batch512_ms": 1.8489,
+    "obs_bytes": 1076,
+    "rollout_buffer_obs_mib_5120": 5.254,
+    "ppo_update_compute_estimate_s": 0.555
+   },
+   "grid 56x62 NatureCNN + targets": {
+    "parameters": 322994,
+    "features_dim": 301,
+    "batch5_ms": 1.82,
+    "batch512_ms": 57.4843,
+    "obs_bytes": 14068,
+    "rollout_buffer_obs_mib_5120": 68.691,
+    "ppo_update_compute_estimate_s": 17.245
+   }
+  },
+  "torch": "2.14.0+cpu",
+  "threads": 1,
+  "cpu": "Intel64 Family 6 Model 158 Stepping 12, GenuineIntel",
+  "note": "forward passes of randomly initialised in-memory policies on random observations; PPO update time is an estimate (3 x forward of 100 minibatches of 512), not a measurement of training"
+ }
+}

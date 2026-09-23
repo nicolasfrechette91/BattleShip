@@ -1,0 +1,1270 @@
+{
+ "schema": "battleship_m7g_a_validation_v1",
+ "milestone": "M7g-a (Phases A-D): Track 1 crossing fixtures",
+ "status": {
+  "tooling": "implemented and tested",
+  "lower_precision_fixture": "VALIDATED: rl/fixtures/m7g/lower_precision_2ad7b1da89d8.json (user-recorded, route confirmed)",
+  "upper_moving_platform_fixture": "VALIDATED: rl/fixtures/m7g/upper_moving_platform_8b9ecf2b967f.json (user-recorded, route confirmed)",
+  "phase_d": "complete for both crossings",
+  "observation_v2": "not started (waits for the user's review of the crossing status)"
+ },
+ "preflight": {
+  "git_status": "clean",
+  "head": "54e5bff",
+  "origin_main_vs_head": [
+   0,
+   0
+  ],
+  "submodules": {
+   "decomp": "54c5afc78b1bb1e46ad2ebc91da97bfcbb87d16a (rl-main = origin/rl-main)",
+   "libultraship": "805f195041573230cf0402171337b22ffd558759 (m6/raphnet-bypass = origin)",
+   "torch": "3aa9c9739af95659f19adc73afeb12df93957fc3"
+  },
+  "git_diff_check": "exit 0",
+  "m7f_regression_record": "runs/m7f/_regressions/20260923T132814Z: 25/25",
+  "user_config_sha256": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+  "executable_sha256": "10e8e15d4abe6060c8ba593d39d10c3b244fe37cce6c072b28e1daa5b7ee154d",
+  "battleship_or_python_processes": 0,
+  "listeners_in_port_blocks": 0,
+  "tracked_run_files": 0,
+  "historical_fingerprint": {
+   "files": 80058,
+   "bytes": 3527645536,
+   "aggregate_sha256": "b1d661660f98adca586c352f0f1379154c2d2affb767b9d995531eb7a50598ee",
+   "junctions_followed": false
+  }
+ },
+ "audit": {
+  "native_btt_input_recorder": "none (SSB64_REPLAY_RECORD is VS-only; BTT reads the controller directly)",
+  "manual_control_or_sequence_editor": "none before M7g",
+  "physical_input_leak_while_stepping": "impossible: all four controller slots are overwritten every gameplay tick",
+  "window_hotkey_hazards": [
+   "Ctrl+R reset",
+   "Esc menu Reset",
+   "Esc menu tap-jump / auto Z-cancel",
+   "F1 / F2 / F11"
+  ],
+  "existing_crossing_sequences": "none (repository, runs/, Smash_pc_port, guide.md, Bureau/Documents/Downloads/OneDrive by name)",
+  "only_crossing_recording": {
+   "file": "tas_input_2/mario_743.btti",
+   "track1": false,
+   "non_track1_rows": [
+    94,
+    143,
+    144,
+    177,
+    181,
+    215,
+    377,
+    434
+   ]
+  },
+  "m7a_seven_target_episode": {
+   "artifact": "runs/m7a_pilot_n5/workers/w01/artifacts/episode_20260922T021311Z_50bbb545",
+   "reproduced": true,
+   "broken_ids": [
+    0,
+    4,
+    9,
+    5,
+    3,
+    7,
+    2
+   ],
+   "min_x": -1650.0,
+   "crossed": false,
+   "terminal": "native_failure"
+  }
+ },
+ "geometry": {
+  "schema": "btt_stage_geometry_mario_v1",
+  "source": "decomp/src/relocData/124_GRBonus1MarioFile2.c",
+  "source_sha256": "d3b03ed60501b49d240d7f2bd74afd41cfcea78c4ae9d3e40ecf455fb8646975",
+  "spawn": [
+   0.0,
+   -2547.0
+  ],
+  "platform_translate": [
+   2700.0,
+   1500.0
+  ],
+  "platform_dobj_y_range": [
+   1500.0,
+   3300.0
+  ],
+  "lines": [
+   {
+    "index": 0,
+    "group": 1,
+    "kind": "floor",
+    "points": [
+     [
+      -2100.0,
+      3000.0
+     ],
+     [
+      -1200.0,
+      3000.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 1,
+    "group": 1,
+    "kind": "floor",
+    "points": [
+     [
+      2100.0,
+      -450.0
+     ],
+     [
+      3300.0,
+      -450.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 2,
+    "group": 1,
+    "kind": "floor",
+    "points": [
+     [
+      2100.0,
+      -1500.0
+     ],
+     [
+      1200.0,
+      -1500.0
+     ]
+    ],
+    "flags": 16384,
+    "dynamic": false
+   },
+   {
+    "index": 3,
+    "group": 1,
+    "kind": "floor",
+    "points": [
+     [
+      -3900.0,
+      -1950.0
+     ],
+     [
+      -2700.0,
+      -1950.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 4,
+    "group": 1,
+    "kind": "floor",
+    "points": [
+     [
+      -1800.0,
+      -2550.0
+     ],
+     [
+      2100.0,
+      -2550.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 5,
+    "group": 1,
+    "kind": "ceil",
+    "points": [
+     [
+      -3600.0,
+      -4050.0
+     ],
+     [
+      -3900.0,
+      -4050.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 6,
+    "group": 1,
+    "kind": "ceil",
+    "points": [
+     [
+      2400.0,
+      -2850.0
+     ],
+     [
+      -2100.0,
+      -2850.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 7,
+    "group": 1,
+    "kind": "ceil",
+    "points": [
+     [
+      -3000.0,
+      -2250.0
+     ],
+     [
+      -3900.0,
+      -2250.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 8,
+    "group": 1,
+    "kind": "ceil",
+    "points": [
+     [
+      3300.0,
+      -750.0
+     ],
+     [
+      2400.0,
+      -750.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 9,
+    "group": 1,
+    "kind": "ceil",
+    "points": [
+     [
+      -1200.0,
+      2700.0
+     ],
+     [
+      -1800.0,
+      2700.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 10,
+    "group": 1,
+    "kind": "rwall",
+    "points": [
+     [
+      3300.0,
+      -450.0
+     ],
+     [
+      3300.0,
+      -750.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 11,
+    "group": 1,
+    "kind": "rwall",
+    "points": [
+     [
+      2400.0,
+      -750.0
+     ],
+     [
+      2400.0,
+      -2850.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 12,
+    "group": 1,
+    "kind": "rwall",
+    "points": [
+     [
+      -1200.0,
+      3000.0
+     ],
+     [
+      -1200.0,
+      2700.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 13,
+    "group": 1,
+    "kind": "rwall",
+    "points": [
+     [
+      -1800.0,
+      2700.0
+     ],
+     [
+      -1800.0,
+      -2550.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 14,
+    "group": 1,
+    "kind": "rwall",
+    "points": [
+     [
+      -2700.0,
+      -1950.0
+     ],
+     [
+      -2700.0,
+      -2850.0
+     ],
+     [
+      -3600.0,
+      -3750.0
+     ],
+     [
+      -3600.0,
+      -4050.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 15,
+    "group": 1,
+    "kind": "lwall",
+    "points": [
+     [
+      -3900.0,
+      -2250.0
+     ],
+     [
+      -3900.0,
+      -1950.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 16,
+    "group": 1,
+    "kind": "lwall",
+    "points": [
+     [
+      -3900.0,
+      -4050.0
+     ],
+     [
+      -3900.0,
+      -3750.0
+     ],
+     [
+      -3000.0,
+      -2850.0
+     ],
+     [
+      -3000.0,
+      -2250.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 17,
+    "group": 1,
+    "kind": "lwall",
+    "points": [
+     [
+      -2100.0,
+      -2850.0
+     ],
+     [
+      -2100.0,
+      3000.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 18,
+    "group": 1,
+    "kind": "lwall",
+    "points": [
+     [
+      2100.0,
+      -2550.0
+     ],
+     [
+      2100.0,
+      -450.0
+     ]
+    ],
+    "flags": 0,
+    "dynamic": false
+   },
+   {
+    "index": 19,
+    "group": 2,
+    "kind": "floor",
+    "points": [
+     [
+      600.0,
+      300.0
+     ],
+     [
+      -600.0,
+      300.0
+     ]
+    ],
+    "flags": 16384,
+    "dynamic": true
+   }
+  ],
+  "derived": {
+   "spawn_floor_line": 4,
+   "main_solid_lines": [
+    0,
+    1,
+    4,
+    6,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    17,
+    18
+   ],
+   "main_solid_closed": true,
+   "left_boundary_x": -2100.0,
+   "left_region_rule": "position_x < -2100.0",
+   "wall_right_face_line": 13,
+   "wall_right_face_x": -1800.0,
+   "wall_top_y": 3000.0,
+   "ledge_line": 0,
+   "ledge_x_span": [
+    -2100.0,
+    -1200.0
+   ],
+   "overhang_line": 9,
+   "overhang_underside_y": 2700.0,
+   "right_step_line": 1,
+   "right_step_corner": [
+    2100.0,
+    -450.0
+   ],
+   "moving_platform_line": 19,
+   "moving_platform_x_span": [
+    2100.0,
+    3300.0
+   ],
+   "moving_platform_surface_y_range": [
+    1800.0,
+    3600.0
+   ],
+   "moving_platform_period_ticks": 300,
+   "left_side_floor_lines": [
+    3
+   ],
+   "cliff_flag_lines": [],
+   "pass_through_lines": [
+    2,
+    19
+   ]
+  }
+ },
+ "user_identification": {
+  "lower_platform_reference_point": "top-left corner of the raised right step L1 at (2100, -450) (user-marked image, 2026-09-23); identifies the lower-platform area, not a required takeoff line",
+  "upper_crossing": "moving platform L19"
+ },
+ "detector_positive_control_tas": {
+  "note": "raw native rows; not Track 1, never a fixture",
+  "first_left_entry": {
+   "step_index": 359,
+   "consumed_tick": 359,
+   "input_tick": 360,
+   "time_passed": 359,
+   "x": -2128.906982421875,
+   "y": 3440.800048828125,
+   "ground_air_state": 1,
+   "fighter_status_id": 224
+  },
+  "min_x": -4070.78466796875,
+  "approach_surface": "moving_platform",
+  "classification": "upper_moving_platform",
+  "moving_platform": {
+   "grounded_steps": 5,
+   "riding_steps": 4,
+   "y_range": [
+    2416.369140625,
+    2485.84326171875
+   ]
+  },
+  "broken_after_first_left_entry": [
+   6,
+   8,
+   1
+  ],
+  "result": {
+   "targets_broken": 10,
+   "completion_time_passed": 446,
+   "completion_input_tick": 447
+  },
+  "submitted": 447,
+  "unsent": 21
+ },
+ "phase_d": [
+  {
+   "id": 1,
+   "requirement": "every action in the 72-action Track 1 space",
+   "tooling": "PASS",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 2,
+   "requirement": "replay begins at tick 0",
+   "tooling": "PASS",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 3,
+   "requirement": "first action consumes tick 0",
+   "tooling": "PASS",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 4,
+   "requirement": "contiguous consumed ticks",
+   "tooling": "PASS",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 5,
+   "requirement": "native left-region entry",
+   "tooling": "PASS (TAS detector control)",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 6,
+   "requirement": "lower fixture uses the lower crossing",
+   "tooling": "classifier rule + synthetic tests; disagreement recorded for review (route.agreement), never a rejection",
+   "fixtures": "PASS (takeoff L1 at tick 912, route confirmed)"
+  },
+  {
+   "id": 7,
+   "requirement": "upper fixture contacts the moving platform",
+   "tooling": "classifier rule + TAS control; disagreement recorded for review",
+   "fixtures": "PASS (takeoff from the moving platform at tick 266 after 19 riding steps, route confirmed)"
+  },
+  {
+   "id": 8,
+   "requirement": "target-identity diagnostics consistent",
+   "tooling": "PASS",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 9,
+   "requirement": "cold execution repeats",
+   "tooling": "PASS",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 10,
+   "requirement": "standby execution repeats",
+   "tooling": "PASS (parked + real M7c promotion)",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 11,
+   "requirement": "no-render and Raphnet bypass repeat",
+   "tooling": "PASS",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 12,
+   "requirement": "visible follows the same trajectory",
+   "tooling": "PASS",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 13,
+   "requirement": "identical action and observation digests",
+   "tooling": "PASS (8/8 runs)",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 14,
+   "requirement": "existing policy observations unchanged",
+   "tooling": "PASS",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 15,
+   "requirement": "existing rewards unchanged",
+   "tooling": "PASS",
+   "fixtures": "PASS (lower + upper)"
+  },
+  {
+   "id": 16,
+   "requirement": "no gameplay or native replay regression",
+   "tooling": "PASS (no native change; chain 25/25)",
+   "fixtures": "n/a"
+  }
+ ],
+ "tests": {
+  "command": "python rl/m7g_tests.py",
+  "root": "runs/m7g/_tests_final_20260923T161724Z",
+  "ok": true,
+  "passed": 18,
+  "cases": {
+   "unit_fixture_contract": {
+    "status": "PASS",
+    "seconds": 0.3,
+    "details": {
+     "self_test": "PASS"
+    }
+   },
+   "unit_geometry_frozen": {
+    "status": "PASS",
+    "seconds": 0.0,
+    "details": {
+     "lines": 20,
+     "derived": {
+      "spawn_floor_line": 4,
+      "main_solid_lines": [
+       0,
+       1,
+       4,
+       6,
+       8,
+       9,
+       10,
+       11,
+       12,
+       13,
+       17,
+       18
+      ],
+      "main_solid_closed": true,
+      "left_boundary_x": -2100.0,
+      "left_region_rule": "position_x < -2100.0",
+      "wall_right_face_line": 13,
+      "wall_right_face_x": -1800.0,
+      "wall_top_y": 3000.0,
+      "ledge_line": 0,
+      "ledge_x_span": [
+       -2100.0,
+       -1200.0
+      ],
+      "overhang_line": 9,
+      "overhang_underside_y": 2700.0,
+      "right_step_line": 1,
+      "right_step_corner": [
+       2100.0,
+       -450.0
+      ],
+      "moving_platform_line": 19,
+      "moving_platform_x_span": [
+       2100.0,
+       3300.0
+      ],
+      "moving_platform_surface_y_range": [
+       1800.0,
+       3600.0
+      ],
+      "moving_platform_period_ticks": 300,
+      "left_side_floor_lines": [
+       3
+      ],
+      "cliff_flag_lines": [],
+      "pass_through_lines": [
+       2,
+       19
+      ]
+     },
+     "source_sha256": "d3b03ed60501b49d240d7f2bd74afd41cfcea78c4ae9d3e40ecf455fb8646975"
+    }
+   },
+   "unit_import_formats": {
+    "status": "PASS",
+    "seconds": 0.1,
+    "details": {
+     "kinds": {
+      "a.txt": "btt_track1_script_v1",
+      "b.json": "json_track1",
+      "c.json": "json_native",
+      "d.json": "btt_track1_draft_v1"
+     },
+     "tas_non_track1_rows": [
+      94,
+      143,
+      144,
+      177,
+      181,
+      215,
+      377,
+      434
+     ],
+     "artifact": {
+      "length": 3600,
+      "digest": "154a86970d20b553"
+     }
+    }
+   },
+   "unit_input_mapping": {
+    "status": "PASS",
+    "seconds": 0.0,
+    "details": {
+     "keyboard_directions": 12,
+     "xinput_sectors": 10
+    }
+   },
+   "unit_fixture_schema": {
+    "status": "PASS",
+    "seconds": 0.0,
+    "details": {
+     "required": 14
+    }
+   },
+   "unit_build_document_assembly": {
+    "status": "PASS",
+    "seconds": 0.2,
+    "details": {
+     "confirmed": "upper_moving_platform_f44dd81854a5.json",
+     "kept_for_review": "lower_precision_f44dd81854a5.json",
+     "schema_ok": true,
+     "note": "stubbed verify; STUB_NOT_A_FIXTURE output only"
+    }
+   },
+   "unit_fixture_files": {
+    "status": "PASS",
+    "seconds": 0.0,
+    "details": {
+     "fixtures": {},
+     "by_crossing": {
+      "lower_precision": 0,
+      "upper_moving_platform": 0
+     },
+     "status": "no fixture captured yet (fixture validation BLOCKED on user input)"
+    }
+   },
+   "unit_training_isolation": {
+    "status": "PASS",
+    "seconds": 0.1,
+    "details": {
+     "checked": 93,
+     "offenders": []
+    }
+   },
+   "unit_historical_evidence": {
+    "status": "PASS",
+    "seconds": 3.9,
+    "details": {
+     "traces": {
+      "fx_m7d_s0v1_det_fall.json.gz": {
+       "crossed": false,
+       "min_x": -1650.0
+      },
+      "fx_m7d_s0v1_fall6_double.json.gz": {
+       "crossed": false,
+       "min_x": -1398.764404296875
+      },
+      "fx_m7d_s2v2_double56.json.gz": {
+       "crossed": false,
+       "min_x": -1650.0
+      },
+      "fx_m7e_s0_best6.json.gz": {
+       "crossed": false,
+       "min_x": -1650.0
+      },
+      "fx_m7e_s1_best6.json.gz": {
+       "crossed": false,
+       "min_x": -1650.0
+      },
+      "fx_m7e_s2_best6.json.gz": {
+       "crossed": false,
+       "min_x": -1214.0103759765625
+      },
+      "fx_m7e_s2_final_det.json.gz": {
+       "crossed": false,
+       "min_x": -1446.599365234375
+      },
+      "fx_random_six.json.gz": {
+       "crossed": false,
+       "min_x": -1650.0
+      },
+      "tas_no_render.json.gz": {
+       "crossed": true,
+       "min_x": -4070.78466796875
+      },
+      "tas_no_render_raphnet.json.gz": {
+       "crossed": true,
+       "min_x": -4070.78466796875
+      },
+      "tas_normal.json.gz": {
+       "crossed": true,
+       "min_x": -4070.78466796875
+      }
+     },
+     "grounded_steps_matched": 15368
+    }
+   },
+   "game_capture_scripted": {
+    "status": "PASS",
+    "seconds": 4.1,
+    "details": {
+     "actions": 96,
+     "track1_digest": "20b01c0305f31b3d",
+     "trajectory_digest": "fecdbaeb73c51238",
+     "step_ms_median": 0.76
+    }
+   },
+   "game_capture_visible": {
+    "status": "PASS",
+    "seconds": 15.5,
+    "details": {
+     "visible_step_ms_median": 33.33,
+     "realtime_step_ms_median": 16.66,
+     "trajectory_digest": "c55e206126fb1449"
+    }
+   },
+   "game_capture_resume": {
+    "status": "PASS",
+    "seconds": 7.5,
+    "details": {
+     "prefix": 55,
+     "length": 85
+    }
+   },
+   "game_verify_matrix": {
+    "status": "PASS",
+    "seconds": 42.6,
+    "details": {
+     "executions": 8,
+     "trajectory_digest": "fecdbaeb73c51238",
+     "returns": {
+      "btt_reward_v1": 0.904,
+      "btt_reward_v2": 0.904
+     },
+     "crossed": false,
+     "checks": 16
+    }
+   },
+   "game_build_refuses": {
+    "status": "PASS",
+    "seconds": 39.7,
+    "details": {
+     "problems": [
+      "--source imported contradicts the draft's recorded source kind 'scripted'",
+      "native_left_region_entry"
+     ],
+     "capture_files_unchanged": 7
+    }
+   },
+   "game_capture_error": {
+    "status": "PASS",
+    "seconds": 3.8,
+    "details": {
+     "end_reason": "error: ConnectionError: simulated: game window closed",
+     "actions_kept": 25
+    }
+   },
+   "game_detector_control": {
+    "status": "PASS",
+    "seconds": 3.1,
+    "details": {
+     "first_left_entry": {
+      "step_index": 359,
+      "consumed_tick": 359,
+      "input_tick": 360,
+      "time_passed": 359,
+      "x": -2128.906982421875,
+      "y": 3440.800048828125,
+      "ground_air_state": 1,
+      "fighter_status_id": 224
+     },
+     "min_x": -4070.78466796875,
+     "classification": {
+      "rule": "btt_route_rule_v1",
+      "identity": "upper_moving_platform",
+      "reason": "approach surface is the moving platform"
+     },
+     "note": "detector control only; the TAS is not Track 1 and is never a fixture or demonstration"
+    }
+   },
+   "game_m7a_seven_target": {
+    "status": "PASS",
+    "seconds": 5.0,
+    "details": {
+     "actions": 3005,
+     "broken_ids": [
+      0,
+      4,
+      9,
+      5,
+      3,
+      7,
+      2
+     ],
+     "min_x": -1650.0
+    }
+   },
+   "game_historical_six": {
+    "status": "PASS",
+    "seconds": 14.3,
+    "details": {
+     "length": 3600,
+     "broken_ids": [
+      9,
+      3,
+      0,
+      4,
+      7,
+      5
+     ]
+    }
+   }
+  }
+ },
+ "review": {
+  "method": "3-lens adversarial review, each finding independently re-verified",
+  "findings": 29,
+  "confirmed_and_fixed": 22,
+  "refuted": 7,
+  "route_policy_review": "focused review of the preserve-and-flag route policy: no path drops or relabels a genuine crossing or modifies a recording; 6 low-severity gaps fixed"
+ },
+ "route_policy": {
+  "hard_gates": [
+   "exact Track 1 from tick 0",
+   "native left-region entry (x < -2100)",
+   "every action consumed",
+   "8 identical executions (trajectory, actions, targets, policy obs v1, rewards)",
+   "capture match + unchanged gameplay settings",
+   "honest source kind",
+   "integrity",
+   "no overwrite, no twins"
+  ],
+  "never_gating": [
+   "route classifier agreement",
+   "path not over the ledge",
+   "unmatched ground points",
+   "M7f target-diagnostic invariants",
+   "host_frame"
+  ],
+  "on_disagreement": "fixture written AS DECLARED with route.agreement mismatch/unclassified, review_required, build exit 3",
+  "evidence_recorded": [
+   "route.takeoff (surface, tick, position, offset from the marked corner)",
+   "evidence.surface_runs",
+   "evidence.trajectory (one row per consumed tick)"
+  ]
+ },
+ "regression_chain": {
+  "command": "python rl/m7f_regressions.py --keep-going --root runs/m7g/_regressions/20260923T150926Z",
+  "passed": 25,
+  "suites": 25,
+  "ok": true,
+  "native_tas": {
+   "complete_line": true,
+   "checksum_line": true,
+   "result": {
+    "targets_broken": 10,
+    "completion_time_passed": 446,
+    "completion_input_tick": 447
+   }
+  },
+  "user_config_sha256_before": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+  "user_config_sha256_after": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+  "suites_status": {
+   "m7f_tests_unit": "PASS",
+   "m7f_nonport_cl": "PASS",
+   "m7e_tests_unit": "PASS",
+   "m7d_tests_unit": "PASS",
+   "m7b_config_tests": "PASS",
+   "m7f_tests_game": "PASS",
+   "native_authoritative": "PASS",
+   "m1e_default": "PASS",
+   "m1e_diag": "PASS",
+   "m1d_transport": "PASS",
+   "m7e_existing_suites": "PASS",
+   "m7d_existing_suites": "PASS",
+   "m7c_standby_tests": "PASS",
+   "m7b_smoke_replay": "PASS",
+   "m7_smoke": "PASS",
+   "m6_equivalence": "PASS",
+   "m6_raphnet_bypass": "PASS",
+   "m5_smoke": "PASS",
+   "m5_smoke_flags": "PASS",
+   "m4_smoke": "PASS",
+   "m3_gym_smoke": "PASS",
+   "m2_restart_regression": "PASS",
+   "m2_lifecycle_smoke": "PASS",
+   "git_diff_check": "PASS",
+   "git_diff_check_decomp": "PASS"
+  }
+ },
+ "historical_integrity": {
+  "pre_existing_files": 80058,
+  "identical": true,
+  "removed": 0,
+  "changed": 0,
+  "mtime_changed": 0,
+  "added": 16,
+  "added_by_top_dir": {
+   "_m7b_tests_20260923T151427Z": 15,
+   "_m7c_tests_20260923T151438Z": 1
+  },
+  "excluded": [
+   "runs/m7g"
+  ]
+ },
+ "lower_fixture": {
+  "fixture": "rl/fixtures/m7g/lower_precision_2ad7b1da89d8.json",
+  "capture": "runs/m7g/capture/20260923T201117Z_lower",
+  "source": "user_recorded",
+  "length": 1525,
+  "native_action_digest": "2ad7b1da89d8315293a936259845e00fc4bab385bb092178a549179d359c4ee8",
+  "track1_digest": "3cb03452ff7c2613bccd13d68ecf46fc73d826feb1599b3c9f649ddea672473a",
+  "route": {
+   "declared": "lower_precision",
+   "agreement": "confirmed",
+   "review_required": false,
+   "takeoff": {
+    "surface": "L1",
+    "consumed_tick": 912,
+    "x": 2205.19921875,
+    "y": -450.0,
+    "steps_from_takeoff_to_entry": 181,
+    "offset_from_marked_lower_corner": {
+     "dx": 105.19921875,
+     "dy": 0.0,
+     "distance": 105.19921875
+    }
+   }
+  },
+  "first_left_entry": {
+   "step_index": 1093,
+   "consumed_tick": 1093,
+   "input_tick": 1094,
+   "time_passed": 1093,
+   "x": -2100.853271484375,
+   "y": 4356.80029296875,
+   "ground_air_state": 1,
+   "fighter_status_id": 22
+  },
+  "min_x": {
+   "step_index": 1362,
+   "consumed_tick": 1362,
+   "input_tick": 1363,
+   "time_passed": 1362,
+   "x": -4565.3984375,
+   "y": -2844.39990234375,
+   "ground_air_state": 1,
+   "fighter_status_id": 26
+  },
+  "first_over_ledge": {
+   "step_index": 1015,
+   "consumed_tick": 1015,
+   "input_tick": 1016,
+   "time_passed": 1015,
+   "x": -1200.0,
+   "y": 3050.460205078125,
+   "ground_air_state": 1,
+   "fighter_status_id": 226
+  },
+  "moving_platform_grounded_steps": 0,
+  "targets_broken": [
+   [
+    0,
+    603
+   ],
+   [
+    7,
+    995
+   ],
+   [
+    6,
+    1189
+   ],
+   [
+    8,
+    1246
+   ],
+   [
+    1,
+    1394
+   ]
+  ],
+  "broken_after_first_left_entry": [
+   6,
+   8,
+   1
+  ],
+  "terminal": {
+   "kind": "native_failure",
+   "submitted": 1525,
+   "last_consumed_tick": 1524,
+   "final_game_status": 5,
+   "final_targets_remaining": 5
+  },
+  "verification": {
+   "dir": "runs/m7g/fixtures/lower_precision_2ad7b1da89d8/20260923T201405Z",
+   "executions": 8,
+   "checks": {
+    "track1_exact": true,
+    "fresh_tick0": true,
+    "first_action_consumes_tick0": true,
+    "contiguous_ticks": true,
+    "identical_trajectories": true,
+    "all_actions_consumed": true,
+    "identical_action_digests": true,
+    "identical_policy_obs_v1": true,
+    "identical_rewards": true,
+    "identical_targets_diag": true,
+    "target_diag_invariants": true,
+    "ground_matched": true,
+    "host_frame_identical_cold_modes": true,
+    "matches_capture": true,
+    "standby_promoted": true,
+    "native_left_region_entry": true
+   },
+   "trajectory_digest": "b9fe2b7a1ecdc760bed39932fcbd8c3de95a42d036be08695e383b6d1f7394d3",
+   "returns": {
+    "btt_reward_v1": 3.475,
+    "btt_reward_v2": -1.525
+   },
+   "user_config_unchanged": true
+  }
+ },
+ "upper_fixture": {
+  "fixture": "rl/fixtures/m7g/upper_moving_platform_8b9ecf2b967f.json",
+  "capture": "runs/m7g/capture/20260923T201858Z_upper",
+  "source": "user_recorded",
+  "length": 681,
+  "native_action_digest": "8b9ecf2b967f95723d34cc23e1816a4323ca1bbe82490eb6388fc9feab32e4e2",
+  "track1_digest": "6b49bc037ec1af3f948eff8bd0d09b9f3f7b8ae998582ecd1ef308ee194118c4",
+  "route": {
+   "declared": "upper_moving_platform",
+   "agreement": "confirmed",
+   "review_required": false,
+   "takeoff": {
+    "surface": "moving_platform",
+    "consumed_tick": 266,
+    "x": 2243.0,
+    "y": 1964.7445068359375,
+    "steps_from_takeoff_to_entry": 198,
+    "offset_from_marked_lower_corner": {
+     "dx": 143.0,
+     "dy": 2414.7445068359375,
+     "distance": 2418.9749964177668
+    }
+   }
+  },
+  "first_left_entry": {
+   "step_index": 464,
+   "consumed_tick": 464,
+   "input_tick": 465,
+   "time_passed": 464,
+   "x": -2100.736083984375,
+   "y": 3000.0,
+   "ground_air_state": 1,
+   "fighter_status_id": 26
+  },
+  "min_x": {
+   "step_index": 532,
+   "consumed_tick": 532,
+   "input_tick": 533,
+   "time_passed": 532,
+   "x": -3397.536376953125,
+   "y": 758.0,
+   "ground_air_state": 1,
+   "fighter_status_id": 228
+  },
+  "first_over_ledge": {
+   "step_index": 386,
+   "consumed_tick": 386,
+   "input_tick": 387,
+   "time_passed": 386,
+   "x": -1203.6064453125,
+   "y": 3759.317138671875,
+   "ground_air_state": 1,
+   "fighter_status_id": 226
+  },
+  "moving_platform_grounded_steps": 20,
+  "targets_broken": [
+   [
+    8,
+    592
+   ]
+  ],
+  "broken_after_first_left_entry": [
+   8
+  ],
+  "terminal": {
+   "kind": "sequence_end",
+   "submitted": 681,
+   "last_consumed_tick": 680,
+   "final_game_status": 1,
+   "final_targets_remaining": 9
+  },
+  "verification": {
+   "dir": "runs/m7g/fixtures/upper_moving_platform_8b9ecf2b967f/20260923T202016Z",
+   "executions": 8,
+   "checks": {
+    "track1_exact": true,
+    "fresh_tick0": true,
+    "first_action_consumes_tick0": true,
+    "contiguous_ticks": true,
+    "identical_trajectories": true,
+    "all_actions_consumed": true,
+    "identical_action_digests": true,
+    "identical_policy_obs_v1": true,
+    "identical_rewards": true,
+    "identical_targets_diag": true,
+    "target_diag_invariants": true,
+    "ground_matched": true,
+    "host_frame_identical_cold_modes": true,
+    "matches_capture": true,
+    "standby_promoted": true,
+    "native_left_region_entry": true
+   },
+   "trajectory_digest": "a743dd9af61b6b0245c18b10d3a40800194b85e1c3b79066b472e6f8606eb286",
+   "returns": {
+    "btt_reward_v1": 0.319,
+    "btt_reward_v2": 0.319
+   },
+   "user_config_unchanged": true
+  }
+ },
+ "native_or_submodule_changes": "none"
+}

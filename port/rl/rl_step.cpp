@@ -108,6 +108,17 @@ RLTargetDiag sTargetsLast;
 uint32_t sTargetsLastStep = 0;
 bool sHasTargetsLast = false;
 
+/* --- M7g structured-spatial diagnostic (SSB64_RL_SPATIAL=1), protected by
+ * sMutex, latched exactly like the M7f copies above. Never read by a
+ * transition. */
+RLSpatialDiag sLatestSpatial;
+bool sHasLatestSpatial = false;
+RLSpatialDiag sResultSpatial;
+bool sHasResultSpatial = false;
+RLSpatialDiag sSpatialLast;
+uint32_t sSpatialLastStep = 0;
+bool sHasSpatialLast = false;
+
 /* --- main-thread-only, written once by rlStepRegister() before any other
  *     thread that uses this module can exist ----------------------------- */
 std::atomic<bool> sRegistered{false};
@@ -203,6 +214,12 @@ int pollLocked(RLStepResult *out) {
 			sTargetsLast = sResultTargets;
 			sTargetsLastStep = out->step_count;
 			sHasTargetsLast = true;
+		}
+		if (sHasResultSpatial) {
+			/* M7g: the spatial snapshot of the same capture as this result. */
+			sSpatialLast = sResultSpatial;
+			sSpatialLastStep = out->step_count;
+			sHasSpatialLast = true;
 		}
 		if (next != RL_STEP_WAITING_FOR_ACTION) {
 			port_log("SSB64 RL Step: result collected step=%u consumed_tick=%u input_tick=%u "
@@ -373,6 +390,37 @@ extern "C" int rlStepGetLastTargets(RLTargetDiag *out, uint32_t *step_count) {
 	return 1;
 }
 
+/* M7g: the non-consuming read with the spatial snapshot (and, when requested,
+ * the target snapshot) handed in with that observation, under one lock. */
+extern "C" int rlStepGetLatestObservationSpatial(RLObservation *obs, RLTargetDiag *targets, RLSpatialDiag *spatial) {
+	if (obs == nullptr || spatial == nullptr) {
+		return 0;
+	}
+	std::lock_guard<std::mutex> lock(sMutex);
+	if (!sHasLatest || !sHasLatestSpatial || (targets != nullptr && !sHasLatestTargets)) {
+		return 0;
+	}
+	*obs = sLatest;
+	*spatial = sLatestSpatial;
+	if (targets != nullptr) {
+		*targets = sLatestTargets;
+	}
+	return 1;
+}
+
+extern "C" int rlStepGetLastSpatial(RLSpatialDiag *out, uint32_t *step_count) {
+	if (out == nullptr || step_count == nullptr) {
+		return 0;
+	}
+	std::lock_guard<std::mutex> lock(sMutex);
+	if (!sHasSpatialLast) {
+		return 0;
+	}
+	*out = sSpatialLast;
+	*step_count = sSpatialLastStep;
+	return 1;
+}
+
 /* -- Decomp-facing (game coroutine) ---------------------------------------- */
 
 extern "C" int rlStepControllerRead(uint32_t tick, uint16_t *buttons, int8_t *stick_x, int8_t *stick_y) {
@@ -435,6 +483,11 @@ extern "C" void rlStepOnObservation(const RLObservation *obs) {
 }
 
 extern "C" void rlStepOnObservationTargets(const RLObservation *obs, const RLTargetDiag *targets) {
+	rlStepOnObservationDiag(obs, targets, nullptr);
+}
+
+extern "C" void rlStepOnObservationDiag(const RLObservation *obs, const RLTargetDiag *targets,
+                                        const RLSpatialDiag *spatial) {
 	if (!sRegistered.load() || obs == nullptr) {
 		return;
 	}
@@ -447,6 +500,13 @@ extern "C" void rlStepOnObservationTargets(const RLObservation *obs, const RLTar
 		sHasLatestTargets = true;
 	} else {
 		sHasLatestTargets = false; /* never pair a newer observation with an older snapshot */
+	}
+	if (spatial != nullptr) {
+		/* M7g: same rule. */
+		sLatestSpatial = *spatial;
+		sHasLatestSpatial = true;
+	} else {
+		sHasLatestSpatial = false;
 	}
 
 	switch (sState) {
@@ -473,6 +533,10 @@ extern "C" void rlStepOnObservationTargets(const RLObservation *obs, const RLTar
 		sHasResultTargets = (targets != nullptr);
 		if (targets != nullptr) {
 			sResultTargets = *targets; /* M7f: paired exactly like the observation */
+		}
+		sHasResultSpatial = (spatial != nullptr);
+		if (spatial != nullptr) {
+			sResultSpatial = *spatial; /* M7g: likewise */
 		}
 		sState = RL_STEP_OBSERVATION_READY;
 		if (sTimingEnabled) {

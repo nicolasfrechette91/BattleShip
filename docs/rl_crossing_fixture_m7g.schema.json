@@ -1,0 +1,419 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "btt_crossing_fixture_v1",
+ "title": "BattleShip M7g Track 1 wall-crossing fixture (validation evidence only)",
+ "description": "A canonical Track 1 (btt_s9_b8_v1) action sequence that, replayed from native tick 0 in a fresh BattleShip process, enters the native region left of the tall wall. Written only by rl/m7g_crossing.py build after the full verification matrix passed; checked by rl/m7g_fixture.validate_fixture_document. Never a PPO demonstration, behaviour-cloning data, curriculum start or prefix, reward shaping, route label or archive seed. See docs/rl_crossing_fixtures_m7g.md.",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "contract",
+  "fixture_id",
+  "crossing",
+  "source",
+  "task",
+  "action_contract",
+  "start",
+  "sequence",
+  "provenance",
+  "geometry",
+  "evidence",
+  "route",
+  "verification",
+  "usage_restrictions"
+ ],
+ "properties": {
+  "contract": {
+   "const": "btt_crossing_fixture_v1"
+  },
+  "fixture_id": {
+   "type": "string",
+   "pattern": "^(lower_precision|upper_moving_platform)_[0-9a-f]{12}$",
+   "description": "<crossing>_<first 12 hex of sequence.native_action_digest>"
+  },
+  "crossing": {
+   "enum": [
+    "lower_precision",
+    "upper_moving_platform"
+   ]
+  },
+  "source": {
+   "type": "object",
+   "required": [
+    "kind"
+   ],
+   "properties": {
+    "kind": {
+     "enum": [
+      "user_recorded",
+      "imported",
+      "independently_searched"
+     ]
+    },
+    "tool": {
+     "type": "string"
+    },
+    "input": {
+     "type": "string",
+     "description": "keyboard / xinput / imported file kind"
+    },
+    "keymap": {
+     "type": "object"
+    },
+    "resumed_from": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "draft": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "task": {
+   "type": "object",
+   "required": [
+    "character",
+    "stage",
+    "game_version"
+   ],
+   "properties": {
+    "character": {
+     "const": "mario"
+    },
+    "stage": {
+     "const": "break_the_targets_mario"
+    },
+    "game_version": {
+     "const": "us"
+    }
+   }
+  },
+  "action_contract": {
+   "const": "btt_s9_b8_v1"
+  },
+  "start": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "tick",
+    "reset",
+    "hidden_prefix"
+   ],
+   "properties": {
+    "tick": {
+     "const": 0
+    },
+    "reset": {
+     "const": "fresh_process"
+    },
+    "hidden_prefix": {
+     "const": false
+    }
+   }
+  },
+  "sequence": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "length",
+    "track1",
+    "native",
+    "track1_digest",
+    "native_action_digest"
+   ],
+   "properties": {
+    "length": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "track1": {
+     "type": "array",
+     "description": "[stick 0-8, button 0-7] per native tick, first consumes tick 0",
+     "items": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 8
+       },
+       {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 7
+       }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+     }
+    },
+    "native": {
+     "type": "array",
+     "description": "[buttons, stick_x, stick_y]: the exact btt_s9_b8_v1 table image of track1",
+     "items": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "integer"
+       },
+       {
+        "enum": [
+         -80,
+         0,
+         80
+        ]
+       },
+       {
+        "enum": [
+         -80,
+         0,
+         80
+        ]
+       }
+      ],
+      "minItems": 3,
+      "maxItems": 3
+     }
+    },
+    "track1_digest": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{64}$",
+     "description": "sha256 over ASCII 'stick,button\\n' lines"
+    },
+    "native_action_digest": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{64}$",
+     "description": "sha256 over ASCII 'buttons,stick_x,stick_y,consumed_tick\\n' lines, consumed_tick = 0..length-1 (the M7 tracker formula)"
+    }
+   }
+  },
+  "provenance": {
+   "type": "object",
+   "required": [
+    "executable_sha256",
+    "revisions",
+    "verified_utc",
+    "user_config"
+   ],
+   "properties": {
+    "executable_sha256": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{64}$"
+    },
+    "revisions": {
+     "type": "object",
+     "description": "parent HEAD, dirty flag and each submodule commit"
+    },
+    "verified_utc": {
+     "type": "string"
+    },
+    "verification_dir": {
+     "type": "string"
+    },
+    "user_config": {
+     "type": "object",
+     "required": [
+      "sha256",
+      "effective_gameplay_cvars"
+     ],
+     "properties": {
+      "sha256": {
+       "type": "string",
+       "pattern": "^[0-9a-f]{64}$"
+      },
+      "effective_gameplay_cvars": {
+       "type": "object",
+       "description": "gEnhancements.TapJumpDisabled.P1, CasualRules.AutoZCancel, StageHazardsDisabled as the replays ran (absent = port default 0)"
+      }
+     }
+    },
+    "capture": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "description": "the live capture's trajectory digest, host mode, pacing, start time and gameplay settings"
+    }
+   }
+  },
+  "geometry": {
+   "type": "object",
+   "description": "btt_stage_geometry_mario_v1: decoded collision lines + derived regions (left boundary, wall face, wall top, ledge, moving platform span)"
+  },
+  "evidence": {
+   "type": "object",
+   "description": "btt_crossing_evidence_v1 from the reference replay (no-render + Raphnet bypass, target diagnostic on)",
+   "required": [
+    "schema",
+    "geometry_source_sha256",
+    "first_left_entry",
+    "min_x",
+    "max_y",
+    "wall_top",
+    "moving_platform",
+    "approach_surface",
+    "last_grounded_before_entry",
+    "crossing_path",
+    "surface_runs",
+    "trajectory",
+    "targets",
+    "terminal",
+    "crossed",
+    "ground_unmatched_steps"
+   ],
+   "properties": {
+    "schema": {
+     "const": "btt_crossing_evidence_v1"
+    },
+    "crossed": {
+     "const": true
+    },
+    "first_left_entry": {
+     "type": "object",
+     "required": [
+      "consumed_tick",
+      "input_tick",
+      "x",
+      "y"
+     ]
+    },
+    "geometry_source_sha256": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{64}$"
+    },
+    "terminal": {
+     "type": "object",
+     "required": [
+      "kind",
+      "submitted"
+     ],
+     "description": "submitted must equal sequence.length: no action after the terminal step"
+    },
+    "trajectory": {
+     "type": "object",
+     "required": [
+      "fields",
+      "rows"
+     ],
+     "description": "one row per consumed tick: consumed_tick, position_x, position_y, ground_air_state, fighter_status_id, ground_surface",
+     "properties": {
+      "rows": {
+       "type": "array",
+       "items": {
+        "type": "array",
+        "minItems": 6,
+        "maxItems": 6
+       }
+      }
+     }
+    },
+    "surface_runs": {
+     "type": "array",
+     "description": "every grounded stretch in order (surface, first/last step and tick)"
+    }
+   }
+  },
+  "verification": {
+   "type": "object",
+   "required": [
+    "count",
+    "all_identical",
+    "runs",
+    "checks"
+   ],
+   "properties": {
+    "count": {
+     "type": "integer",
+     "minimum": 8
+    },
+    "all_identical": {
+     "const": true
+    },
+    "runs": {
+     "type": "object"
+    },
+    "checks": {
+     "type": "object"
+    }
+   }
+  },
+  "usage_restrictions": {
+   "const": "validation evidence only: never a PPO demonstration, behaviour-cloning data, curriculum start or prefix, reward shaping, route label or training-archive seed"
+  },
+  "route": {
+   "type": "object",
+   "description": "The declared crossing (the user's claim, never relabelled) next to the btt_route_rule_v1 classifier's proposal. Recomputed from the evidence by the validator. A disagreement never removes a genuine crossing: it is recorded with review_required.",
+   "required": [
+    "declared",
+    "classifier",
+    "agreement",
+    "review_required",
+    "notes",
+    "takeoff",
+    "marked_lower_corner"
+   ],
+   "properties": {
+    "declared": {
+     "enum": [
+      "lower_precision",
+      "upper_moving_platform"
+     ]
+    },
+    "classifier": {
+     "type": "object",
+     "required": [
+      "rule",
+      "identity",
+      "reason"
+     ],
+     "properties": {
+      "rule": {
+       "const": "btt_route_rule_v1"
+      },
+      "identity": {
+       "enum": [
+        "lower_precision",
+        "upper_moving_platform",
+        "unclassified",
+        null
+       ]
+      }
+     }
+    },
+    "agreement": {
+     "enum": [
+      "confirmed",
+      "mismatch",
+      "unclassified"
+     ]
+    },
+    "review_required": {
+     "type": "boolean"
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "takeoff": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "description": "native takeoff of the crossing: surface, consumed tick, x, y, offset from the user-marked lower corner"
+    },
+    "marked_lower_corner": {
+     "type": "array"
+    }
+   }
+  }
+ }
+}

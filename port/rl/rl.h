@@ -675,12 +675,178 @@ int rlStepGetLastTargets(RLTargetDiag *out, uint32_t *step_count);
  * when both exist (diagnostic enabled), 0 otherwise (outputs untouched). */
 int rlStepGetLatestObservationTargets(RLObservation *obs, RLTargetDiag *targets);
 
+/* -- M7g: opt-in structured-spatial diagnostic (btt_spatial_v1) ------------ */
+
+/*
+ *   SSB64_RL_SPATIAL=1        report the stage's spatial state: a top-level
+ *                             "spatial" object in the observe and step
+ *                             responses (paired with the reply's observation
+ *                             exactly like the M7f "targets" object) and
+ *                             "spatial_diag": true in status. Requires
+ *                             SSB64_RL_BTT=1 and effective interactive
+ *                             stepping; otherwise it is ignored with a log
+ *                             line (it has no result-JSON output). Unset:
+ *                             every reply, log line and result file is
+ *                             byte-identical to a build without it.
+ *
+ * CONTENTS, all read from the running game after the update that produced the
+ * paired observation:
+ *   - the collision line table (observe responses only; it never changes after
+ *     the stage's collision init): per line its type, yakumono group, the
+ *     vertex_flags of its first vertex (the flags the game applies to the whole
+ *     line) and its vertices exactly as stored, i.e. local to the group;
+ *   - per yakumono group: DObj status, whether the game adds the group's
+ *     translate to its vertices (the rule of mpCollisionGetVertexPositionID),
+ *     the translate and gMPCollisionSpeeds (the translate change made by the
+ *     last update). Group 2 is Mario's moving platform;
+ *   - Mario's collision contact state from MPCollData;
+ *   - the live position (root DObj translate) of every unbroken target under
+ *     the M7f stable ID.
+ * The target positions reuse the M7f spawn/break table, which therefore
+ * records while either diagnostic is on (rlTargetTableIsEnabled); the M7f
+ * outputs themselves stay gated on SSB64_RL_TARGET_DIAG alone.
+ *
+ * Strictly read-only towards the game: the fill reads the collision arrays and
+ * object links directly, calls no collision getter (several spin forever on a
+ * bad line id), advances no animation and writes only *out. Nothing here is
+ * part of RLObservation (schema 1), the step result, policy observation v1 or
+ * any reward. See docs/rl_observation_v2_m7g.md.
+ */
+#define RL_SPATIAL_SCHEMA 1u
+
+#define RL_SPATIAL_MAX_GROUPS 4u        /* Mario's stage has 3 (root, static, moving platform) */
+#define RL_SPATIAL_MAX_LINES 32u        /* Mario's stage has 20 */
+#define RL_SPATIAL_MAX_LINE_VERTICES 4u /* Mario's stage has at most 4 (lines 14 and 16) */
+
+/* Native constants restated for consumers; sc1pbonusstage.c cross-checks them at compile time. */
+#define RL_SPATIAL_LINE_FLOOR 0u /* nMPLineKindFloor: solid below */
+#define RL_SPATIAL_LINE_CEIL 1u  /* nMPLineKindCeil: solid above */
+#define RL_SPATIAL_LINE_RWALL 2u /* nMPLineKindRWall: faces +x, solid on the -x side */
+#define RL_SPATIAL_LINE_LWALL 3u /* nMPLineKindLWall: faces -x, solid on the +x side */
+#define RL_SPATIAL_VERTEX_PASS 0x4000u  /* MAP_VERTEX_COLL_PASS: one-way, can be passed through */
+#define RL_SPATIAL_VERTEX_CLIFF 0x8000u /* MAP_VERTEX_COLL_CLIFF: ledge can be grabbed */
+#define RL_SPATIAL_CONTACT_LWALL 0x0001u /* MAP_FLAG_LWALL */
+#define RL_SPATIAL_CONTACT_RWALL 0x0020u /* MAP_FLAG_RWALL */
+#define RL_SPATIAL_CONTACT_CEIL 0x0400u  /* MAP_FLAG_CEIL */
+#define RL_SPATIAL_CONTACT_FLOOR 0x0800u /* MAP_FLAG_FLOOR */
+#define RL_SPATIAL_GROUP_STATUS_NONE 0u  /* nMPYakumonoStatusNone */
+#define RL_SPATIAL_GROUP_STATUS_OFF 3u   /* nMPYakumonoStatusOff: this and above = no collision */
+
+/* RLSpatialDiag.anomaly_flags. None occurs on Mario's stage; each means the
+ * snapshot is incomplete or disagrees with the game and must be investigated. */
+#define RL_SPATIAL_ANOMALY_GROUP_OVERFLOW (1u << 0)  /* more yakumono groups than RL_SPATIAL_MAX_GROUPS */
+#define RL_SPATIAL_ANOMALY_LINE_OVERFLOW (1u << 1)   /* more lines than RL_SPATIAL_MAX_LINES */
+#define RL_SPATIAL_ANOMALY_VERTEX_OVERFLOW (1u << 2) /* a line with more than RL_SPATIAL_MAX_LINE_VERTICES vertices */
+#define RL_SPATIAL_ANOMALY_BAD_GROUP (1u << 3)       /* a line names a group outside the group table, or a NULL DObj */
+#define RL_SPATIAL_ANOMALY_TARGET_MISMATCH (1u << 4) /* live target items disagree with the M7f ID table */
+
+typedef struct RLSpatialGroup
+{
+	uint32_t present;    /* 1 = the group's DObj exists (all other fields 0 otherwise) */
+	uint32_t status;     /* MPYakumonoStatus of the DObj (user_data.s), widened */
+	uint32_t translated; /* 1 = the game adds translate to this group's vertices */
+	float translate_x;   /* group DObj translate */
+	float translate_y;
+	float speed_x;       /* gMPCollisionSpeeds[group]: translate change made by the last update */
+	float speed_y;
+
+} RLSpatialGroup;
+
+typedef struct RLSpatialLine
+{
+	uint32_t line_type;    /* RL_SPATIAL_LINE_* */
+	uint32_t group;        /* yakumono group id */
+	uint32_t flags;        /* vertex_flags of the first vertex: collision bits (high byte) | material (low byte) */
+	uint32_t vertex_total; /* the game's vertex count for the line */
+	uint32_t vertex_count; /* vertices stored below (min(vertex_total, RL_SPATIAL_MAX_LINE_VERTICES)) */
+	float x[RL_SPATIAL_MAX_LINE_VERTICES]; /* stored vertex position, local to the group */
+	float y[RL_SPATIAL_MAX_LINE_VERTICES];
+
+} RLSpatialLine;
+
+typedef struct RLSpatialFighter
+{
+	uint32_t valid;         /* 1 = the fields below are real (same guards as rlGameFillObservation) */
+	int32_t floor_line_id;  /* MPCollData ids; -1 = none. Floor: the line stood on, or in the air the floor */
+	int32_t ceil_line_id;   /* projected below Mario. Ceiling / walls: last contact, stale unless the */
+	int32_t lwall_line_id;  /* matching contact bit is set in mask_curr */
+	int32_t rwall_line_id;
+	uint32_t mask_curr;     /* RL_SPATIAL_CONTACT_* (MAP_FLAG_*) set by this update's collision pass */
+	float floor_dist;       /* MPCollData::floor_dist */
+	float carry_x;          /* MPCollData::vel_speed: moving-floor carry applied this update */
+	float carry_y;
+	float coll_top;         /* collision diamond (MPCollData::map_coll), relative to TopN */
+	float coll_center;
+	float coll_bottom;
+	float coll_width;
+
+} RLSpatialFighter;
+
+typedef struct RLSpatialDiag
+{
+	uint32_t spatial_schema; /* RL_SPATIAL_SCHEMA */
+	uint32_t input_tick;     /* port stamp at the capture; equals the paired observation's input_tick */
+
+	uint32_t scene_active;  /* 1 = BTT scene current and battle state present (the btt_active guard) */
+	uint32_t live;          /* 1 = scene active, object links populated and collision arrays present: every
+	                         * field below is a real read. 0 on the teardown update of a fall or clear
+	                         * (gcEjectAll has emptied the links), with everything below zero */
+	uint32_t update_tic;    /* gMPCollisionUpdateTic, widened (advances once per update of the stage animation) */
+	uint32_t anomaly_flags; /* RL_SPATIAL_ANOMALY_* */
+
+	int32_t map_bound_top; /* MPGroundData blast-zone bounds */
+	int32_t map_bound_bottom;
+	int32_t map_bound_right;
+	int32_t map_bound_left;
+	int32_t camera_bound_top; /* MPGroundData camera clamp bounds */
+	int32_t camera_bound_bottom;
+	int32_t camera_bound_right;
+	int32_t camera_bound_left;
+
+	uint32_t group_count; /* groups stored (anomaly bit 0 when the game has more) */
+	RLSpatialGroup groups[RL_SPATIAL_MAX_GROUPS];
+
+	uint32_t line_count; /* lines stored (anomaly bit 1 when the game has more) */
+	RLSpatialLine lines[RL_SPATIAL_MAX_LINES];
+
+	RLSpatialFighter fighter;
+
+	uint32_t target_live_mask;       /* bit i = target i found on the live item link (unbroken) */
+	float target_x[RL_TARGET_COUNT]; /* live root DObj translate of target i; 0 when bit i is clear */
+	float target_y[RL_TARGET_COUNT];
+
+} RLSpatialDiag;
+
+/* 1 when SSB64_RL_SPATIAL=1 was kept (SSB64_RL_BTT=1 and effective stepping). */
+int rlSpatialIsEnabled(void);
+
+/* 1 when the M7f spawn/break table must record: target diagnostic or spatial
+ * diagnostic on. Read by the decomp hooks. */
+int rlTargetTableIsEnabled(void);
+
+/* Fill *out from the running game (sc1pbonusstage.c, PORT only). Read-only
+ * towards the game; never writes the port-owned stamp (input_tick). Handles
+ * out == NULL; the caller zero-initialises *out. */
+void rlGameFillSpatial(RLSpatialDiag *out);
+
+/* Copy the spatial snapshot paired with the most recently collected step into
+ * *out. Same contract as rlStepGetLastTargets. */
+int rlStepGetLastSpatial(RLSpatialDiag *out, uint32_t *step_count);
+
+/* rlStepGetLatestObservation plus the snapshots captured at the same
+ * post-update, under one lock. targets may be NULL (not requested); spatial
+ * must not be. Returns 1 when the observation and every requested snapshot
+ * exist, 0 otherwise (outputs untouched). */
+int rlStepGetLatestObservationSpatial(RLObservation *obs, RLTargetDiag *targets, RLSpatialDiag *spatial);
+
 /* -- Internal seams inside port/rl ----------------------------------------- */
 
 void rlStepRegister(void);                             /* from rlRuntimeRegister() */
 void rlStepOnObservation(const RLObservation *obs);    /* from the M1b capture, main thread */
 /* M7f: same, with the target snapshot of the same capture (NULL when the diagnostic is off). */
 void rlStepOnObservationTargets(const RLObservation *obs, const RLTargetDiag *targets);
+/* M7g: same, plus the spatial snapshot of the same capture (each NULL when its diagnostic is off). */
+void rlStepOnObservationDiag(const RLObservation *obs, const RLTargetDiag *targets, const RLSpatialDiag *spatial);
 int rlStepExitOnEnd(void);                             /* SSB64_RL_EXIT_ON_END deferred to M1c */
 
 #ifdef __cplusplus

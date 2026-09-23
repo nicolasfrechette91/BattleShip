@@ -30,6 +30,7 @@ struct RLConfig {
 	bool noRender = false;      /* M6 training no-render mode (SSB64_RL_NO_RENDER=1), host-side only */
 	bool raphnetDisable = false; /* M6 follow-up: SSB64_RAPHNET_DISABLE=1 effective (native adapter bypassed) */
 	bool targetDiag = false;     /* M7f target-identity diagnostic (SSB64_RL_TARGET_DIAG=1), read-only */
+	bool spatial = false;        /* M7g structured-spatial diagnostic (SSB64_RL_SPATIAL=1), read-only */
 	std::string resultPath;
 };
 
@@ -123,6 +124,11 @@ extern "C" void rlConfigInit(void) {
 	 * breaks when. Unlike the host-side flags above it does not need stepping:
 	 * the native replay reports it through the clear's result JSON. */
 	sConfig.targetDiag = envIsOne("SSB64_RL_TARGET_DIAG");
+	/* M7g structured-spatial diagnostic: read-only, reported only in observe
+	 * and step replies, so it is meaningless (and ignored) without effective
+	 * interactive stepping, like the M4 timing stamps. */
+	const bool spatialEnv = envIsOne("SSB64_RL_SPATIAL");
+	sConfig.spatial = spatialEnv && sConfig.step;
 	if (const char *resultPath = std::getenv("SSB64_RL_RESULT_PATH")) {
 		sConfig.resultPath = resultPath;
 	}
@@ -180,10 +186,24 @@ extern "C" void rlConfigInit(void) {
 		port_log("SSB64 RL Targets: target-identity diagnostic enabled schema=%u (read-only; no behaviour change)\n",
 		         (unsigned)RL_TARGET_DIAG_SCHEMA);
 	}
+	if (spatialEnv && !sConfig.step) {
+		port_log("SSB64 RL Spatial: SSB64_RL_SPATIAL=1 ignored: interactive stepping is not effective\n");
+	} else if (sConfig.spatial) {
+		port_log("SSB64 RL Spatial: structured-spatial diagnostic enabled schema=%u (read-only; no behaviour change)\n",
+		         (unsigned)RL_SPATIAL_SCHEMA);
+	}
 }
 
 extern "C" int rlTargetDiagIsEnabled(void) {
 	return sConfig.targetDiag ? 1 : 0;
+}
+
+extern "C" int rlSpatialIsEnabled(void) {
+	return sConfig.spatial ? 1 : 0;
+}
+
+extern "C" int rlTargetTableIsEnabled(void) {
+	return (sConfig.targetDiag || sConfig.spatial) ? 1 : 0;
 }
 
 extern "C" int rlNoRenderIsEnabled(void) {

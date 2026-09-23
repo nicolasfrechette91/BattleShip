@@ -1,0 +1,810 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "btt_policy_obs_v2_spatial and btt_spatial_v1 (M7g-b)",
+ "description": "Machine-readable contract of the M7g-b policy observation v2 (block 'contract', generated from rl/m7g_obs.py contract_description(); 'contract_sha256' is its canonical digest) and the JSON Schema of the native btt_spatial_v1 reply object (SSB64_RL_SPATIAL=1). Human-readable: docs/rl_observation_v2_m7g.md.",
+ "contract": {
+  "contract": "btt_policy_obs_v2_spatial",
+  "schema_version": 1,
+  "space": "gymnasium.spaces.Dict",
+  "key_order": [
+   "segment_geometry",
+   "segment_kind",
+   "state",
+   "target_geometry",
+   "target_live"
+  ],
+  "keys": {
+   "segment_geometry": {
+    "shape": [
+     32,
+     8
+    ],
+    "dtype": "float32",
+    "bounds": [
+     "-inf",
+     "inf"
+    ],
+    "fields": [
+     "a_dx",
+     "a_dy",
+     "b_dx",
+     "b_dy",
+     "near_dx",
+     "near_dy",
+     "vel_x",
+     "vel_y"
+    ],
+    "units": "native world units (TopN-relative); velocity in world units per tick",
+    "normalized": true
+   },
+   "segment_kind": {
+    "shape": [
+     32,
+     7
+    ],
+    "dtype": "float32",
+    "bounds": [
+     0.0,
+     1.0
+    ],
+    "fields": [
+     "present",
+     "floor",
+     "ceiling",
+     "wall_facing_pos_x",
+     "wall_facing_neg_x",
+     "one_way",
+     "moving"
+    ],
+    "values": "binary 0/1",
+    "normalized": false
+   },
+   "state": {
+    "shape": [
+     15
+    ],
+    "dtype": "float32",
+    "bounds": [
+     "-inf",
+     "inf"
+    ],
+    "fields": [
+     "input_tick",
+     "time_passed",
+     "game_status",
+     "btt_active",
+     "targets_remaining",
+     "fighter_valid",
+     "position_x",
+     "position_y",
+     "air_velocity_x",
+     "air_velocity_y",
+     "ground_velocity_x",
+     "facing_direction",
+     "ground_air_state",
+     "fighter_status_id",
+     "jumps_used"
+    ],
+    "contract": "btt_policy_obs_v1",
+    "byte_identical_to_v1": true,
+    "normalized": true
+   },
+   "target_geometry": {
+    "shape": [
+     10,
+     2
+    ],
+    "dtype": "float32",
+    "bounds": [
+     "-inf",
+     "inf"
+    ],
+    "fields": [
+     "dx",
+     "dy"
+    ],
+    "units": "native world units (TopN-relative)",
+    "rows": "M7f stable target IDs 0..9",
+    "normalized": true
+   },
+   "target_live": {
+    "shape": [
+     10
+    ],
+    "dtype": "float32",
+    "bounds": [
+     0.0,
+     1.0
+    ],
+    "values": "binary 0/1",
+    "rows": "M7f stable target IDs 0..9",
+    "normalized": false
+   }
+  },
+  "flat_size": 525,
+  "segments": {
+   "slots": 32,
+   "order": "native collision line id, then vertex-pair index",
+   "count_on_stage": 24,
+   "padding": "slots >= count: every geometry and kind value 0",
+   "mario_reference": "TopN (position_x, position_y) of the paired v1 observation",
+   "world_vertex_rule": "float32 stored vertex + float32 group translate when the group is translated (mpCollisionGetVertexPositionID)",
+   "relative_geometry": "float64 then one cast to float32: a - p, b - p, (a - p) + clamp(((p - a) . (b - a)) / |b - a|^2, 0, 1) * (b - a), with p the Mario reference"
+  },
+  "inactive_encoding": {
+   "broken_target": "target_geometry row 0, target_live 0",
+   "teardown_reply": "native live = 0 (only the terminal reply of a fall): the last live platform / target state is held and info['spatial_stale'] is true"
+  },
+  "normalization": {
+   "vecnormalize_norm_obs_keys": [
+    "segment_geometry",
+    "state",
+    "target_geometry"
+   ],
+   "unnormalized_binary_keys": [
+    "segment_kind",
+    "target_live"
+   ],
+   "clip_obs": 10.0,
+   "reward_normalization": false
+  },
+  "world": {
+   "coordinates": "native world units, x right, y up",
+   "map_bounds_blast_zone": [
+    9600,
+    -9600,
+    9600,
+    -9600
+   ],
+   "camera_bounds": [
+    5000,
+    -5000,
+    5000,
+    -5000
+   ],
+   "static_extent": {
+    "x": [
+     -3900,
+     3300
+    ],
+    "y": [
+     -4050,
+     3000
+    ]
+   },
+   "platform_surface_y": [
+    1800,
+    3600
+   ],
+   "normalization": "no fixed scaling; VecNormalize running statistics on the continuous keys"
+  },
+  "native_source": {
+   "diagnostic": "btt_spatial_v1",
+   "env": "SSB64_RL_SPATIAL=1",
+   "status_key": "spatial_diag"
+  },
+  "information_class": "structured global state (more than one camera frame shows)",
+  "excluded": [
+   "optimal path",
+   "preferred crossing",
+   "target order",
+   "TAS action",
+   "'go left' indicator",
+   "gateway / region labels",
+   "distance along a handcrafted route",
+   "future platform positions",
+   "future game state",
+   "reward shaping"
+  ],
+  "compatibility": "fresh models only; never load a btt_policy_obs_v1 checkpoint; v1 stays available and byte-identical"
+ },
+ "contract_sha256": "dcfd14b276c3d9f38f180888c132febb67ace39797bdef2aefb185e024c8c0cb",
+ "network": {
+  "network_id": "btt_policy_net_v2_multiinput_mlp64",
+  "policy": "MultiInputPolicy",
+  "net_arch": [
+   64,
+   64
+  ],
+  "activation": "tanh",
+  "features_extractor": "CombinedExtractor (flatten per key, KEY_ORDER)",
+  "features_dim": 525,
+  "parameters": 76818,
+  "vecnormalize": {
+   "norm_obs": true,
+   "norm_obs_keys": [
+    "segment_geometry",
+    "state",
+    "target_geometry"
+   ],
+   "norm_reward": false,
+   "clip_obs": 10.0
+  }
+ },
+ "native_spatial_object": {
+  "type": "object",
+  "required": [
+   "contract",
+   "spatial_schema",
+   "input_tick",
+   "scene_active",
+   "live",
+   "update_tic",
+   "anomaly_flags",
+   "map_bounds",
+   "camera_bounds",
+   "groups",
+   "fighter",
+   "target_live_mask",
+   "target_positions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "const": "btt_spatial_v1"
+   },
+   "spatial_schema": {
+    "const": 1
+   },
+   "input_tick": {
+    "type": "integer",
+    "minimum": 0
+   },
+   "scene_active": {
+    "enum": [
+     0,
+     1
+    ]
+   },
+   "live": {
+    "enum": [
+     0,
+     1
+    ]
+   },
+   "update_tic": {
+    "type": "integer",
+    "minimum": 0
+   },
+   "anomaly_flags": {
+    "type": "integer",
+    "minimum": 0
+   },
+   "map_bounds": {
+    "type": "array",
+    "items": {
+     "type": "integer"
+    },
+    "minItems": 4,
+    "maxItems": 4
+   },
+   "camera_bounds": {
+    "type": "array",
+    "items": {
+     "type": "integer"
+    },
+    "minItems": 4,
+    "maxItems": 4
+   },
+   "groups": {
+    "type": "array",
+    "maxItems": 4,
+    "items": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "id",
+      "present",
+      "status",
+      "translated",
+      "translate",
+      "speed"
+     ],
+     "properties": {
+      "id": {
+       "type": "integer"
+      },
+      "present": {
+       "enum": [
+        0,
+        1
+       ]
+      },
+      "status": {
+       "type": "integer"
+      },
+      "translated": {
+       "enum": [
+        0,
+        1
+       ]
+      },
+      "translate": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       },
+       "minItems": 2,
+       "maxItems": 2
+      },
+      "speed": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       },
+       "minItems": 2,
+       "maxItems": 2
+      }
+     }
+    }
+   },
+   "fighter": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "valid",
+     "floor_line_id",
+     "ceil_line_id",
+     "lwall_line_id",
+     "rwall_line_id",
+     "mask_curr",
+     "floor_dist",
+     "carry",
+     "coll"
+    ],
+    "properties": {
+     "valid": {
+      "enum": [
+       0,
+       1
+      ]
+     },
+     "floor_line_id": {
+      "type": "integer"
+     },
+     "ceil_line_id": {
+      "type": "integer"
+     },
+     "lwall_line_id": {
+      "type": "integer"
+     },
+     "rwall_line_id": {
+      "type": "integer"
+     },
+     "mask_curr": {
+      "type": "integer"
+     },
+     "floor_dist": {
+      "type": "number"
+     },
+     "carry": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "coll": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4
+     }
+    }
+   },
+   "target_live_mask": {
+    "type": "integer",
+    "minimum": 0,
+    "maximum": 1023
+   },
+   "target_positions": {
+    "type": "array",
+    "minItems": 10,
+    "maxItems": 10,
+    "items": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 2,
+     "maxItems": 2
+    }
+   },
+   "lines": {
+    "description": "observe replies only",
+    "type": "array",
+    "maxItems": 32,
+    "items": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "id",
+      "type",
+      "group",
+      "flags",
+      "vertex_total",
+      "vertices"
+     ],
+     "properties": {
+      "id": {
+       "type": "integer"
+      },
+      "type": {
+       "enum": [
+        0,
+        1,
+        2,
+        3
+       ]
+      },
+      "group": {
+       "type": "integer"
+      },
+      "flags": {
+       "type": "integer",
+       "minimum": 0,
+       "maximum": 65535
+      },
+      "vertex_total": {
+       "type": "integer"
+      },
+      "vertices": {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 4,
+       "items": {
+        "type": "array",
+        "items": {
+         "type": "number"
+        },
+        "minItems": 2,
+        "maxItems": 2
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "pinned_stage_table": [
+  {
+   "id": 0,
+   "type": 0,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -2100.0,
+     3000.0
+    ],
+    [
+     -1200.0,
+     3000.0
+    ]
+   ]
+  },
+  {
+   "id": 1,
+   "type": 0,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     2100.0,
+     -450.0
+    ],
+    [
+     3300.0,
+     -450.0
+    ]
+   ]
+  },
+  {
+   "id": 2,
+   "type": 0,
+   "group": 1,
+   "flags": 16384,
+   "vertices": [
+    [
+     2100.0,
+     -1500.0
+    ],
+    [
+     1200.0,
+     -1500.0
+    ]
+   ]
+  },
+  {
+   "id": 3,
+   "type": 0,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -3900.0,
+     -1950.0
+    ],
+    [
+     -2700.0,
+     -1950.0
+    ]
+   ]
+  },
+  {
+   "id": 4,
+   "type": 0,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -1800.0,
+     -2550.0
+    ],
+    [
+     2100.0,
+     -2550.0
+    ]
+   ]
+  },
+  {
+   "id": 5,
+   "type": 1,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -3600.0,
+     -4050.0
+    ],
+    [
+     -3900.0,
+     -4050.0
+    ]
+   ]
+  },
+  {
+   "id": 6,
+   "type": 1,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     2400.0,
+     -2850.0
+    ],
+    [
+     -2100.0,
+     -2850.0
+    ]
+   ]
+  },
+  {
+   "id": 7,
+   "type": 1,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -3000.0,
+     -2250.0
+    ],
+    [
+     -3900.0,
+     -2250.0
+    ]
+   ]
+  },
+  {
+   "id": 8,
+   "type": 1,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     3300.0,
+     -750.0
+    ],
+    [
+     2400.0,
+     -750.0
+    ]
+   ]
+  },
+  {
+   "id": 9,
+   "type": 1,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -1200.0,
+     2700.0
+    ],
+    [
+     -1800.0,
+     2700.0
+    ]
+   ]
+  },
+  {
+   "id": 10,
+   "type": 2,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     3300.0,
+     -450.0
+    ],
+    [
+     3300.0,
+     -750.0
+    ]
+   ]
+  },
+  {
+   "id": 11,
+   "type": 2,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     2400.0,
+     -750.0
+    ],
+    [
+     2400.0,
+     -2850.0
+    ]
+   ]
+  },
+  {
+   "id": 12,
+   "type": 2,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -1200.0,
+     3000.0
+    ],
+    [
+     -1200.0,
+     2700.0
+    ]
+   ]
+  },
+  {
+   "id": 13,
+   "type": 2,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -1800.0,
+     2700.0
+    ],
+    [
+     -1800.0,
+     -2550.0
+    ]
+   ]
+  },
+  {
+   "id": 14,
+   "type": 2,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -2700.0,
+     -1950.0
+    ],
+    [
+     -2700.0,
+     -2850.0
+    ],
+    [
+     -3600.0,
+     -3750.0
+    ],
+    [
+     -3600.0,
+     -4050.0
+    ]
+   ]
+  },
+  {
+   "id": 15,
+   "type": 3,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -3900.0,
+     -2250.0
+    ],
+    [
+     -3900.0,
+     -1950.0
+    ]
+   ]
+  },
+  {
+   "id": 16,
+   "type": 3,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -3900.0,
+     -4050.0
+    ],
+    [
+     -3900.0,
+     -3750.0
+    ],
+    [
+     -3000.0,
+     -2850.0
+    ],
+    [
+     -3000.0,
+     -2250.0
+    ]
+   ]
+  },
+  {
+   "id": 17,
+   "type": 3,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     -2100.0,
+     -2850.0
+    ],
+    [
+     -2100.0,
+     3000.0
+    ]
+   ]
+  },
+  {
+   "id": 18,
+   "type": 3,
+   "group": 1,
+   "flags": 0,
+   "vertices": [
+    [
+     2100.0,
+     -2550.0
+    ],
+    [
+     2100.0,
+     -450.0
+    ]
+   ]
+  },
+  {
+   "id": 19,
+   "type": 0,
+   "group": 2,
+   "flags": 16384,
+   "vertices": [
+    [
+     600.0,
+     300.0
+    ],
+    [
+     -600.0,
+     300.0
+    ]
+   ]
+  }
+ ]
+}

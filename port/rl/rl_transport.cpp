@@ -127,6 +127,7 @@
  */
 #include "rl/rl.h"
 #include "rl/rl_targets.h"
+#include "rl/rl_spatial.h"
 
 #include "port_log.h"
 
@@ -191,6 +192,10 @@ uint64_t sRequestReceivedNs = 0;
 /* M7f target-identity diagnostic (SSB64_RL_TARGET_DIAG=1). Written once by
  * rlTransportStart() before the worker exists. */
 bool sTargetDiagEnabled = false;
+
+/* M7g structured-spatial diagnostic (SSB64_RL_SPATIAL=1). Written once by
+ * rlTransportStart() before the worker exists. */
+bool sSpatialEnabled = false;
 
 uint64_t nowNs() {
 	return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -423,6 +428,10 @@ json handleStatus(const json &op) {
 	if (sTargetDiagEnabled) {
 		r["target_diag"] = true;
 	}
+	/* M7g: likewise, present only when the spatial diagnostic is on. */
+	if (sSpatialEnabled) {
+		r["spatial_diag"] = true;
+	}
 	return r;
 }
 
@@ -437,8 +446,15 @@ json handleObserve(const json &op) {
 	 * snapshot of the same capture under one lock. */
 	RLTargetDiag targets;
 	std::memset(&targets, 0, sizeof(targets));
-	const int have = sTargetDiagEnabled ? rlStepGetLatestObservationTargets(&observation, &targets)
-	                                    : rlStepGetLatestObservation(&observation);
+	/* M7g: with the spatial diagnostic on, the spatial snapshot joins the
+	 * same locked read; otherwise the M7f / M3 reads are unchanged. */
+	RLSpatialDiag spatial;
+	std::memset(&spatial, 0, sizeof(spatial));
+	const int have =
+	    sSpatialEnabled
+	        ? rlStepGetLatestObservationSpatial(&observation, sTargetDiagEnabled ? &targets : nullptr, &spatial)
+	    : sTargetDiagEnabled ? rlStepGetLatestObservationTargets(&observation, &targets)
+	                         : rlStepGetLatestObservation(&observation);
 	const uint32_t state = (uint32_t)rlStepGetState();
 	if (!have) {
 		return protocolError(op, "no_observation",
@@ -453,6 +469,9 @@ json handleObserve(const json &op) {
 	r["observation"] = observationToJson(observation);
 	if (sTargetDiagEnabled) {
 		r["targets"] = rlTargetDiagToJson(targets); /* M7f, additive */
+	}
+	if (sSpatialEnabled) {
+		r["spatial"] = rlSpatialDiagToJson(spatial, true); /* M7g, additive; the line table only here */
 	}
 	return r;
 }
@@ -510,6 +529,16 @@ json handleStep(const json &req, const json &op) {
 		uint32_t targetsStep = 0;
 		if (rlStepGetLastTargets(&targets, &targetsStep) && targetsStep == result.step_count) {
 			r["targets"] = rlTargetDiagToJson(targets);
+		}
+	}
+	if (sSpatialEnabled) {
+		/* M7g: the spatial snapshot captured with this result's observation,
+		 * under the same pairing rule; the static line table is left out. */
+		RLSpatialDiag spatial;
+		std::memset(&spatial, 0, sizeof(spatial));
+		uint32_t spatialStep = 0;
+		if (rlStepGetLastSpatial(&spatial, &spatialStep) && spatialStep == result.step_count) {
+			r["spatial"] = rlSpatialDiagToJson(spatial, false);
 		}
 	}
 	if (sTimingEnabled) {
@@ -729,10 +758,11 @@ extern "C" void rlTransportStart(void) {
 	sStop.store(false);
 	sTimingEnabled = rlTimingIsEnabled() != 0; /* M4 diagnostic, opt-in; read before the worker exists */
 	sTargetDiagEnabled = rlTargetDiagIsEnabled() != 0; /* M7f diagnostic, opt-in; likewise */
+	sSpatialEnabled = rlSpatialIsEnabled() != 0;       /* M7g diagnostic, opt-in; likewise */
 	sStarted.store(true);
-	port_log("SSB64 RL Transport: listening on 127.0.0.1:%d protocol=%u (one client, one request at a time)%s%s\n",
+	port_log("SSB64 RL Transport: listening on 127.0.0.1:%d protocol=%u (one client, one request at a time)%s%s%s\n",
 	         port, (unsigned)RL_PROTOCOL_VERSION, sTimingEnabled ? " timing=1" : "",
-	         sTargetDiagEnabled ? " target_diag=1" : "");
+	         sTargetDiagEnabled ? " target_diag=1" : "", sSpatialEnabled ? " spatial=1" : "");
 	sWorker = std::thread(workerMain);
 }
 

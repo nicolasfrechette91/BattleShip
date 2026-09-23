@@ -82,8 +82,25 @@ void OnGamePostUpdate(IEvent *) {
 	 * filled here, in the same callback as the observation (a second listener
 	 * would have no defined order relative to this one), stamped with the same
 	 * input_tick, and handed over in the same locked call so a reply can never
-	 * pair an observation with a target snapshot of another update. */
-	if (rlTargetDiagIsEnabled()) {
+	 * pair an observation with a target snapshot of another update.
+	 *
+	 * M7g: the structured-spatial snapshot follows the same rule, filled and
+	 * stamped here and handed over in the same locked call. With it off this
+	 * branch is not taken and the M7f / M1b paths below are unchanged. */
+	if (rlSpatialIsEnabled()) {
+		RLTargetDiag targets;
+		std::memset(&targets, 0, sizeof(targets));
+		const bool targetDiag = rlTargetDiagIsEnabled() != 0;
+		if (targetDiag) {
+			rlGameFillTargets(&targets);
+			targets.input_tick = obs.input_tick;
+		}
+		RLSpatialDiag spatial;
+		std::memset(&spatial, 0, sizeof(spatial));
+		rlGameFillSpatial(&spatial);
+		spatial.input_tick = obs.input_tick;
+		rlStepOnObservationDiag(&obs, targetDiag ? &targets : nullptr, &spatial);
+	} else if (rlTargetDiagIsEnabled()) {
 		RLTargetDiag targets;
 		std::memset(&targets, 0, sizeof(targets));
 		rlGameFillTargets(&targets);
