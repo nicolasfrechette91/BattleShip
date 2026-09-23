@@ -1,0 +1,225 @@
+{
+ "schema": "battleship_m7f_target_mapping_v1",
+ "contract": "btt_target_identity_v1",
+ "source": "native: RLTargetDiag records of the post-M7f executable (spawn loop of sc1PBonusStageMakeTargets); identical in every validated process",
+ "executable_sha256": "10e8e15d4abe6060c8ba593d39d10c3b244fe37cce6c072b28e1daa5b7ee154d",
+ "id_rule": "target ID = spawn loop index of sc1PBonusStageMakeTargets = stage-file target DObjDesc index - 1 (entry 0 is the skipped root)",
+ "stage_geometry": {
+  "wall_left_face_x": -2100.0,
+  "wall_right_face_x": -1800.0,
+  "right_block_x": 2100.0,
+  "player_spawn": [
+   0,
+   -2547
+  ],
+  "source": "decomp/src/relocData/124_GRBonus1MarioFile2.c MPVertexData / MPMapObjData"
+ },
+ "region_rules": {
+  "left_of_wall": "spawn x < -2100",
+  "central": "-1800 < spawn x < 2100",
+  "right": "spawn x > 2100 and not animated",
+  "upper_right_moving": "animated == 1"
+ },
+ "targets": [
+  {
+   "id": 0,
+   "animated": 0,
+   "spawn": [
+    -1350.0,
+    -2250.0,
+    0.0
+   ],
+   "region": "central",
+   "tas_break_order": 7,
+   "tas_break_consumed_tick": 358,
+   "tas_break_pos": [
+    -1350.0,
+    -2250.0,
+    0.0
+   ]
+  },
+  {
+   "id": 1,
+   "animated": 0,
+   "spawn": [
+    -3450.0,
+    -2550.0,
+    0.0
+   ],
+   "region": "left_of_wall",
+   "tas_break_order": 10,
+   "tas_break_consumed_tick": 446,
+   "tas_break_pos": [
+    -3450.0,
+    -2550.0,
+    0.0
+   ]
+  },
+  {
+   "id": 2,
+   "animated": 1,
+   "spawn": [
+    2700.0,
+    2100.0,
+    0.0
+   ],
+   "region": "upper_right_moving",
+   "tas_break_order": 4,
+   "tas_break_consumed_tick": 163,
+   "tas_break_pos": [
+    2700.0,
+    3000.0,
+    0.0
+   ]
+  },
+  {
+   "id": 3,
+   "animated": 0,
+   "spawn": [
+    4950.0,
+    -1800.0,
+    0.0
+   ],
+   "region": "right",
+   "tas_break_order": 6,
+   "tas_break_consumed_tick": 316,
+   "tas_break_pos": [
+    4950.0,
+    -1800.0,
+    0.0
+   ]
+  },
+  {
+   "id": 4,
+   "animated": 0,
+   "spawn": [
+    4.999999873689376e-06,
+    -900.0,
+    0.0
+   ],
+   "region": "central",
+   "tas_break_order": 2,
+   "tas_break_consumed_tick": 87,
+   "tas_break_pos": [
+    4.999999873689376e-06,
+    -900.0,
+    0.0
+   ]
+  },
+  {
+   "id": 5,
+   "animated": 0,
+   "spawn": [
+    1.9999999494757503e-05,
+    300.0,
+    0.0
+   ],
+   "region": "central",
+   "tas_break_order": 3,
+   "tas_break_consumed_tick": 142,
+   "tas_break_pos": [
+    1.9999999494757503e-05,
+    300.0,
+    0.0
+   ]
+  },
+  {
+   "id": 6,
+   "animated": 0,
+   "spawn": [
+    -3300.0,
+    3300.0,
+    0.0
+   ],
+   "region": "left_of_wall",
+   "tas_break_order": 8,
+   "tas_break_consumed_tick": 368,
+   "tas_break_pos": [
+    -3300.0,
+    3300.0,
+    0.0
+   ]
+  },
+  {
+   "id": 7,
+   "animated": 0,
+   "spawn": [
+    0.0,
+    1650.0,
+    0.0
+   ],
+   "region": "central",
+   "tas_break_order": 5,
+   "tas_break_consumed_tick": 275,
+   "tas_break_pos": [
+    0.0,
+    1650.0,
+    0.0
+   ]
+  },
+  {
+   "id": 8,
+   "animated": 0,
+   "spawn": [
+    -3300.0,
+    600.0,
+    0.0
+   ],
+   "region": "left_of_wall",
+   "tas_break_order": 9,
+   "tas_break_consumed_tick": 432,
+   "tas_break_pos": [
+    -3300.0,
+    600.0,
+    0.0
+   ]
+  },
+  {
+   "id": 9,
+   "animated": 0,
+   "spawn": [
+    1650.0,
+    -2250.0,
+    0.0
+   ],
+   "region": "central",
+   "tas_break_order": 1,
+   "tas_break_consumed_tick": 51,
+   "tas_break_pos": [
+    1650.0,
+    -2250.0,
+    0.0
+   ]
+  }
+ ],
+ "moving_target_break_positions": [
+  {
+   "trace": "tas_no_render",
+   "consumed_tick": 163,
+   "break_pos": [
+    2700.0,
+    3000.0,
+    0.0
+   ]
+  },
+  {
+   "trace": "tas_no_render_raphnet",
+   "consumed_tick": 163,
+   "break_pos": [
+    2700.0,
+    3000.0,
+    0.0
+   ]
+  },
+  {
+   "trace": "tas_normal",
+   "consumed_tick": 163,
+   "break_pos": [
+    2700.0,
+    3000.0,
+    0.0
+   ]
+  }
+ ],
+ "processes_agreeing": 24
+}

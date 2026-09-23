@@ -16,6 +16,7 @@
  * zero, so the *_final fields equal the completion_* fields.
  */
 #include "rl/rl.h"
+#include "rl/rl_targets.h"
 
 #include "hooks/Events.h"
 #include "port_log.h"
@@ -118,7 +119,21 @@ void writeClearResult(uint32_t timePassed, uint32_t inputCursor) {
 	json << "  \"completion_input_tick\": " << inputCursor << ",\n";
 	json << "  \"time_passed_final\": " << timePassed << ",\n";
 	json << "  \"input_cursor_final\": " << inputCursor << ",\n";
-	json << "  \"host_frames\": " << sHostFrames << "\n";
+	if (rlTargetDiagIsEnabled()) {
+		/* M7f: additive trailing object, only with SSB64_RL_TARGET_DIAG=1 (the
+		 * native replay has no transport; this is its channel). Filled here
+		 * rather than taken from the observation listener because the two
+		 * listeners have no defined relative order; both run after the same
+		 * game update, so the decomp table is the same either way. */
+		RLTargetDiag targets;
+		std::memset(&targets, 0, sizeof(targets));
+		rlGameFillTargets(&targets);
+		targets.input_tick = inputCursor;
+		json << "  \"host_frames\": " << sHostFrames << ",\n";
+		json << "  \"target_identity\": " << rlTargetDiagToJson(targets).dump() << "\n";
+	} else {
+		json << "  \"host_frames\": " << sHostFrames << "\n";
+	}
 	json << "}\n";
 
 	const char *path = rlResultPath();

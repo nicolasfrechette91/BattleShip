@@ -590,17 +590,113 @@ def unit_instrumentation(suite: Suite) -> Dict[str, Any]:
     check(md.get("artifact_schema") == ARTIFACT_SCHEMA, f"artifact schema: {md.get('artifact_schema')}")
     check(md.get("action_contract") == NATIVE_ACTION_CONTRACT,
           f"action contract: {md.get('action_contract')}")
-    # The census must count executed against planned and fail on a gap.
-    import m7e_run as er
-    cen = er.census()
-    check(cen["planned_episodes"] == 3055 and cen["planned_sessions"] == 67, f"census plan {cen['planned_episodes']}")
-    check(not cen["complete"], "the census reports complete before anything has been evaluated")
-    check(len(cen["missing"]) == len(cen["rows"]) + 1, f"missing count {len(cen['missing'])}")
+    # The census must count executed against planned and fail on a gap. It is exercised on an isolated synthetic
+    # evaluation tree, never on the live runs/m7e state (complete since M7e itself evaluated all 3,055 episodes).
+    cen = _census_fixture_checks()
     return {"artifact": ec.repo_relative(art), "action_rows": len(rows), "first_consumed_tick": ticks[0],
             "last_consumed_tick": ticks[-1], "action_row_keys": sorted(keys),
             "evaluation_row_fields_present": sorted(need),
             "census_planned": {"episodes": cen["planned_episodes"], "sessions": cen["planned_sessions"]},
-            "census_detects_missing": len(cen["missing"])}
+            "census_detects_missing": cen["missing_when_empty"], "census_fixture": cen}
+
+
+def _census_fixture_checks() -> Dict[str, Any]:
+    """m7e_run.census() against a synthetic evaluation tree in a fresh temporary directory: an empty tree must be
+    rejected with every planned set reported missing, a tree holding exactly the planned episodes must be accepted,
+    and a tree with known gaps must be rejected with exactly those gaps. Every census() call runs with the module's
+    evaluation root and state file redirected into the temporary directory and with every file-write primitive
+    disabled, and the historical M7e state/summary files are fingerprinted before and after; no mutable campaign
+    state under runs/ decides the outcome."""
+    import builtins
+    import shutil
+    import tempfile
+
+    import m7e_run as er
+
+    planned = [(spec.name, p["label"], int(p["deterministic_episodes"]), int(p["stochastic_episodes"]))
+               for spec in em.matrix() for p in em.evaluation_plan(spec, em.load_run(spec))]
+
+    def historical_fingerprint() -> Dict[str, Any]:
+        files = sorted(list(em.STATE_DIR.glob("*.json")) + list(em.EVAL_ROOT.glob("*/*/evaluation_summary.json"))
+                       + list(em.EVAL_ROOT.glob("*/evaluation_summary.json")))
+        return {str(p): (p.stat().st_size, p.stat().st_mtime_ns) for p in files}
+
+    def write_summary(root: Path, run: str, label: str, modes: Mapping[str, int]) -> None:
+        d = root / run / label
+        d.mkdir(parents=True, exist_ok=True)
+        doc = {"modes": {m: {"episodes": [{"order": i} for i in range(n)]} for m, n in modes.items()}}
+        (d / "evaluation_summary.json").write_text(json.dumps(doc), encoding="utf-8")
+
+    def isolated_census(eval_root: Path, state_file: Path) -> Dict[str, Any]:
+        def refuse(*_a: Any, **_k: Any) -> Any:
+            raise AssertionError("census() attempted a file-system write")
+
+        real_open = builtins.open
+
+        def read_only_open(file: Any, mode: str = "r", *a: Any, **k: Any) -> Any:
+            if any(c in mode for c in "wax+"):
+                raise AssertionError(f"census() opened {file!r} for writing (mode {mode!r})")
+            return real_open(file, mode, *a, **k)
+
+        saved = (em.EVAL_ROOT, er.STATE_FILE, builtins.open, Path.write_text, Path.write_bytes, Path.mkdir,
+                 Path.touch, os.replace, os.rename, os.remove, shutil.copyfile, em.write_json)
+        em.EVAL_ROOT, er.STATE_FILE = eval_root, state_file
+        builtins.open = read_only_open
+        Path.write_text = Path.write_bytes = Path.mkdir = Path.touch = refuse  # type: ignore[assignment]
+        os.replace = os.rename = os.remove = shutil.copyfile = em.write_json = refuse  # type: ignore[assignment]
+        try:
+            return er.census()
+        finally:
+            (em.EVAL_ROOT, er.STATE_FILE, builtins.open, Path.write_text, Path.write_bytes, Path.mkdir, Path.touch,
+             os.replace, os.rename, os.remove, shutil.copyfile, em.write_json) = saved
+
+    before = historical_fingerprint()
+    with tempfile.TemporaryDirectory(prefix="m7e_census_fixture_") as tmp:
+        eval_root, state_file = Path(tmp) / "_eval", Path(tmp) / "state.json"
+        eval_root.mkdir()
+        # 1. nothing evaluated yet: rejected, every planned set and the random baseline reported missing
+        empty = isolated_census(eval_root, state_file)
+        check(empty["planned_episodes"] == 3055 and empty["planned_sessions"] == 67,
+              f"census plan {empty['planned_episodes']} / {empty['planned_sessions']}")
+        check(not empty["complete"], "the census reports complete before anything has been evaluated")
+        check(len(empty["missing"]) == len(empty["rows"]) + 1 == len(planned) + 1,
+              f"missing count {len(empty['missing'])} for {len(planned)} planned sets + the random baseline")
+        check(empty["executed_episodes"] == 0, f"executed {empty['executed_episodes']} in an empty tree")
+        # 2. exactly the planned episodes: accepted
+        for run, label, det, stoch in planned:
+            write_summary(eval_root, run, label, {"deterministic": det, "stochastic": stoch})
+        write_summary(eval_root, "random_baseline", "", {"random": em.RANDOM_BASELINE_EPISODES})
+        tree_before = sorted((str(p.relative_to(tmp)), p.stat().st_size) for p in Path(tmp).rglob("*"))
+        full = isolated_census(eval_root, state_file)
+        check(full["complete"] and full["missing"] == [], f"a complete tree is rejected: {full['missing'][:3]}")
+        check(full["executed_episodes"] == 3055 and full["executed_sessions"] == 67,
+              f"complete tree executed {full['executed_episodes']} episodes in {full['executed_sessions']} sessions")
+        check(full["executed_by_mode"] == {"deterministic": 735, "stochastic": 2220, "random": 100},
+              f"executed by mode {full['executed_by_mode']}")
+        # 3. known gaps: one set absent, one set short by one episode, the random baseline short by three
+        gone_run, gone_label = planned[len(planned) // 2][:2]
+        short_run, short_label, short_det, short_stoch = planned[-1]
+        shutil.rmtree(eval_root / gone_run / gone_label)
+        write_summary(eval_root, short_run, short_label, {"deterministic": short_det, "stochastic": short_stoch - 1})
+        write_summary(eval_root, "random_baseline", "", {"random": em.RANDOM_BASELINE_EPISODES - 3})
+        gaps = isolated_census(eval_root, state_file)
+        expect = [f"{gone_run}:{gone_label}: no evaluation_summary.json",
+                  f"{short_run}:{short_label}: executed {{'deterministic': {short_det}, 'stochastic': {short_stoch - 1}}}"
+                  f" != planned {{'deterministic': {short_det}, 'stochastic': {short_stoch}}}",
+                  f"random_baseline: executed {em.RANDOM_BASELINE_EPISODES - 3} != planned "
+                  f"{em.RANDOM_BASELINE_EPISODES}"]
+        check(not gaps["complete"] and gaps["missing"] == expect, f"gaps reported as {gaps['missing']}")
+        gone_planned = [p for p in planned if p[:2] == (gone_run, gone_label)][0]
+        check(gaps["executed_episodes"] == 3055 - gone_planned[2] - gone_planned[3] - 1 - 3,
+              f"executed {gaps['executed_episodes']} with the known gaps")
+        # 4. census() never writes: the guard above raises on any write; the fixture and the history are untouched
+        check(not state_file.exists(), "census() created a state file")
+        after_tree = sorted((str(p.relative_to(tmp)), p.stat().st_size) for p in Path(tmp).rglob("*"))
+        check(len(after_tree) == len(tree_before) - 2, "census() changed the fixture tree beyond the test's own edits")
+    check(historical_fingerprint() == before, "a historical M7e state or evaluation-summary file changed")
+    return {"planned_episodes": empty["planned_episodes"], "planned_sessions": empty["planned_sessions"],
+            "missing_when_empty": len(empty["missing"]), "complete_tree_accepted": True,
+            "gaps_reported": gaps["missing"], "historical_files_fingerprinted": len(before)}
 
 
 def unit_gates(suite: Suite) -> Dict[str, Any]:

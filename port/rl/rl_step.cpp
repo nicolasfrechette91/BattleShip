@@ -94,6 +94,20 @@ RLStepTiming sTimingInFlight;
 RLStepTiming sTimingLast;
 bool sHasTimingLast = false;
 
+/* --- M7f target-identity diagnostic (SSB64_RL_TARGET_DIAG=1), protected by
+ * sMutex. Handed in by the M1b capture together with its observation, so each
+ * copy below is exactly as old as the observation it sits next to: sLatest-
+ * Targets with sLatest, sResultTargets with sResult, and sTargetsLast is the
+ * copy of the most recently collected result (sTargetsLastStep its step
+ * count). Never read by a transition. */
+RLTargetDiag sLatestTargets;
+bool sHasLatestTargets = false;
+RLTargetDiag sResultTargets;
+bool sHasResultTargets = false;
+RLTargetDiag sTargetsLast;
+uint32_t sTargetsLastStep = 0;
+bool sHasTargetsLast = false;
+
 /* --- main-thread-only, written once by rlStepRegister() before any other
  *     thread that uses this module can exist ----------------------------- */
 std::atomic<bool> sRegistered{false};
@@ -183,6 +197,12 @@ int pollLocked(RLStepResult *out) {
 			sTimingInFlight.step_count = out->step_count;
 			sTimingLast = sTimingInFlight;
 			sHasTimingLast = true;
+		}
+		if (sHasResultTargets) {
+			/* M7f: the target snapshot of the same capture as this result. */
+			sTargetsLast = sResultTargets;
+			sTargetsLastStep = out->step_count;
+			sHasTargetsLast = true;
 		}
 		if (next != RL_STEP_WAITING_FOR_ACTION) {
 			port_log("SSB64 RL Step: result collected step=%u consumed_tick=%u input_tick=%u "
@@ -324,6 +344,35 @@ extern "C" int rlStepGetLatestObservation(RLObservation *out) {
 	return 1;
 }
 
+/* M7f: the same non-consuming read, plus the target snapshot handed in with
+ * that observation, under one lock so the pair cannot be torn while the host
+ * runs free (Inactive) or serves a step. */
+extern "C" int rlStepGetLatestObservationTargets(RLObservation *obs, RLTargetDiag *targets) {
+	if (obs == nullptr || targets == nullptr) {
+		return 0;
+	}
+	std::lock_guard<std::mutex> lock(sMutex);
+	if (!sHasLatest || !sHasLatestTargets) {
+		return 0;
+	}
+	*obs = sLatest;
+	*targets = sLatestTargets;
+	return 1;
+}
+
+extern "C" int rlStepGetLastTargets(RLTargetDiag *out, uint32_t *step_count) {
+	if (out == nullptr || step_count == nullptr) {
+		return 0;
+	}
+	std::lock_guard<std::mutex> lock(sMutex);
+	if (!sHasTargetsLast) {
+		return 0;
+	}
+	*out = sTargetsLast;
+	*step_count = sTargetsLastStep;
+	return 1;
+}
+
 /* -- Decomp-facing (game coroutine) ---------------------------------------- */
 
 extern "C" int rlStepControllerRead(uint32_t tick, uint16_t *buttons, int8_t *stick_x, int8_t *stick_y) {
@@ -382,12 +431,23 @@ extern "C" int rlStepControllerRead(uint32_t tick, uint16_t *buttons, int8_t *st
 /* -- Main-thread seams ------------------------------------------------------ */
 
 extern "C" void rlStepOnObservation(const RLObservation *obs) {
+	rlStepOnObservationTargets(obs, nullptr);
+}
+
+extern "C" void rlStepOnObservationTargets(const RLObservation *obs, const RLTargetDiag *targets) {
 	if (!sRegistered.load() || obs == nullptr) {
 		return;
 	}
 	std::lock_guard<std::mutex> lock(sMutex);
 	sLatest = *obs;
 	sHasLatest = true;
+	if (targets != nullptr) {
+		/* M7f: travels with the observation it was captured with. */
+		sLatestTargets = *targets;
+		sHasLatestTargets = true;
+	} else {
+		sHasLatestTargets = false; /* never pair a newer observation with an older snapshot */
+	}
 
 	switch (sState) {
 	case RL_STEP_ACTION_CONSUMED:
@@ -410,6 +470,10 @@ extern "C" void rlStepOnObservation(const RLObservation *obs) {
 		sResult.consumed_tick = sConsumedTick;
 		sResult.observation = *obs;
 		sResultFinal = (obs->btt_active != 0u && obs->targets_remaining == 0u);
+		sHasResultTargets = (targets != nullptr);
+		if (targets != nullptr) {
+			sResultTargets = *targets; /* M7f: paired exactly like the observation */
+		}
 		sState = RL_STEP_OBSERVATION_READY;
 		if (sTimingEnabled) {
 			sTimingInFlight.observation_ns = nowNs(); /* M4 */

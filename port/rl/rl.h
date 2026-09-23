@@ -573,10 +573,114 @@ int rlStepHostWaitParked(unsigned int timeout_ms);
 /* 1 when SSB64_RAPHNET_DISABLE=1 was kept for this process (effective interactive stepping), 0 otherwise. */
 int rlRaphnetDisableIsEnabled(void);
 
+/* -- M7f: opt-in target-identity diagnostic (btt_target_identity_v1) ------- */
+
+/*
+ *   SSB64_RL_TARGET_DIAG=1    record which Break-the-Targets target breaks
+ *                             when, under a stable per-target ID, and report
+ *                             it: a top-level "targets" object in the observe
+ *                             and step responses (paired with the reply's
+ *                             observation), "target_diag": true in status,
+ *                             and a trailing "target_identity" object in a
+ *                             clear's result JSON. Requires SSB64_RL_BTT=1;
+ *                             works with interactive stepping and with the
+ *                             native SSB64_BTT_INPUT replay (result JSON
+ *                             only). Unset: the two decomp hooks return at
+ *                             once and every reply, log line and result file
+ *                             is byte-identical to a build without it.
+ *
+ * STABLE ID. Target i is the i-th target sc1PBonusStageMakeTargets creates:
+ * loop index i reads the stage file's target DObjDesc[i + 1] (entry 0 is the
+ * skipped root), i.e. the ID is the position of the target's descriptor in
+ * ROM stage data. It never depends on a pointer, an allocation, a host frame,
+ * the render or controller backend, the startup mode or the timing, so it is
+ * the same in every process, mode and replay path. The decomp keeps the item
+ * GObj of each target only to recognise which live target itTargetCommonProc-
+ * Damage is breaking; that handle is compared, never dereferenced after the
+ * break, and never leaves the decomp.
+ *
+ * Nothing here is part of RLObservation (schema 1), the step result (schema
+ * 1), the policy observation or any reward: the diagnostic reads game state
+ * and writes only PORT-only memory. See docs/rl_target_identity_m7f.md.
+ */
+#define RL_TARGET_DIAG_SCHEMA 1u
+
+/* SCBATTLE_BONUSGAME_TASK_MAX, restated; sc1pbonusstage.c cross-checks it at compile time. */
+#define RL_TARGET_COUNT 10u
+
+/* RLTargetDiag.anomaly_flags. None of these occurs in normal play; each one
+ * means the identity bookkeeping disagrees with the game and must be
+ * investigated, never corrected. */
+#define RL_TARGET_ANOMALY_SPAWN_OVERFLOW (1u << 0) /* more than RL_TARGET_COUNT spawns in one scene entry */
+#define RL_TARGET_ANOMALY_UNKNOWN_BREAK  (1u << 1) /* ProcDamage for an item absent from the spawn table */
+#define RL_TARGET_ANOMALY_REPEAT_BREAK   (1u << 2) /* ProcDamage for an ID already broken */
+#define RL_TARGET_ANOMALY_COUNT_GUARD    (1u << 3) /* break while target_count was already 0 (PORT guard path) */
+#define RL_TARGET_ANOMALY_LINK_MISMATCH  (1u << 4) /* capture-time link walk disagrees with remaining_mask */
+
+typedef struct RLTargetRecord
+{
+	uint32_t animated; /* 1 = an anim joint was attached at spawn: the target moves */
+	float spawn_x;     /* DObjDesc translate from the stage file */
+	float spawn_y;
+	float spawn_z;
+
+	uint32_t break_order;       /* 1..RL_TARGET_COUNT in break order; 0 while unbroken */
+	uint32_t break_input_tick;  /* syNetInputGetTick() inside the breaking update (= consumed_tick + 1) */
+	uint32_t break_time_passed; /* SCBattleState::time_passed inside the breaking update */
+	float break_x;              /* root DObj translate at the break (where the target actually was) */
+	float break_y;
+	float break_z;
+
+} RLTargetRecord;
+
+typedef struct RLTargetDiag
+{
+	uint32_t target_schema; /* RL_TARGET_DIAG_SCHEMA */
+	uint32_t input_tick;    /* port stamp at the capture; equals the paired observation's input_tick */
+
+	uint32_t scene_active;   /* 1 = BTT scene current and battle state present (the btt_active guard) */
+	uint32_t scene_entries;  /* spawn-table resets (BTT scene entries) since process start */
+	uint32_t spawn_count;    /* targets recorded by the spawn loop in this scene entry */
+	uint32_t remaining_mask; /* bit i set = target i spawned and not broken (the one authoritative mask) */
+	uint32_t break_count;    /* break events recorded in this scene entry */
+	uint32_t anomaly_flags;  /* RL_TARGET_ANOMALY_* */
+
+	uint32_t link_checked;      /* 1 = the item-link cross-check ran: scene active and its object links still
+	                             * populated (gcEjectAll at the end of the scene task empties them); 0 otherwise,
+	                             * with both link_* counts 0 */
+	uint32_t link_live_targets; /* live target items on the item link at the capture (link_checked only) */
+	uint32_t link_unmatched;    /* of those, items that are not an unbroken spawn-table entry */
+
+	RLTargetRecord targets[RL_TARGET_COUNT];
+
+} RLTargetDiag;
+
+/* 1 when SSB64_RL_TARGET_DIAG=1 and SSB64_RL_BTT=1 (rl_boot.cpp). Also read
+ * by the decomp hooks, which do nothing while it is 0. */
+int rlTargetDiagIsEnabled(void);
+
+/* Fill *out from the decomp's PORT-only target table (sc1pbonusstage.c) plus
+ * a read-only walk of the item link. Strictly read-only towards the game;
+ * never writes the port-owned stamp (input_tick). Handles out == NULL. */
+void rlGameFillTargets(RLTargetDiag *out);
+
+/* Copy the target snapshot paired with the most recently collected step into
+ * *out. Pure query under the M1c mutex, any thread. Returns 1 when the
+ * diagnostic is enabled and a paired snapshot exists, and stores its step
+ * count in *step_count; 0 otherwise (*out untouched). */
+int rlStepGetLastTargets(RLTargetDiag *out, uint32_t *step_count);
+
+/* rlStepGetLatestObservation plus the target snapshot captured at the same
+ * post-update, copied under one lock so the pair can never be torn. Returns 1
+ * when both exist (diagnostic enabled), 0 otherwise (outputs untouched). */
+int rlStepGetLatestObservationTargets(RLObservation *obs, RLTargetDiag *targets);
+
 /* -- Internal seams inside port/rl ----------------------------------------- */
 
 void rlStepRegister(void);                             /* from rlRuntimeRegister() */
 void rlStepOnObservation(const RLObservation *obs);    /* from the M1b capture, main thread */
+/* M7f: same, with the target snapshot of the same capture (NULL when the diagnostic is off). */
+void rlStepOnObservationTargets(const RLObservation *obs, const RLTargetDiag *targets);
 int rlStepExitOnEnd(void);                             /* SSB64_RL_EXIT_ON_END deferred to M1c */
 
 #ifdef __cplusplus

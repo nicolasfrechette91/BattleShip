@@ -29,6 +29,7 @@ struct RLConfig {
 	bool timing = false;        /* M4 stepping timing diagnostic (SSB64_RL_TIMING=1), measurement only */
 	bool noRender = false;      /* M6 training no-render mode (SSB64_RL_NO_RENDER=1), host-side only */
 	bool raphnetDisable = false; /* M6 follow-up: SSB64_RAPHNET_DISABLE=1 effective (native adapter bypassed) */
+	bool targetDiag = false;     /* M7f target-identity diagnostic (SSB64_RL_TARGET_DIAG=1), read-only */
 	std::string resultPath;
 };
 
@@ -118,6 +119,10 @@ extern "C" void rlConfigInit(void) {
 		raphnetDisableIgnored(replayConfigured ? "SSB64_BTT_INPUT is set (native replay keeps precedence)"
 		                                       : "interactive stepping is not effective");
 	}
+	/* M7f target-identity diagnostic: read-only bookkeeping of which target
+	 * breaks when. Unlike the host-side flags above it does not need stepping:
+	 * the native replay reports it through the clear's result JSON. */
+	sConfig.targetDiag = envIsOne("SSB64_RL_TARGET_DIAG");
 	if (const char *resultPath = std::getenv("SSB64_RL_RESULT_PATH")) {
 		sConfig.resultPath = resultPath;
 	}
@@ -171,6 +176,14 @@ extern "C" void rlConfigInit(void) {
 		         "(libultraship ControlDeck::PreInitRaphnet; no console variable read or written)\n",
 		         kRaphnetDisableEnv);
 	}
+	if (sConfig.targetDiag) {
+		port_log("SSB64 RL Targets: target-identity diagnostic enabled schema=%u (read-only; no behaviour change)\n",
+		         (unsigned)RL_TARGET_DIAG_SCHEMA);
+	}
+}
+
+extern "C" int rlTargetDiagIsEnabled(void) {
+	return sConfig.targetDiag ? 1 : 0;
 }
 
 extern "C" int rlNoRenderIsEnabled(void) {

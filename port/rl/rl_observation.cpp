@@ -76,8 +76,22 @@ void OnGamePostUpdate(IEvent *) {
 	 * (rl_step.cpp) so a step result pairs with the capture of the update
 	 * that consumed its action. It copies under its own mutex for other
 	 * threads; rlObservationGet() itself stays main-thread only. No-op unless
-	 * interactive stepping is enabled. */
-	rlStepOnObservation(&obs);
+	 * interactive stepping is enabled.
+	 *
+	 * M7f: with the target-identity diagnostic on, the target snapshot is
+	 * filled here, in the same callback as the observation (a second listener
+	 * would have no defined order relative to this one), stamped with the same
+	 * input_tick, and handed over in the same locked call so a reply can never
+	 * pair an observation with a target snapshot of another update. */
+	if (rlTargetDiagIsEnabled()) {
+		RLTargetDiag targets;
+		std::memset(&targets, 0, sizeof(targets));
+		rlGameFillTargets(&targets);
+		targets.input_tick = obs.input_tick;
+		rlStepOnObservationTargets(&obs, &targets);
+	} else {
+		rlStepOnObservation(&obs);
+	}
 }
 
 } // namespace

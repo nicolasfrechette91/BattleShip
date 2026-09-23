@@ -126,6 +126,7 @@
  * shared memory, multiple clients, Track 1 discretisation, RNG.
  */
 #include "rl/rl.h"
+#include "rl/rl_targets.h"
 
 #include "port_log.h"
 
@@ -186,6 +187,10 @@ uint32_t sLastStepCount = 0; /* step_count of the last RLStepResult collected by
  * serveClient() for the request being handled and read by handleStep(). */
 bool sTimingEnabled = false;
 uint64_t sRequestReceivedNs = 0;
+
+/* M7f target-identity diagnostic (SSB64_RL_TARGET_DIAG=1). Written once by
+ * rlTransportStart() before the worker exists. */
+bool sTargetDiagEnabled = false;
 
 uint64_t nowNs() {
 	return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -413,6 +418,11 @@ json handleStatus(const json &op) {
 	/* M6 follow-up: additive, constant per process; the process-local native
 	 * Raphnet adapter bypass as kept (or not) by rlConfigInit(). */
 	r["raphnet_disabled"] = rlRaphnetDisableIsEnabled() != 0;
+	/* M7f: additive, present only when the target-identity diagnostic is on,
+	 * so a default status reply is byte-identical to the pre-M7f one. */
+	if (sTargetDiagEnabled) {
+		r["target_diag"] = true;
+	}
 	return r;
 }
 
@@ -423,7 +433,12 @@ json handleStatus(const json &op) {
 json handleObserve(const json &op) {
 	RLObservation observation;
 	std::memset(&observation, 0, sizeof(observation));
-	const int have = rlStepGetLatestObservation(&observation);
+	/* M7f: with the diagnostic on, read the observation and the target
+	 * snapshot of the same capture under one lock. */
+	RLTargetDiag targets;
+	std::memset(&targets, 0, sizeof(targets));
+	const int have = sTargetDiagEnabled ? rlStepGetLatestObservationTargets(&observation, &targets)
+	                                    : rlStepGetLatestObservation(&observation);
 	const uint32_t state = (uint32_t)rlStepGetState();
 	if (!have) {
 		return protocolError(op, "no_observation",
@@ -436,6 +451,9 @@ json handleObserve(const json &op) {
 	r["can_step"] = (state == RL_STEP_WAITING_FOR_ACTION);
 	r["step_count"] = sLastStepCount;
 	r["observation"] = observationToJson(observation);
+	if (sTargetDiagEnabled) {
+		r["targets"] = rlTargetDiagToJson(targets); /* M7f, additive */
+	}
 	return r;
 }
 
@@ -482,6 +500,18 @@ json handleStep(const json &req, const json &op) {
 	r["consumed_tick"] = result.consumed_tick;
 	r["observation"] = observationToJson(result.observation);
 
+	if (sTargetDiagEnabled) {
+		/* M7f: the target snapshot captured with this result's observation.
+		 * Additive key; absent whenever the diagnostic is off or the latched
+		 * snapshot does not belong to this step_count. Built before the M4
+		 * block so response_ready_ns still stamps the complete reply. */
+		RLTargetDiag targets;
+		std::memset(&targets, 0, sizeof(targets));
+		uint32_t targetsStep = 0;
+		if (rlStepGetLastTargets(&targets, &targetsStep) && targetsStep == result.step_count) {
+			r["targets"] = rlTargetDiagToJson(targets);
+		}
+	}
 	if (sTimingEnabled) {
 		/* M4: attach the game's own stamps for exactly this step. Additive
 		 * key; absent whenever the diagnostic is off or the stamps do not
@@ -698,9 +728,11 @@ extern "C" void rlTransportStart(void) {
 	}
 	sStop.store(false);
 	sTimingEnabled = rlTimingIsEnabled() != 0; /* M4 diagnostic, opt-in; read before the worker exists */
+	sTargetDiagEnabled = rlTargetDiagIsEnabled() != 0; /* M7f diagnostic, opt-in; likewise */
 	sStarted.store(true);
-	port_log("SSB64 RL Transport: listening on 127.0.0.1:%d protocol=%u (one client, one request at a time)%s\n",
-	         port, (unsigned)RL_PROTOCOL_VERSION, sTimingEnabled ? " timing=1" : "");
+	port_log("SSB64 RL Transport: listening on 127.0.0.1:%d protocol=%u (one client, one request at a time)%s%s\n",
+	         port, (unsigned)RL_PROTOCOL_VERSION, sTimingEnabled ? " timing=1" : "",
+	         sTargetDiagEnabled ? " target_diag=1" : "");
 	sWorker = std::thread(workerMain);
 }
 
