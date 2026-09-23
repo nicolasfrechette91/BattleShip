@@ -1,0 +1,139 @@
+# M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 1.
+# Sibling profiles (same contract, other seeds): rl/configs/m7e/m7e_s0_v2.toml, rl/configs/m7e/m7e_s2_v2.toml.
+#
+# Exactly one behavioural thing changes from the M7d reward-v2 baseline
+# rl/configs/m7d/m7d_s1_v2.toml: the transition budget (1,024,000 -> 3,072,000),
+# with the post-hoc evaluation episode counts raised as a measurement consequence of
+# it (docs/rl_extended_training_m7e_proposal.md sections 6.2, 6.3 and 6.7). Not changed:
+# reward identity and values, PPO hyperparameters, action contract, observation
+# contract, horizon, N, lifecycle, normalisation, seeds, artifact policy.
+#
+# Differences from rl/configs/m7d/m7d_s1_v2.toml, all of them deliberate:
+#   [run]        name, mode ("train"; M7d recorded "pilot" - same behaviour, recorded
+#                purpose only), notes, total_transitions = 3072000 and
+#                output_root = "runs/m7e" (a new tree; no historical run directory is reused)
+#   [checkpoint] interval = 102400 (30 checkpoint sets + final over the larger budget, the
+#                cadence the proposal pre-registers; every evaluated point below is one of them)
+#   [evaluation] deterministic_episodes = 5 and stochastic_episodes = 60 at the nine
+#                intermediate curve points. 60 stochastic episodes give a standard error of
+#                about 0.084 targets against M7d's observed sigma of about 0.65, which is what
+#                makes the pre-registered plateau rule declarable; M7d's 20 (SE about 0.145)
+#                is the reason its intermediate peaks could not be ranked. 5 deterministic
+#                episodes confirm the identical-play property without spending 100 runs on one
+#                trajectory. The initial and final sets use 100 + 100, as M7d.
+#
+# interval = 0, initial = false, final = false keep every evaluation outside the training
+# process: in-process evaluation keeps the training workers' active and standby games alive
+# (up to 20 BattleShip processes at N=5 with standby) and reseeds the trainer's global RNGs
+# (m7_evaluation.run_episodes set_random_seed, SB3 PPO.load), so every M7e evaluation runs
+# post hoc, in its own process, on the saved checkpoint sets (rl/m7e_run.py evaluate;
+# protocol recorded in the manifest).
+#
+# The three M7e profiles differ only in run identity, the seed and its derived worker seeds,
+# output paths and the derived hashes; rl/m7e_matrix.py proves it field by field and writes
+# the resolved experiment matrix.
+#
+#   python rl/m7e_run.py manifest
+#   python rl/train_m7.py --config rl/configs/m7e/m7e_s1_v2.toml --dry-run
+#
+# Relative paths resolve against the repository root. Schema: rl/experiment_config.py,
+# proposal: docs/rl_extended_training_m7e_proposal.md.
+
+schema = "battleship_experiment_v1"
+
+[run]
+name = "m7e_s1_v2"
+mode = "train"
+base_seed = 1
+total_transitions = 3072000
+output_root = "runs/m7e"
+notes = "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 1, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)"
+
+[task]
+id = "ssb64_us_mario_btt_v1"
+game_version = "us"
+character = "mario"
+stage = "btt_mario"
+player = 0
+costume = 0
+
+[contracts]
+protocol_version = 1
+observation = "btt_policy_obs_v1"
+action = "btt_s9_b8_v1"
+reward = "btt_reward_v2"
+artifact_schema = 1
+
+[reward]
+# btt_reward_v2 is frozen: these values are enforced, not configurable (v1 plus a one-time -5.0 native-failure penalty).
+target_broken = 1.0
+per_step = -0.001
+clear_bonus = 10.0
+failure_penalty = -5.0
+
+[environment]
+executable = "build-us/Release/BattleShip.exe"
+horizon = 3600
+process_count = 5
+no_render = true
+raphnet_disable = true
+startup_attempts = 3
+startup_timeout_s = 20.0
+ready_timeout_s = 60.0
+request_timeout_s = 10.0
+exit_timeout_s = 30.0
+step_timeout_s = 900.0
+worker_runtime_root = ""
+port_block_base = 30000
+port_block_size = 250
+position_delta_threshold = 300.0
+standby_preboot = true
+standby_count = 1
+standby_wait_timeout_s = 120.0
+
+[ppo]
+policy = "MlpPolicy"
+net_arch = [64, 64]
+activation = "tanh"
+learning_rate = 3e-4
+rollout_size = 5120
+n_steps = 1024
+batch_size = 512
+n_epochs = 10
+gamma = 0.999
+gae_lambda = 0.995
+clip_range = 0.2
+ent_coef = 0.0
+vf_coef = 0.5
+max_grad_norm = 0.5
+torch_threads = 1
+device = "cpu"
+
+[ppo.vecnormalize]
+normalize_observations = true
+normalize_rewards = false
+clip_obs = 10.0
+
+[checkpoint]
+interval = 102400
+initial = true
+
+[evaluation]
+# M7e: no in-process evaluation during training (see the header); evaluations run post hoc.
+interval = 0
+initial = false
+final = false
+deterministic_episodes = 5
+stochastic_episodes = 60
+random_baseline_episodes = 100
+seed = 12345
+workers = 0
+
+[artifacts]
+periodic_episodes = 10
+retain_failed_cap = 20
+
+[resume]
+source_checkpoint = ""
+allow_executable_change = false
+allow_lifecycle_change = false

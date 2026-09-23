@@ -1,0 +1,3128 @@
+{
+  "schema": "battleship_m7e_matrix_v1",
+  "milestone": "M7e",
+  "phase": "B",
+  "created_utc": "2026-09-22T23:11:49+00:00",
+  "purpose": "bounded extension of the provisionally selected btt_reward_v2 contract from 1,024,000 to 3,072,000 transitions per seed, to determine whether unchanged reward v2 and unchanged PPO continue learning beyond the M7d budget, produce the first verified clear, or reach a defensible plateau",
+  "authority": {
+    "proposal": "docs/rl_extended_training_m7e_proposal.md",
+    "diagnosis": "docs/rl_v2_idle_diagnosis_m7e.md",
+    "note": "the committed Phase A proposal is authoritative for the checkpoint cadence, the evaluation counts, the artifact settings, the decision gates, the resource estimates and the stopping rules"
+  },
+  "what_changes_from_m7d": {
+    "behavioural": "the transition budget only (1,024,000 -> 3,072,000 per seed)",
+    "measurement_consequence": "the checkpoint cadence (51,200 -> 102,400, keeping 30 sets over the larger budget and aligning every evaluated point with a saved set) and the intermediate evaluation episode counts (20 -> 60 stochastic, 2 -> 5 deterministic)",
+    "unchanged": [
+      "reward identity and values",
+      "PPO hyperparameters",
+      "action contract",
+      "observation contract",
+      "horizon",
+      "N",
+      "lifecycle",
+      "normalisation",
+      "seeds",
+      "artifact policy"
+    ],
+    "excluded_in_any_form": [
+      "route hints",
+      "target order hints",
+      "TAS demonstrations",
+      "target-distance shaping",
+      "hardcoded movement",
+      "hidden termination changes",
+      "reward v3",
+      "RNG seed checking"
+    ]
+  },
+  "seeds": {
+    "values": [
+      0,
+      1,
+      2
+    ],
+    "canonical_seed": 0,
+    "selection": "the same three seeds as M7d, so every M7e point is paired with an M7d point at the same seed",
+    "scope": "Python / NumPy / PyTorch / SB3 only; never reaches the game",
+    "derived": "SB3/PPO seed = base_seed (network initialisation, action sampling, minibatch order); worker and vector-reset seeds = base_seed + rank (0-4, 1-5, 2-6 overlap across base seeds, but they only seed worker-side Python/NumPy/Gymnasium generators that never influence actions or gameplay)",
+    "native_rng": "no native RNG state is introduced, inspected, logged, validated, controlled, compared or hashed anywhere in M7e"
+  },
+  "order": [
+    {
+      "index": 1,
+      "run": "m7e_s0_v2",
+      "seed": 0
+    },
+    {
+      "index": 2,
+      "run": "m7e_s1_v2",
+      "seed": 1
+    },
+    {
+      "index": 3,
+      "run": "m7e_s2_v2",
+      "seed": 2
+    }
+  ],
+  "sequencing": "strictly sequential, never two PPO experiments at once; the proposal registers no order other than seeds 0, 1, 2",
+  "budget": {
+    "per_seed": 3072000,
+    "hard_maximum": true,
+    "checkpoint_interval": 102400,
+    "checkpoint_sets_per_run": 30,
+    "rollouts_per_run": 600,
+    "derivation": "proposal section 6.2: about 1.22M transitions to bring the slowest seed to the entropy level v1 already reached, plus at least 0.8M afterwards during which a flattening curve can be measured; 3 x 1.024M because 1.024M is the M7d unit"
+  },
+  "executable": {
+    "path": "build-us/Release/BattleShip.exe",
+    "exists": true,
+    "sha256": "57d61fe0b2a602659e0a1685a58266f652e8ce2ad35f767ace54943da23fc56b",
+    "size": 23510016
+  },
+  "canonical_profile": {
+    "path": "rl/configs/m7_mario_us_reward_v2_standby.toml",
+    "source_sha256": "736d0df0aefb9c5af9db1d49a2fb09f30e5bcd1e62cdee246fb1fe0affd95be6",
+    "semantic_fingerprint": "79cb0264d04956e84ebc5aceaaae723872c0dac4598787e435688ec8c68d9d45",
+    "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660"
+  },
+  "runs": {
+    "m7e_s0_v2": {
+      "seed": 0,
+      "order_index": 1,
+      "reward": "v2",
+      "m7d_counterpart": "m7d_s0_v2",
+      "config": "rl/configs/m7e/m7e_s0_v2.toml",
+      "source_sha256": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453",
+      "source_size": 4863,
+      "semantic_fingerprint": "d8d993eaacf7ee72d3f8c98787bafa8a2a4f583e42746827b2862c5f5941fd8b",
+      "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660",
+      "reward_contract": {
+        "contract": "btt_reward_v2",
+        "target_broken": 1.0,
+        "per_step": -0.001,
+        "clear_bonus": 10.0,
+        "failure_penalty": -5.0
+      },
+      "lifecycle": {
+        "standby_preboot": true,
+        "standby_count": 1,
+        "standby_wait_timeout_s": 120.0,
+        "max_processes_per_worker": 2,
+        "max_game_processes": 10,
+        "eval_max_game_processes": 10
+      },
+      "run_dir": "runs/m7e/m7e_s0_v2",
+      "eval_dir": "runs/m7e/_eval/m7e_s0_v2",
+      "replay_dir": "runs/m7e/_replay/m7e_s0_v2",
+      "checkpoint_sets": 30,
+      "rollouts": 600,
+      "required_value_checks": {
+        "task": true,
+        "action_contract": true,
+        "observation_contract": true,
+        "reward_contract_v2_unchanged": true,
+        "reward_values": true,
+        "process_count_5": true,
+        "standby_on": true,
+        "max_game_processes_10": true,
+        "horizon_3600": true,
+        "transitions_3072000": true,
+        "rollout_geometry": true,
+        "ppo": true,
+        "mlp_64x64_tanh": true,
+        "ent_coef_zero": true,
+        "cpu_one_thread": true,
+        "observation_only_vecnormalize": true,
+        "fresh_initialisation": true,
+        "seed": true,
+        "no_in_process_evaluation": true,
+        "checkpoint_cadence": true,
+        "curve_episode_counts": true,
+        "evaluation_seed": true,
+        "random_baseline_episodes": true,
+        "artifacts": true,
+        "run_dir": true,
+        "output_root_is_m7e": true,
+        "m6_flags": true
+      },
+      "resolved": {
+        "schema": "battleship_experiment_v1",
+        "config_module_version": 2,
+        "source": {
+          "kind": "toml",
+          "path": "rl/configs/m7e/m7e_s0_v2.toml",
+          "sha256": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453",
+          "size": 4863,
+          "argv": null
+        },
+        "cli_overrides": {},
+        "config": {
+          "run": {
+            "name": "m7e_s0_v2",
+            "mode": "train",
+            "base_seed": 0,
+            "total_transitions": 3072000,
+            "output_root": "runs/m7e",
+            "notes": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 0, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)"
+          },
+          "task": {
+            "id": "ssb64_us_mario_btt_v1",
+            "game_version": "us",
+            "character": "mario",
+            "stage": "btt_mario",
+            "player": 0,
+            "costume": 0
+          },
+          "contracts": {
+            "protocol_version": 1,
+            "observation": "btt_policy_obs_v1",
+            "action": "btt_s9_b8_v1",
+            "reward": "btt_reward_v2",
+            "artifact_schema": 1
+          },
+          "reward": {
+            "target_broken": 1.0,
+            "per_step": -0.001,
+            "clear_bonus": 10.0,
+            "failure_penalty": -5.0
+          },
+          "environment": {
+            "executable": "build-us/Release/BattleShip.exe",
+            "horizon": 3600,
+            "process_count": 5,
+            "no_render": true,
+            "raphnet_disable": true,
+            "startup_attempts": 3,
+            "startup_timeout_s": 20.0,
+            "ready_timeout_s": 60.0,
+            "request_timeout_s": 10.0,
+            "exit_timeout_s": 30.0,
+            "step_timeout_s": 900.0,
+            "worker_runtime_root": "",
+            "port_block_base": 30000,
+            "port_block_size": 250,
+            "position_delta_threshold": 300.0,
+            "standby_preboot": true,
+            "standby_count": 1,
+            "standby_wait_timeout_s": 120.0
+          },
+          "ppo": {
+            "policy": "MlpPolicy",
+            "net_arch": [
+              64,
+              64
+            ],
+            "activation": "tanh",
+            "learning_rate": 0.0003,
+            "rollout_size": 5120,
+            "n_steps": 1024,
+            "batch_size": 512,
+            "n_epochs": 10,
+            "gamma": 0.999,
+            "gae_lambda": 0.995,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+            "torch_threads": 1,
+            "device": "cpu",
+            "vecnormalize": {
+              "normalize_observations": true,
+              "normalize_rewards": false,
+              "clip_obs": 10.0
+            }
+          },
+          "checkpoint": {
+            "interval": 102400,
+            "initial": true
+          },
+          "evaluation": {
+            "interval": 0,
+            "initial": false,
+            "final": false,
+            "deterministic_episodes": 5,
+            "stochastic_episodes": 60,
+            "random_baseline_episodes": 100,
+            "seed": 12345,
+            "workers": 0
+          },
+          "artifacts": {
+            "periodic_episodes": 10,
+            "retain_failed_cap": 20
+          },
+          "resume": {
+            "source_checkpoint": "",
+            "allow_executable_change": false,
+            "allow_lifecycle_change": false
+          }
+        },
+        "resolved": {
+          "reward": {
+            "contract": "btt_reward_v2",
+            "target_broken": 1.0,
+            "per_step": -0.001,
+            "clear_bonus": 10.0,
+            "failure_penalty": -5.0
+          },
+          "task": {
+            "game_version": "us",
+            "character": "mario",
+            "stage": "btt_mario",
+            "player": 0,
+            "costume": 0,
+            "executable_basename": "BattleShip.exe",
+            "targets_total": 10,
+            "native_boot": "SSB64_RL_BTT=1 -> rlBootApply (scene Bonus 1 Break the Targets, port 0, Mario, costume 0)",
+            "id": "ssb64_us_mario_btt_v1"
+          },
+          "executable": "build-us/Release/BattleShip.exe",
+          "output_root": "runs/m7e",
+          "run_dir": "runs/m7e/m7e_s0_v2",
+          "worker_runtime_root": null,
+          "resume_source": null,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "rollouts": 600,
+          "minibatches_per_epoch": 10,
+          "eval_workers": 5,
+          "lifecycle": {
+            "standby_preboot": true,
+            "standby_count": 1,
+            "standby_wait_timeout_s": 120.0,
+            "max_processes_per_worker": 2,
+            "max_game_processes": 10,
+            "eval_max_game_processes": 10
+          },
+          "port_blocks": {
+            "0": [
+              30000,
+              30249
+            ],
+            "1": [
+              30250,
+              30499
+            ],
+            "2": [
+              30500,
+              30749
+            ],
+            "3": [
+              30750,
+              30999
+            ],
+            "4": [
+              31000,
+              31249
+            ]
+          }
+        },
+        "fingerprints": {
+          "source_sha256": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453",
+          "semantic_fingerprint": "d8d993eaacf7ee72d3f8c98787bafa8a2a4f583e42746827b2862c5f5941fd8b",
+          "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660"
+        },
+        "field_classes": {
+          "run.name": "output",
+          "run.mode": "output",
+          "run.base_seed": "semantic",
+          "run.total_transitions": "semantic",
+          "run.output_root": "output",
+          "run.notes": "output",
+          "task.id": "immutable",
+          "task.game_version": "immutable",
+          "task.character": "immutable",
+          "task.stage": "immutable",
+          "task.player": "immutable",
+          "task.costume": "immutable",
+          "contracts.protocol_version": "immutable",
+          "contracts.observation": "immutable",
+          "contracts.action": "immutable",
+          "contracts.reward": "immutable",
+          "contracts.artifact_schema": "immutable",
+          "reward.target_broken": "immutable",
+          "reward.per_step": "immutable",
+          "reward.clear_bonus": "immutable",
+          "reward.failure_penalty": "immutable",
+          "environment.executable": "operational",
+          "environment.horizon": "immutable",
+          "environment.process_count": "immutable",
+          "environment.no_render": "immutable",
+          "environment.raphnet_disable": "immutable",
+          "environment.startup_attempts": "operational",
+          "environment.startup_timeout_s": "operational",
+          "environment.ready_timeout_s": "operational",
+          "environment.request_timeout_s": "operational",
+          "environment.exit_timeout_s": "operational",
+          "environment.step_timeout_s": "operational",
+          "environment.worker_runtime_root": "operational",
+          "environment.port_block_base": "operational",
+          "environment.port_block_size": "operational",
+          "environment.position_delta_threshold": "semantic",
+          "environment.standby_preboot": "lifecycle",
+          "environment.standby_count": "lifecycle",
+          "environment.standby_wait_timeout_s": "operational",
+          "ppo.policy": "immutable",
+          "ppo.net_arch": "immutable",
+          "ppo.activation": "immutable",
+          "ppo.learning_rate": "immutable",
+          "ppo.rollout_size": "immutable",
+          "ppo.n_steps": "immutable",
+          "ppo.batch_size": "immutable",
+          "ppo.n_epochs": "immutable",
+          "ppo.gamma": "immutable",
+          "ppo.gae_lambda": "immutable",
+          "ppo.clip_range": "immutable",
+          "ppo.ent_coef": "immutable",
+          "ppo.vf_coef": "immutable",
+          "ppo.max_grad_norm": "immutable",
+          "ppo.torch_threads": "operational",
+          "ppo.device": "immutable",
+          "ppo.vecnormalize.normalize_observations": "immutable",
+          "ppo.vecnormalize.normalize_rewards": "immutable",
+          "ppo.vecnormalize.clip_obs": "immutable",
+          "checkpoint.interval": "operational",
+          "checkpoint.initial": "operational",
+          "evaluation.interval": "operational",
+          "evaluation.initial": "operational",
+          "evaluation.final": "operational",
+          "evaluation.deterministic_episodes": "semantic",
+          "evaluation.stochastic_episodes": "semantic",
+          "evaluation.random_baseline_episodes": "semantic",
+          "evaluation.seed": "semantic",
+          "evaluation.workers": "operational",
+          "artifacts.periodic_episodes": "semantic",
+          "artifacts.retain_failed_cap": "operational",
+          "resume.source_checkpoint": "operational",
+          "resume.allow_executable_change": "operational",
+          "resume.allow_lifecycle_change": "operational"
+        }
+      },
+      "expected_initial_policy_digest": "68155f41065d243fed9bcdc9e0be71bb0b583595bd1da02f7d9d7cbf42054fa2",
+      "expected_initial_obs_rms_digest": "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251"
+    },
+    "m7e_s1_v2": {
+      "seed": 1,
+      "order_index": 2,
+      "reward": "v2",
+      "m7d_counterpart": "m7d_s1_v2",
+      "config": "rl/configs/m7e/m7e_s1_v2.toml",
+      "source_sha256": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f",
+      "source_size": 4863,
+      "semantic_fingerprint": "dd87c6c044691af15d3d9a5f8237f0ffca86bad7046f96a7b0318341de62ffc7",
+      "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660",
+      "reward_contract": {
+        "contract": "btt_reward_v2",
+        "target_broken": 1.0,
+        "per_step": -0.001,
+        "clear_bonus": 10.0,
+        "failure_penalty": -5.0
+      },
+      "lifecycle": {
+        "standby_preboot": true,
+        "standby_count": 1,
+        "standby_wait_timeout_s": 120.0,
+        "max_processes_per_worker": 2,
+        "max_game_processes": 10,
+        "eval_max_game_processes": 10
+      },
+      "run_dir": "runs/m7e/m7e_s1_v2",
+      "eval_dir": "runs/m7e/_eval/m7e_s1_v2",
+      "replay_dir": "runs/m7e/_replay/m7e_s1_v2",
+      "checkpoint_sets": 30,
+      "rollouts": 600,
+      "required_value_checks": {
+        "task": true,
+        "action_contract": true,
+        "observation_contract": true,
+        "reward_contract_v2_unchanged": true,
+        "reward_values": true,
+        "process_count_5": true,
+        "standby_on": true,
+        "max_game_processes_10": true,
+        "horizon_3600": true,
+        "transitions_3072000": true,
+        "rollout_geometry": true,
+        "ppo": true,
+        "mlp_64x64_tanh": true,
+        "ent_coef_zero": true,
+        "cpu_one_thread": true,
+        "observation_only_vecnormalize": true,
+        "fresh_initialisation": true,
+        "seed": true,
+        "no_in_process_evaluation": true,
+        "checkpoint_cadence": true,
+        "curve_episode_counts": true,
+        "evaluation_seed": true,
+        "random_baseline_episodes": true,
+        "artifacts": true,
+        "run_dir": true,
+        "output_root_is_m7e": true,
+        "m6_flags": true
+      },
+      "resolved": {
+        "schema": "battleship_experiment_v1",
+        "config_module_version": 2,
+        "source": {
+          "kind": "toml",
+          "path": "rl/configs/m7e/m7e_s1_v2.toml",
+          "sha256": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f",
+          "size": 4863,
+          "argv": null
+        },
+        "cli_overrides": {},
+        "config": {
+          "run": {
+            "name": "m7e_s1_v2",
+            "mode": "train",
+            "base_seed": 1,
+            "total_transitions": 3072000,
+            "output_root": "runs/m7e",
+            "notes": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 1, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)"
+          },
+          "task": {
+            "id": "ssb64_us_mario_btt_v1",
+            "game_version": "us",
+            "character": "mario",
+            "stage": "btt_mario",
+            "player": 0,
+            "costume": 0
+          },
+          "contracts": {
+            "protocol_version": 1,
+            "observation": "btt_policy_obs_v1",
+            "action": "btt_s9_b8_v1",
+            "reward": "btt_reward_v2",
+            "artifact_schema": 1
+          },
+          "reward": {
+            "target_broken": 1.0,
+            "per_step": -0.001,
+            "clear_bonus": 10.0,
+            "failure_penalty": -5.0
+          },
+          "environment": {
+            "executable": "build-us/Release/BattleShip.exe",
+            "horizon": 3600,
+            "process_count": 5,
+            "no_render": true,
+            "raphnet_disable": true,
+            "startup_attempts": 3,
+            "startup_timeout_s": 20.0,
+            "ready_timeout_s": 60.0,
+            "request_timeout_s": 10.0,
+            "exit_timeout_s": 30.0,
+            "step_timeout_s": 900.0,
+            "worker_runtime_root": "",
+            "port_block_base": 30000,
+            "port_block_size": 250,
+            "position_delta_threshold": 300.0,
+            "standby_preboot": true,
+            "standby_count": 1,
+            "standby_wait_timeout_s": 120.0
+          },
+          "ppo": {
+            "policy": "MlpPolicy",
+            "net_arch": [
+              64,
+              64
+            ],
+            "activation": "tanh",
+            "learning_rate": 0.0003,
+            "rollout_size": 5120,
+            "n_steps": 1024,
+            "batch_size": 512,
+            "n_epochs": 10,
+            "gamma": 0.999,
+            "gae_lambda": 0.995,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+            "torch_threads": 1,
+            "device": "cpu",
+            "vecnormalize": {
+              "normalize_observations": true,
+              "normalize_rewards": false,
+              "clip_obs": 10.0
+            }
+          },
+          "checkpoint": {
+            "interval": 102400,
+            "initial": true
+          },
+          "evaluation": {
+            "interval": 0,
+            "initial": false,
+            "final": false,
+            "deterministic_episodes": 5,
+            "stochastic_episodes": 60,
+            "random_baseline_episodes": 100,
+            "seed": 12345,
+            "workers": 0
+          },
+          "artifacts": {
+            "periodic_episodes": 10,
+            "retain_failed_cap": 20
+          },
+          "resume": {
+            "source_checkpoint": "",
+            "allow_executable_change": false,
+            "allow_lifecycle_change": false
+          }
+        },
+        "resolved": {
+          "reward": {
+            "contract": "btt_reward_v2",
+            "target_broken": 1.0,
+            "per_step": -0.001,
+            "clear_bonus": 10.0,
+            "failure_penalty": -5.0
+          },
+          "task": {
+            "game_version": "us",
+            "character": "mario",
+            "stage": "btt_mario",
+            "player": 0,
+            "costume": 0,
+            "executable_basename": "BattleShip.exe",
+            "targets_total": 10,
+            "native_boot": "SSB64_RL_BTT=1 -> rlBootApply (scene Bonus 1 Break the Targets, port 0, Mario, costume 0)",
+            "id": "ssb64_us_mario_btt_v1"
+          },
+          "executable": "build-us/Release/BattleShip.exe",
+          "output_root": "runs/m7e",
+          "run_dir": "runs/m7e/m7e_s1_v2",
+          "worker_runtime_root": null,
+          "resume_source": null,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "rollouts": 600,
+          "minibatches_per_epoch": 10,
+          "eval_workers": 5,
+          "lifecycle": {
+            "standby_preboot": true,
+            "standby_count": 1,
+            "standby_wait_timeout_s": 120.0,
+            "max_processes_per_worker": 2,
+            "max_game_processes": 10,
+            "eval_max_game_processes": 10
+          },
+          "port_blocks": {
+            "0": [
+              30000,
+              30249
+            ],
+            "1": [
+              30250,
+              30499
+            ],
+            "2": [
+              30500,
+              30749
+            ],
+            "3": [
+              30750,
+              30999
+            ],
+            "4": [
+              31000,
+              31249
+            ]
+          }
+        },
+        "fingerprints": {
+          "source_sha256": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f",
+          "semantic_fingerprint": "dd87c6c044691af15d3d9a5f8237f0ffca86bad7046f96a7b0318341de62ffc7",
+          "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660"
+        },
+        "field_classes": {
+          "run.name": "output",
+          "run.mode": "output",
+          "run.base_seed": "semantic",
+          "run.total_transitions": "semantic",
+          "run.output_root": "output",
+          "run.notes": "output",
+          "task.id": "immutable",
+          "task.game_version": "immutable",
+          "task.character": "immutable",
+          "task.stage": "immutable",
+          "task.player": "immutable",
+          "task.costume": "immutable",
+          "contracts.protocol_version": "immutable",
+          "contracts.observation": "immutable",
+          "contracts.action": "immutable",
+          "contracts.reward": "immutable",
+          "contracts.artifact_schema": "immutable",
+          "reward.target_broken": "immutable",
+          "reward.per_step": "immutable",
+          "reward.clear_bonus": "immutable",
+          "reward.failure_penalty": "immutable",
+          "environment.executable": "operational",
+          "environment.horizon": "immutable",
+          "environment.process_count": "immutable",
+          "environment.no_render": "immutable",
+          "environment.raphnet_disable": "immutable",
+          "environment.startup_attempts": "operational",
+          "environment.startup_timeout_s": "operational",
+          "environment.ready_timeout_s": "operational",
+          "environment.request_timeout_s": "operational",
+          "environment.exit_timeout_s": "operational",
+          "environment.step_timeout_s": "operational",
+          "environment.worker_runtime_root": "operational",
+          "environment.port_block_base": "operational",
+          "environment.port_block_size": "operational",
+          "environment.position_delta_threshold": "semantic",
+          "environment.standby_preboot": "lifecycle",
+          "environment.standby_count": "lifecycle",
+          "environment.standby_wait_timeout_s": "operational",
+          "ppo.policy": "immutable",
+          "ppo.net_arch": "immutable",
+          "ppo.activation": "immutable",
+          "ppo.learning_rate": "immutable",
+          "ppo.rollout_size": "immutable",
+          "ppo.n_steps": "immutable",
+          "ppo.batch_size": "immutable",
+          "ppo.n_epochs": "immutable",
+          "ppo.gamma": "immutable",
+          "ppo.gae_lambda": "immutable",
+          "ppo.clip_range": "immutable",
+          "ppo.ent_coef": "immutable",
+          "ppo.vf_coef": "immutable",
+          "ppo.max_grad_norm": "immutable",
+          "ppo.torch_threads": "operational",
+          "ppo.device": "immutable",
+          "ppo.vecnormalize.normalize_observations": "immutable",
+          "ppo.vecnormalize.normalize_rewards": "immutable",
+          "ppo.vecnormalize.clip_obs": "immutable",
+          "checkpoint.interval": "operational",
+          "checkpoint.initial": "operational",
+          "evaluation.interval": "operational",
+          "evaluation.initial": "operational",
+          "evaluation.final": "operational",
+          "evaluation.deterministic_episodes": "semantic",
+          "evaluation.stochastic_episodes": "semantic",
+          "evaluation.random_baseline_episodes": "semantic",
+          "evaluation.seed": "semantic",
+          "evaluation.workers": "operational",
+          "artifacts.periodic_episodes": "semantic",
+          "artifacts.retain_failed_cap": "operational",
+          "resume.source_checkpoint": "operational",
+          "resume.allow_executable_change": "operational",
+          "resume.allow_lifecycle_change": "operational"
+        }
+      },
+      "expected_initial_policy_digest": "1dd753aeda5f450e77d5ecbc83380b390dfc3783084ec50bd266cc2340b13f6c",
+      "expected_initial_obs_rms_digest": "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251"
+    },
+    "m7e_s2_v2": {
+      "seed": 2,
+      "order_index": 3,
+      "reward": "v2",
+      "m7d_counterpart": "m7d_s2_v2",
+      "config": "rl/configs/m7e/m7e_s2_v2.toml",
+      "source_sha256": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83",
+      "source_size": 4863,
+      "semantic_fingerprint": "684dc27abebbc9f4de00f984c3f90607049a6c289fbfe44249273d2579c57bb8",
+      "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660",
+      "reward_contract": {
+        "contract": "btt_reward_v2",
+        "target_broken": 1.0,
+        "per_step": -0.001,
+        "clear_bonus": 10.0,
+        "failure_penalty": -5.0
+      },
+      "lifecycle": {
+        "standby_preboot": true,
+        "standby_count": 1,
+        "standby_wait_timeout_s": 120.0,
+        "max_processes_per_worker": 2,
+        "max_game_processes": 10,
+        "eval_max_game_processes": 10
+      },
+      "run_dir": "runs/m7e/m7e_s2_v2",
+      "eval_dir": "runs/m7e/_eval/m7e_s2_v2",
+      "replay_dir": "runs/m7e/_replay/m7e_s2_v2",
+      "checkpoint_sets": 30,
+      "rollouts": 600,
+      "required_value_checks": {
+        "task": true,
+        "action_contract": true,
+        "observation_contract": true,
+        "reward_contract_v2_unchanged": true,
+        "reward_values": true,
+        "process_count_5": true,
+        "standby_on": true,
+        "max_game_processes_10": true,
+        "horizon_3600": true,
+        "transitions_3072000": true,
+        "rollout_geometry": true,
+        "ppo": true,
+        "mlp_64x64_tanh": true,
+        "ent_coef_zero": true,
+        "cpu_one_thread": true,
+        "observation_only_vecnormalize": true,
+        "fresh_initialisation": true,
+        "seed": true,
+        "no_in_process_evaluation": true,
+        "checkpoint_cadence": true,
+        "curve_episode_counts": true,
+        "evaluation_seed": true,
+        "random_baseline_episodes": true,
+        "artifacts": true,
+        "run_dir": true,
+        "output_root_is_m7e": true,
+        "m6_flags": true
+      },
+      "resolved": {
+        "schema": "battleship_experiment_v1",
+        "config_module_version": 2,
+        "source": {
+          "kind": "toml",
+          "path": "rl/configs/m7e/m7e_s2_v2.toml",
+          "sha256": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83",
+          "size": 4863,
+          "argv": null
+        },
+        "cli_overrides": {},
+        "config": {
+          "run": {
+            "name": "m7e_s2_v2",
+            "mode": "train",
+            "base_seed": 2,
+            "total_transitions": 3072000,
+            "output_root": "runs/m7e",
+            "notes": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 2, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)"
+          },
+          "task": {
+            "id": "ssb64_us_mario_btt_v1",
+            "game_version": "us",
+            "character": "mario",
+            "stage": "btt_mario",
+            "player": 0,
+            "costume": 0
+          },
+          "contracts": {
+            "protocol_version": 1,
+            "observation": "btt_policy_obs_v1",
+            "action": "btt_s9_b8_v1",
+            "reward": "btt_reward_v2",
+            "artifact_schema": 1
+          },
+          "reward": {
+            "target_broken": 1.0,
+            "per_step": -0.001,
+            "clear_bonus": 10.0,
+            "failure_penalty": -5.0
+          },
+          "environment": {
+            "executable": "build-us/Release/BattleShip.exe",
+            "horizon": 3600,
+            "process_count": 5,
+            "no_render": true,
+            "raphnet_disable": true,
+            "startup_attempts": 3,
+            "startup_timeout_s": 20.0,
+            "ready_timeout_s": 60.0,
+            "request_timeout_s": 10.0,
+            "exit_timeout_s": 30.0,
+            "step_timeout_s": 900.0,
+            "worker_runtime_root": "",
+            "port_block_base": 30000,
+            "port_block_size": 250,
+            "position_delta_threshold": 300.0,
+            "standby_preboot": true,
+            "standby_count": 1,
+            "standby_wait_timeout_s": 120.0
+          },
+          "ppo": {
+            "policy": "MlpPolicy",
+            "net_arch": [
+              64,
+              64
+            ],
+            "activation": "tanh",
+            "learning_rate": 0.0003,
+            "rollout_size": 5120,
+            "n_steps": 1024,
+            "batch_size": 512,
+            "n_epochs": 10,
+            "gamma": 0.999,
+            "gae_lambda": 0.995,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+            "torch_threads": 1,
+            "device": "cpu",
+            "vecnormalize": {
+              "normalize_observations": true,
+              "normalize_rewards": false,
+              "clip_obs": 10.0
+            }
+          },
+          "checkpoint": {
+            "interval": 102400,
+            "initial": true
+          },
+          "evaluation": {
+            "interval": 0,
+            "initial": false,
+            "final": false,
+            "deterministic_episodes": 5,
+            "stochastic_episodes": 60,
+            "random_baseline_episodes": 100,
+            "seed": 12345,
+            "workers": 0
+          },
+          "artifacts": {
+            "periodic_episodes": 10,
+            "retain_failed_cap": 20
+          },
+          "resume": {
+            "source_checkpoint": "",
+            "allow_executable_change": false,
+            "allow_lifecycle_change": false
+          }
+        },
+        "resolved": {
+          "reward": {
+            "contract": "btt_reward_v2",
+            "target_broken": 1.0,
+            "per_step": -0.001,
+            "clear_bonus": 10.0,
+            "failure_penalty": -5.0
+          },
+          "task": {
+            "game_version": "us",
+            "character": "mario",
+            "stage": "btt_mario",
+            "player": 0,
+            "costume": 0,
+            "executable_basename": "BattleShip.exe",
+            "targets_total": 10,
+            "native_boot": "SSB64_RL_BTT=1 -> rlBootApply (scene Bonus 1 Break the Targets, port 0, Mario, costume 0)",
+            "id": "ssb64_us_mario_btt_v1"
+          },
+          "executable": "build-us/Release/BattleShip.exe",
+          "output_root": "runs/m7e",
+          "run_dir": "runs/m7e/m7e_s2_v2",
+          "worker_runtime_root": null,
+          "resume_source": null,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "rollouts": 600,
+          "minibatches_per_epoch": 10,
+          "eval_workers": 5,
+          "lifecycle": {
+            "standby_preboot": true,
+            "standby_count": 1,
+            "standby_wait_timeout_s": 120.0,
+            "max_processes_per_worker": 2,
+            "max_game_processes": 10,
+            "eval_max_game_processes": 10
+          },
+          "port_blocks": {
+            "0": [
+              30000,
+              30249
+            ],
+            "1": [
+              30250,
+              30499
+            ],
+            "2": [
+              30500,
+              30749
+            ],
+            "3": [
+              30750,
+              30999
+            ],
+            "4": [
+              31000,
+              31249
+            ]
+          }
+        },
+        "fingerprints": {
+          "source_sha256": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83",
+          "semantic_fingerprint": "684dc27abebbc9f4de00f984c3f90607049a6c289fbfe44249273d2579c57bb8",
+          "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660"
+        },
+        "field_classes": {
+          "run.name": "output",
+          "run.mode": "output",
+          "run.base_seed": "semantic",
+          "run.total_transitions": "semantic",
+          "run.output_root": "output",
+          "run.notes": "output",
+          "task.id": "immutable",
+          "task.game_version": "immutable",
+          "task.character": "immutable",
+          "task.stage": "immutable",
+          "task.player": "immutable",
+          "task.costume": "immutable",
+          "contracts.protocol_version": "immutable",
+          "contracts.observation": "immutable",
+          "contracts.action": "immutable",
+          "contracts.reward": "immutable",
+          "contracts.artifact_schema": "immutable",
+          "reward.target_broken": "immutable",
+          "reward.per_step": "immutable",
+          "reward.clear_bonus": "immutable",
+          "reward.failure_penalty": "immutable",
+          "environment.executable": "operational",
+          "environment.horizon": "immutable",
+          "environment.process_count": "immutable",
+          "environment.no_render": "immutable",
+          "environment.raphnet_disable": "immutable",
+          "environment.startup_attempts": "operational",
+          "environment.startup_timeout_s": "operational",
+          "environment.ready_timeout_s": "operational",
+          "environment.request_timeout_s": "operational",
+          "environment.exit_timeout_s": "operational",
+          "environment.step_timeout_s": "operational",
+          "environment.worker_runtime_root": "operational",
+          "environment.port_block_base": "operational",
+          "environment.port_block_size": "operational",
+          "environment.position_delta_threshold": "semantic",
+          "environment.standby_preboot": "lifecycle",
+          "environment.standby_count": "lifecycle",
+          "environment.standby_wait_timeout_s": "operational",
+          "ppo.policy": "immutable",
+          "ppo.net_arch": "immutable",
+          "ppo.activation": "immutable",
+          "ppo.learning_rate": "immutable",
+          "ppo.rollout_size": "immutable",
+          "ppo.n_steps": "immutable",
+          "ppo.batch_size": "immutable",
+          "ppo.n_epochs": "immutable",
+          "ppo.gamma": "immutable",
+          "ppo.gae_lambda": "immutable",
+          "ppo.clip_range": "immutable",
+          "ppo.ent_coef": "immutable",
+          "ppo.vf_coef": "immutable",
+          "ppo.max_grad_norm": "immutable",
+          "ppo.torch_threads": "operational",
+          "ppo.device": "immutable",
+          "ppo.vecnormalize.normalize_observations": "immutable",
+          "ppo.vecnormalize.normalize_rewards": "immutable",
+          "ppo.vecnormalize.clip_obs": "immutable",
+          "checkpoint.interval": "operational",
+          "checkpoint.initial": "operational",
+          "evaluation.interval": "operational",
+          "evaluation.initial": "operational",
+          "evaluation.final": "operational",
+          "evaluation.deterministic_episodes": "semantic",
+          "evaluation.stochastic_episodes": "semantic",
+          "evaluation.random_baseline_episodes": "semantic",
+          "evaluation.seed": "semantic",
+          "evaluation.workers": "operational",
+          "artifacts.periodic_episodes": "semantic",
+          "artifacts.retain_failed_cap": "operational",
+          "resume.source_checkpoint": "operational",
+          "resume.allow_executable_change": "operational",
+          "resume.allow_lifecycle_change": "operational"
+        }
+      },
+      "expected_initial_policy_digest": "9fa632c6ffeb559d0daf4751648776dfbbaf2e3d750bd622019f7f8b0d1a8f87",
+      "expected_initial_obs_rms_digest": "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251"
+    }
+  },
+  "profile_pairs": {
+    "s0_vs_s1": {
+      "runs": [
+        "m7e_s0_v2",
+        "m7e_s1_v2"
+      ],
+      "resolved_diff": {
+        "config.run.base_seed": {
+          "a": 0,
+          "b": 1
+        },
+        "config.run.name": {
+          "a": "m7e_s0_v2",
+          "b": "m7e_s1_v2"
+        },
+        "config.run.notes": {
+          "a": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 0, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)",
+          "b": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 1, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)"
+        },
+        "fingerprints.semantic_fingerprint": {
+          "a": "d8d993eaacf7ee72d3f8c98787bafa8a2a4f583e42746827b2862c5f5941fd8b",
+          "b": "dd87c6c044691af15d3d9a5f8237f0ffca86bad7046f96a7b0318341de62ffc7"
+        },
+        "fingerprints.source_sha256": {
+          "a": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453",
+          "b": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f"
+        },
+        "resolved.run_dir": {
+          "a": "runs/m7e/m7e_s0_v2",
+          "b": "runs/m7e/m7e_s1_v2"
+        },
+        "source.path": {
+          "a": "rl/configs/m7e/m7e_s0_v2.toml",
+          "b": "rl/configs/m7e/m7e_s1_v2.toml"
+        },
+        "source.sha256": {
+          "a": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453",
+          "b": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f"
+        }
+      },
+      "resolved_proof": {
+        "differing_paths": 8,
+        "by_category": {
+          "seed_and_derived_worker_seeds": [
+            "config.run.base_seed"
+          ],
+          "run_identity": [
+            "config.run.name",
+            "config.run.notes"
+          ],
+          "output_paths": [
+            "resolved.run_dir",
+            "source.path"
+          ],
+          "derived_hashes": [
+            "fingerprints.semantic_fingerprint",
+            "fingerprints.source_sha256",
+            "source.sha256"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "same_compatibility_fingerprint": true,
+      "different_semantic_fingerprint": true,
+      "different_base_seed": true,
+      "compatibility_differences": [],
+      "trainer_diff": {
+        "base_seed": {
+          "a": 0,
+          "b": 1
+        },
+        "experiment.name": {
+          "a": "m7e_s0_v2",
+          "b": "m7e_s1_v2"
+        },
+        "experiment.semantic_fingerprint": {
+          "a": "d8d993eaacf7ee72d3f8c98787bafa8a2a4f583e42746827b2862c5f5941fd8b",
+          "b": "dd87c6c044691af15d3d9a5f8237f0ffca86bad7046f96a7b0318341de62ffc7"
+        },
+        "experiment.source.path": {
+          "a": "rl/configs/m7e/m7e_s0_v2.toml",
+          "b": "rl/configs/m7e/m7e_s1_v2.toml"
+        },
+        "experiment.source.sha256": {
+          "a": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453",
+          "b": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f"
+        },
+        "run_id": {
+          "a": "m7e_s0_v2",
+          "b": "m7e_s1_v2"
+        }
+      },
+      "trainer_proof": {
+        "differing_paths": 6,
+        "by_category": {
+          "seed_and_derived_worker_seeds": [
+            "base_seed"
+          ],
+          "run_identity": [
+            "experiment.name",
+            "run_id"
+          ],
+          "output_paths": [
+            "experiment.source.path"
+          ],
+          "derived_hashes": [
+            "experiment.semantic_fingerprint",
+            "experiment.source.sha256"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "different_initial_policy": true,
+      "evaluation_plan_proof": {
+        "differing_paths": 3,
+        "by_category": {
+          "run_identity": [
+            "run"
+          ],
+          "output_paths": [
+            "checkpoint",
+            "out_dir"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "evaluation_plan_points": [
+        11,
+        11
+      ]
+    },
+    "s0_vs_s2": {
+      "runs": [
+        "m7e_s0_v2",
+        "m7e_s2_v2"
+      ],
+      "resolved_diff": {
+        "config.run.base_seed": {
+          "a": 0,
+          "b": 2
+        },
+        "config.run.name": {
+          "a": "m7e_s0_v2",
+          "b": "m7e_s2_v2"
+        },
+        "config.run.notes": {
+          "a": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 0, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)",
+          "b": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 2, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)"
+        },
+        "fingerprints.semantic_fingerprint": {
+          "a": "d8d993eaacf7ee72d3f8c98787bafa8a2a4f583e42746827b2862c5f5941fd8b",
+          "b": "684dc27abebbc9f4de00f984c3f90607049a6c289fbfe44249273d2579c57bb8"
+        },
+        "fingerprints.source_sha256": {
+          "a": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453",
+          "b": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83"
+        },
+        "resolved.run_dir": {
+          "a": "runs/m7e/m7e_s0_v2",
+          "b": "runs/m7e/m7e_s2_v2"
+        },
+        "source.path": {
+          "a": "rl/configs/m7e/m7e_s0_v2.toml",
+          "b": "rl/configs/m7e/m7e_s2_v2.toml"
+        },
+        "source.sha256": {
+          "a": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453",
+          "b": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83"
+        }
+      },
+      "resolved_proof": {
+        "differing_paths": 8,
+        "by_category": {
+          "seed_and_derived_worker_seeds": [
+            "config.run.base_seed"
+          ],
+          "run_identity": [
+            "config.run.name",
+            "config.run.notes"
+          ],
+          "output_paths": [
+            "resolved.run_dir",
+            "source.path"
+          ],
+          "derived_hashes": [
+            "fingerprints.semantic_fingerprint",
+            "fingerprints.source_sha256",
+            "source.sha256"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "same_compatibility_fingerprint": true,
+      "different_semantic_fingerprint": true,
+      "different_base_seed": true,
+      "compatibility_differences": [],
+      "trainer_diff": {
+        "base_seed": {
+          "a": 0,
+          "b": 2
+        },
+        "experiment.name": {
+          "a": "m7e_s0_v2",
+          "b": "m7e_s2_v2"
+        },
+        "experiment.semantic_fingerprint": {
+          "a": "d8d993eaacf7ee72d3f8c98787bafa8a2a4f583e42746827b2862c5f5941fd8b",
+          "b": "684dc27abebbc9f4de00f984c3f90607049a6c289fbfe44249273d2579c57bb8"
+        },
+        "experiment.source.path": {
+          "a": "rl/configs/m7e/m7e_s0_v2.toml",
+          "b": "rl/configs/m7e/m7e_s2_v2.toml"
+        },
+        "experiment.source.sha256": {
+          "a": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453",
+          "b": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83"
+        },
+        "run_id": {
+          "a": "m7e_s0_v2",
+          "b": "m7e_s2_v2"
+        }
+      },
+      "trainer_proof": {
+        "differing_paths": 6,
+        "by_category": {
+          "seed_and_derived_worker_seeds": [
+            "base_seed"
+          ],
+          "run_identity": [
+            "experiment.name",
+            "run_id"
+          ],
+          "output_paths": [
+            "experiment.source.path"
+          ],
+          "derived_hashes": [
+            "experiment.semantic_fingerprint",
+            "experiment.source.sha256"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "different_initial_policy": true,
+      "evaluation_plan_proof": {
+        "differing_paths": 3,
+        "by_category": {
+          "run_identity": [
+            "run"
+          ],
+          "output_paths": [
+            "checkpoint",
+            "out_dir"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "evaluation_plan_points": [
+        11,
+        11
+      ]
+    },
+    "s1_vs_s2": {
+      "runs": [
+        "m7e_s1_v2",
+        "m7e_s2_v2"
+      ],
+      "resolved_diff": {
+        "config.run.base_seed": {
+          "a": 1,
+          "b": 2
+        },
+        "config.run.name": {
+          "a": "m7e_s1_v2",
+          "b": "m7e_s2_v2"
+        },
+        "config.run.notes": {
+          "a": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 1, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)",
+          "b": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 2, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)"
+        },
+        "fingerprints.semantic_fingerprint": {
+          "a": "dd87c6c044691af15d3d9a5f8237f0ffca86bad7046f96a7b0318341de62ffc7",
+          "b": "684dc27abebbc9f4de00f984c3f90607049a6c289fbfe44249273d2579c57bb8"
+        },
+        "fingerprints.source_sha256": {
+          "a": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f",
+          "b": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83"
+        },
+        "resolved.run_dir": {
+          "a": "runs/m7e/m7e_s1_v2",
+          "b": "runs/m7e/m7e_s2_v2"
+        },
+        "source.path": {
+          "a": "rl/configs/m7e/m7e_s1_v2.toml",
+          "b": "rl/configs/m7e/m7e_s2_v2.toml"
+        },
+        "source.sha256": {
+          "a": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f",
+          "b": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83"
+        }
+      },
+      "resolved_proof": {
+        "differing_paths": 8,
+        "by_category": {
+          "seed_and_derived_worker_seeds": [
+            "config.run.base_seed"
+          ],
+          "run_identity": [
+            "config.run.name",
+            "config.run.notes"
+          ],
+          "output_paths": [
+            "resolved.run_dir",
+            "source.path"
+          ],
+          "derived_hashes": [
+            "fingerprints.semantic_fingerprint",
+            "fingerprints.source_sha256",
+            "source.sha256"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "same_compatibility_fingerprint": true,
+      "different_semantic_fingerprint": true,
+      "different_base_seed": true,
+      "compatibility_differences": [],
+      "trainer_diff": {
+        "base_seed": {
+          "a": 1,
+          "b": 2
+        },
+        "experiment.name": {
+          "a": "m7e_s1_v2",
+          "b": "m7e_s2_v2"
+        },
+        "experiment.semantic_fingerprint": {
+          "a": "dd87c6c044691af15d3d9a5f8237f0ffca86bad7046f96a7b0318341de62ffc7",
+          "b": "684dc27abebbc9f4de00f984c3f90607049a6c289fbfe44249273d2579c57bb8"
+        },
+        "experiment.source.path": {
+          "a": "rl/configs/m7e/m7e_s1_v2.toml",
+          "b": "rl/configs/m7e/m7e_s2_v2.toml"
+        },
+        "experiment.source.sha256": {
+          "a": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f",
+          "b": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83"
+        },
+        "run_id": {
+          "a": "m7e_s1_v2",
+          "b": "m7e_s2_v2"
+        }
+      },
+      "trainer_proof": {
+        "differing_paths": 6,
+        "by_category": {
+          "seed_and_derived_worker_seeds": [
+            "base_seed"
+          ],
+          "run_identity": [
+            "experiment.name",
+            "run_id"
+          ],
+          "output_paths": [
+            "experiment.source.path"
+          ],
+          "derived_hashes": [
+            "experiment.semantic_fingerprint",
+            "experiment.source.sha256"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "different_initial_policy": true,
+      "evaluation_plan_proof": {
+        "differing_paths": 3,
+        "by_category": {
+          "run_identity": [
+            "run"
+          ],
+          "output_paths": [
+            "checkpoint",
+            "out_dir"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "evaluation_plan_points": [
+        11,
+        11
+      ]
+    }
+  },
+  "vs_m7d": {
+    "m7e_s0_v2": {
+      "available": true,
+      "m7d_config": "rl/configs/m7d/m7d_s0_v2.toml",
+      "m7d_run_dir": "runs/m7d/m7d_s0_v2",
+      "resolved_diff": {
+        "config.checkpoint.interval": {
+          "a": 51200,
+          "b": 102400
+        },
+        "config.evaluation.deterministic_episodes": {
+          "a": 2,
+          "b": 5
+        },
+        "config.evaluation.stochastic_episodes": {
+          "a": 20,
+          "b": 60
+        },
+        "config.run.mode": {
+          "a": "pilot",
+          "b": "train"
+        },
+        "config.run.name": {
+          "a": "m7d_s0_v2",
+          "b": "m7e_s0_v2"
+        },
+        "config.run.notes": {
+          "a": "M7d controlled reward comparison: btt_reward_v2, seed 0, N=5 standby, 1,024,000 transitions, no in-process evaluation (post-hoc protocol in the M7d manifest)",
+          "b": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 0, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)"
+        },
+        "config.run.output_root": {
+          "a": "runs/m7d",
+          "b": "runs/m7e"
+        },
+        "config.run.total_transitions": {
+          "a": 1024000,
+          "b": 3072000
+        },
+        "fingerprints.semantic_fingerprint": {
+          "a": "79cb0264d04956e84ebc5aceaaae723872c0dac4598787e435688ec8c68d9d45",
+          "b": "d8d993eaacf7ee72d3f8c98787bafa8a2a4f583e42746827b2862c5f5941fd8b"
+        },
+        "fingerprints.source_sha256": {
+          "a": "5499378da9326ee1a2a89ceea5aa6dbe3c8e191108519c7bcb9dae036b7233fa",
+          "b": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453"
+        },
+        "resolved.output_root": {
+          "a": "runs/m7d",
+          "b": "runs/m7e"
+        },
+        "resolved.rollouts": {
+          "a": 200,
+          "b": 600
+        },
+        "resolved.run_dir": {
+          "a": "runs/m7d/m7d_s0_v2",
+          "b": "runs/m7e/m7e_s0_v2"
+        },
+        "source.path": {
+          "a": "rl/configs/m7d/m7d_s0_v2.toml",
+          "b": "rl/configs/m7e/m7e_s0_v2.toml"
+        },
+        "source.sha256": {
+          "a": "5499378da9326ee1a2a89ceea5aa6dbe3c8e191108519c7bcb9dae036b7233fa",
+          "b": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453"
+        },
+        "source.size": {
+          "a": 3693,
+          "b": 4863
+        }
+      },
+      "proof": {
+        "differing_paths": 16,
+        "by_category": {
+          "transition_budget": [
+            "config.run.total_transitions",
+            "resolved.rollouts"
+          ],
+          "checkpoint_cadence": [
+            "config.checkpoint.interval"
+          ],
+          "evaluation_episode_counts": [
+            "config.evaluation.deterministic_episodes",
+            "config.evaluation.stochastic_episodes"
+          ],
+          "run_identity": [
+            "config.run.mode",
+            "config.run.name",
+            "config.run.notes"
+          ],
+          "output_paths": [
+            "config.run.output_root",
+            "resolved.output_root",
+            "resolved.run_dir",
+            "source.path"
+          ],
+          "derived_hashes": [
+            "fingerprints.semantic_fingerprint",
+            "fingerprints.source_sha256",
+            "source.sha256",
+            "source.size"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "same_base_seed": true,
+      "same_reward_contract": true,
+      "m7d_total_transitions": 1024000,
+      "m7e_total_transitions": 3072000,
+      "budget_multiple": 3.0,
+      "compatibility_differences": []
+    },
+    "m7e_s1_v2": {
+      "available": true,
+      "m7d_config": "rl/configs/m7d/m7d_s1_v2.toml",
+      "m7d_run_dir": "runs/m7d/m7d_s1_v2",
+      "resolved_diff": {
+        "config.checkpoint.interval": {
+          "a": 51200,
+          "b": 102400
+        },
+        "config.evaluation.deterministic_episodes": {
+          "a": 2,
+          "b": 5
+        },
+        "config.evaluation.stochastic_episodes": {
+          "a": 20,
+          "b": 60
+        },
+        "config.run.mode": {
+          "a": "pilot",
+          "b": "train"
+        },
+        "config.run.name": {
+          "a": "m7d_s1_v2",
+          "b": "m7e_s1_v2"
+        },
+        "config.run.notes": {
+          "a": "M7d controlled reward comparison: btt_reward_v2, seed 1, N=5 standby, 1,024,000 transitions, no in-process evaluation (post-hoc protocol in the M7d manifest)",
+          "b": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 1, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)"
+        },
+        "config.run.output_root": {
+          "a": "runs/m7d",
+          "b": "runs/m7e"
+        },
+        "config.run.total_transitions": {
+          "a": 1024000,
+          "b": 3072000
+        },
+        "fingerprints.semantic_fingerprint": {
+          "a": "cbf09b0c39c0963a13facc37cd7cb55ea6d8d685848d9ca788637768103f77d9",
+          "b": "dd87c6c044691af15d3d9a5f8237f0ffca86bad7046f96a7b0318341de62ffc7"
+        },
+        "fingerprints.source_sha256": {
+          "a": "a1fb865e45956444d4e98fe1eca15a202957655b98fa57ccdbc609e6529b6bf0",
+          "b": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f"
+        },
+        "resolved.output_root": {
+          "a": "runs/m7d",
+          "b": "runs/m7e"
+        },
+        "resolved.rollouts": {
+          "a": 200,
+          "b": 600
+        },
+        "resolved.run_dir": {
+          "a": "runs/m7d/m7d_s1_v2",
+          "b": "runs/m7e/m7e_s1_v2"
+        },
+        "source.path": {
+          "a": "rl/configs/m7d/m7d_s1_v2.toml",
+          "b": "rl/configs/m7e/m7e_s1_v2.toml"
+        },
+        "source.sha256": {
+          "a": "a1fb865e45956444d4e98fe1eca15a202957655b98fa57ccdbc609e6529b6bf0",
+          "b": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f"
+        },
+        "source.size": {
+          "a": 3693,
+          "b": 4863
+        }
+      },
+      "proof": {
+        "differing_paths": 16,
+        "by_category": {
+          "transition_budget": [
+            "config.run.total_transitions",
+            "resolved.rollouts"
+          ],
+          "checkpoint_cadence": [
+            "config.checkpoint.interval"
+          ],
+          "evaluation_episode_counts": [
+            "config.evaluation.deterministic_episodes",
+            "config.evaluation.stochastic_episodes"
+          ],
+          "run_identity": [
+            "config.run.mode",
+            "config.run.name",
+            "config.run.notes"
+          ],
+          "output_paths": [
+            "config.run.output_root",
+            "resolved.output_root",
+            "resolved.run_dir",
+            "source.path"
+          ],
+          "derived_hashes": [
+            "fingerprints.semantic_fingerprint",
+            "fingerprints.source_sha256",
+            "source.sha256",
+            "source.size"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "same_base_seed": true,
+      "same_reward_contract": true,
+      "m7d_total_transitions": 1024000,
+      "m7e_total_transitions": 3072000,
+      "budget_multiple": 3.0,
+      "compatibility_differences": []
+    },
+    "m7e_s2_v2": {
+      "available": true,
+      "m7d_config": "rl/configs/m7d/m7d_s2_v2.toml",
+      "m7d_run_dir": "runs/m7d/m7d_s2_v2",
+      "resolved_diff": {
+        "config.checkpoint.interval": {
+          "a": 51200,
+          "b": 102400
+        },
+        "config.evaluation.deterministic_episodes": {
+          "a": 2,
+          "b": 5
+        },
+        "config.evaluation.stochastic_episodes": {
+          "a": 20,
+          "b": 60
+        },
+        "config.run.mode": {
+          "a": "pilot",
+          "b": "train"
+        },
+        "config.run.name": {
+          "a": "m7d_s2_v2",
+          "b": "m7e_s2_v2"
+        },
+        "config.run.notes": {
+          "a": "M7d controlled reward comparison: btt_reward_v2, seed 2, N=5 standby, 1,024,000 transitions, no in-process evaluation (post-hoc protocol in the M7d manifest)",
+          "b": "M7e Phase B bounded reward-v2 extension: btt_reward_v2, seed 2, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol in the M7e manifest)"
+        },
+        "config.run.output_root": {
+          "a": "runs/m7d",
+          "b": "runs/m7e"
+        },
+        "config.run.total_transitions": {
+          "a": 1024000,
+          "b": 3072000
+        },
+        "fingerprints.semantic_fingerprint": {
+          "a": "03e8d04e35c1e490036d4cc5b2bc74a39f816bf0a4a1d516641c0ff5957b2291",
+          "b": "684dc27abebbc9f4de00f984c3f90607049a6c289fbfe44249273d2579c57bb8"
+        },
+        "fingerprints.source_sha256": {
+          "a": "0ad1f51278a0eecbb61917cfeb92afd2bed5cc52b12c680b89de0311f98e1e40",
+          "b": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83"
+        },
+        "resolved.output_root": {
+          "a": "runs/m7d",
+          "b": "runs/m7e"
+        },
+        "resolved.rollouts": {
+          "a": 200,
+          "b": 600
+        },
+        "resolved.run_dir": {
+          "a": "runs/m7d/m7d_s2_v2",
+          "b": "runs/m7e/m7e_s2_v2"
+        },
+        "source.path": {
+          "a": "rl/configs/m7d/m7d_s2_v2.toml",
+          "b": "rl/configs/m7e/m7e_s2_v2.toml"
+        },
+        "source.sha256": {
+          "a": "0ad1f51278a0eecbb61917cfeb92afd2bed5cc52b12c680b89de0311f98e1e40",
+          "b": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83"
+        },
+        "source.size": {
+          "a": 3693,
+          "b": 4863
+        }
+      },
+      "proof": {
+        "differing_paths": 16,
+        "by_category": {
+          "transition_budget": [
+            "config.run.total_transitions",
+            "resolved.rollouts"
+          ],
+          "checkpoint_cadence": [
+            "config.checkpoint.interval"
+          ],
+          "evaluation_episode_counts": [
+            "config.evaluation.deterministic_episodes",
+            "config.evaluation.stochastic_episodes"
+          ],
+          "run_identity": [
+            "config.run.mode",
+            "config.run.name",
+            "config.run.notes"
+          ],
+          "output_paths": [
+            "config.run.output_root",
+            "resolved.output_root",
+            "resolved.run_dir",
+            "source.path"
+          ],
+          "derived_hashes": [
+            "fingerprints.semantic_fingerprint",
+            "fingerprints.source_sha256",
+            "source.sha256",
+            "source.size"
+          ]
+        },
+        "unexpected": [],
+        "proof_ok": true
+      },
+      "same_base_seed": true,
+      "same_reward_contract": true,
+      "m7d_total_transitions": 1024000,
+      "m7e_total_transitions": 3072000,
+      "budget_multiple": 3.0,
+      "compatibility_differences": []
+    }
+  },
+  "vs_canonical_v2": {
+    "m7e_s0_v2": {
+      "canonical": "rl/configs/m7_mario_us_reward_v2_standby.toml",
+      "differing_paths": [
+        "config.checkpoint.interval",
+        "config.evaluation.deterministic_episodes",
+        "config.evaluation.final",
+        "config.evaluation.initial",
+        "config.evaluation.interval",
+        "config.evaluation.stochastic_episodes",
+        "config.run.mode",
+        "config.run.name",
+        "config.run.notes",
+        "config.run.output_root",
+        "config.run.total_transitions",
+        "fingerprints.semantic_fingerprint",
+        "fingerprints.source_sha256",
+        "resolved.output_root",
+        "resolved.rollouts",
+        "resolved.run_dir",
+        "source.path",
+        "source.sha256",
+        "source.size"
+      ],
+      "same_reward_contract": true,
+      "reward_paths_differ": [],
+      "compatibility_differences": []
+    },
+    "m7e_s1_v2": {
+      "canonical": "rl/configs/m7_mario_us_reward_v2_standby.toml",
+      "differing_paths": [
+        "config.checkpoint.interval",
+        "config.evaluation.deterministic_episodes",
+        "config.evaluation.final",
+        "config.evaluation.initial",
+        "config.evaluation.interval",
+        "config.evaluation.stochastic_episodes",
+        "config.run.base_seed",
+        "config.run.mode",
+        "config.run.name",
+        "config.run.notes",
+        "config.run.output_root",
+        "config.run.total_transitions",
+        "fingerprints.semantic_fingerprint",
+        "fingerprints.source_sha256",
+        "resolved.output_root",
+        "resolved.rollouts",
+        "resolved.run_dir",
+        "source.path",
+        "source.sha256",
+        "source.size"
+      ],
+      "same_reward_contract": true,
+      "reward_paths_differ": [],
+      "compatibility_differences": []
+    },
+    "m7e_s2_v2": {
+      "canonical": "rl/configs/m7_mario_us_reward_v2_standby.toml",
+      "differing_paths": [
+        "config.checkpoint.interval",
+        "config.evaluation.deterministic_episodes",
+        "config.evaluation.final",
+        "config.evaluation.initial",
+        "config.evaluation.interval",
+        "config.evaluation.stochastic_episodes",
+        "config.run.base_seed",
+        "config.run.mode",
+        "config.run.name",
+        "config.run.notes",
+        "config.run.output_root",
+        "config.run.total_transitions",
+        "fingerprints.semantic_fingerprint",
+        "fingerprints.source_sha256",
+        "resolved.output_root",
+        "resolved.rollouts",
+        "resolved.run_dir",
+        "source.path",
+        "source.sha256",
+        "source.size"
+      ],
+      "same_reward_contract": true,
+      "reward_paths_differ": [],
+      "compatibility_differences": []
+    }
+  },
+  "fresh_models": {
+    "policy": "fresh PPO models, not resumes of the M7d runs; the M7d runs and their checkpoints, statistics and artifacts are preserved untouched",
+    "resume_sources_declared": {
+      "m7e_s0_v2": null,
+      "m7e_s1_v2": null,
+      "m7e_s2_v2": null
+    },
+    "no_m7d_checkpoint_is_a_training_source": true,
+    "verified_after_each_run": "ckpt_000000000 is compared against the offline fresh construction of the same profile (expected_initial_* above)"
+  },
+  "trainer_config": {
+    "m7e_s0_v2": {
+      "run_id": "m7e_s0_v2",
+      "n_envs": 5,
+      "total_timesteps": 3072000,
+      "n_steps": 1024,
+      "runs_dir": "runs/m7e",
+      "executable": "build-us/Release/BattleShip.exe",
+      "purpose": "training",
+      "batch_size": 512,
+      "n_epochs": 10,
+      "gamma": 0.999,
+      "gae_lambda": 0.995,
+      "learning_rate": 0.0003,
+      "clip_range": 0.2,
+      "ent_coef": 0.0,
+      "vf_coef": 0.5,
+      "max_grad_norm": 0.5,
+      "base_seed": 0,
+      "horizon": 3600,
+      "checkpoint_interval": 102400,
+      "initial_checkpoint": true,
+      "eval_interval": 0,
+      "eval_initial": false,
+      "eval_final": false,
+      "eval_deterministic_episodes": 5,
+      "eval_stochastic_episodes": 60,
+      "eval_workers": null,
+      "eval_seed": 12345,
+      "periodic_episodes": 10,
+      "retain_failed_cap": 20,
+      "position_delta_threshold": 300.0,
+      "startup_attempts": 3,
+      "startup_timeout": 20.0,
+      "ready_timeout": 60.0,
+      "request_timeout": 10.0,
+      "exit_timeout": 30.0,
+      "step_timeout": 900.0,
+      "torch_threads": 1,
+      "device": "cpu",
+      "clip_obs": 10.0,
+      "norm_obs": true,
+      "extra_env": {
+        "SSB64_RL_NO_RENDER": "1",
+        "SSB64_RAPHNET_DISABLE": "1"
+      },
+      "resume_from": null,
+      "reward": {
+        "contract": "btt_reward_v2",
+        "target_broken": 1.0,
+        "per_step": -0.001,
+        "clear_bonus": 10.0,
+        "failure_penalty": -5.0
+      },
+      "net_arch": [
+        64,
+        64
+      ],
+      "activation": "tanh",
+      "port_block_base": 30000,
+      "port_block_size": 250,
+      "worker_runtime_root": null,
+      "allow_executable_change": false,
+      "standby_preboot": true,
+      "standby_count": 1,
+      "standby_wait_timeout": 120.0,
+      "allow_lifecycle_change": false,
+      "standby_fault": null,
+      "standby_fault_rank": null,
+      "fault": null,
+      "fault_rank": null,
+      "interrupt_at_vec_step": null,
+      "detect_native_failure": true,
+      "squat_first_attempt_rank": null,
+      "rollout_size": 5120,
+      "lifecycle": {
+        "contract": "btt_standby_lifecycle_v1",
+        "standby_preboot": true,
+        "standby_count": 1,
+        "standby_wait_timeout_s": 120.0,
+        "max_processes_per_worker": 2,
+        "max_game_processes": 10,
+        "eval_max_game_processes": 10
+      },
+      "experiment": {
+        "schema": "battleship_experiment_v1",
+        "config_module_version": 2,
+        "name": "m7e_s0_v2",
+        "mode": "train",
+        "task_id": "ssb64_us_mario_btt_v1",
+        "reward_contract": "btt_reward_v2",
+        "reward_values": {
+          "target_broken": 1.0,
+          "per_step": -0.001,
+          "clear_bonus": 10.0,
+          "failure_penalty": -5.0
+        },
+        "reward_canonical": true,
+        "source": {
+          "kind": "toml",
+          "path": "rl/configs/m7e/m7e_s0_v2.toml",
+          "sha256": "35c57a7a2a1b7bf612c6e501dca31cd59ea0b47f2c1ef646e213d564fca5e453"
+        },
+        "semantic_fingerprint": "d8d993eaacf7ee72d3f8c98787bafa8a2a4f583e42746827b2862c5f5941fd8b",
+        "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660",
+        "lifecycle": {
+          "standby_preboot": true,
+          "standby_count": 1,
+          "standby_wait_timeout_s": 120.0,
+          "max_processes_per_worker": 2,
+          "max_game_processes": 10,
+          "eval_max_game_processes": 10
+        }
+      }
+    },
+    "m7e_s1_v2": {
+      "run_id": "m7e_s1_v2",
+      "n_envs": 5,
+      "total_timesteps": 3072000,
+      "n_steps": 1024,
+      "runs_dir": "runs/m7e",
+      "executable": "build-us/Release/BattleShip.exe",
+      "purpose": "training",
+      "batch_size": 512,
+      "n_epochs": 10,
+      "gamma": 0.999,
+      "gae_lambda": 0.995,
+      "learning_rate": 0.0003,
+      "clip_range": 0.2,
+      "ent_coef": 0.0,
+      "vf_coef": 0.5,
+      "max_grad_norm": 0.5,
+      "base_seed": 1,
+      "horizon": 3600,
+      "checkpoint_interval": 102400,
+      "initial_checkpoint": true,
+      "eval_interval": 0,
+      "eval_initial": false,
+      "eval_final": false,
+      "eval_deterministic_episodes": 5,
+      "eval_stochastic_episodes": 60,
+      "eval_workers": null,
+      "eval_seed": 12345,
+      "periodic_episodes": 10,
+      "retain_failed_cap": 20,
+      "position_delta_threshold": 300.0,
+      "startup_attempts": 3,
+      "startup_timeout": 20.0,
+      "ready_timeout": 60.0,
+      "request_timeout": 10.0,
+      "exit_timeout": 30.0,
+      "step_timeout": 900.0,
+      "torch_threads": 1,
+      "device": "cpu",
+      "clip_obs": 10.0,
+      "norm_obs": true,
+      "extra_env": {
+        "SSB64_RL_NO_RENDER": "1",
+        "SSB64_RAPHNET_DISABLE": "1"
+      },
+      "resume_from": null,
+      "reward": {
+        "contract": "btt_reward_v2",
+        "target_broken": 1.0,
+        "per_step": -0.001,
+        "clear_bonus": 10.0,
+        "failure_penalty": -5.0
+      },
+      "net_arch": [
+        64,
+        64
+      ],
+      "activation": "tanh",
+      "port_block_base": 30000,
+      "port_block_size": 250,
+      "worker_runtime_root": null,
+      "allow_executable_change": false,
+      "standby_preboot": true,
+      "standby_count": 1,
+      "standby_wait_timeout": 120.0,
+      "allow_lifecycle_change": false,
+      "standby_fault": null,
+      "standby_fault_rank": null,
+      "fault": null,
+      "fault_rank": null,
+      "interrupt_at_vec_step": null,
+      "detect_native_failure": true,
+      "squat_first_attempt_rank": null,
+      "rollout_size": 5120,
+      "lifecycle": {
+        "contract": "btt_standby_lifecycle_v1",
+        "standby_preboot": true,
+        "standby_count": 1,
+        "standby_wait_timeout_s": 120.0,
+        "max_processes_per_worker": 2,
+        "max_game_processes": 10,
+        "eval_max_game_processes": 10
+      },
+      "experiment": {
+        "schema": "battleship_experiment_v1",
+        "config_module_version": 2,
+        "name": "m7e_s1_v2",
+        "mode": "train",
+        "task_id": "ssb64_us_mario_btt_v1",
+        "reward_contract": "btt_reward_v2",
+        "reward_values": {
+          "target_broken": 1.0,
+          "per_step": -0.001,
+          "clear_bonus": 10.0,
+          "failure_penalty": -5.0
+        },
+        "reward_canonical": true,
+        "source": {
+          "kind": "toml",
+          "path": "rl/configs/m7e/m7e_s1_v2.toml",
+          "sha256": "f3cb95fedf9050c8718c05c8447ea0c24f2f23396bce41a25aa4042567e4bc0f"
+        },
+        "semantic_fingerprint": "dd87c6c044691af15d3d9a5f8237f0ffca86bad7046f96a7b0318341de62ffc7",
+        "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660",
+        "lifecycle": {
+          "standby_preboot": true,
+          "standby_count": 1,
+          "standby_wait_timeout_s": 120.0,
+          "max_processes_per_worker": 2,
+          "max_game_processes": 10,
+          "eval_max_game_processes": 10
+        }
+      }
+    },
+    "m7e_s2_v2": {
+      "run_id": "m7e_s2_v2",
+      "n_envs": 5,
+      "total_timesteps": 3072000,
+      "n_steps": 1024,
+      "runs_dir": "runs/m7e",
+      "executable": "build-us/Release/BattleShip.exe",
+      "purpose": "training",
+      "batch_size": 512,
+      "n_epochs": 10,
+      "gamma": 0.999,
+      "gae_lambda": 0.995,
+      "learning_rate": 0.0003,
+      "clip_range": 0.2,
+      "ent_coef": 0.0,
+      "vf_coef": 0.5,
+      "max_grad_norm": 0.5,
+      "base_seed": 2,
+      "horizon": 3600,
+      "checkpoint_interval": 102400,
+      "initial_checkpoint": true,
+      "eval_interval": 0,
+      "eval_initial": false,
+      "eval_final": false,
+      "eval_deterministic_episodes": 5,
+      "eval_stochastic_episodes": 60,
+      "eval_workers": null,
+      "eval_seed": 12345,
+      "periodic_episodes": 10,
+      "retain_failed_cap": 20,
+      "position_delta_threshold": 300.0,
+      "startup_attempts": 3,
+      "startup_timeout": 20.0,
+      "ready_timeout": 60.0,
+      "request_timeout": 10.0,
+      "exit_timeout": 30.0,
+      "step_timeout": 900.0,
+      "torch_threads": 1,
+      "device": "cpu",
+      "clip_obs": 10.0,
+      "norm_obs": true,
+      "extra_env": {
+        "SSB64_RL_NO_RENDER": "1",
+        "SSB64_RAPHNET_DISABLE": "1"
+      },
+      "resume_from": null,
+      "reward": {
+        "contract": "btt_reward_v2",
+        "target_broken": 1.0,
+        "per_step": -0.001,
+        "clear_bonus": 10.0,
+        "failure_penalty": -5.0
+      },
+      "net_arch": [
+        64,
+        64
+      ],
+      "activation": "tanh",
+      "port_block_base": 30000,
+      "port_block_size": 250,
+      "worker_runtime_root": null,
+      "allow_executable_change": false,
+      "standby_preboot": true,
+      "standby_count": 1,
+      "standby_wait_timeout": 120.0,
+      "allow_lifecycle_change": false,
+      "standby_fault": null,
+      "standby_fault_rank": null,
+      "fault": null,
+      "fault_rank": null,
+      "interrupt_at_vec_step": null,
+      "detect_native_failure": true,
+      "squat_first_attempt_rank": null,
+      "rollout_size": 5120,
+      "lifecycle": {
+        "contract": "btt_standby_lifecycle_v1",
+        "standby_preboot": true,
+        "standby_count": 1,
+        "standby_wait_timeout_s": 120.0,
+        "max_processes_per_worker": 2,
+        "max_game_processes": 10,
+        "eval_max_game_processes": 10
+      },
+      "experiment": {
+        "schema": "battleship_experiment_v1",
+        "config_module_version": 2,
+        "name": "m7e_s2_v2",
+        "mode": "train",
+        "task_id": "ssb64_us_mario_btt_v1",
+        "reward_contract": "btt_reward_v2",
+        "reward_values": {
+          "target_broken": 1.0,
+          "per_step": -0.001,
+          "clear_bonus": 10.0,
+          "failure_penalty": -5.0
+        },
+        "reward_canonical": true,
+        "source": {
+          "kind": "toml",
+          "path": "rl/configs/m7e/m7e_s2_v2.toml",
+          "sha256": "7becf7103c0eda95f73817822f99b7339dcc9a70efc5af5a90ab68aab7591b83"
+        },
+        "semantic_fingerprint": "684dc27abebbc9f4de00f984c3f90607049a6c289fbfe44249273d2579c57bb8",
+        "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660",
+        "lifecycle": {
+          "standby_preboot": true,
+          "standby_count": 1,
+          "standby_wait_timeout_s": 120.0,
+          "max_processes_per_worker": 2,
+          "max_game_processes": 10,
+          "eval_max_game_processes": 10
+        }
+      }
+    }
+  },
+  "evaluation_protocol": {
+    "where": "after all training completes, in a separate process, on saved checkpoint sets - so evaluation can never reseed training and the process count can never exceed 10",
+    "points_per_seed": 11,
+    "interval": 307200,
+    "initial_and_final": {
+      "deterministic": 100,
+      "stochastic": 100
+    },
+    "intermediate": {
+      "deterministic": 5,
+      "stochastic": 60
+    },
+    "seed": 12345,
+    "workers": 5,
+    "lifecycle": "standby (as in training), at most 10 game processes",
+    "vecnormalize": "frozen: training=False, norm_reward=False, statistics of the evaluated checkpoint, never updated",
+    "preservation": "every evaluation episode keeps its canonical native-action artifact (preserve_all), so the M7e action-stream analysis can be rerun exactly as the Phase A one was",
+    "census": {
+      "evaluated_points_per_seed": 11,
+      "points": [
+        0,
+        307200,
+        614400,
+        921600,
+        1228800,
+        1536000,
+        1843200,
+        2150400,
+        2457600,
+        2764800,
+        3072000
+      ],
+      "intermediate_points": 9,
+      "arithmetic": {
+        "stochastic_per_seed": "100 (initial) + 9 x 60 (intermediate) + 100 (final) = 740",
+        "deterministic_per_seed": "100 (initial) + 9 x 5 (intermediate) + 100 (final) = 245",
+        "per_seed": "740 + 245 = 985",
+        "three_seeds": "3 x 985 = 2955",
+        "plus_random_baseline": "2955 + 100 = 3055"
+      },
+      "stochastic_per_seed": 740,
+      "deterministic_per_seed": 245,
+      "per_seed": 985,
+      "model_episodes": 2955,
+      "random_baseline_episodes": 100,
+      "total_episodes": 3055,
+      "proposal_total": 3055,
+      "reconciles": true,
+      "sessions": {
+        "per_seed": 22,
+        "model": 66,
+        "random_baseline": 1,
+        "total": 67,
+        "note": "one deterministic and one stochastic session per evaluated point, plus the random baseline session"
+      }
+    },
+    "random_baseline": {
+      "episodes": 100,
+      "seed": 12345,
+      "workers": 5,
+      "cross_check": "runs/m7a_random_baseline/evaluation_summary.json"
+    },
+    "plan": {
+      "m7e_s0_v2": [
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "initial",
+          "checkpoint": "m7e_s0_v2/checkpoints/ckpt_000000000",
+          "num_timesteps": 0,
+          "deterministic_episodes": 100,
+          "stochastic_episodes": 100,
+          "out_dir": "_eval/m7e_s0_v2/initial"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "curve_t000307200",
+          "checkpoint": "m7e_s0_v2/checkpoints/ckpt_000307200",
+          "num_timesteps": 307200,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s0_v2/curve_t000307200"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "curve_t000614400",
+          "checkpoint": "m7e_s0_v2/checkpoints/ckpt_000614400",
+          "num_timesteps": 614400,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s0_v2/curve_t000614400"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "curve_t000921600",
+          "checkpoint": "m7e_s0_v2/checkpoints/ckpt_000921600",
+          "num_timesteps": 921600,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s0_v2/curve_t000921600"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "curve_t001228800",
+          "checkpoint": "m7e_s0_v2/checkpoints/ckpt_001228800",
+          "num_timesteps": 1228800,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s0_v2/curve_t001228800"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "curve_t001536000",
+          "checkpoint": "m7e_s0_v2/checkpoints/ckpt_001536000",
+          "num_timesteps": 1536000,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s0_v2/curve_t001536000"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "curve_t001843200",
+          "checkpoint": "m7e_s0_v2/checkpoints/ckpt_001843200",
+          "num_timesteps": 1843200,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s0_v2/curve_t001843200"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "curve_t002150400",
+          "checkpoint": "m7e_s0_v2/checkpoints/ckpt_002150400",
+          "num_timesteps": 2150400,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s0_v2/curve_t002150400"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "curve_t002457600",
+          "checkpoint": "m7e_s0_v2/checkpoints/ckpt_002457600",
+          "num_timesteps": 2457600,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s0_v2/curve_t002457600"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "curve_t002764800",
+          "checkpoint": "m7e_s0_v2/checkpoints/ckpt_002764800",
+          "num_timesteps": 2764800,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s0_v2/curve_t002764800"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s0_v2",
+          "label": "final",
+          "checkpoint": "m7e_s0_v2/final",
+          "num_timesteps": 3072000,
+          "deterministic_episodes": 100,
+          "stochastic_episodes": 100,
+          "out_dir": "_eval/m7e_s0_v2/final"
+        }
+      ],
+      "m7e_s1_v2": [
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "initial",
+          "checkpoint": "m7e_s1_v2/checkpoints/ckpt_000000000",
+          "num_timesteps": 0,
+          "deterministic_episodes": 100,
+          "stochastic_episodes": 100,
+          "out_dir": "_eval/m7e_s1_v2/initial"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "curve_t000307200",
+          "checkpoint": "m7e_s1_v2/checkpoints/ckpt_000307200",
+          "num_timesteps": 307200,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s1_v2/curve_t000307200"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "curve_t000614400",
+          "checkpoint": "m7e_s1_v2/checkpoints/ckpt_000614400",
+          "num_timesteps": 614400,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s1_v2/curve_t000614400"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "curve_t000921600",
+          "checkpoint": "m7e_s1_v2/checkpoints/ckpt_000921600",
+          "num_timesteps": 921600,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s1_v2/curve_t000921600"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "curve_t001228800",
+          "checkpoint": "m7e_s1_v2/checkpoints/ckpt_001228800",
+          "num_timesteps": 1228800,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s1_v2/curve_t001228800"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "curve_t001536000",
+          "checkpoint": "m7e_s1_v2/checkpoints/ckpt_001536000",
+          "num_timesteps": 1536000,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s1_v2/curve_t001536000"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "curve_t001843200",
+          "checkpoint": "m7e_s1_v2/checkpoints/ckpt_001843200",
+          "num_timesteps": 1843200,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s1_v2/curve_t001843200"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "curve_t002150400",
+          "checkpoint": "m7e_s1_v2/checkpoints/ckpt_002150400",
+          "num_timesteps": 2150400,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s1_v2/curve_t002150400"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "curve_t002457600",
+          "checkpoint": "m7e_s1_v2/checkpoints/ckpt_002457600",
+          "num_timesteps": 2457600,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s1_v2/curve_t002457600"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "curve_t002764800",
+          "checkpoint": "m7e_s1_v2/checkpoints/ckpt_002764800",
+          "num_timesteps": 2764800,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s1_v2/curve_t002764800"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s1_v2",
+          "label": "final",
+          "checkpoint": "m7e_s1_v2/final",
+          "num_timesteps": 3072000,
+          "deterministic_episodes": 100,
+          "stochastic_episodes": 100,
+          "out_dir": "_eval/m7e_s1_v2/final"
+        }
+      ],
+      "m7e_s2_v2": [
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "initial",
+          "checkpoint": "m7e_s2_v2/checkpoints/ckpt_000000000",
+          "num_timesteps": 0,
+          "deterministic_episodes": 100,
+          "stochastic_episodes": 100,
+          "out_dir": "_eval/m7e_s2_v2/initial"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "curve_t000307200",
+          "checkpoint": "m7e_s2_v2/checkpoints/ckpt_000307200",
+          "num_timesteps": 307200,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s2_v2/curve_t000307200"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "curve_t000614400",
+          "checkpoint": "m7e_s2_v2/checkpoints/ckpt_000614400",
+          "num_timesteps": 614400,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s2_v2/curve_t000614400"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "curve_t000921600",
+          "checkpoint": "m7e_s2_v2/checkpoints/ckpt_000921600",
+          "num_timesteps": 921600,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s2_v2/curve_t000921600"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "curve_t001228800",
+          "checkpoint": "m7e_s2_v2/checkpoints/ckpt_001228800",
+          "num_timesteps": 1228800,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s2_v2/curve_t001228800"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "curve_t001536000",
+          "checkpoint": "m7e_s2_v2/checkpoints/ckpt_001536000",
+          "num_timesteps": 1536000,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s2_v2/curve_t001536000"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "curve_t001843200",
+          "checkpoint": "m7e_s2_v2/checkpoints/ckpt_001843200",
+          "num_timesteps": 1843200,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s2_v2/curve_t001843200"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "curve_t002150400",
+          "checkpoint": "m7e_s2_v2/checkpoints/ckpt_002150400",
+          "num_timesteps": 2150400,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s2_v2/curve_t002150400"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "curve_t002457600",
+          "checkpoint": "m7e_s2_v2/checkpoints/ckpt_002457600",
+          "num_timesteps": 2457600,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s2_v2/curve_t002457600"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "curve_t002764800",
+          "checkpoint": "m7e_s2_v2/checkpoints/ckpt_002764800",
+          "num_timesteps": 2764800,
+          "deterministic_episodes": 5,
+          "stochastic_episodes": 60,
+          "out_dir": "_eval/m7e_s2_v2/curve_t002764800"
+        },
+        {
+          "seed": 12345,
+          "workers": 5,
+          "horizon": 3600,
+          "extra_env": {
+            "SSB64_RL_NO_RENDER": "1",
+            "SSB64_RAPHNET_DISABLE": "1"
+          },
+          "standby_preboot": true,
+          "standby_count": 1,
+          "frozen_vecnormalize": true,
+          "preserve_all": true,
+          "reward_contract": "btt_reward_v2",
+          "run": "m7e_s2_v2",
+          "label": "final",
+          "checkpoint": "m7e_s2_v2/final",
+          "num_timesteps": 3072000,
+          "deterministic_episodes": 100,
+          "stochastic_episodes": 100,
+          "out_dir": "_eval/m7e_s2_v2/final"
+        }
+      ]
+    }
+  },
+  "first_clear_protocol": {
+    "preserve": "immediately and unconditionally, with the full canonical native action stream, metadata, both observations and the checkpoint that produced it, regardless of any other preservation rule",
+    "two_clocks": "completion_time_passed and completion_input_tick are recorded as two separate values; neither is collapsed into the other nor decremented",
+    "native_revalidation": "the canonical actions are replayed on a fresh process from tick 0 through the existing replay_one path (fresh state, initial observation, every consumed_tick, the final observation including host_frame, the target count, both completion clocks and cleared_natively). A clear that does not reproduce is a clear CANDIDATE, never a verified clear",
+    "baseline_comparison": "only after native re-validation, against completion_time_passed = 446 / completion_input_tick = 447 as separate clocks",
+    "training_not_stopped": true
+  },
+  "plateau_rule": {
+    "rule_id": "m7e_plateau_rule_v1",
+    "registered": "docs/rl_extended_training_m7e_proposal.md section 6.6, committed in 9d45235 before any M7e Phase B training data existed",
+    "window": "the final 6 evaluated checkpoints, t = 1536000 through 3072000 (spanning 1536000 transitions)",
+    "declared_when": [
+      "the bootstrap 95 % CI of the Theil-Sen slope of mean stochastic targets excludes +0.25 targets per 1e6 transitions, in at least 2 of 3 seeds",
+      "and no seed's tail fraction has fallen by more than 0.05 over the same span"
+    ],
+    "both_halves_required": "a flat target curve with a still-shrinking tail is progress in a form the target count has not yet registered",
+    "slope_units": "targets per 1e6 transitions",
+    "bootstrap": {
+      "resamples": 10000,
+      "level": 0.95,
+      "unit": "the stochastic episodes of each evaluated point are resampled with replacement inside that point; the Theil-Sen slope is recomputed from the resampled point means"
+    }
+  },
+  "decision_gates": [
+    {
+      "gate": 1,
+      "key": "verified_clear",
+      "outcome": "A verified clear (natively re-validated per section 6.5)",
+      "response": "The primary objective is reached for the first time. M7f becomes clear-rate and completion-time work under btt_reward_v2, which is then confirmed rather than provisional. Preserve the clear, its checkpoint and its full action stream permanently; report both completion clocks separately; open the Track 2 comparison against the 7.43 s baseline. Do not retune anything until the clear is reproduced at a second seed.",
+      "mutually_exclusive_with": [
+        2,
+        4
+      ],
+      "evaluation_order": 1
+    },
+    {
+      "gate": 2,
+      "key": "better_targets_no_clear",
+      "outcome": "Better targets, no clear (mean targets up, 3/3 or 2/3 seeds, ceiling still <= 6)",
+      "response": "v2 is confirmed for continued use on objective rank 2. The budget question is answered: more transitions help. M7f addresses the ceiling, not the budget - and the target-identity instrumentation (section 6.6) is promoted from optional to prerequisite, because 'which four are never broken' is then the blocking unknown.",
+      "mutually_exclusive_with": [
+        1,
+        4
+      ],
+      "evaluation_order": 2
+    },
+    {
+      "gate": 3,
+      "key": "still_improving",
+      "outcome": "Still improving at 3,072,000 (no plateau by section 6.6)",
+      "response": "Do not silently extend. Record that the budget is still not the binding constraint, and open M7f as an explicit budget-versus-intervention decision with the new curves in hand. A further extension needs its own pre-registration and its own maximum.",
+      "evaluation_order": 4
+    },
+    {
+      "gate": 4,
+      "key": "plateau",
+      "outcome": "A plateau (by the section 6.6 rule)",
+      "response": "The budget question is settled negatively: unchanged v2 has converged short of the objective. This is the trigger for option C - a controlled anti-confinement or exploration intervention, one behaviour-changing variable against the v2 baseline, given a new contract identity (never an edit to v1 or v2), with v2 preserved and rerun as the control arm.",
+      "mutually_exclusive_with": [
+        1,
+        2
+      ],
+      "evaluation_order": 3
+    },
+    {
+      "gate": 5,
+      "key": "worse_idling",
+      "outcome": "Worse idling (tail fraction up >= 0.10 in >= 2 seeds, or zero_target_horizon_rate > 0.05 anywhere, or targets flat/down)",
+      "response": "Treat as a genuine regression of the selected contract, not a metric artefact - the proportional metric is immune to the section 1 confound. Stop; do not extend further. Re-open the M7d selection with the M7e evidence attached, and design the intervention against a documented failure rather than a suspicion.",
+      "thresholds": {
+        "tail_fraction_rise": 0.1,
+        "seeds_required": 2,
+        "zero_target_horizon_rate": 0.05
+      },
+      "evaluation_order": 5
+    },
+    {
+      "gate": 6,
+      "key": "seed_disagreement",
+      "outcome": "Strong seed disagreement (>= 1 seed improving while >= 1 regresses, by section 3's rule)",
+      "response": "No aggregate claim is made. Report per seed, add seeds 3 and 4 at the same 3,072,000 budget before any contract or hyperparameter change, and treat the three-seed conclusion as unresolved until five exist. Seed-cluster intervals, not episode-level ones, carry the cross-seed claim.",
+      "evaluation_order": 6
+    },
+    {
+      "gate": 7,
+      "key": "deterministic_collapse",
+      "outcome": "Deterministic collapse persists (collapse_share >= 0.5 in >= 2 of 3 seeds at final)",
+      "response": "Record it as an evaluation-mode property of the contract, not as a training failure, and keep the stochastic policy as the reported one. If it persists while policy entropy has stopped falling, that combination contradicts hypothesis 1 in section 4 and forces a re-ranking of the root causes before M7f is designed.",
+      "thresholds": {
+        "collapse_share": 0.5,
+        "seeds_required": 2
+      },
+      "evaluation_order": 7
+    },
+    {
+      "gate": 8,
+      "key": "lifecycle_regression",
+      "outcome": "A lifecycle, artifact or replay regression (any process-count breach, port leak, non-reproducing preserved artifact, git diff --check failure, or a changed user-configuration sha256)",
+      "response": "Stop the experiment at once. Do not analyse or report gameplay results from a run whose lifecycle is in question. Diagnose, document under docs/bugs/, fix, re-verify the full regression chain, and only then decide whether the affected runs are salvageable or must be rerun.",
+      "pre_empts": "all others",
+      "evaluation_order": 0
+    }
+  ],
+  "gate_ordering": "Gate 8 pre-empts all others. Gates 1, 2 and 4 are mutually exclusive and are evaluated in that order. Gate 3 is the complement of gate 4 under the section 6.6 rule. Gates 5, 6 and 7 are independent observations and may co-occur with any of the others.",
+  "objective_ranking": [
+    "verified clear",
+    "more targets for incomplete runs",
+    "faster time among verified clears",
+    "reward is diagnostic only"
+  ],
+  "stopping_rules": {
+    "maximum_budget": "3,072,000 transitions per seed, hard. No continuation beyond it inside M7e, whatever the curves do; a further extension is a new milestone with its own pre-registration (proposal section 6.2).",
+    "a_clear_does_not_stop_training": "Training is not stopped by a clear; the run continues to its budget so the curve stays interpretable (proposal section 6.5 item 5).",
+    "hard_stop": "Gate 8 conditions stop the experiment at once: more than 10 live BattleShip processes, a user-configuration change, free disk below 5 GiB, or any episode / reward-contract invariant violated. The monitor raises them; the orchestrator stops the trainer and the matrix.",
+    "no_post_hoc_rule_invention": "The plateau rule, the eight gates and this budget were registered in 9d45235 before any M7e Phase B data existed and are applied as written."
+  },
+  "directory_plan": {
+    "directories": {
+      "eval:m7e_s0_v2": "runs/m7e/_eval/m7e_s0_v2",
+      "eval:m7e_s1_v2": "runs/m7e/_eval/m7e_s1_v2",
+      "eval:m7e_s2_v2": "runs/m7e/_eval/m7e_s2_v2",
+      "eval_root": "runs/m7e/_eval",
+      "matrix_root": "runs/m7e",
+      "random_baseline": "runs/m7e/_eval/random_baseline",
+      "replay:m7e_s0_v2": "runs/m7e/_replay/m7e_s0_v2",
+      "replay:m7e_s1_v2": "runs/m7e/_replay/m7e_s1_v2",
+      "replay:m7e_s2_v2": "runs/m7e/_replay/m7e_s2_v2",
+      "replay_root": "runs/m7e/_replay",
+      "run:m7e_s0_v2": "runs/m7e/m7e_s0_v2",
+      "run:m7e_s1_v2": "runs/m7e/m7e_s1_v2",
+      "run:m7e_s2_v2": "runs/m7e/m7e_s2_v2",
+      "state": "runs/m7e/_matrix"
+    },
+    "historical_directories": 53,
+    "cannot_touch_m7d": true,
+    "require_absent": false,
+    "problems": [],
+    "ok": true
+  },
+  "limits": {
+    "max_game_processes": 10,
+    "reward_normalization": false,
+    "evaluation_inside_learn": false,
+    "video_recording": false,
+    "resume_scope": "a run's own lineage only: same semantic fingerprint, seed and reward contract; never across seeds, contracts or runs"
+  },
+  "problems": [],
+  "ok": true
+}
