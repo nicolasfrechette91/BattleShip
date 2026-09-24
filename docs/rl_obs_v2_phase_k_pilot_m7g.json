@@ -1,0 +1,596 @@
+{
+ "schema": "battleship_m7g_k_pilot_v1",
+ "milestone": "M7g",
+ "phase": "K",
+ "step": "pilot",
+ "date_utc": "2026-09-24",
+ "status": "passed",
+ "scope": "isolated pilot only: v1 control 102,400 + v2 pilot 204,800 transitions; no comparison run, no extension, no other training; nothing committed or pushed",
+ "commands": [
+  "python rl/m7g_k_run.py manifest",
+  "python rl/m7g_k_run.py resources",
+  "python rl/m7g_k_run.py pilot --dry-run",
+  "python rl/m7g_k_run.py pilot --arm v1",
+  "python rl/m7g_k_run.py pilot --arm v2 --dry-run",
+  "python rl/m7g_k_run.py pilot --arm v2"
+ ],
+ "identity": {
+  "executable_sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+  "revisions": {
+   "head": "afa42fcd01b4b6657f57a78948ae212f59d96955",
+   "dirty": true,
+   "submodules": {
+    "decomp": "3c7fd5d0547ae82a240a6ffd134985e4b9697b14",
+    "libultraship": "805f195041573230cf0402171337b22ffd558759",
+    "torch": "3aa9c9739af95659f19adc73afeb12df93957fc3"
+   },
+   "submodules_differ_from_index": []
+  },
+  "code_sha256": "78ee37f65aa5736738f0bf677d5b3bed5c928d980a67304a967f2790ef5556a7",
+  "manifest_drift_at_launch": [],
+  "profiles": {
+   "m7g_pilot_s0_v1": {
+    "source_sha256": "9bb2e357e9f881f14d8874a43682fedd6de4f75ba41339cbfa34e6a6091b9081",
+    "semantic_fingerprint": "e71200718e21626c9f57d01bf2a9e7f81a8f8317fd7abb1b8a2e5f5194b9cb47",
+    "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660",
+    "expected_initial_policy_digest": "68155f41065d243fed9bcdc9e0be71bb0b583595bd1da02f7d9d7cbf42054fa2",
+    "expected_initial_obs_rms_digest": "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251"
+   },
+   "m7g_pilot_s0_v2": {
+    "source_sha256": "86a6521a92515916e2d7058d6620c9c2a7c5096a0ff62720eba2f2eb75b5cdb4",
+    "semantic_fingerprint": "033097b7a27dc17fbae61a8c9e9d662e89b31fa2f62cf9cdc5754c9ee3f0fc75",
+    "compatibility_fingerprint": "7b9cfd189bda17f7de2b5e54ef1e2821246438bf24a8374a7e9646ec57acf4f0",
+    "expected_initial_policy_digest": "a968777dfff5fe3689e33bfe21bf20f2409c58f3236834c18c8a3a41da3e001c",
+    "expected_initial_obs_rms_digest": "64d01c2a791bf4099dc5c69d369e2133b8fe446a578c9119cb1a983302caf39e"
+   }
+  }
+ },
+ "resource_gate": [
+  {
+   "utc": "2026-09-24T01:29:28+00:00",
+   "arms": [
+    "v1"
+   ],
+   "commit_available_gib": 16.858,
+   "physical_available_gib": 5.54,
+   "cpu_mean_pct": 0.2,
+   "disk_free_gib": 143.24,
+   "ok": true
+  },
+  {
+   "utc": "2026-09-24T01:41:39+00:00",
+   "arms": [
+    "v2"
+   ],
+   "commit_available_gib": 16.561,
+   "physical_available_gib": 5.11,
+   "cpu_mean_pct": 0.1,
+   "disk_free_gib": 143.02,
+   "ok": true
+  }
+ ],
+ "control_reproduction": {
+  "t": 102400,
+  "pilot_digests": [
+   "5cec5fc4028dbca5f0e2402408718fb01ca21fa8aaa8242333c40ac0917b4b97",
+   "050acde93d9b43f3fd92eea767412991073cc11523d12691acea2d0c834ecee1"
+  ],
+  "m7e_digests": [
+   "5cec5fc4028dbca5f0e2402408718fb01ca21fa8aaa8242333c40ac0917b4b97",
+   "050acde93d9b43f3fd92eea767412991073cc11523d12691acea2d0c834ecee1"
+  ],
+  "episode_rows_compared": 30,
+  "problems": [],
+  "ok": true
+ },
+ "runs": {
+  "m7g_pilot_s0_v1": {
+   "status": "verified",
+   "passed": true,
+   "problems": [],
+   "exit_code": 0,
+   "stop_reason": null,
+   "wall_s": 96.4,
+   "training": {
+    "available": true,
+    "wall_s_trainer_process": 96.4,
+    "transitions": 102400,
+    "rollouts": 20,
+    "learn_s": 86.519,
+    "end_to_end_transitions_per_s": 1183.6,
+    "collection_transitions_per_s": 1479.7,
+    "collect_s": 69.202,
+    "optimize_wall_s": 9.687,
+    "rollout_wall_s_mean": 3.9444,
+    "first20_rollouts": {
+     "n": 20,
+     "wall_s": 78.889,
+     "transitions_per_s": 1298.0
+    },
+    "episodes_finished": 30,
+    "end_reasons": {
+     "clear": 0,
+     "fall": 8,
+     "horizon": 22,
+     "lifecycle_failure": 0
+    },
+    "targets_mean": 3.1667,
+    "targets_max": 6,
+    "clears": 0,
+    "memory": {
+     "parent_peak_working_set_mib": 286.4,
+     "parent_peak_private_mib": 460.2,
+     "worker_peak_working_set_mib_max": 45.9,
+     "game_peak_working_set_mib_max": 106.1,
+     "game_private_mib_max": 369.6,
+     "system_before": {
+      "commit_used_gib": 14.853,
+      "avail_commit_gib": 16.559,
+      "avail_phys_gib": 5.009
+     },
+     "system_commit_used_gib_max": 19.609,
+     "system_avail_phys_gib_min": 4.339,
+     "system_avail_commit_gib_min": 11.803,
+     "commit_drawn_gib": 4.756,
+     "physical_drawn_gib": 0.67,
+     "monitor_interval_s": 15.0,
+     "monitor_samples": 7
+    },
+    "processes": {
+     "monitor_max_battleship": 10,
+     "monitor_max_listeners": 10,
+     "lifecycle_expected_max": 10,
+     "lifecycle_observed_max_concurrent_per_worker": 2,
+     "limit": 10
+    },
+    "monitor_alerts": {
+     "hard": [],
+     "soft_count": 0,
+     "cold_fallbacks_after_first": 0,
+     "startup_failures": 0,
+     "lifecycle_failures": 0
+    }
+   },
+   "throughput_vs_v1": null,
+   "checkpoints": {
+    "ckpt_000000000": {
+     "num_timesteps": 0,
+     "n_updates": 0,
+     "digests": [
+      "68155f41065d243fed9bcdc9e0be71bb0b583595bd1da02f7d9d7cbf42054fa2",
+      "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251"
+     ],
+     "problems": []
+    },
+    "final": {
+     "num_timesteps": 102400,
+     "n_updates": 200,
+     "digests": [
+      "5cec5fc4028dbca5f0e2402408718fb01ca21fa8aaa8242333c40ac0917b4b97",
+      "050acde93d9b43f3fd92eea767412991073cc11523d12691acea2d0c834ecee1"
+     ],
+     "problems": []
+    }
+   },
+   "evaluation": {
+    "protocol": "5 deterministic + 20 stochastic, final set, btt_eval_metrics_v1 (evaluation only)",
+    "provenance_problems": [],
+    "verification_ok": true,
+    "verification_problems": [],
+    "digest": {
+     "available": true,
+     "deterministic": {
+      "episodes": 5,
+      "metrics_ok": 5,
+      "targets_mean": 2.0,
+      "targets_max": 2,
+      "end_reasons": {
+       "horizon": 5
+      },
+      "clears": 0,
+      "left_entries": 0,
+      "seven_or_more": 0,
+      "moving_target_2_broken": 0,
+      "broken_id_sets": [
+       [
+        3,
+        0
+       ]
+      ],
+      "unique_native_action_digests": 1
+     },
+     "stochastic": {
+      "episodes": 20,
+      "metrics_ok": 20,
+      "targets_mean": 3.15,
+      "targets_max": 6,
+      "end_reasons": {
+       "fall": 5,
+       "horizon": 15
+      },
+      "clears": 0,
+      "left_entries": 0,
+      "seven_or_more": 0,
+      "moving_target_2_broken": 0,
+      "broken_id_sets": [
+       [],
+       [
+        0,
+        4
+       ],
+       [
+        0,
+        4,
+        9
+       ],
+       [
+        0,
+        9
+       ],
+       [
+        0,
+        9,
+        4
+       ],
+       [
+        0,
+        9,
+        4,
+        5
+       ],
+       [
+        3,
+        9,
+        5,
+        0,
+        4
+       ],
+       [
+        4,
+        0,
+        9
+       ],
+       [
+        4,
+        5,
+        9,
+        0
+       ],
+       [
+        4,
+        9,
+        0
+       ],
+       [
+        4,
+        9,
+        0,
+        5
+       ],
+       [
+        4,
+        9,
+        5,
+        0
+       ],
+       [
+        5,
+        4,
+        0,
+        9
+       ],
+       [
+        9,
+        0
+       ],
+       [
+        9,
+        0,
+        4,
+        7,
+        3,
+        5
+       ],
+       [
+        9,
+        0,
+        5,
+        4
+       ],
+       [
+        9,
+        4
+       ],
+       [
+        9,
+        4,
+        0
+       ],
+       [
+        9,
+        5,
+        0
+       ]
+      ],
+      "unique_native_action_digests": 20
+     }
+    },
+    "clears": {
+     "verified": 0,
+     "candidates": 0
+    },
+    "wall_s": 80.5,
+    "monitor_max_battleship_processes": 10,
+    "leak_free": true
+   },
+   "verification_record": "runs/m7g_k/_pilot/_verify/m7g_pilot_s0_v1.json"
+  },
+  "m7g_pilot_s0_v2": {
+   "status": "verified",
+   "passed": true,
+   "problems": [],
+   "exit_code": 0,
+   "stop_reason": null,
+   "wall_s": 206.5,
+   "training": {
+    "available": true,
+    "wall_s_trainer_process": 206.5,
+    "transitions": 204800,
+    "rollouts": 40,
+    "learn_s": 195.704,
+    "end_to_end_transitions_per_s": 1046.8,
+    "collection_transitions_per_s": 1276.6,
+    "collect_s": 160.431,
+    "optimize_wall_s": 30.594,
+    "rollout_wall_s_mean": 4.7756,
+    "first20_rollouts": {
+     "n": 20,
+     "wall_s": 97.283,
+     "transitions_per_s": 1052.6
+    },
+    "episodes_finished": 59,
+    "end_reasons": {
+     "clear": 0,
+     "fall": 7,
+     "horizon": 52,
+     "lifecycle_failure": 0
+    },
+    "targets_mean": 3.3051,
+    "targets_max": 5,
+    "clears": 0,
+    "memory": {
+     "parent_peak_working_set_mib": 303.1,
+     "parent_peak_private_mib": 462.0,
+     "worker_peak_working_set_mib_max": 46.3,
+     "game_peak_working_set_mib_max": 106.0,
+     "game_private_mib_max": 369.0,
+     "system_before": {
+      "commit_used_gib": 14.911,
+      "avail_commit_gib": 16.501,
+      "avail_phys_gib": 4.999
+     },
+     "system_commit_used_gib_max": 20.083,
+     "system_avail_phys_gib_min": 3.944,
+     "system_avail_commit_gib_min": 11.329,
+     "commit_drawn_gib": 5.172,
+     "physical_drawn_gib": 1.055,
+     "monitor_interval_s": 15.0,
+     "monitor_samples": 14
+    },
+    "processes": {
+     "monitor_max_battleship": 10,
+     "monitor_max_listeners": 10,
+     "lifecycle_expected_max": 10,
+     "lifecycle_observed_max_concurrent_per_worker": 2,
+     "limit": 10
+    },
+    "monitor_alerts": {
+     "hard": [],
+     "soft_count": 0,
+     "cold_fallbacks_after_first": 0,
+     "startup_failures": 0,
+     "lifecycle_failures": 0
+    }
+   },
+   "throughput_vs_v1": {
+    "ratios": {
+     "end_to_end": 0.8844,
+     "first20_rollouts": 0.8109
+    },
+    "floor": 0.5,
+    "blocker": false
+   },
+   "checkpoints": {
+    "ckpt_000000000": {
+     "num_timesteps": 0,
+     "n_updates": 0,
+     "digests": [
+      "a968777dfff5fe3689e33bfe21bf20f2409c58f3236834c18c8a3a41da3e001c",
+      "64d01c2a791bf4099dc5c69d369e2133b8fe446a578c9119cb1a983302caf39e"
+     ],
+     "problems": []
+    },
+    "ckpt_000102400": {
+     "num_timesteps": 102400,
+     "n_updates": 200,
+     "digests": [
+      "9166f2095da3fc5eab364678a090d185362715d319e95586b4c06d4642f1fa75",
+      "3e0fc436cd14f8b6ec7a04fd28092a8423e26f9a75fe40b80821caeb4e67a1d9"
+     ],
+     "problems": []
+    },
+    "final": {
+     "num_timesteps": 204800,
+     "n_updates": 400,
+     "digests": [
+      "f37f7bf2a38d6829b58afd2e33663c1d890dbdb69a7c272da4a5fb113464d678",
+      "217ba7e7102b5746864135d80ee4924330ae3d09fdfdfd3dbee6154b34b692ac"
+     ],
+     "problems": []
+    }
+   },
+   "evaluation": {
+    "protocol": "5 deterministic + 20 stochastic, final set, btt_eval_metrics_v1 (evaluation only)",
+    "provenance_problems": [],
+    "verification_ok": true,
+    "verification_problems": [],
+    "digest": {
+     "available": true,
+     "deterministic": {
+      "episodes": 5,
+      "metrics_ok": 5,
+      "targets_mean": 3.0,
+      "targets_max": 3,
+      "end_reasons": {
+       "horizon": 5
+      },
+      "clears": 0,
+      "left_entries": 0,
+      "seven_or_more": 0,
+      "moving_target_2_broken": 0,
+      "broken_id_sets": [
+       [
+        4,
+        9,
+        0
+       ]
+      ],
+      "unique_native_action_digests": 1
+     },
+     "stochastic": {
+      "episodes": 20,
+      "metrics_ok": 20,
+      "targets_mean": 3.3,
+      "targets_max": 4,
+      "end_reasons": {
+       "horizon": 20
+      },
+      "clears": 0,
+      "left_entries": 0,
+      "seven_or_more": 0,
+      "moving_target_2_broken": 0,
+      "broken_id_sets": [
+       [
+        0,
+        4,
+        9,
+        5
+       ],
+       [
+        0,
+        5,
+        4,
+        9
+       ],
+       [
+        0,
+        9,
+        4
+       ],
+       [
+        0,
+        9,
+        4,
+        5
+       ],
+       [
+        0,
+        9,
+        5,
+        4
+       ],
+       [
+        4,
+        0,
+        9
+       ],
+       [
+        4,
+        9,
+        0
+       ],
+       [
+        4,
+        9,
+        0,
+        5
+       ],
+       [
+        9,
+        0
+       ],
+       [
+        9,
+        0,
+        4
+       ],
+       [
+        9,
+        4,
+        0
+       ],
+       [
+        9,
+        4,
+        5,
+        0
+       ]
+      ],
+      "unique_native_action_digests": 20
+     }
+    },
+    "clears": {
+     "verified": 0,
+     "candidates": 0
+    },
+    "wall_s": 86.0,
+    "monitor_max_battleship_processes": 10,
+    "leak_free": true
+   },
+   "verification_record": "runs/m7g_k/_pilot/_verify/m7g_pilot_s0_v2.json"
+  }
+ },
+ "historical_tree": [
+  {
+   "arms": [
+    "v1"
+   ],
+   "files": 86893,
+   "bytes": 3825894794,
+   "identical": true,
+   "removed": [],
+   "changed": [],
+   "mtime_changed": [],
+   "added_count": 0,
+   "before_aggregate": "236eade04a8ab42b7de7c333b3ef1fdd31592a464b0c685d1fc6f8629833b823",
+   "after_aggregate": "236eade04a8ab42b7de7c333b3ef1fdd31592a464b0c685d1fc6f8629833b823"
+  },
+  {
+   "arms": [
+    "v2"
+   ],
+   "files": 86893,
+   "bytes": 3825894794,
+   "identical": true,
+   "removed": [],
+   "changed": [],
+   "mtime_changed": [],
+   "added_count": 0,
+   "before_aggregate": "236eade04a8ab42b7de7c333b3ef1fdd31592a464b0c685d1fc6f8629833b823",
+   "after_aggregate": "236eade04a8ab42b7de7c333b3ef1fdd31592a464b0c685d1fc6f8629833b823"
+  }
+ ],
+ "artifacts_root": "runs/m7g_k/_pilot (git-ignored; not part of any commit)",
+ "reference": {
+  "m7e_s0_v2_full_run_end_to_end_tr_per_s": 1442.3,
+  "m7e_s0_v2_first20_rollouts_tr_per_s": 1212.4,
+  "m7e_s0_v2_all_rollouts_tr_per_s": 1446.3,
+  "m7e_s0_v2_learn_s": 2131.161
+ },
+ "projection_estimate": {
+  "basis": "[E] M7e seed-0 full-run v1 rate x the pilot's v2/v1 rollout-matched ratio 0.8109",
+  "v1_run_learn_min": 35.4,
+  "v2_run_learn_min": 43.7,
+  "six_runs_training_h": 3.95
+ }
+}

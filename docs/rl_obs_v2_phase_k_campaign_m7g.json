@@ -1,0 +1,298 @@
+{
+ "schema": "battleship_m7g_k_campaign_record_v1",
+ "date": "2026-09-24",
+ "status": "prepared and tested without training; stopped for review; nothing trained, committed or pushed",
+ "final_pass_root": "runs/m7g_k/_campaign_final_20260924T004703Z",
+ "suites": [
+  "m7g_k_campaign_tests exit 0 150s",
+  "m7g_k_tests exit 0 182s",
+  "m7g_eval_metrics_selftest exit 0 1s",
+  "m7g_k_analysis_selftest exit 0 0s",
+  "m7f_targets_selftest exit 0 1s",
+  "m7b_config_tests exit 0 10s",
+  "m7e_tests_unit exit 0 24s",
+  "m7d_tests_unit exit 0 207s",
+  "m7c_standby_unit exit 0 6s",
+  "m7_smoke_unit exit 0 13s",
+  "m7g_tests_unit exit 0 6s",
+  "m7g_obs_tests_unit exit 0 23s",
+  "snapshot exit 0",
+  "DONE"
+ ],
+ "campaign_cases": {
+  "unit_recorder": "PASS",
+  "unit_recorder_wiring": "PASS",
+  "unit_manifest": "PASS",
+  "unit_drift_detection": "PASS",
+  "unit_resource_gate": "PASS",
+  "unit_dry_runs": "PASS",
+  "unit_partial_and_resume": "PASS",
+  "unit_checkpoint_provenance": "PASS",
+  "unit_analysis": "PASS",
+  "unit_census": "PASS",
+  "unit_historical_verify": "PASS",
+  "unit_isolation": "PASS",
+  "game_metrics_fixtures": "PASS",
+  "game_metrics_tas_clear": "PASS",
+  "game_clear_verification": "PASS",
+  "game_eval_end_to_end": "PASS"
+ },
+ "readiness_cases": {
+  "unit_existing_profiles": "PASS",
+  "unit_phase_k_profiles": "PASS",
+  "unit_config_rejections": "PASS",
+  "unit_checkpoint_identity": "PASS",
+  "unit_update_path": "PASS",
+  "unit_isolation": "PASS",
+  "game_v1_historical_eval": "PASS",
+  "game_wiring_smoke": "PASS",
+  "game_target_diag_probe": "PASS"
+ },
+ "metrics_validation": {
+  "fixtures": {
+   "lower_v1": {
+    "left_entry_tick": 1093,
+    "breaks": [
+     [
+      0,
+      603,
+      604
+     ],
+     [
+      7,
+      995,
+      996
+     ],
+     [
+      6,
+      1189,
+      1190
+     ],
+     [
+      8,
+      1246,
+      1247
+     ],
+     [
+      1,
+      1394,
+      1395
+     ]
+    ],
+    "end": "fall",
+    "episodes": 1
+   },
+   "lower_v2": {
+    "left_entry_tick": 1093,
+    "breaks": [
+     [
+      0,
+      603,
+      604
+     ],
+     [
+      7,
+      995,
+      996
+     ],
+     [
+      6,
+      1189,
+      1190
+     ],
+     [
+      8,
+      1246,
+      1247
+     ],
+     [
+      1,
+      1394,
+      1395
+     ]
+    ],
+    "end": "fall",
+    "episodes": 2
+   },
+   "upper_v1": {
+    "left_entry_tick": 464,
+    "breaks": [
+     [
+      8,
+      592,
+      593
+     ]
+    ],
+    "end": "horizon",
+    "episodes": 1
+   },
+   "upper_v2": {
+    "left_entry_tick": 464,
+    "breaks": [
+     [
+      8,
+      592,
+      593
+     ]
+    ],
+    "end": "horizon",
+    "episodes": 1
+   }
+  },
+  "tas_clear": {
+   "actions": 447,
+   "clocks": [
+    446,
+    447
+   ],
+   "left_entry_tick": 359,
+   "moving_target_break_tick": 163,
+   "artifact": "runs/m7g_k/_campaign_final_20260924T004703Z/campaign/game_metrics_tas_clear/artifacts/episode_20260924T004759Z_6ef97afe"
+  },
+  "clear_verification": {
+   "genuine": {
+    "candidates": 1,
+    "verified": 1,
+    "recorded": [
+     446,
+     447
+    ],
+    "replayed": [
+     446,
+     447
+    ]
+   },
+   "collapsed_clock": {
+    "candidates": 1,
+    "verified": 0,
+    "recorded": [
+     446,
+     446
+    ],
+    "replayed": [
+     446,
+     447
+    ]
+   }
+  },
+  "eval_end_to_end": {
+   "v1": {
+    "episodes": 4,
+    "targets": [
+     0,
+     3,
+     1,
+     2
+    ],
+    "left_entries": 0
+   },
+   "v2": {
+    "episodes": 4,
+    "targets": [
+     0,
+     3,
+     3,
+     2
+    ],
+    "left_entries": 0
+   },
+   "random": [
+    0,
+    3,
+    4
+   ]
+  }
+ },
+ "resource_gate": {
+  "rule": "available system commit >= 6.0 GiB AND available physical >= 2.5 GiB (separately), disk >= 10 GiB, CPU <= 40 %, no BattleShip / listener / SSB64_* variable",
+  "reading_during_tests": {
+   "commit_available_gib": 17.044,
+   "physical_available_gib": 5.177,
+   "cpu_mean_pct": 0.1,
+   "ok": true,
+   "problems": []
+  }
+ },
+ "manifest": {
+  "path": "docs/rl_obs_v2_phase_k_manifest_m7g.json",
+  "ok": true,
+  "runs": 12,
+  "code_sha256": "bf21b75739e0018f130f84b93b013ce1f276205e806d6be71d683a58574a6f9d",
+  "executable_sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+  "revisions": {
+   "head": "afa42fcd01b4b6657f57a78948ae212f59d96955",
+   "dirty": true,
+   "submodules": {
+    "decomp": "3c7fd5d0547ae82a240a6ffd134985e4b9697b14",
+    "libultraship": "805f195041573230cf0402171337b22ffd558759",
+    "torch": "3aa9c9739af95659f19adc73afeb12df93957fc3"
+   },
+   "submodules_differ_from_index": []
+  },
+  "census": [
+   6010,
+   9950
+  ],
+  "drift_now": []
+ },
+ "defects_fixed_before_training": [
+  "m7d_run.inspect_vecnormalize crashed on Dict (v2) statistics -> Dict branch, v1 output unchanged",
+  "proposal 6.1 float64 wording -> exact rational arithmetic (4.02 - 3.52 = 0.49999999999999956 in float64)"
+ ],
+ "untested_on_a_real_v2_ppo_run": [
+  "PPO rollouts/updates on real v2 observations",
+  "end-to-end v2 throughput and memory under training",
+  "real v2 checkpoint cadence and verify_training_run on a real v2 run",
+  "train_once/train_m7.py for a v2 profile under the live monitor",
+  "metrics on a trained policy's episodes; deterministic identical episodes of a trained v2 argmax policy",
+  "a genuine v2 -> v2 resume",
+  "v1 control reproduction of M7e on the current executable",
+  "clear verification of a real Track 1 clear (none exists)"
+ ],
+ "pilot": {
+  "command": "python rl/m7g_k_run.py pilot",
+  "runs": [
+   {
+    "profile": "rl/configs/m7g/pilot/m7g_pilot_s0_v1.toml",
+    "transitions": 102400,
+    "gate": "final digests == runs/m7e/m7e_s0_v2/checkpoints/ckpt_000102400 and every training episode row equal"
+   },
+   {
+    "profile": "rl/configs/m7g/pilot/m7g_pilot_s0_v2.toml",
+    "transitions": 204800,
+    "gate": "verified v2 run, throughput/memory recorded, small evaluation + clear verification pass"
+   }
+  ]
+ },
+ "working_tree": {
+  "parent_head": "afa42fcd01b4b6657f57a78948ae212f59d96955",
+  "parent_status": [
+   "M docs/rl_experiment_configuration_m7b.md",
+   " M docs/rl_obs_v2_experiment_proposal_m7g.md",
+   " M docs/rl_observation_v2_m7g.md",
+   " M rl/btt_parallel.py",
+   " M rl/experiment_config.py",
+   " M rl/m7_evaluation.py",
+   " M rl/m7_trainer.py",
+   " M rl/m7d_run.py",
+   "?? docs/rl_obs_v2_phase_k_campaign_m7g.md",
+   "?? docs/rl_obs_v2_phase_k_manifest_m7g.json",
+   "?? docs/rl_obs_v2_phase_k_readiness_m7g.json",
+   "?? docs/rl_obs_v2_phase_k_readiness_m7g.md",
+   "?? rl/configs/m7g/",
+   "?? rl/m7g_eval_metrics.py",
+   "?? rl/m7g_k_analysis.py",
+   "?? rl/m7g_k_campaign_tests.py",
+   "?? rl/m7g_k_matrix.py",
+   "?? rl/m7g_k_run.py",
+   "?? rl/m7g_k_tests.py"
+  ],
+  "decomp_head": "3c7fd5d0547ae82a240a6ffd134985e4b9697b14",
+  "decomp_status": [],
+  "submodules": [
+   "3c7fd5d0547ae82a240a6ffd134985e4b9697b14 decomp (heads/rl-main)",
+   " 805f195041573230cf0402171337b22ffd558759 libultraship (heads/m6/raphnet-bypass)",
+   " 3aa9c9739af95659f19adc73afeb12df93957fc3 torch (remotes/origin/agent/issue-batch)"
+  ]
+ }
+}

@@ -1,0 +1,373 @@
+{
+ "schema": "battleship_m7g_phase_k_readiness_v1",
+ "date": "2026-09-23",
+ "status": "wired and validated without training; Phase K not launched; no model trained",
+ "repository": {
+  "parent_head": "afa42fcd01b4b6657f57a78948ae212f59d96955",
+  "parent_branch": "main",
+  "decomp_head": "3c7fd5d0547ae82a240a6ffd134985e4b9697b14",
+  "decomp_branch": "rl-main",
+  "parent_status": [
+   "M docs/rl_experiment_configuration_m7b.md",
+   " M docs/rl_obs_v2_experiment_proposal_m7g.md",
+   " M docs/rl_observation_v2_m7g.md",
+   " M rl/experiment_config.py",
+   " M rl/m7_evaluation.py",
+   " M rl/m7_trainer.py",
+   "?? docs/rl_obs_v2_phase_k_readiness_m7g.md",
+   "?? rl/configs/m7g/",
+   "?? rl/m7g_k_tests.py"
+  ],
+  "decomp_status": [],
+  "submodules": [
+   "3c7fd5d0547ae82a240a6ffd134985e4b9697b14 decomp (heads/rl-main)",
+   " 805f195041573230cf0402171337b22ffd558759 libultraship (heads/m6/raphnet-bypass)",
+   " 3aa9c9739af95659f19adc73afeb12df93957fc3 torch (remotes/origin/agent/issue-batch)"
+  ],
+  "note": "M7g-a/M7g-b were already committed and pushed (parent afa42fc, decomp 3c7fd5d05) before this task; nothing was committed or pushed by this task"
+ },
+ "executable_sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+ "fixtures_sha256": {
+  "rl/fixtures/m7g/lower_precision_2ad7b1da89d8.json": "18446e2b749022a6460f9b0ce1c754d731f6f3e1852c3d5048dc7c0f83c57626",
+  "rl/fixtures/m7g/upper_moving_platform_8b9ecf2b967f.json": "adfd9eda15cf92577f846fb722d9dff0e2f70faf50bcbc8566d10cf141766ec9"
+ },
+ "observation_v2": {
+  "contract": "btt_policy_obs_v2_spatial",
+  "contract_sha256": "dcfd14b276c3d9f38f180888c132febb67ace39797bdef2aefb185e024c8c0cb",
+  "norm_obs_keys": [
+   "segment_geometry",
+   "state",
+   "target_geometry"
+  ],
+  "unnormalized_keys": [
+   "segment_kind",
+   "target_live"
+  ],
+  "flat_size": 525
+ },
+ "phase_k_profiles": {
+  "rl/configs/m7g/m7g_s0_v1.toml": {
+   "source_sha256": "d9f763f701deadf3432256736d0d904be192d74a965cff7af5bbb0dab143faa9",
+   "semantic_fingerprint": "d8d993eaacf7ee72d3f8c98787bafa8a2a4f583e42746827b2862c5f5941fd8b",
+   "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660",
+   "observation": "btt_policy_obs_v1",
+   "policy": "MlpPolicy",
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1"
+   },
+   "seed": 0
+  },
+  "rl/configs/m7g/m7g_s0_v2.toml": {
+   "source_sha256": "082b46b3a77012e65f7baa7c646edf53d2ae2421adfe7e86a6ee65556e5d18ff",
+   "semantic_fingerprint": "7ebf069407cc1e491eca5ff9ebafdbc63397b0db16252f26a10d5d6a284457d5",
+   "compatibility_fingerprint": "7b9cfd189bda17f7de2b5e54ef1e2821246438bf24a8374a7e9646ec57acf4f0",
+   "observation": "btt_policy_obs_v2_spatial",
+   "policy": "MultiInputPolicy",
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_SPATIAL": "1"
+   },
+   "seed": 0
+  },
+  "rl/configs/m7g/m7g_s1_v1.toml": {
+   "source_sha256": "ab7dbbb4b68180f0935e42999a1fb442b05994e17aff9c783b1ada6251947699",
+   "semantic_fingerprint": "dd87c6c044691af15d3d9a5f8237f0ffca86bad7046f96a7b0318341de62ffc7",
+   "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660",
+   "observation": "btt_policy_obs_v1",
+   "policy": "MlpPolicy",
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1"
+   },
+   "seed": 1
+  },
+  "rl/configs/m7g/m7g_s1_v2.toml": {
+   "source_sha256": "efbcef81e1c22a82be032a5aefed29107aa817233364dbea1b761cb7c1a93679",
+   "semantic_fingerprint": "c9bdb6369f08ed640c4497a95dbf4db7d17f0714209f95c01193804cfe17d087",
+   "compatibility_fingerprint": "7b9cfd189bda17f7de2b5e54ef1e2821246438bf24a8374a7e9646ec57acf4f0",
+   "observation": "btt_policy_obs_v2_spatial",
+   "policy": "MultiInputPolicy",
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_SPATIAL": "1"
+   },
+   "seed": 1
+  },
+  "rl/configs/m7g/m7g_s2_v1.toml": {
+   "source_sha256": "6b8b6285c1703571031a4d1c8111d71daa762f9b2585e08314b08726d5a8367f",
+   "semantic_fingerprint": "684dc27abebbc9f4de00f984c3f90607049a6c289fbfe44249273d2579c57bb8",
+   "compatibility_fingerprint": "ac622dfa7b3a5d781a5a4c9147811495a0a2839a3edfe2c5a47ea98d370cb660",
+   "observation": "btt_policy_obs_v1",
+   "policy": "MlpPolicy",
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1"
+   },
+   "seed": 2
+  },
+  "rl/configs/m7g/m7g_s2_v2.toml": {
+   "source_sha256": "c8a31441d73b2d3b0b0e4f6ed03129842f649234300e7ae9979cb9853e2bdd2f",
+   "semantic_fingerprint": "b9286221247fa7ecd688b39808c3294dc3007ab661b9ed8cf79941fbd7f9dc2c",
+   "compatibility_fingerprint": "7b9cfd189bda17f7de2b5e54ef1e2821246438bf24a8374a7e9646ec57acf4f0",
+   "observation": "btt_policy_obs_v2_spatial",
+   "policy": "MultiInputPolicy",
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_SPATIAL": "1"
+   },
+   "seed": 2
+  }
+ },
+ "tests": {
+  "m7g_k_tests_unit": {
+   "root": "runs/m7g_k/_final_20260924T000212Z/m7g_k_tests",
+   "ok": true,
+   "cases": {
+    "unit_existing_profiles": "PASS",
+    "unit_phase_k_profiles": "PASS",
+    "unit_config_rejections": "PASS",
+    "unit_checkpoint_identity": "PASS",
+    "unit_update_path": "PASS",
+    "unit_isolation": "PASS"
+   }
+  },
+  "m7g_k_tests_game": {
+   "root": "runs/m7g_k/_final_20260924T000212Z/m7g_k_tests",
+   "ok": true,
+   "cases": {
+    "game_v1_historical_eval": "PASS",
+    "game_wiring_smoke": "PASS",
+    "game_target_diag_probe": "PASS"
+   }
+  },
+  "inherited_unit_suites": {
+   "root": "runs/m7g_k/_final_20260924T000212Z",
+   "results": [
+    "m7g_k_tests_all exit 0 189s",
+    "m7b_config_tests exit 0 11s",
+    "m7e_tests_unit exit 0 25s",
+    "m7d_tests_unit exit 0 77s",
+    "m7c_standby_unit exit 0 5s",
+    "m7_smoke_unit exit 0 13s",
+    "m7g_tests_unit exit 0 5s",
+    "m7g_obs_tests_unit exit 0 25s",
+    "snapshot exit 0",
+    "DONE"
+   ]
+  }
+ },
+ "measured": {
+  "parameters": {
+   "v1": 11538,
+   "v2": 76818
+  },
+  "synthetic_update_path": {
+   "v1": {
+    "parameters": 11538,
+    "rollout": 5120,
+    "batch": 512,
+    "epochs": 10,
+    "gradient_steps_per_update": 100,
+    "update_s": [
+     0.4957,
+     0.4867,
+     0.4894
+    ],
+    "update_s_median": 0.4894,
+    "minibatch_forward_ms": 1.417,
+    "inference_ms_per_vector_step": 0.7957,
+    "buffer_observation_bytes": 307200,
+    "final_metrics": {
+     "train/learning_rate": 0.0003,
+     "train/entropy_loss": -4.263323,
+     "train/policy_gradient_loss": -0.031508,
+     "train/value_loss": 0.623959,
+     "train/approx_kl": 0.013496,
+     "train/clip_fraction": 0.223555,
+     "train/loss": 0.284104,
+     "train/explained_variance": -0.478369,
+     "train/n_updates": 30.0,
+     "train/clip_range": 0.2
+    }
+   },
+   "v2": {
+    "parameters": 76818,
+    "rollout": 5120,
+    "batch": 512,
+    "epochs": 10,
+    "gradient_steps_per_update": 100,
+    "update_s": [
+     0.7502,
+     0.7357,
+     0.7345
+    ],
+    "update_s_median": 0.7357,
+    "minibatch_forward_ms": 2.658,
+    "inference_ms_per_vector_step": 0.9006,
+    "buffer_observation_bytes": 10752000,
+    "final_metrics": {
+     "train/learning_rate": 0.0003,
+     "train/entropy_loss": -4.259279,
+     "train/policy_gradient_loss": -0.126095,
+     "train/value_loss": 0.214081,
+     "train/approx_kl": 0.029718,
+     "train/clip_fraction": 0.533945,
+     "train/loss": -0.04692,
+     "train/explained_variance": -0.78121,
+     "train/n_updates": 30.0,
+     "train/clip_range": 0.2
+    }
+   },
+   "v2_over_v1": {
+    "update": 1.503,
+    "inference": 1.132,
+    "minibatch_forward": 1.876
+   },
+   "note": "synthetic observations, throwaway models (never saved): PPO update code path and its CPU cost at the Phase K geometry, torch threads 1; not a game policy"
+  },
+  "checkpoint_files": {
+   "v1": {
+    "model_zip_bytes": 67315,
+    "vecnormalize_bytes": 2501
+   },
+   "v2": {
+    "model_zip_bytes": 336110,
+    "vecnormalize_bytes": 23543
+   }
+  },
+  "m7e_v1_training_per_run": {
+   "learn_s": [
+    2131.161,
+    2117.077,
+    2158.924
+   ],
+   "end_to_end_tr_per_s": [
+    1442.3,
+    1451.9,
+    1423.8
+   ],
+   "collect_s_per_rollout": [
+    3.062,
+    3.051,
+    3.107
+   ],
+   "update_s_per_rollout": [
+    0.478,
+    0.466,
+    0.476
+   ],
+   "inference_ms_per_vector_step": [
+    0.8742,
+    0.8548,
+    0.8722
+   ],
+   "source": "runs/m7e/m7e_s{0,1,2}_v2/training_summary.json"
+  },
+  "m7e_evaluation": {
+   "episodes": 2955,
+   "session_wall_h": 1.76,
+   "s_per_episode": 2.145,
+   "source": "runs/m7e/_eval/*/*/evaluation_summary.json"
+  },
+  "m7g_b_env_bench_v2_over_v1": [
+   0.895,
+   0.854
+  ],
+  "wiring_smoke_peak_game_processes": {
+   "v1": 10,
+   "v2": 10
+  }
+ },
+ "estimates": {
+  "v2_collect_s_per_rollout": [
+   3.4,
+   3.7
+  ],
+  "v2_update_s_per_rollout": [
+   0.71,
+   0.75
+  ],
+  "v2_end_to_end_tr_per_s": [
+   1150,
+   1250
+  ],
+  "v2_run_minutes": [
+   41,
+   45
+  ],
+  "training_h_3_seeds": {
+   "v1": 1.8,
+   "v2": [
+    2.1,
+    2.3
+   ]
+  },
+  "evaluation_h": {
+   "v1_arm": 1.8,
+   "v2_arm": [
+    2.0,
+    2.1
+   ],
+   "random": 0.1
+  },
+  "total_h_3_seeds": [
+   7.6,
+   7.9
+  ],
+  "extension_h": [
+   5.0,
+   5.2
+  ],
+  "maximum_h": [
+   12.7,
+   13.1
+  ],
+  "memory": {
+   "working_set_gib": 1.61,
+   "commit_gib": 5.0,
+   "available_commit_gate_gib": 6.0
+  },
+  "disk_gib": {
+   "v1_arm": 1.5,
+   "v2_arm": 1.6,
+   "total": 3.1,
+   "with_extension": 5.2
+  }
+ },
+ "decision_rule": {
+  "revision": 2,
+  "document": "docs/rl_obs_v2_experiment_proposal_m7g.md#6-pre-registered-decision-rule",
+  "extension": {
+   "seeds": [
+    3,
+    4
+   ],
+   "arms": [
+    "v1",
+    "v2"
+   ],
+   "transitions_per_run": 3072000,
+   "additional_runs": 4,
+   "additional_transitions": 12288000,
+   "additional_evaluation_episodes": 3940,
+   "applications": 1
+  },
+  "maximum": {
+   "runs": 10,
+   "transitions": 30720000,
+   "policy_evaluation_episodes": 9850,
+   "random_baseline_episodes": 100
+  },
+  "target_threshold": "D_s = T_v2,s - T_v1,s over non-clear final stochastic episodes; D-bar = unweighted mean over seeds; v2 preferred iff D_s > 0 in every seed and D-bar >= +0.5 (inclusive, unrounded float64)"
+ },
+ "open_prerequisites": [
+  "metric recorder for metrics 4-7 (left-region entry, IDs 1/6/8)",
+  "Phase K orchestration",
+  "control reproduction (102,400 transitions; needs training)",
+  "v2 pilot (204,800 transitions; needs training)"
+ ]
+}

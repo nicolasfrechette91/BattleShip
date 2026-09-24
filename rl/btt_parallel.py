@@ -1284,6 +1284,15 @@ class M7EpisodeTracker:
             self.summaries_emitted += 1
         return s
 
+    def extend_pending_summary(self, build: Callable[[Mapping[str, Any]], Mapping[str, Any]]) -> bool:
+        """M7g Phase K (evaluation workers only, rl/m7g_eval_metrics.py): merge facts computed from the episode that
+        just ended - `build` receives a copy of its summary - before the worker hands the summary to the parent.
+        Returns False (and changes nothing) when no summary is pending. Nothing else in the tracker changes."""
+        if self._pending_summary is None:
+            return False
+        self._pending_summary.update(build(dict(self._pending_summary)))
+        return True
+
     def _ledger(self, record: Mapping[str, Any]) -> None:
         with open(self.ledger_path, "a", encoding="utf-8", newline="\n") as fp:
             fp.write(json.dumps(dict(record, time_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),

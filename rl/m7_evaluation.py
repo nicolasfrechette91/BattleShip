@@ -24,6 +24,15 @@ Objective ranking (reward never overrides it): a verified clear ranks above
 any incomplete episode; incomplete episodes rank by targets broken; clears
 rank by lower completion_time_passed (completion_input_tick is reported
 beside it, never compared).
+
+M7g Phase K: a checkpoint is evaluated under its OWN policy observation
+contract as well (checkpoint.json contracts.policy_observation_contract):
+btt_policy_obs_v2_spatial checkpoints run the v2 worker stack
+(rl/m7g_obs.py, SSB64_RL_SPATIAL=1 added to the evaluation flags) and their
+per-key VecNormalize statistics; the model's stored observation space,
+policy class and VecNormalize keys must match that contract, so a v1 model
+is never evaluated as v2 or vice versa. v1 checkpoints evaluate exactly as
+before.
 """
 
 from __future__ import annotations
@@ -32,6 +41,7 @@ import hashlib
 import json
 import math
 import os
+import pickle
 import statistics
 import sys
 import time
@@ -46,7 +56,14 @@ from stable_baselines3.common.vec_env import VecNormalize
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from btt_learning import TRACK1_BUTTON_STATES, TRACK1_STICK_STATES, TARGETS_TOTAL  # noqa: E402
+import m7g_obs as mo  # noqa: E402
+from btt_learning import (  # noqa: E402
+    POLICY_OBSERVATION_CONTRACT,
+    TARGETS_TOTAL,
+    TRACK1_BUTTON_STATES,
+    TRACK1_STICK_STATES,
+    make_policy_observation_space,
+)
 from btt_parallel import (  # noqa: E402
     END_CLEAR,
     M7_HORIZON,
@@ -155,6 +172,13 @@ def aggregate(episodes: Sequence[Mapping[str, Any]], *, seed: int = 0) -> Dict[s
 
 
 def _row(e: Mapping[str, Any]) -> Dict[str, Any]:
+    row = _base_row(e)
+    if e.get("eval_metrics") is not None:   # M7g Phase K btt_eval_metrics_v1, only when the evaluator enabled it
+        row["eval_metrics"] = e["eval_metrics"]
+    return row
+
+
+def _base_row(e: Mapping[str, Any]) -> Dict[str, Any]:
     return {
         "rank": e.get("rank"),
         "worker_episode": e.get("worker_episode"),
@@ -258,12 +282,77 @@ def policy_parameter_digest(model: Any) -> str:
 
 
 def obs_rms_digest(vecnorm: VecNormalize) -> str:
+    """sha256 of the observation statistics. v1 (one RunningMeanStd): mean, var, count, exactly as M7a-M7f. A Dict
+    observation (M7g v2; obs_rms is a dict over the normalised keys): key name + mean, var, count per key, sorted."""
     rms = vecnorm.obs_rms
     h = hashlib.sha256()
-    h.update(np.asarray(rms.mean, dtype=np.float64).tobytes())
-    h.update(np.asarray(rms.var, dtype=np.float64).tobytes())
-    h.update(np.float64(rms.count).tobytes())
+    for key, stats in (sorted(rms.items()) if isinstance(rms, dict) else ((None, rms),)):
+        if key is not None:
+            h.update(key.encode("ascii"))
+        h.update(np.asarray(stats.mean, dtype=np.float64).tobytes())
+        h.update(np.asarray(stats.var, dtype=np.float64).tobytes())
+        h.update(np.float64(stats.count).tobytes())
     return h.hexdigest()
+
+
+def obs_rms_record(vecnorm: VecNormalize) -> Dict[str, Any]:
+    """The statistics facts of checkpoint.json: v1 {obs_rms_count} as before; a Dict observation adds the per-key
+    counts and the normalised keys (the binary keys have no statistics)."""
+    rms = vecnorm.obs_rms
+    if not isinstance(rms, dict):
+        return {"obs_rms_count": float(rms.count)}
+    counts = {k: float(v.count) for k, v in sorted(rms.items())}
+    return {"obs_rms_count": min(counts.values()), "obs_rms_counts": counts,
+            "norm_obs_keys": list(vecnorm.norm_obs_keys or [])}
+
+
+# -- M7g Phase K: observation identity of checkpoints, models and statistics ---------------------------------
+
+
+def observation_space_of(observation: str) -> Any:
+    if observation == mo.OBS_CONTRACT:
+        return mo.make_observation_space()
+    if observation == POLICY_OBSERVATION_CONTRACT:
+        return make_policy_observation_space()
+    raise CheckpointError(f"unknown policy observation contract {observation!r}")
+
+
+def checkpoint_observation_contract(meta: Mapping[str, Any]) -> str:
+    """The policy observation a checkpoint set was trained on (never reinterpreted)."""
+    obs = (meta.get("contracts") or {}).get("policy_observation_contract")
+    if obs not in (POLICY_OBSERVATION_CONTRACT, mo.OBS_CONTRACT):
+        raise CheckpointError(f"checkpoint.json records policy observation {obs!r}: not a supported contract")
+    if obs == mo.OBS_CONTRACT and meta["contracts"].get("policy_observation_contract_sha256") != mo.contract_digest():
+        raise CheckpointError(f"checkpoint.json records {mo.OBS_CONTRACT} digest "
+                              f"{meta['contracts'].get('policy_observation_contract_sha256')!r}, this code builds "
+                              f"{mo.contract_digest()!r}")
+    return obs
+
+
+def check_model_identity(model: Any, observation: str) -> None:
+    """A loaded model must have been built for `observation`: stored space, policy class, recorded contract."""
+    expected = observation_space_of(observation)
+    if model.observation_space != expected:
+        raise CheckpointError(f"model observation space {model.observation_space} is not {observation}'s {expected}")
+    policy_class = "MultiInputActorCriticPolicy" if observation == mo.OBS_CONTRACT else "ActorCriticPolicy"
+    if type(model.policy).__name__ != policy_class:
+        raise CheckpointError(f"model policy {type(model.policy).__name__} is not {policy_class} ({observation})")
+    recorded = getattr(model, "m7_policy_observation", None)
+    if (recorded or POLICY_OBSERVATION_CONTRACT) != observation:
+        raise CheckpointError(f"model.zip records policy observation {recorded!r}, expected {observation!r}")
+
+
+def check_vecnormalize_identity(vecnorm: VecNormalize, observation: str) -> None:
+    """Statistics must belong to `observation`: one Box RunningMeanStd for v1, exactly the continuous keys for v2."""
+    rms = vecnorm.obs_rms
+    if observation == mo.OBS_CONTRACT:
+        keys = list(vecnorm.norm_obs_keys or [])
+        if not isinstance(rms, dict) or keys != list(mo.NORMALIZED_KEYS) or sorted(rms) != sorted(mo.NORMALIZED_KEYS):
+            raise CheckpointError(f"VecNormalize statistics are not {observation}'s: norm_obs_keys {keys}, "
+                                  f"statistics {sorted(rms) if isinstance(rms, dict) else type(rms).__name__}")
+    elif isinstance(rms, dict) or tuple(np.shape(rms.mean)) != tuple(observation_space_of(observation).shape):
+        raise CheckpointError(f"VecNormalize statistics are not {observation}'s (a Box of "
+                              f"{observation_space_of(observation).shape})")
 
 
 # -- running an evaluation ---------------------------------------------------------------------------------
@@ -290,6 +379,24 @@ class EvaluationSettings:
     standby_preboot: bool = False
     standby_count: int = 0
     standby_wait_timeout: float = 120.0
+    # M7g Phase K: policy observation of the evaluation workers. None = the checkpoint's own contract
+    # (evaluate_checkpoint) / btt_policy_obs_v1 (random baseline); an explicit value must match the checkpoint.
+    observation: Optional[str] = None
+    # M7g Phase K: record btt_eval_metrics_v1 per episode (rl/m7g_eval_metrics.py; adds SSB64_RL_TARGET_DIAG=1 to the
+    # evaluation flags). Default off: every earlier evaluation is unchanged.
+    eval_metrics: bool = False
+
+    @property
+    def observation_contract(self) -> str:
+        return self.observation or POLICY_OBSERVATION_CONTRACT
+
+    def effective_extra_env(self) -> Tuple[Tuple[str, str], ...]:
+        """The native flags the evaluation workers boot with (the diagnostic flag added when metrics are on)."""
+        if not self.eval_metrics:
+            return tuple(self.extra_env)
+        from m7g_eval_metrics import with_diag_flag
+
+        return with_diag_flag(self.extra_env)
 
     def lifecycle(self) -> Dict[str, Any]:
         s = StandbySettings(preboot=self.standby_preboot, count=self.standby_count, wait_timeout=self.standby_wait_timeout).to_json()
@@ -310,14 +417,22 @@ def _prepare_workers(root: Path, n: int, role: str, run_id: str, settings: Evalu
         prepare_worker_runtime(wdir / "runtime", executable)
         spec = WorkerSpec(rank=rank, run_id=run_id, role=role, worker_dir=str(wdir),
                           coordination_dir=str(coord_dir), executable=str(executable),
-                          horizon=settings.horizon, base_seed=settings.seed, extra_env=tuple(settings.extra_env),
+                          horizon=settings.horizon, base_seed=settings.seed,
+                          extra_env=settings.effective_extra_env(),
                           reward_contract=settings.reward, experiment=settings.experiment,
                           retain_failed_cap=settings.retain_failed_cap, startup_attempts=settings.startup_attempts,
                           request_timeout=settings.request_timeout, preserve_all=preserve_all,
                           port_block_base=settings.port_block_base, port_block_size=settings.port_block_size,
                           standby_preboot=settings.standby_preboot, standby_count=settings.standby_count,
                           standby_wait_timeout=settings.standby_wait_timeout)
-        factories.append(WorkerFactory(spec))
+        # M7g: the v2 stack refuses a spec without SSB64_RL_SPATIAL=1 (every standby generation boots with it too)
+        factory: Any = (mo.M7gWorkerFactory(spec) if settings.observation_contract == mo.OBS_CONTRACT
+                        else WorkerFactory(spec))
+        if settings.eval_metrics:   # M7g Phase K: btt_eval_metrics_v1 recorder inside the worker (evaluation only)
+            from m7g_eval_metrics import EvalMetricsWorkerFactory
+
+            factory = EvalMetricsWorkerFactory(factory)
+        factories.append(factory)
     return factories, coord_dir
 
 
@@ -355,6 +470,11 @@ def run_episodes(*, mode: str, episodes: int, out_dir: Path, run_id: str, settin
         vecnorm.training = False       # statistics frozen
         vecnorm.norm_reward = False    # raw btt_reward_v1 returns
         env = vecnorm
+        try:
+            check_vecnormalize_identity(vecnorm, settings.observation_contract)
+        except CheckpointError:
+            venv.close()
+            raise
         params_before = policy_parameter_digest(model)
         rms_before = obs_rms_digest(vecnorm)
     set_random_seed(settings.seed)
@@ -418,6 +538,15 @@ def run_episodes(*, mode: str, episodes: int, out_dir: Path, run_id: str, settin
     if mode == "deterministic":
         digests = {e["native_action_digest"] for e in collected}
         result["deterministic_episodes_identical"] = len(digests) == 1
+    if settings.observation_contract != POLICY_OBSERVATION_CONTRACT or settings.eval_metrics:
+        # M7g: v2 and/or evaluation metrics only (earlier v1 records unchanged)
+        result["policy_observation_contract"] = settings.observation_contract
+        result["extra_env"] = dict(settings.effective_extra_env())
+    if settings.eval_metrics:
+        from m7g_eval_metrics import CONTRACT as EVAL_METRICS_CONTRACT
+
+        result["eval_metrics_contract"] = EVAL_METRICS_CONTRACT
+        result["eval_metrics_recorded"] = sum(1 for e in collected if e.get("eval_metrics") is not None)
     with open(out_dir / "evaluation.json", "w", encoding="utf-8", newline="\n") as fp:
         json.dump(result, fp, indent=2)
         fp.write("\n")
@@ -445,10 +574,22 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
         raise CheckpointError(f"evaluation reward {settings.reward.contract} differs from the checkpoint's "
                               f"{reward.contract}; a checkpoint is always evaluated under its own contract")
     settings = replace(settings, reward=reward, experiment=meta.get("experiment") or settings.experiment)
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=False)
+    # M7g: ... and under its own policy observation. Model, statistics and contract are cross-checked before any
+    # directory is created or any worker spawned; v2 adds the native flag its observation needs.
+    observation = checkpoint_observation_contract(meta)
+    if settings.observation is not None and settings.observation != observation:
+        raise CheckpointError(f"evaluation observation {settings.observation} differs from the checkpoint's "
+                              f"{observation}; a checkpoint is always evaluated under its own observation contract")
+    flags = dict(settings.extra_env)
+    flags.update(dict(mo.SPATIAL_EXTRA_ENV) if observation == mo.OBS_CONTRACT else {})
+    settings = replace(settings, observation=observation, extra_env=tuple(flags.items()))
     t0 = time.perf_counter()
     model = M7PPO.load(str(ckpt / MODEL_FILE), device="cpu")
+    check_model_identity(model, observation)
+    with open(ckpt / VECNORM_FILE, "rb") as fp:   # hash-verified above; the workers do not exist yet
+        check_vecnormalize_identity(pickle.load(fp), observation)
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=False)
     model_reward = getattr(model, "m7_reward_contract", None)
     if model_reward is not None and model_reward.get("contract") != reward.contract:
         raise CheckpointError(f"model.zip records reward contract {model_reward.get('contract')!r} but checkpoint.json "
@@ -470,6 +611,17 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
                             "VecNormalize (frozen statistics of the checkpoint) -> policy input",
         "modes": {},
     }
+    if observation == mo.OBS_CONTRACT:   # M7g: v2 only (v1 summaries unchanged)
+        result["observation_note"] = ("raw native observations + btt_spatial_v1 -> btt_policy_obs_v2_spatial (Dict, "
+                                      "525 values) -> VecNormalize (frozen per-key statistics of the checkpoint, "
+                                      f"keys {list(mo.NORMALIZED_KEYS)}) -> MultiInputPolicy")
+        result["policy_observation_contract"] = observation
+        result["policy_network"] = meta.get("policy_network")
+    if observation == mo.OBS_CONTRACT or settings.eval_metrics:
+        result["extra_env"] = dict(settings.effective_extra_env())
+    if settings.eval_metrics:
+        result["policy_observation_contract"] = observation
+        result["eval_metrics"] = True
     if deterministic_episodes > 0:
         result["modes"]["deterministic"] = run_episodes(
             mode="deterministic", episodes=deterministic_episodes, out_dir=out / "deterministic",
@@ -496,6 +648,9 @@ def evaluate_random(out_dir: os.PathLike | str, *, settings: EvaluationSettings,
               "reward_contract": settings.reward.to_json(), "experiment": settings.experiment,
               "lifecycle": settings.lifecycle(),
               "modes": {"random": r}, "wall_s": r["wall_s"]}
+    if settings.eval_metrics:   # M7g Phase K (earlier random baselines unchanged)
+        result["extra_env"] = dict(settings.effective_extra_env())
+        result["eval_metrics"] = True
     with open(out / "evaluation_summary.json", "w", encoding="utf-8", newline="\n") as fp:
         json.dump(result, fp, indent=2)
         fp.write("\n")

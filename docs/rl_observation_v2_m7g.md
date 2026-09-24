@@ -401,7 +401,9 @@ The grid remains the documented option for a future multi-stage track where layo
 - **Compatibility:**
   - fresh models only; a v1 checkpoint is refused for v2 (`m7g_policy.assert_v2_checkpoint`), and SB3 refuses to load
     one onto a v2 environment (both tested);
-  - v1 remains the default everywhere; nothing in the existing trainer, config or evaluator changed.
+  - v1 remains the default everywhere. At M7g-b nothing in the existing trainer, config or evaluator changed; the
+    Phase K readiness step later added explicit opt-in hooks (route A) that leave every v1 value and fingerprint
+    unchanged ([`rl_obs_v2_phase_k_readiness_m7g.md`](rl_obs_v2_phase_k_readiness_m7g.md)).
 
 ### 5.3 Static and dynamic spatial state
 
@@ -503,6 +505,10 @@ cut the ~1 KB of per-step JSON rendering and parsing.
   - route B: a separate `m7g_trainer.py` duplicating about 400 lines.
 
   The read-only audit recommends route A. It changes inherited files, so it is left for the user's decision.
+
+  **Update (Phase K readiness, 2026-09-23):** route A was implemented afterwards, as the task that followed this
+  report requested (hooks in the existing trainer, config and evaluator; no duplicated trainer). See
+  [`rl_obs_v2_phase_k_readiness_m7g.md`](rl_obs_v2_phase_k_readiness_m7g.md).
 - No learning campaign; no `learn()` anywhere.
 
 ## 8. Phase J — equivalence and safety validation
@@ -597,7 +603,7 @@ The M1–M7f chain covers:
   learning is unknown until Phase K.
 - **Estimates vs measurements.** Throughput is measured environment-side with random actions. The end-to-end cost with
   PPO updates is an estimate. PPO update times are estimates from forward passes; no backward pass was run.
-- **No trainer integration.** Section 7: needed before Phase K.
+- **No trainer integration.** Section 7: needed before Phase K (since done: see the Phase K readiness report).
 - **Sources of some numbers.** The camera window numbers come from code constants, not a rendered measurement.
 
 ## 11. Files

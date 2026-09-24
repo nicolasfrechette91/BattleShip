@@ -61,8 +61,16 @@ field path and the offending value. Nothing is corrected silently.
 Relative paths resolve against the repository root (the parent of rl/),
 never against the current working directory, because game processes run
 with a private working directory. Standard library + rl/btt_rewards.py
-(which needs Gymnasium/NumPy through rl/btt_learning.py) only: no PyTorch
-or Stable-Baselines3 import here, so spawn workers and dry runs stay light.
+(which needs Gymnasium/NumPy through rl/btt_learning.py) + the M7g v2
+observation identity (rl/m7g_obs.py, rl/m7g_policy.py; NumPy only at import)
+only: no PyTorch or Stable-Baselines3 import here, so spawn workers and dry
+runs stay light.
+
+M7g Phase K: contracts.observation selects btt_policy_obs_v1 (default of every
+existing profile) or btt_policy_obs_v2_spatial; ppo.policy must be the policy
+class that observation requires (MlpPolicy / MultiInputPolicy), and v2 adds
+SSB64_RL_SPATIAL=1 to the derived native flags. A v1 profile resolves to
+exactly the values and fingerprints it had before.
 """
 
 from __future__ import annotations
@@ -81,6 +89,8 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import m7g_obs  # noqa: E402  (M7g: v2 observation identity; NumPy/Gymnasium only, no PyTorch)
+import m7g_policy  # noqa: E402
 from btt_learning import POLICY_OBSERVATION_CONTRACT, TRACK1_CONTRACT  # noqa: E402
 from btt_rewards import (  # noqa: E402
     REWARD_CUSTOM_PREFIX,
@@ -128,7 +138,16 @@ SUPPORTED_TASKS: Dict[str, Dict[str, Any]] = {
     },
 }
 
-SUPPORTED_OBSERVATION_CONTRACTS = (POLICY_OBSERVATION_CONTRACT,)
+# M7g Phase K: btt_policy_obs_v2_spatial (rl/m7g_obs.py) is selectable explicitly; btt_policy_obs_v1 stays the default
+# of every existing profile. The observation contract fixes the SB3 policy class (SB3 rejects a Dict space under
+# MlpPolicy) and the native flags its observation needs (the read-only btt_spatial_v1 diagnostic); v1 adds nothing, so
+# every v1 profile keeps its values, extra_env and fingerprints.
+OBS_V2_SPATIAL = m7g_obs.OBS_CONTRACT
+SUPPORTED_OBSERVATION_CONTRACTS = (POLICY_OBSERVATION_CONTRACT, OBS_V2_SPATIAL)
+SUPPORTED_POLICIES = (M7_POLICY, m7g_policy.POLICY)
+OBSERVATION_POLICY: Dict[str, str] = {POLICY_OBSERVATION_CONTRACT: M7_POLICY, OBS_V2_SPATIAL: m7g_policy.POLICY}
+OBSERVATION_EXTRA_ENV: Dict[str, Tuple[Tuple[str, str], ...]] = {POLICY_OBSERVATION_CONTRACT: (),
+                                                                   OBS_V2_SPATIAL: m7g_obs.SPATIAL_EXTRA_ENV}
 SUPPORTED_ACTION_CONTRACTS = (TRACK1_CONTRACT,)
 SUPPORTED_REWARD_REQUESTS = (REWARD_V1_ID, REWARD_V2_ID, REWARD_CUSTOM_REQUEST)
 RUN_MODES = ("train", "pilot", "resume")
@@ -180,7 +199,8 @@ FIELDS: Tuple[Field, ...] = (
     _F("task.player", "int", "immutable", minimum=0, maximum=3, doc="native controller port index"),
     _F("task.costume", "int", "immutable", minimum=0, maximum=7),
     _F("contracts.protocol_version", "int", "immutable", choices=(PROTOCOL_VERSION,)),
-    _F("contracts.observation", "str", "immutable", choices=SUPPORTED_OBSERVATION_CONTRACTS),
+    _F("contracts.observation", "str", "immutable", choices=SUPPORTED_OBSERVATION_CONTRACTS,
+       doc="policy observation: btt_policy_obs_v1 (15 float32) or btt_policy_obs_v2_spatial (Dict, 525 values)"),
     _F("contracts.action", "str", "immutable", choices=SUPPORTED_ACTION_CONTRACTS),
     _F("contracts.reward", "str", "immutable", choices=SUPPORTED_REWARD_REQUESTS,
        doc="canonical id (values frozen) or 'custom' (id derived from the values)"),
@@ -213,7 +233,8 @@ FIELDS: Tuple[Field, ...] = (
     _F("environment.standby_wait_timeout_s", "float", "operational", required=False, default=120.0, minimum=0.0,
        maximum=3600.0, exclusive_minimum=True,
        doc="M7c: bound on waiting at reset for a standby still booting; then it is cancelled and a cold fallback launch runs"),
-    _F("ppo.policy", "str", "immutable", choices=(M7_POLICY,)),
+    _F("ppo.policy", "str", "immutable", choices=SUPPORTED_POLICIES,
+       doc="MlpPolicy for btt_policy_obs_v1, MultiInputPolicy for btt_policy_obs_v2_spatial (cross-field rule)"),
     _F("ppo.net_arch", "int_list", "immutable", doc="hidden layer widths shared by the pi and vf heads"),
     _F("ppo.activation", "str", "immutable", choices=ACTIVATIONS),
     _F("ppo.learning_rate", "float", "immutable", minimum=0.0, maximum=1.0, exclusive_minimum=True),
@@ -366,6 +387,18 @@ def _within(child: Path, parent: Path) -> bool:
         return False
 
 
+def policy_observation_identity(observation: str) -> Optional[Dict[str, Any]]:
+    """M7g Phase K: what a btt_policy_obs_v2_spatial run is bound to (contract digest, network, VecNormalize keys,
+    native flag). None for btt_policy_obs_v1, so no v1 record gains a key."""
+    if observation != OBS_V2_SPATIAL:
+        return None
+    return {"contract": m7g_obs.OBS_CONTRACT, "schema_version": m7g_obs.OBS_SCHEMA_VERSION,
+            "contract_sha256": m7g_obs.contract_digest(), "flat_size": m7g_obs.FLAT_SIZE,
+            "key_order": list(m7g_obs.KEY_ORDER), "policy": m7g_policy.POLICY, "network_id": m7g_policy.NETWORK_ID,
+            "norm_obs_keys": list(m7g_obs.NORMALIZED_KEYS), "unnormalized_keys": list(m7g_obs.BINARY_KEYS),
+            "native_flags": dict(m7g_obs.SPATIAL_EXTRA_ENV)}
+
+
 # -- the resolved experiment -----------------------------------------------------------------------------------
 
 
@@ -442,7 +475,12 @@ class Experiment:
             flags.append(("SSB64_RL_NO_RENDER", "1"))
         if self.values["environment.raphnet_disable"]:
             flags.append(("SSB64_RAPHNET_DISABLE", "1"))
+        flags.extend(OBSERVATION_EXTRA_ENV[self.values["contracts.observation"]])   # M7g: v2 only (v1 adds none)
         return tuple(flags)
+
+    def policy_observation(self) -> Optional[Dict[str, Any]]:
+        """M7g: the v2 observation / network identity block (None for btt_policy_obs_v1, whose records stay as before)."""
+        return policy_observation_identity(self.values["contracts.observation"])
 
     @property
     def eval_workers(self) -> int:
@@ -502,7 +540,7 @@ class Experiment:
 
     def summary(self) -> Dict[str, Any]:
         """The compact block recorded in run.json, checkpoint.json, model.zip, artifacts, evaluations, reports."""
-        return {
+        s = {
             "schema": SCHEMA_ID,
             "config_module_version": CONFIG_MODULE_VERSION,
             "name": self.name,
@@ -517,10 +555,13 @@ class Experiment:
             "cli_overrides": dict(self.cli_overrides),
             "lifecycle": self.lifecycle(),
         }
+        if self.policy_observation() is not None:
+            s["policy_observation"] = self.policy_observation()
+        return s
 
     def resolved_json(self) -> Dict[str, Any]:
         """The canonical resolved configuration written as experiment_resolved.json."""
-        return {
+        r = {
             "schema": SCHEMA_ID,
             "config_module_version": CONFIG_MODULE_VERSION,
             "source": {"kind": self.source.kind, "path": self.source.path, "sha256": self.source.sha256,
@@ -548,6 +589,9 @@ class Experiment:
                              "compatibility_fingerprint": self.compatibility_fingerprint},
             "field_classes": {p: FIELD_BY_PATH[p].cls for p in self.values},
         }
+        if self.policy_observation() is not None:
+            r["resolved"]["policy_observation"] = self.policy_observation()
+        return r
 
     # -- variants ---------------------------------------------------------------------------------------------
 
@@ -658,8 +702,23 @@ def _cross_field(v: Dict[str, Any], problems: List[str]) -> Optional[RewardContr
             reward = make_reward_contract(g("contracts.reward"), {k: g(f"reward.{k}") for k in REWARD_VALUE_FIELDS})
         except RewardContractError as exc:
             problems.append(f"contracts.reward = {_repr_value(g('contracts.reward'))}: {exc}")
+    # M7g Phase K: the observation contract decides the policy class; v2's continuous keys have no fixed scaling and
+    # rely on VecNormalize observation statistics (binary keys excluded by the contract's norm_obs_keys).
+    obs, pol = g("contracts.observation"), g("ppo.policy")
+    if obs in OBSERVATION_POLICY and pol in SUPPORTED_POLICIES and OBSERVATION_POLICY[obs] != pol:
+        problems.append(f"ppo.policy = {_repr_value(pol)}: contracts.observation = {_repr_value(obs)} requires "
+                        f"ppo.policy = {_repr_value(OBSERVATION_POLICY[obs])}")
+    if obs == OBS_V2_SPATIAL and g("ppo.vecnormalize.normalize_observations") is False:
+        problems.append(f"ppo.vecnormalize.normalize_observations = false: contracts.observation = {OBS_V2_SPATIAL!r} "
+                        f"requires observation normalisation of {list(m7g_obs.NORMALIZED_KEYS)} (no fixed scaling)")
+    if obs == OBS_V2_SPATIAL and (g("ppo.net_arch") != list(m7g_policy.NET_ARCH)
+                                  or g("ppo.activation") != m7g_policy.ACTIVATION):
+        problems.append(f"ppo.net_arch = {_repr_value(g('ppo.net_arch'))}, ppo.activation = {_repr_value(g('ppo.activation'))}: "
+                        f"contracts.observation = {OBS_V2_SPATIAL!r} is validated only with network "
+                        f"{m7g_policy.NETWORK_ID!r} (net_arch {list(m7g_policy.NET_ARCH)}, {m7g_policy.ACTIVATION}); "
+                        "another network needs its own identity")
     # Rollout geometry.
-    n, ns, rs, bs, tt = (g("environment.process_count"), g("ppo.n_steps"), g("ppo.rollout_size"), g("ppo.batch_size"),
+    n, ns, rs, bs, tt =(g("environment.process_count"), g("ppo.n_steps"), g("ppo.rollout_size"), g("ppo.batch_size"),
                          g("run.total_transitions"))
     if all(_is_int(x) for x in (n, ns, rs, bs, tt)):
         if ns * n != rs:
@@ -1072,6 +1131,11 @@ def describe(exp: Experiment, *, checkpoint_meta: Optional[Mapping[str, Any]] = 
         f"              compatibility {exp.compatibility_fingerprint}",
         "compatibility-affecting fields (immutable on resume):",
     ]
+    po = exp.policy_observation()
+    if po is not None:   # M7g: v2 only; a v1 dry run prints exactly what it printed before
+        lines.insert(4, f"observation : {po['contract']} schema {po['schema_version']} sha256 {po['contract_sha256']}  "
+                        f"{po['policy']} ({po['network_id']}, {po['flat_size']} inputs)  norm_obs_keys "
+                        f"{po['norm_obs_keys']}  unnormalised {po['unnormalized_keys']}  native flags {po['native_flags']}")
     for p in IMMUTABLE_PATHS:
         lines.append(f"    {p} = {_repr_value(v[p])}")
     lines.append("    executable sha256 (unless resume.allow_executable_change)")

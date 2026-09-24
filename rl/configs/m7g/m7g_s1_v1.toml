@@ -1,0 +1,115 @@
+# M7g Phase K: controlled observation comparison, control arm (observation v1), seed 1.
+# Arm "v1" = the policy OBSERVATION contract (btt_policy_obs_v1); the reward is btt_reward_v2 in BOTH arms.
+# Sibling profiles: rl/configs/m7g/m7g_s{0,1,2}_{v1,v2}.toml. Pre-registered design and decision rule:
+# docs/rl_obs_v2_experiment_proposal_m7g.md (revision 2); readiness evidence: docs/rl_obs_v2_phase_k_readiness_m7g.md.
+#
+# Body = rl/configs/m7e/m7e_s1_v2.toml verbatim (reward v2, PPO, N=5 standby, 3,072,000 transitions hard maximum,
+# checkpoint every 102,400, no in-process evaluation, horizon 3,600, seeds), except these deliberate fields:
+#   [run]        name, notes, output_root = "runs/m7g_k" (a new tree; no historical run directory is reused)
+#   (nothing else: contracts.observation = "btt_policy_obs_v1" and ppo.policy = "MlpPolicy" as in M7e)
+#
+# Control arm: same semantic and compatibility fingerprints as rl/configs/m7e/m7e_s1_v2.toml (only output
+# fields differ), so a fresh control run is the M7e seed-1 experiment on the current build.
+#
+#   python rl/train_m7.py --config rl/configs/m7g/m7g_s1_v1.toml --dry-run
+#
+# Status 2026-09-23: prepared for Phase K; no model has been trained from this profile yet.
+
+schema = "battleship_experiment_v1"
+
+[run]
+name = "m7g_s1_v1"
+mode = "train"
+base_seed = 1
+total_transitions = 3072000
+output_root = "runs/m7g_k"
+notes = "M7g Phase K observation comparison: btt_policy_obs_v1 (v1 arm), btt_reward_v2, seed 1, N=5 standby, 3,072,000 transitions (hard maximum), no in-process evaluation (post-hoc protocol, docs/rl_obs_v2_experiment_proposal_m7g.md)"
+
+[task]
+id = "ssb64_us_mario_btt_v1"
+game_version = "us"
+character = "mario"
+stage = "btt_mario"
+player = 0
+costume = 0
+
+[contracts]
+protocol_version = 1
+observation = "btt_policy_obs_v1"
+action = "btt_s9_b8_v1"
+reward = "btt_reward_v2"
+artifact_schema = 1
+
+[reward]
+# btt_reward_v2 is frozen: these values are enforced, not configurable (v1 plus a one-time -5.0 native-failure penalty).
+target_broken = 1.0
+per_step = -0.001
+clear_bonus = 10.0
+failure_penalty = -5.0
+
+[environment]
+executable = "build-us/Release/BattleShip.exe"
+horizon = 3600
+process_count = 5
+no_render = true
+raphnet_disable = true
+startup_attempts = 3
+startup_timeout_s = 20.0
+ready_timeout_s = 60.0
+request_timeout_s = 10.0
+exit_timeout_s = 30.0
+step_timeout_s = 900.0
+worker_runtime_root = ""
+port_block_base = 30000
+port_block_size = 250
+position_delta_threshold = 300.0
+standby_preboot = true
+standby_count = 1
+standby_wait_timeout_s = 120.0
+
+[ppo]
+policy = "MlpPolicy"
+net_arch = [64, 64]
+activation = "tanh"
+learning_rate = 3e-4
+rollout_size = 5120
+n_steps = 1024
+batch_size = 512
+n_epochs = 10
+gamma = 0.999
+gae_lambda = 0.995
+clip_range = 0.2
+ent_coef = 0.0
+vf_coef = 0.5
+max_grad_norm = 0.5
+torch_threads = 1
+device = "cpu"
+
+[ppo.vecnormalize]
+normalize_observations = true
+normalize_rewards = false
+clip_obs = 10.0
+
+[checkpoint]
+interval = 102400
+initial = true
+
+[evaluation]
+# Phase K: no in-process evaluation during training (see the header); evaluations run post hoc.
+interval = 0
+initial = false
+final = false
+deterministic_episodes = 5
+stochastic_episodes = 60
+random_baseline_episodes = 100
+seed = 12345
+workers = 0
+
+[artifacts]
+periodic_episodes = 10
+retain_failed_cap = 20
+
+[resume]
+source_checkpoint = ""
+allow_executable_change = false
+allow_lifecycle_change = false

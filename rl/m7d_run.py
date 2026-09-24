@@ -341,6 +341,17 @@ def inspect_vecnormalize(path: Path) -> Dict[str, Any]:
 
     with open(path, "rb") as fp:
         vn = pickle.load(fp)
+    if isinstance(vn.obs_rms, dict):
+        # M7g Phase K: a Dict observation (btt_policy_obs_v2_spatial) keeps one statistic per normalised key.
+        stats = {k: (np.asarray(v.mean, dtype=np.float64), np.asarray(v.var, dtype=np.float64), float(v.count))
+                 for k, v in sorted(vn.obs_rms.items())}
+        return {"norm_obs": bool(vn.norm_obs), "norm_reward": bool(vn.norm_reward), "clip_obs": float(vn.clip_obs),
+                "obs_rms_count": min(s[2] for s in stats.values()),
+                "obs_rms_finite": all(bool(np.isfinite(m).all() and np.isfinite(v).all()) for m, v, _ in stats.values()),
+                "obs_rms_counts": {k: s[2] for k, s in stats.items()},
+                "norm_obs_keys": list(vn.norm_obs_keys or []),
+                "ret_rms_count": float(vn.ret_rms.count),
+                "note": "SB3 updates ret_rms whenever training=True even with norm_reward=False; it is never applied"}
     mean, var = np.asarray(vn.obs_rms.mean, dtype=np.float64), np.asarray(vn.obs_rms.var, dtype=np.float64)
     return {"norm_obs": bool(vn.norm_obs), "norm_reward": bool(vn.norm_reward), "clip_obs": float(vn.clip_obs),
             "obs_rms_count": float(vn.obs_rms.count), "obs_rms_finite": bool(np.isfinite(mean).all() and np.isfinite(var).all()),

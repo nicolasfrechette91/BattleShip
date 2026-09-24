@@ -20,6 +20,14 @@ normalisation OFF, no reward clipping or transformation) -> policy input.
 The statistics are saved beside every model and loaded (frozen) for
 evaluation.
 
+M7g Phase K (explicit opt-in, M7Config.observation / contracts.observation):
+btt_policy_obs_v2_spatial selects MultiInputPolicy, the v2 worker stack
+(rl/m7g_obs.py: SpatialObsV2Wrapper above Track 1, SSB64_RL_SPATIAL=1),
+VecNormalize over the continuous keys only (norm_obs_keys) and the v2 run
+contracts; checkpoints carry the observation and network identity and are
+never loaded across observation contracts. btt_policy_obs_v1 is the default
+and keeps every M7a-M7f value.
+
 Run layout (never overwritten; a resume is a new run directory):
 
     runs/<run_id>/
@@ -59,6 +67,8 @@ from stable_baselines3.common.vec_env import VecNormalize
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import experiment_config as ec  # noqa: E402
+import m7g_obs as mo  # noqa: E402
+import m7g_policy as mp  # noqa: E402
 from battleship_env import DEFAULT_EXECUTABLE  # noqa: E402
 from btt_learning import POLICY_OBSERVATION_CONTRACT, POLICY_OBSERVATION_SIZE, TRACK1_CONTRACT  # noqa: E402
 from btt_rewards import REWARD_V1, RewardContract  # noqa: E402
@@ -86,7 +96,10 @@ from m7_evaluation import (  # noqa: E402
     VECNORM_FILE,
     CheckpointError,
     EvaluationSettings,
+    check_model_identity,
+    check_vecnormalize_identity,
     evaluate_checkpoint,
+    obs_rms_record,
     read_checkpoint_set,
 )
 from m7_runtime import (  # noqa: E402
@@ -201,14 +214,14 @@ def policy_kwargs(config: "M7Config") -> Dict[str, Any]:
     return {"net_arch": {"pi": list(layers), "vf": list(layers)}, "activation_fn": ACTIVATIONS[config.activation]}
 
 
-def resolved_ppo_params(model: PPO) -> Dict[str, Any]:
+def resolved_ppo_params(model: PPO, policy: str = POLICY) -> Dict[str, Any]:
     def sched(v: Any) -> Any:
         return float(v(1.0)) if callable(v) else v
 
     opt = model.policy.optimizer
     return {
         "algorithm": "PPO",
-        "policy": POLICY,
+        "policy": policy,
         "policy_class": type(model.policy).__name__,
         "learning_rate": sched(model.learning_rate),
         "n_steps": model.n_steps,
@@ -296,6 +309,9 @@ class M7Config:
     worker_runtime_root: Optional[Path] = None
     allow_executable_change: bool = False
     experiment: Optional[Any] = field(default=None, repr=False, compare=False)  # experiment_config.Experiment
+    # M7g Phase K: policy observation contract and the SB3 policy class it requires (defaults = v1, M7a-M7f)
+    observation: str = POLICY_OBSERVATION_CONTRACT
+    policy: str = POLICY
     # M7c standby lifecycle (rl/m7_standby.py); defaults = M7a/M7b behaviour
     standby_preboot: bool = False
     standby_count: int = 0
@@ -329,11 +345,15 @@ class M7Config:
     def experiment_summary(self) -> Optional[Dict[str, Any]]:
         return self.experiment.summary() if self.experiment is not None else None
 
+    @property
+    def observation_v2(self) -> bool:
+        return self.observation == mo.OBS_CONTRACT
+
     def compatibility_view(self) -> Dict[str, Any]:
         """The resume-compatibility view of this configuration (experiment_config.COMPAT_KEYS)."""
         return {
             "task.id": "ssb64_us_mario_btt_v1",
-            "contracts.observation": POLICY_OBSERVATION_CONTRACT,
+            "contracts.observation": self.observation,
             "contracts.action": TRACK1_CONTRACT,
             "contracts.reward_resolved": self.reward.to_json(),
             "contracts.artifact_schema": ec.ARTIFACT_SCHEMA,
@@ -341,7 +361,7 @@ class M7Config:
             "environment.horizon": int(self.horizon),
             "environment.process_count": int(self.n_envs),
             "environment.extra_env": dict(self.extra_env),
-            "ppo.policy": POLICY,
+            "ppo.policy": self.policy,
             "ppo.net_arch": list(self.net_arch),
             "ppo.activation": self.activation,
             "ppo.learning_rate": float(self.learning_rate),
@@ -383,6 +403,20 @@ class M7Config:
             raise ValueError(f"net_arch {self.net_arch!r} must be non-empty positive widths")
         if not isinstance(self.reward, RewardContract):
             raise ValueError("reward must be a btt_rewards.RewardContract")
+        # M7g Phase K: the observation contract fixes the policy class, its native flag and observation normalisation.
+        if self.observation not in ec.OBSERVATION_POLICY:
+            raise ValueError(f"observation {self.observation!r} not in {list(ec.OBSERVATION_POLICY)}")
+        if self.policy != ec.OBSERVATION_POLICY[self.observation]:
+            raise ValueError(f"observation {self.observation!r} requires policy "
+                             f"{ec.OBSERVATION_POLICY[self.observation]!r}, not {self.policy!r}")
+        missing = [f"{k}={v}" for k, v in ec.OBSERVATION_EXTRA_ENV[self.observation] if dict(self.extra_env).get(k) != v]
+        if missing:
+            raise ValueError(f"observation {self.observation!r} needs the native flags {missing} in extra_env")
+        if self.observation_v2 and not self.norm_obs:
+            raise ValueError(f"observation {self.observation!r} requires norm_obs (VecNormalize over {list(mo.NORMALIZED_KEYS)})")
+        if self.observation_v2 and (self.net_arch != tuple(mp.NET_ARCH) or self.activation != mp.ACTIVATION):
+            raise ValueError(f"observation {self.observation!r} is validated only with {mp.NETWORK_ID} "
+                             f"(net_arch {list(mp.NET_ARCH)}, {mp.ACTIVATION}), not {list(self.net_arch)} {self.activation}")
         if self.experiment is not None:
             view, mine = self.experiment.compatibility_view(), self.compatibility_view()
             diffs = ec.compare_compatibility(view, mine)
@@ -472,7 +506,61 @@ def config_from_experiment(exp: "ec.Experiment", *, run_id: Optional[str] = None
         standby_preboot=bool(v["environment.standby_preboot"]), standby_count=int(v["environment.standby_count"]),
         standby_wait_timeout=float(v["environment.standby_wait_timeout_s"]),
         allow_lifecycle_change=bool(v["resume.allow_lifecycle_change"]),
+        observation=str(v["contracts.observation"]), policy=str(v["ppo.policy"]),
     )
+
+
+# -- M7g Phase K: observation-dependent construction (v1 = the M7a-M7f objects, unchanged) ------------------------
+
+
+def run_contracts(config: M7Config) -> Dict[str, Any]:
+    """Every contract a checkpoint of this configuration depends on (compared on resume and evaluation)."""
+    if config.observation_v2:
+        return mo.m7g_contracts(config.horizon, config.reward)
+    return m7_contracts(config.horizon, config.reward)
+
+
+def worker_factory(config: M7Config, spec: WorkerSpec) -> Any:
+    """The picklable worker factory of the configured observation (v2 = the M7 stack + SpatialObsV2Wrapper)."""
+    return mo.M7gWorkerFactory(spec) if config.observation_v2 else WorkerFactory(spec)
+
+
+def vecnormalize_keys(config: M7Config) -> Dict[str, Any]:
+    """VecNormalize keyword for the configured observation: v2 normalises only its continuous keys (the binary keys
+    are never normalised; SB3's default would normalise all five); v1 passes nothing (M7a-M7f call unchanged)."""
+    return {"norm_obs_keys": list(mo.NORMALIZED_KEYS)} if config.observation_v2 else {}
+
+
+def make_vecnormalize(config: M7Config, venv: Any) -> VecNormalize:
+    """Observation-only VecNormalize, exactly as M7Run.run constructs it for a fresh run."""
+    c = config
+    return VecNormalize(venv, training=True, norm_obs=c.norm_obs, norm_reward=False, clip_obs=c.clip_obs,
+                        gamma=c.gamma, **vecnormalize_keys(c))
+
+
+def make_model(config: M7Config, vecnorm: VecNormalize) -> "M7PPO":
+    """A fresh PPO model of this configuration (policy class from the observation contract; M7a-M7f arguments)."""
+    c = config
+    return M7PPO(c.policy, vecnorm, learning_rate=c.learning_rate, n_steps=c.n_steps, batch_size=c.batch_size,
+                 n_epochs=c.n_epochs, gamma=c.gamma, gae_lambda=c.gae_lambda, clip_range=c.clip_range,
+                 ent_coef=c.ent_coef, vf_coef=c.vf_coef, max_grad_norm=c.max_grad_norm, seed=c.base_seed,
+                 device=c.device, verbose=0, policy_kwargs=policy_kwargs(c))
+
+
+def annotate_model(config: M7Config, model: "M7PPO") -> None:
+    """Identity stored inside model.zip: M7b reward contract + experiment provenance; M7g v2 models also carry their
+    observation contract (a v1 model.zip gains nothing)."""
+    model.m7_reward_contract = config.reward.to_json()
+    model.m7_experiment = config.experiment_summary()
+    if config.observation_v2:
+        model.m7_policy_observation = config.observation
+
+
+def policy_network_identity(config: M7Config, model: PPO) -> Optional[Dict[str, Any]]:
+    """The measured network and observation identity of a v2 model (None for v1: no v1 record gains a key)."""
+    if not config.observation_v2:
+        return None
+    return dict(mp.describe(model), observation=ec.policy_observation_identity(config.observation))
 
 
 @dataclass(frozen=True)
@@ -555,7 +643,7 @@ def save_checkpoint_set(directory: Path, model: PPO, vecnorm: VecNormalize, *, r
         "policy_note": "parameters after n_updates optimizer passes (n_epochs per rollout)",
         "vecnormalize": {"norm_obs": vecnorm.norm_obs, "norm_reward": vecnorm.norm_reward, "clip_obs": vecnorm.clip_obs,
                          "clip_reward": vecnorm.clip_reward, "epsilon": vecnorm.epsilon,
-                         "obs_rms_count": float(vecnorm.obs_rms.count),
+                         **obs_rms_record(vecnorm),   # v1: obs_rms_count only (as before); v2: + per-key counts / keys
                          "load_rule": "load with training=False and norm_reward=False for evaluation"},
         **{k: run_meta[k] for k in ("run_id", "purpose", "lineage", "contracts", "horizon", "n_envs", "ppo", "seeds",
                                      "executable", "revisions", "m6_flags", "versions", "torch_threads")},
@@ -566,6 +654,8 @@ def save_checkpoint_set(directory: Path, model: PPO, vecnorm: VecNormalize, *, r
         "experiment": run_meta.get("experiment"),
         "files": {name: sha256_file(directory / name) for name in (MODEL_FILE, VECNORM_FILE, PRESERVATION_FILE)},
     }
+    if run_meta.get("policy_network") is not None:   # M7g: v2 observation / network identity (absent for v1)
+        meta["policy_network"] = run_meta["policy_network"]
     write_json(directory / META_FILE, meta)
     return {"label": label, "path": portable_path(directory), "num_timesteps": meta["num_timesteps"],
             "n_updates": meta["n_updates"]}
@@ -666,7 +756,7 @@ class M7Run:
         c = self.config
         if c.resume_from is None:
             return None
-        meta = read_checkpoint_set(c.resume_from, expected_contracts=m7_contracts(c.horizon, c.reward))
+        meta = read_checkpoint_set(c.resume_from, expected_contracts=run_contracts(c))
         ppo = meta.get("ppo") or {}
         wanted = {"n_envs": c.n_envs, "n_steps": c.n_steps, "batch_size": c.batch_size, "n_epochs": c.n_epochs,
                   "gamma": c.gamma, "gae_lambda": c.gae_lambda, "learning_rate": c.learning_rate,
@@ -820,11 +910,11 @@ class M7Run:
                                       experiment=c.experiment_summary(),
                                       port_block_base=c.port_block_base, port_block_size=c.port_block_size,
                                       standby_preboot=c.standby_preboot, standby_count=c.standby_count,
-                                      standby_wait_timeout=c.standby_wait_timeout)
+                                      standby_wait_timeout=c.standby_wait_timeout, observation=c.observation)
         result = evaluate_checkpoint(checkpoint_dir, self.layout.evaluations / label, settings=settings,
                                      deterministic_episodes=c.eval_deterministic_episodes,
                                      stochastic_episodes=c.eval_stochastic_episodes,
-                                     expected_contracts=m7_contracts(c.horizon, c.reward), label=label)
+                                     expected_contracts=run_contracts(c), label=label)
         dt = time.perf_counter() - t0
         self.walls["eval_s"] += dt
         entry = {"label": label, "checkpoint": portable_path(checkpoint_dir), "wall_s": round(dt, 3),
@@ -892,7 +982,7 @@ class M7Run:
             "purpose": c.purpose,
             "created_utc": created,
             "lineage": lineage,
-            "contracts": m7_contracts(c.horizon, c.reward),
+            "contracts": run_contracts(c),
             "reward_contract": c.reward.to_json(),
             "experiment": experiment_meta,
             "compatibility_view": c.compatibility_view(),
@@ -931,7 +1021,7 @@ class M7Run:
         t_spawn = time.perf_counter()
         learn_s = None
         try:
-            self.venv = M7SubprocVecEnv([WorkerFactory(s) for s in specs], step_timeout=c.step_timeout)
+            self.venv = M7SubprocVecEnv([worker_factory(c, s) for s in specs], step_timeout=c.step_timeout)
             self.venv.interrupt_at_step = c.interrupt_at_vec_step
             self.walls["spawn_s"] = time.perf_counter() - t_spawn
             if source is not None:
@@ -942,22 +1032,21 @@ class M7Run:
                     raise CheckpointError(f"resume rejected: the saved VecNormalize (norm_obs {self.vecnorm.norm_obs}, "
                                           f"clip_obs {self.vecnorm.clip_obs}) differs from the configuration "
                                           f"(norm_obs {c.norm_obs}, clip_obs {c.clip_obs})")
+                check_vecnormalize_identity(self.vecnorm, c.observation)   # M7g: statistics of this observation
                 self.model = M7PPO.load(str(Path(c.resume_from) / MODEL_FILE), env=self.vecnorm, device=c.device)
+                check_model_identity(self.model, c.observation)            # M7g: never across observations
                 self.model.set_random_seed(c.base_seed)
                 self.start_timesteps = int(self.model.num_timesteps)
             else:
+                # the constructor literal is pinned by the M7d / M7e source guards; make_vecnormalize() is the same call
                 self.vecnorm = VecNormalize(self.venv, training=True, norm_obs=c.norm_obs, norm_reward=False,
-                                            clip_obs=c.clip_obs, gamma=c.gamma)
-                self.model = M7PPO(POLICY, self.vecnorm, learning_rate=c.learning_rate, n_steps=c.n_steps,
-                                   batch_size=c.batch_size, n_epochs=c.n_epochs, gamma=c.gamma,
-                                   gae_lambda=c.gae_lambda, clip_range=c.clip_range, ent_coef=c.ent_coef,
-                                   vf_coef=c.vf_coef, max_grad_norm=c.max_grad_norm, seed=c.base_seed,
-                                   device=c.device, verbose=0, policy_kwargs=policy_kwargs(c))
-            # M7b: the reward identity and experiment provenance are stored inside model.zip as well
-            self.model.m7_reward_contract = c.reward.to_json()
-            self.model.m7_experiment = c.experiment_summary()
+                                            clip_obs=c.clip_obs, gamma=c.gamma, **vecnormalize_keys(c))
+                self.model = make_model(c, self.vecnorm)
+            annotate_model(c, self.model)
             self.forward = ForwardTimer(self.model.policy)
-            self.run_meta["ppo"] = resolved_ppo_params(self.model)
+            self.run_meta["ppo"] = resolved_ppo_params(self.model, c.policy)
+            if c.observation_v2:
+                self.run_meta["policy_network"] = policy_network_identity(c, self.model)
             write_json(self.layout.run_json, self.run_meta)
             if source is None and c.initial_checkpoint:
                 t0 = time.perf_counter()
@@ -1096,8 +1185,12 @@ class M7Run:
             "torch_threads": self.run_meta.get("torch_threads"),
             "job_object": self.run_meta.get("job_object"),
             "lineage": self.run_meta.get("lineage"),
-            "observation_path": "raw native M1b observation -> btt_policy_obs_v1 (15 float32, unchanged) -> "
-                                "VecNormalize(norm_obs=True, clip_obs=%g, norm_reward=False) -> policy" % c.clip_obs,
+            "observation_path": ("raw native M1b observation + btt_spatial_v1 -> btt_policy_obs_v2_spatial (Dict, 525 "
+                                 "values; state = btt_policy_obs_v1) -> VecNormalize(norm_obs=True, norm_obs_keys=%s, "
+                                 "clip_obs=%g, norm_reward=False) -> MultiInputPolicy" % (list(mo.NORMALIZED_KEYS), c.clip_obs))
+            if c.observation_v2 else
+            "raw native M1b observation -> btt_policy_obs_v1 (15 float32, unchanged) -> "
+            "VecNormalize(norm_obs=True, clip_obs=%g, norm_reward=False) -> policy" % c.clip_obs,
             "timesteps": {"requested_additional": c.total_timesteps, "start": self.start_timesteps,
                           "sb3_num_timesteps": None if model is None else int(model.num_timesteps),
                           "transitions_this_run": transitions,

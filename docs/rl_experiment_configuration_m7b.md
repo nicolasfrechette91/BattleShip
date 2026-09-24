@@ -102,10 +102,10 @@ default is listed.
 | --- | --- |
 | `[run]` | `name`, `mode` (`train` / `pilot` / `resume`), `base_seed`, `total_transitions` (cumulative lineage target), `output_root`, `notes` (default `""`) |
 | `[task]` | `id` (`ssb64_us_mario_btt_v1` only), `game_version` (`us` / `jp`), `character` (12 fighters), `stage` (`btt_*` / `btp_*`), `player` (native port), `costume`; every field must match the task table entry, so every other combination is rejected until implemented |
-| `[contracts]` | `protocol_version` (1), `observation` (`btt_policy_obs_v1`), `action` (`btt_s9_b8_v1`), `reward` (`btt_reward_v1` / `btt_reward_v2` / `custom`), `artifact_schema` (1) |
+| `[contracts]` | `protocol_version` (1), `observation` (`btt_policy_obs_v1`; M7g Phase K also `btt_policy_obs_v2_spatial`), `action` (`btt_s9_b8_v1`), `reward` (`btt_reward_v1` / `btt_reward_v2` / `custom`), `artifact_schema` (1) |
 | `[reward]` | `target_broken`, `per_step`, `clear_bonus`, `failure_penalty` (canonical ids enforce their exact values) |
 | `[environment]` | `executable`, `horizon`, `process_count`, `no_render`, `raphnet_disable`, `startup_attempts`, `startup_timeout_s`, `ready_timeout_s`, `request_timeout_s`, `exit_timeout_s`, `step_timeout_s`, `worker_runtime_root` (default `""` = `<run>/workers`), `port_block_base`, `port_block_size`, `position_delta_threshold` (300 for Mario) |
-| `[ppo]` | `policy` (`MlpPolicy`), `net_arch`, `activation` (`tanh` / `relu`), `learning_rate`, `rollout_size`, `n_steps`, `batch_size`, `n_epochs`, `gamma`, `gae_lambda`, `clip_range`, `ent_coef`, `vf_coef`, `max_grad_norm`, `torch_threads`, `device` (`cpu`) |
+| `[ppo]` | `policy` (`MlpPolicy`; `MultiInputPolicy` with observation v2), `net_arch`, `activation` (`tanh` / `relu`), `learning_rate`, `rollout_size`, `n_steps`, `batch_size`, `n_epochs`, `gamma`, `gae_lambda`, `clip_range`, `ent_coef`, `vf_coef`, `max_grad_norm`, `torch_threads`, `device` (`cpu`) |
 | `[ppo.vecnormalize]` | `normalize_observations`, `normalize_rewards` (must be `false`), `clip_obs` |
 | `[checkpoint]` | `interval`, `initial` |
 | `[evaluation]` | `interval`, `initial`, `final`, `deterministic_episodes`, `stochastic_episodes`, `random_baseline_episodes`, `seed`, `workers` (default 0 = `process_count`) |
@@ -148,7 +148,14 @@ Rejected, with the full field path and the offending value in the message
   table (JP, other fighters, BTP stages, other ports or costumes), an
   executable whose basename is not the task's (`BattleShip-JP.exe`);
 - unsupported observation / action / protocol / artifact-schema values,
-  policies other than `MlpPolicy`, devices other than `cpu`;
+  policies other than `MlpPolicy` / `MultiInputPolicy`, devices other than `cpu`;
+- M7g Phase K observation rules: `btt_policy_obs_v1` requires `MlpPolicy` and
+  `btt_policy_obs_v2_spatial` requires `MultiInputPolicy`; v2 also requires
+  `normalize_observations = true` and the validated network (`net_arch = [64, 64]`,
+  `tanh`). v2's native flag (`SSB64_RL_SPATIAL=1`) and VecNormalize keys are
+  derived from the observation contract, never written in the TOML. Every v1
+  profile resolves to exactly its previous values and fingerprints
+  ([`rl_obs_v2_phase_k_readiness_m7g.md`](rl_obs_v2_phase_k_readiness_m7g.md));
 - canonical reward ids with altered values (`btt_reward_v1` with a
   penalty, `btt_reward_v2` without it), unknown reward ids, custom ids that
   do not match their values, reward normalisation enabled;
