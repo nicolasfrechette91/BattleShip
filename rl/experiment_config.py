@@ -286,6 +286,24 @@ OUTPUT_PATHS = tuple(f.path for f in FIELDS if f.cls == "output")
 # Operational fields a resume may change freely (documented in docs/rl_experiment_configuration_m7b.md).
 RESUME_PERMITTED_PATHS = tuple(f.path for f in FIELDS if f.cls in ("semantic", "operational", "output"))
 
+# M7h: the optional [curriculum] table (docs/rl_frontier_curriculum_m7h_proposal.md, revision 2). All or nothing: a
+# profile without the table resolves exactly as before (no key in values, views, fingerprints or records); with the
+# table every key is required and pinned to the registered M7h settings. Kept outside FIELDS on purpose.
+CURRICULUM_CONTRACT = "btt_curriculum_frontier_v1"
+CURRICULUM_FIELDS: Tuple[Field, ...] = (
+    _F("curriculum.contract", "str", "immutable", choices=(CURRICULUM_CONTRACT,),
+       doc="frontier-restart curriculum: training-only prefix phase after automatic resets"),
+    _F("curriculum.tick0_probability", "float", "immutable", choices=(0.5,),
+       doc="probability that an automatic reset keeps its tick-0 start (registered 50/50 selection)"),
+    _F("curriculum.max_prefix_ticks", "int", "immutable", choices=(3000,), doc="longest selectable archived prefix"),
+    _F("curriculum.pre_fall_exclusion_ticks", "int", "immutable", choices=(60,),
+       doc="a cell reached this close before its source's native failure is never selected"),
+    _F("curriculum.cell_size", "int", "immutable", choices=(300,),
+       doc="M7f cell key (floor(x/300), floor(y/300), targets_remaining) on live steps"),
+)
+CURRICULUM_BY_PATH: Dict[str, Field] = {f.path: f for f in CURRICULUM_FIELDS}
+CURRICULUM_PATHS: Tuple[str, ...] = tuple(CURRICULUM_BY_PATH)
+
 
 # -- helpers ---------------------------------------------------------------------------------------------------
 
@@ -508,10 +526,18 @@ class Experiment:
     def nested(self) -> Dict[str, Any]:
         return _nest(self.values)
 
+    @property
+    def curriculum(self) -> Optional[Dict[str, Any]]:
+        """M7h: the [curriculum] table as {key: value} (short keys), or None when the profile has no curriculum."""
+        if not any(p in self.values for p in CURRICULUM_PATHS):
+            return None
+        return {p.split(".", 1)[1]: self.values[p] for p in CURRICULUM_PATHS}
+
     # -- fingerprints -----------------------------------------------------------------------------------------
 
     def semantic_view(self) -> Dict[str, Any]:
         view = {p: self.values[p] for p in SEMANTIC_PATHS}
+        view.update({p: self.values[p] for p in CURRICULUM_PATHS if p in self.values})   # M7h: only when present
         view["contracts.reward_resolved"] = self.reward.to_json()
         view["task.table"] = self.task
         view["schema"] = SCHEMA_ID
@@ -519,6 +545,7 @@ class Experiment:
 
     def compatibility_view(self) -> Dict[str, Any]:
         view = {p: self.values[p] for p in IMMUTABLE_PATHS}
+        view.update({p: self.values[p] for p in CURRICULUM_PATHS if p in self.values})   # M7h: only when present
         view["contracts.reward_resolved"] = self.reward.to_json()
         view["environment.extra_env"] = dict(self.extra_env)
         view["schema"] = SCHEMA_ID
@@ -557,6 +584,8 @@ class Experiment:
         }
         if self.policy_observation() is not None:
             s["policy_observation"] = self.policy_observation()
+        if self.curriculum is not None:      # M7h: a profile without a curriculum records nothing new
+            s["curriculum"] = self.curriculum
         return s
 
     def resolved_json(self) -> Dict[str, Any]:
@@ -587,7 +616,7 @@ class Experiment:
             },
             "fingerprints": {"source_sha256": self.source.sha256, "semantic_fingerprint": self.semantic_fingerprint,
                              "compatibility_fingerprint": self.compatibility_fingerprint},
-            "field_classes": {p: FIELD_BY_PATH[p].cls for p in self.values},
+            "field_classes": {p: (FIELD_BY_PATH.get(p) or CURRICULUM_BY_PATH[p]).cls for p in self.values},
         }
         if self.policy_observation() is not None:
             r["resolved"]["policy_observation"] = self.policy_observation()
@@ -661,7 +690,7 @@ def _structural(raw: Mapping[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
         problems.append(f"schema = {_repr_value(raw.get('schema'))}: expected {SCHEMA_ID!r}")
     flat = _flatten({k: v for k, v in raw.items() if k != "schema"})
     for path, value in flat.items():
-        if path not in FIELD_BY_PATH:
+        if path not in FIELD_BY_PATH and path not in CURRICULUM_BY_PATH:
             if isinstance(value, dict) and not value:
                 problems.append(f"{path}: unknown or empty table")
             else:
@@ -677,6 +706,14 @@ def _structural(raw: Mapping[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
             problems.append(f"{f.path}: missing required key")
         else:
             values[f.path] = f.default
+    if "curriculum" in raw and not raw["curriculum"]:
+        problems.append("curriculum: empty table (the [curriculum] table is all-or-nothing; remove it for no curriculum)")
+    if any(p in CURRICULUM_BY_PATH for p in flat):     # M7h: the optional table, all keys required once present
+        for f in CURRICULUM_FIELDS:
+            if f.path in flat:
+                values[f.path] = _check_field(f, flat[f.path], problems)
+            else:
+                problems.append(f"{f.path}: missing required key (the [curriculum] table is all-or-nothing)")
     return values, problems
 
 
@@ -760,6 +797,13 @@ def _cross_field(v: Dict[str, Any], problems: List[str]) -> Optional[RewardContr
         problems.append("resume.allow_executable_change = true: only meaningful with run.mode = \"resume\"")
     if g("resume.allow_lifecycle_change") is True and g("run.mode") != "resume":
         problems.append("resume.allow_lifecycle_change = true: only meaningful with run.mode = \"resume\"")
+    # M7h: the frontier curriculum is registered for observation v1 only, and a curriculum run is never resumed.
+    if g("curriculum.contract") is not None:
+        if obs != POLICY_OBSERVATION_CONTRACT:
+            problems.append(f"curriculum.contract = {_repr_value(g('curriculum.contract'))}: registered for "
+                            f"contracts.observation = {POLICY_OBSERVATION_CONTRACT!r} only, not {_repr_value(obs)}")
+        if g("run.mode") == "resume":
+            problems.append("curriculum.contract: a curriculum run is never resumed (a partial run is restarted)")
     # M7c lifecycle: the two standby fields must agree (explicit, never inferred).
     sp, sc = g("environment.standby_preboot"), g("environment.standby_count")
     if isinstance(sp, bool) and _is_int(sc):

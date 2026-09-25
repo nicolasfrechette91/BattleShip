@@ -6,17 +6,31 @@ evaluation rows) and existing artifacts. The M7g-a crossing fixtures are read ON
 validation evidence for the metrics recorder (their known left entries and target IDs); they are never a training
 input, a start state or a route hint, and nothing outside this test reads them.
 
+Two manifests (test isolation, 2026-09-24). The Phase K campaign ran and was committed, so the frozen manifest
+(docs/rl_obs_v2_phase_k_manifest_m7g.json == runs/m7g_k/_matrix/manifest.json, HEAD afa42fc) no longer describes any
+later checkout. It is checked as ARCHIVED evidence: byte-identical to the recorded sha256, internally consistent, and
+refused for a relaunch on this tree (its drift is exactly HEAD and, when the code changed, the code fingerprint; the
+executable, submodules and every profile still match). The orchestration logic is exercised in temporary roots against
+a manifest built for the tree under test by km.build_manifest() (the `manifest` command's own function), written below
+the suite root; every provenance and drift check runs in full against it. That current-tree manifest must equal the
+frozen one in every contract field (runs, fingerprints, untrained digests, proofs, census, rule, limits), so the tree
+under test still registers the Phase K experiment exactly.
+
 Unit cases (no game):
     unit_recorder              m7g_eval_metrics self-test (incremental derivation == m7f check_trace on 9 variants,
                                record checks incl. the 446/447 clocks); the left boundary equals the M7g-a derived one
     unit_recorder_wiring       evaluator opt-in (flags, factories, rows), tracker hook, training never records metrics
-    unit_manifest              manifest ok and current (no drift); six comparison profiles pinned; proofs; census;
-                               untrained v1 digests == M7d's recorded ones
-    unit_drift_detection       executable / HEAD / submodule / code / profile changes are all reported as drift
+    unit_manifest              archived: frozen manifest byte-identical and consistent, drift only HEAD / code;
+                               current-tree manifest ok, no drift, equal to the frozen one in every contract field;
+                               six comparison profiles pinned; proofs; census; untrained v1 digests == M7d's
+    unit_drift_detection       executable / HEAD / submodule / code / profile changes are all reported as drift; the
+                               frozen manifest is refused on this tree for exactly the archived reasons
     unit_resource_gate         commit AND physical gated separately (boundaries inclusive, missing reading fails),
                                disk / CPU / processes / ports / env; one real reading, nothing launched
-    unit_dry_runs              train / preflight / pilot dry runs on the real root: plan, refusals (out of order,
-                               extension without a decision), nothing created
+    unit_dry_runs              real (archived) root: every launch path refused (manifest drift; verified runs skipped;
+                               existing pilot never overwritten; extension locked by the recorded gate), nothing
+                               created or changed; temporary root with the current-tree manifest: plan, refusals
+                               (out of order, extension without a decision), nothing created
     unit_partial_and_resume    temporary root: a partial run stops `train`; --restart-partial moves it aside intact and
                                relaunches from scratch; --resume continues the own lineage (deviation recorded); a
                                foreign-seed checkpoint is refused
@@ -39,7 +53,8 @@ Game cases (no training; fresh BattleShip processes, at most 10):
     game_eval_end_to_end       temporary root: untrained checkpoint sets of both arms through the driver's evaluation
                                path (provenance, metrics, verification) with reduced counts; random baseline
 
-Usage: python rl/m7g_k_campaign_tests.py [unit|game|<case> ...] [--root runs/m7g_k/_campaign_tests_<utc>]
+Usage: python rl/m7g_k_campaign_tests.py [unit|game|<case> ...] [--root runs/_tests/m7g_k_campaign_<utc>]
+(the default root is outside the archived Phase K tree runs/m7g_k, which the suite never writes)
 """
 from __future__ import annotations
 
@@ -55,7 +70,7 @@ import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 RL_DIR = Path(__file__).resolve().parent
 if str(RL_DIR) not in sys.path:
@@ -85,6 +100,12 @@ PINNED_SIX = {
     "m7g_s2_v2": ("c8a31441d73b2d3b0b0e4f6ed03129842f649234300e7ae9979cb9853e2bdd2f", "b9286221247fa7ecd688b39808c3294dc3007ab661b9ed8cf79941fbd7f9dc2c", "7b9cfd189bda17f7de2b5e54ef1e2821246438bf24a8374a7e9646ec57acf4f0"),
 }
 M7D_INITIAL_V1 = {0: "68155f41065d243f", 1: "1dd753aeda5f", 2: "9fa632c6ffeb"}   # M7d manifest digests (prefixes)
+# The archived campaign's frozen manifest (docs copy == runs/m7g_k/_matrix/manifest.json), as recorded by Phase K.
+FROZEN_MANIFEST_SHA256 = "9a58f03b6f6f2f0fc8db8824c65e27a5f4470bddf4b113dbd890425ee4ac6e4e"
+FROZEN_HEAD = "afa42fcd01b4b6657f57a78948ae212f59d96955"
+# The only drift the frozen manifest may show on a later checkout: the commit and (when rl/ changed) the code.
+ARCHIVED_DRIFT_PREFIXES = ("parent HEAD ", "the Python code or a Phase K profile changed since the manifest")
+IDENTITY_KEYS = ("created_utc", "revisions", "code")     # manifest fields that describe the tree, not the experiment
 
 
 class CaseFailure(AssertionError):
@@ -121,14 +142,58 @@ def _no_battleship() -> bool:
     return not list_processes_named()
 
 
-class _Root:
-    """Redirect the Phase K tree to a temporary root for one case (always restored)."""
+_CURRENT_MANIFEST: Dict[str, Any] = {}
 
-    def __init__(self, root: Path):
+
+def current_tree_manifest() -> Dict[str, Any]:
+    """The manifest of the tree under test: km.build_manifest() on the real root (read-only there), built once per
+    process, never written over a frozen manifest. Temporary roots are seeded with it (see _Root)."""
+    if not _CURRENT_MANIFEST:
+        km.configure_root(None)
+        _CURRENT_MANIFEST.update(km.build_manifest())
+    return copy.deepcopy(_CURRENT_MANIFEST)
+
+
+def contract_view(man: Mapping[str, Any]) -> Dict[str, Any]:
+    """A manifest without the fields that identify the checkout (commit, dirty flag, code fingerprint, build time) and
+    without the directory plan's list of directories that happen to exist."""
+    m = {k: copy.deepcopy(v) for k, v in man.items() if k not in IDENTITY_KEYS}
+    if isinstance(m.get("directory_plan"), dict):
+        m["directory_plan"].pop("existing", None)
+    return m
+
+
+def archived_drift_problems(drift: Sequence[str], frozen: Mapping[str, Any]) -> List[str]:
+    """What is wrong with the frozen manifest's drift on this checkout: anything beyond HEAD / code, or a HEAD that
+    does not descend from the Phase K launch commit."""
+    import subprocess
+
+    p = [d for d in drift if not d.startswith(ARCHIVED_DRIFT_PREFIXES)]
+    head = (frozen.get("revisions") or {}).get("head")
+    if head != FROZEN_HEAD:
+        p.append(f"frozen manifest HEAD {head} != recorded {FROZEN_HEAD}")
+    if any(d.startswith("parent HEAD ") for d in drift):
+        rc = subprocess.run(["git", "merge-base", "--is-ancestor", FROZEN_HEAD, "HEAD"], cwd=str(REPO_ROOT),
+                            capture_output=True).returncode
+        if rc != 0:
+            p.append(f"HEAD does not descend from the Phase K launch commit {FROZEN_HEAD[:12]}")
+    return p
+
+
+class _Root:
+    """Redirect the Phase K tree to a temporary root for one case (always restored). The root's frozen-manifest slot
+    (<root>/_matrix/manifest.json) is seeded with the current-tree manifest, so the orchestration runs every drift and
+    provenance check against a manifest that describes the tree under test."""
+
+    def __init__(self, root: Path, *, seed_manifest: bool = True):
         self.root = root
+        self.seed_manifest = seed_manifest
 
     def __enter__(self) -> Path:
+        man = current_tree_manifest() if self.seed_manifest else None
         km.configure_root(self.root)
+        if man is not None and not kr.frozen_manifest_path().exists():
+            km.write_json(kr.frozen_manifest_path(), man)
         return self.root
 
     def __exit__(self, *exc: Any) -> None:
@@ -182,7 +247,7 @@ def _synthetic_checkpoint(spec: km.RunSpec, *, t: int = 0, run_id: Optional[str]
     tr.annotate_model(cfg, model)
     model.num_timesteps = int(t)
     rid = run_id or spec.name
-    manifest = km.read_json(km.MANIFEST_DOC)
+    manifest = kr.load_manifest(freeze=False)       # the (temporary) root's manifest
     run_meta = {"run_id": rid, "purpose": "test", "lineage": [], "contracts": tr.run_contracts(cfg),
                 "horizon": cfg.horizon, "n_envs": cfg.n_envs, "ppo": tr.resolved_ppo_params(model, cfg.policy),
                 "seeds": {"base_seed": cfg.base_seed}, "executable": {"path": str(cfg.executable),
@@ -258,36 +323,74 @@ def unit_recorder_wiring(s: Suite) -> Dict[str, Any]:
     return {"profiles_checked": len(profiles)}
 
 
+def _manifest_contract_checks(man: Mapping[str, Any], which: str) -> None:
+    """The registered Phase K contract, as the original case checked it (applied to both manifests)."""
+    check(man["ok"] and not man["problems"], f"{which} manifest problems {man['problems']}")
+    runs = man["runs"]
+    check(len(runs) == 12 and sum(r["extension"] for r in runs.values()) == 4
+          and sum(r["pilot"] for r in runs.values()) == 2, f"{which}: run census")
+    for seed, prefix in M7D_INITIAL_V1.items():
+        check(runs[f"m7g_s{seed}_v1"]["expected_initial_policy_digest"].startswith(prefix), f"{which}: seed {seed} digest")
+    check(len({runs[f"m7g_s{k}_v2"]["expected_initial_policy_digest"] for k in range(5)}) == 5, f"{which}: v2 seeds")
+    check(all(p["proof"]["proof_ok"] for p in man["proofs"].values()) and len(man["proofs"]) == 3 + 5 + 4 + 2,
+          f"{which}: proofs {[k for k, p in man['proofs'].items() if not p['proof']['proof_ok']]}")
+    ep = man["evaluation_protocol"]
+    check((ep["census"]["total_episodes"], ep["census_with_extension"]["total_episodes"]) == (6010, 9950),
+          f"{which}: census totals")
+    check(man["decision_rule"]["extension"]["seeds"] == [3, 4] and man["decision_rule"]["maximum"]["transitions"]
+          == 30_720_000 and man["decision_rule"]["maximum"]["runs"] == 10, f"{which}: extension and maximum")
+    plan = ep["plan"]["m7g_s0_v2"]
+    check(len(plan) == 11 and all(p["eval_metrics"] and p["extra_env"] == {**M6, **SPATIAL, **DIAG} for p in plan)
+          and all(p["extra_env"] == {**M6, **DIAG} for p in ep["plan"]["m7g_s0_v1"]), f"{which}: evaluation plan flags")
+
+
 def unit_manifest(s: Suite) -> Dict[str, Any]:
-    man = km.read_json(km.MANIFEST_DOC)
-    check(man["ok"] and not man["problems"], f"manifest problems {man['problems']}")
-    drift = kr.manifest_drift(man)
-    check(not drift, f"the checked-in manifest is stale: {drift}")
+    # 1. The archived campaign's frozen manifest: unchanged bytes, consistent, refused on this checkout for the
+    #    archived reasons only (the executable, the submodules and every profile still match it).
+    raw = km.MANIFEST_DOC.read_bytes()
+    check(hashlib.sha256(raw).hexdigest() == FROZEN_MANIFEST_SHA256, "the frozen Phase K manifest changed")
+    frozen_run_copy = km.DEFAULT_MATRIX_ROOT / "_matrix" / "manifest.json"
+    if frozen_run_copy.is_file():
+        check(frozen_run_copy.read_bytes() == raw, "runs/m7g_k/_matrix/manifest.json differs from the docs manifest")
+    frozen = json.loads(raw)
+    _manifest_contract_checks(frozen, "frozen")
+    drift = kr.manifest_drift(frozen)
+    bad = archived_drift_problems(drift, frozen)
+    check(not bad, f"the frozen manifest drifts beyond HEAD / code: {bad}")
     for name, pinned in PINNED_SIX.items():
         e = ec.load_experiment(km.run_by_name(name).config_path)
         check((e.source.sha256, e.semantic_fingerprint, e.compatibility_fingerprint) == pinned, f"{name} changed")
-    runs = man["runs"]
-    check(len(runs) == 12 and sum(r["extension"] for r in runs.values()) == 4
-          and sum(r["pilot"] for r in runs.values()) == 2, "run census")
-    for seed, prefix in M7D_INITIAL_V1.items():
-        check(runs[f"m7g_s{seed}_v1"]["expected_initial_policy_digest"].startswith(prefix), f"seed {seed} digest")
-    check(len({runs[f"m7g_s{k}_v2"]["expected_initial_policy_digest"] for k in range(5)}) == 5, "v2 seeds distinct")
-    check(all(p["proof"]["proof_ok"] for p in man["proofs"].values()) and len(man["proofs"]) == 3 + 5 + 4 + 2,
-          f"proofs {[k for k, p in man['proofs'].items() if not p['proof']['proof_ok']]}")
-    ep = man["evaluation_protocol"]
-    check((ep["census"]["total_episodes"], ep["census_with_extension"]["total_episodes"]) == (6010, 9950),
-          "census totals")
-    check(man["decision_rule"]["extension"]["seeds"] == [3, 4] and man["decision_rule"]["maximum"]["transitions"]
-          == 30_720_000 and man["decision_rule"]["maximum"]["runs"] == 10, "extension and maximum")
-    plan = ep["plan"]["m7g_s0_v2"]
-    check(len(plan) == 11 and all(p["eval_metrics"] and p["extra_env"] == {**M6, **SPATIAL, **DIAG} for p in plan)
-          and all(p["extra_env"] == {**M6, **DIAG} for p in ep["plan"]["m7g_s0_v1"]), "evaluation plan flags")
-    return {"runs": len(runs), "proofs": len(man["proofs"]), "census": [6010, 9950]}
+    # 2. The tree under test: its own manifest is ok, current, and registers exactly the frozen contract.
+    cur = current_tree_manifest()
+    _manifest_contract_checks(cur, "current-tree")
+    check(not kr.manifest_drift(cur), f"current-tree manifest drift {kr.manifest_drift(cur)}")
+    a, b = contract_view(frozen), contract_view(cur)
+    differ = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+    check(not differ, f"the tree under test registers a different Phase K contract in {differ}")
+    return {"frozen_sha256": FROZEN_MANIFEST_SHA256[:16], "frozen_drift": [d[:90] for d in drift],
+            "current": {"head": cur["revisions"]["head"], "code_sha256": cur["code"]["sha256"][:16],
+                        "code_files": cur["code"]["files"]},
+            "contract_fields_compared": len(a), "runs": len(cur["runs"]), "proofs": len(cur["proofs"]),
+            "census": [6010, 9950]}
 
 
 def unit_drift_detection(s: Suite) -> Dict[str, Any]:
-    man = km.read_json(km.MANIFEST_DOC)
+    frozen = km.read_json(km.MANIFEST_DOC)
     cur = kr.current_identity()
+    archived = kr.manifest_drift(frozen, cur)
+    check(archived and not archived_drift_problems(archived, frozen),
+          f"the frozen manifest must be refused on this checkout for the archived reasons only: {archived}")
+    # the archived filter is not a bypass: any other drift of the frozen manifest, or a changed contract field, is caught
+    for name, mut in {"executable": lambda c: c.__setitem__("executable_sha256", "0" * 64),
+                      "submodule": lambda c: c["revisions"]["submodules"].__setitem__("decomp", "e" * 40),
+                      "profile": lambda c: c["profiles"].__setitem__("m7g_s1_v1", ("x", "y", "z"))}.items():
+        c2 = copy.deepcopy(cur)
+        mut(c2)
+        check(archived_drift_problems(kr.manifest_drift(frozen, c2), frozen), f"archived filter missed {name} drift")
+    man = current_tree_manifest()
+    tampered = copy.deepcopy(man)
+    tampered["runs"]["m7g_s0_v1"]["expected_initial_policy_digest"] = "0" * 64
+    check(contract_view(tampered) != contract_view(frozen), "a changed untrained digest was not a contract difference")
     check(not kr.manifest_drift(man, cur), "baseline drift")
     found: Dict[str, List[str]] = {}
     for name, mut in {"executable": lambda m, c: c.__setitem__("executable_sha256", "0" * 64),
@@ -300,7 +403,7 @@ def unit_drift_detection(s: Suite) -> Dict[str, Any]:
         mut(m2, c2)
         found[name] = kr.manifest_drift(m2, c2)
         check(len(found[name]) == 1, f"{name}: drift {found[name]}")
-    return {k: v[0][:80] for k, v in found.items()}
+    return {"mutations": {k: v[0][:80] for k, v in found.items()}, "frozen_manifest_refused_for": [d[:80] for d in archived]}
 
 
 def unit_resource_gate(s: Suite) -> Dict[str, Any]:
@@ -332,43 +435,92 @@ def unit_resource_gate(s: Suite) -> Dict[str, Any]:
                      "cpu_mean_pct": real["measurement"]["cpu_mean_pct"], "ok": real["ok"], "problems": real["problems"]}}
 
 
-def unit_dry_runs(s: Suite) -> Dict[str, Any]:
+def _dry(*argv: str) -> Tuple[int, str]:
     import contextlib
     import io
 
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = kr.main(list(argv))
+    return rc, buf.getvalue()
+
+
+def _report(text: str) -> Dict[str, Any]:
+    return json.loads(text[: text.rindex("}") + 1])
+
+
+def _archived_tree_state(root: Path) -> Dict[str, Any]:
+    """Top-level listing plus the bytes of the archived campaign's bookkeeping (state, manifest, analysis)."""
+    files = sorted((root / "_matrix").glob("*.json")) if (root / "_matrix").is_dir() else []
+    return {"listing": sorted(p.name for p in root.iterdir()) if root.is_dir() else [],
+            "matrix_json": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}
+
+
+def unit_dry_runs(s: Suite) -> Dict[str, Any]:
+    out: Dict[str, Any] = {"archived_root": {}, "temporary_root": {}}
+    # 1. The real (archived) Phase K root: every launch path is refused, nothing is created or changed.
+    km.configure_root(None)
     root = km.DEFAULT_MATRIX_ROOT
-    before = sorted(p.name for p in root.iterdir()) if root.is_dir() else []
-    out: Dict[str, Any] = {}
-    # Once a pilot has run, its directory exists and the pilot dry run must refuse it (never overwritten).
-    pilot_ran = any(s.run_dir.exists() for s in km.pilot_specs())
-    for name, argv, want in (("train", ("train", "--dry-run", "--skip-resource-gate"), kr.EXIT_OK),
-                             ("preflight", ("preflight", "--skip-resource-gate"), kr.EXIT_OK),
-                             ("out_of_order", ("train", "--dry-run", "--skip-resource-gate", "--only", "m7g_s1_v2"),
-                              kr.EXIT_FAILED),
-                             ("extension_refused", ("train", "--dry-run", "--extension", "--skip-resource-gate"),
-                              kr.EXIT_USAGE),
-                             ("pilot", ("pilot", "--dry-run", "--skip-resource-gate"),
-                              kr.EXIT_FAILED if pilot_ran else kr.EXIT_OK),
-                             ("evaluate", ("evaluate", "--dry-run"), kr.EXIT_OK)):
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = kr.main(list(argv))
-        text = buf.getvalue()
-        out[name] = rc
-        if name == "out_of_order":
-            rc_ok = rc == kr.EXIT_OK and "out of order" in text     # the plan names the refusal; nothing launched
-            check(rc_ok or rc == want, f"{name}: exit {rc}")
-            check("out of order" in text, "out-of-order refusal not in the plan")
-        else:
-            check(rc == want, f"{name}: exit {rc} (want {want}): {text[-400:]}")
-        if name == "pilot" and pilot_ran:
-            check("never overwritten" in text, "an existing pilot directory was not refused")
-        if name == "train":
-            plan = json.loads(text[: text.rindex("}") + 1])["plan"]
-            check(plan[0] == {"run": "m7g_s0_v1", "status": "absent", "action": "train from scratch"}
-                  and all(p["action"].startswith("wait") for p in plan[1:]), f"plan {plan}")
-    after = sorted(p.name for p in root.iterdir()) if root.is_dir() else []
-    check(before == after, f"a dry run created something: {set(after) - set(before)}")
+    before = _archived_tree_state(root)
+    frozen = kr.load_manifest(freeze=False)
+    want_drift = kr.manifest_drift(frozen)
+    check(want_drift and not archived_drift_problems(want_drift, frozen), f"archived drift {want_drift}")
+    state = kr.load_state()
+    archived = all(((state.get("runs") or {}).get(sp.name) or {}).get("status") == "verified" for sp in km.matrix())
+    rc, text = _dry("train", "--dry-run", "--skip-resource-gate")
+    rep = _report(text)
+    check(rc == kr.EXIT_FAILED and rep["manifest_drift"] == want_drift and rep["blocking_problems"] == want_drift,
+          f"archived train dry run: exit {rc}, blocking {rep['blocking_problems']}")
+    if archived:
+        check(all(p["status"] == "verified" and p["action"] == "skip" for p in rep["plan"]),
+              f"a verified Phase K run would be retrained: {rep['plan']}")
+    else:
+        check(rep["plan"][0] == {"run": "m7g_s0_v1", "status": "absent", "action": "train from scratch"}, "plan")
+    out["archived_root"]["train"] = {"exit": rc, "blocking": [b[:70] for b in rep["blocking_problems"]],
+                                     "plan": sorted({p["action"] for p in rep["plan"]})}
+    rc, _t = _dry("preflight", "--skip-resource-gate")
+    check(rc == kr.EXIT_FAILED, f"archived preflight: exit {rc}")
+    out["archived_root"]["preflight"] = rc
+    rc, text = _dry("evaluate", "--dry-run")
+    check(rc == kr.EXIT_FAILED and "BLOCKED" in text, f"archived evaluate dry run: exit {rc}")
+    out["archived_root"]["evaluate"] = rc
+    pilot_ran = any(sp.run_dir.exists() for sp in km.pilot_specs())
+    rc, text = _dry("pilot", "--dry-run", "--skip-resource-gate")
+    check(rc == kr.EXIT_FAILED and (not pilot_ran or "never overwritten" in text), f"archived pilot dry run: exit {rc}")
+    out["archived_root"]["pilot"] = {"exit": rc, "existing_pilot_refused": pilot_ran}
+    n3 = (state.get("decisions") or {}).get("n3") or {}
+    rc, _t = _dry("train", "--dry-run", "--extension", "--skip-resource-gate")
+    check(rc == kr.EXIT_USAGE and not n3.get("extension_required"), f"archived extension: exit {rc} ({n3})")
+    out["archived_root"]["extension"] = {"exit": rc, "recorded_gate": n3.get("gate")}
+    after = _archived_tree_state(root)
+    check(before == after, f"a dry run changed the archived tree: {before} -> {after}")
+    out["archived_root"]["unchanged_files"] = len(after["matrix_json"])
+    # 2. A temporary root with the current-tree manifest: the launch logic itself.
+    d = s.dir("unit_dry_runs")
+    with _Root(d / "root") as troot:
+        seeded = sorted(p.relative_to(troot).as_posix() for p in troot.rglob("*"))
+        for name, argv, want in (("train", ("train", "--dry-run", "--skip-resource-gate"), kr.EXIT_OK),
+                                 ("preflight", ("preflight", "--skip-resource-gate"), kr.EXIT_OK),
+                                 ("out_of_order", ("train", "--dry-run", "--skip-resource-gate", "--only", "m7g_s1_v2"),
+                                  kr.EXIT_FAILED),
+                                 ("extension_refused", ("train", "--dry-run", "--extension", "--skip-resource-gate"),
+                                  kr.EXIT_USAGE),
+                                 ("pilot", ("pilot", "--dry-run", "--skip-resource-gate"), kr.EXIT_OK),
+                                 ("evaluate", ("evaluate", "--dry-run"), kr.EXIT_OK)):
+            rc, text = _dry(*argv)
+            out["temporary_root"][name] = rc
+            if name == "out_of_order":
+                rc_ok = rc == kr.EXIT_OK and "out of order" in text     # the plan names the refusal; nothing launched
+                check(rc_ok or rc == want, f"{name}: exit {rc}")
+                check("out of order" in text, "out-of-order refusal not in the plan")
+            else:
+                check(rc == want, f"{name}: exit {rc} (want {want}): {text[-400:]}")
+            if name == "train":
+                plan = _report(text)["plan"]
+                check(plan[0] == {"run": "m7g_s0_v1", "status": "absent", "action": "train from scratch"}
+                      and all(p["action"].startswith("wait") for p in plan[1:]), f"plan {plan}")
+        after_t = sorted(p.relative_to(troot).as_posix() for p in troot.rglob("*"))
+        check(seeded == after_t, f"a dry run created something: {set(after_t) - set(seeded)}")
     return out
 
 
@@ -460,9 +612,9 @@ def unit_pilot_gating(s: Suite) -> Dict[str, Any]:
 
 def unit_checkpoint_provenance(s: Suite) -> Dict[str, Any]:
     d = s.dir("unit_checkpoint_provenance")
-    man = km.read_json(km.MANIFEST_DOC)
     out: Dict[str, Any] = {}
     with _Root(d / "root"):
+        man = kr.load_manifest(freeze=False)        # the current-tree manifest seeded into the temporary root
         state = kr.load_state()
         for arm in ("v1", "v2"):
             spec = km.run_by_name(f"m7g_s0_{arm}")
@@ -811,9 +963,9 @@ def game_eval_end_to_end(s: Suite) -> Dict[str, Any]:
     torch.set_num_threads(1)
     install_kill_on_close_job()
     d = s.dir("game_eval_end_to_end")
-    man = km.read_json(km.MANIFEST_DOC)
     out: Dict[str, Any] = {}
     with _Root(d / "root"):
+        man = kr.load_manifest(freeze=False)        # the current-tree manifest seeded into the temporary root
         state = kr.load_state()
         for arm in ("v1", "v2"):
             spec = km.run_by_name(f"m7g_s0_{arm}")
@@ -865,7 +1017,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if unknown:
         ap.error(f"unknown cases {unknown}")
     utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    root = (Path(args.root) if args.root else REPO_ROOT / "runs" / "m7g_k" / f"_campaign_tests_{utc}").resolve()
+    root = (Path(args.root) if args.root else REPO_ROOT / "runs" / "_tests" / f"m7g_k_campaign_{utc}").resolve()
     root.mkdir(parents=True, exist_ok=True)
     leaked = sorted(k for k in os.environ if k.upper().startswith("SSB64_"))
     if leaked:

@@ -1,0 +1,754 @@
+{
+ "schema": "m7h_gate_v1",
+ "date": "2026-09-24",
+ "status": "E1-E7 and R1-R3 complete; stopped for review; no campaign run",
+ "registered_settings": {
+  "tick0_probability": 0.5,
+  "max_prefix_ticks": 3000,
+  "pre_fall_exclusion_ticks": 60,
+  "cell_size": 300,
+  "launch_commit_gib": 10.0,
+  "launch_physical_gib": 4.0,
+  "in_run_commit_warn_stop_emergency_gib": [
+   4.0,
+   3.0,
+   1.0
+  ],
+  "probe_interval_s": 2.0,
+  "escalate_after_s": 30.0,
+  "kill_grace_s": 240.0
+ },
+ "executable_sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+ "R": {
+  "R1_s0": {
+   "ok": true,
+   "final_digests": [
+    "5cec5fc4028dbca5f0e2402408718fb01ca21fa8aaa8242333c40ac0917b4b97",
+    "050acde93d9b43f3fd92eea767412991073cc11523d12691acea2d0c834ecee1"
+   ],
+   "m7e_digests": [
+    "5cec5fc4028dbca5f0e2402408718fb01ca21fa8aaa8242333c40ac0917b4b97",
+    "050acde93d9b43f3fd92eea767412991073cc11523d12691acea2d0c834ecee1"
+   ],
+   "rows": 30,
+   "control_path": {
+    "row_m7h_keys": 0,
+    "run_json_config_curriculum": false,
+    "experiment_summary_curriculum": false,
+    "compat_view_curriculum_keys": [],
+    "summary_curriculum_or_stop": [],
+    "summary_m7h_worker_blocks": 0,
+    "curriculum_dir": false,
+    "final_set_extra_or_interruption": [],
+    "artifacts_with_m7h_start": 0,
+    "incomplete_dirs": []
+   },
+   "first_pass_ok": true
+  },
+  "R2_s0": {
+   "ok": true,
+   "compared": {
+    "stochastic": {
+     "episodes": 100,
+     "equal": 100
+    },
+    "deterministic": {
+     "episodes": 100,
+     "equal": 100
+    }
+   },
+   "wall_s": 766.3
+  },
+  "R1_s1": {
+   "ok": true,
+   "final_digests": [
+    "56241d2258a01d088c6ac56283450384deeb5a4d8f48e8dd4bf8058a5ca8af1f",
+    "ab5944a8167f1f73bda7797dfb6eed86f4fd166dade24b290bf2cac8ef4600f3"
+   ],
+   "m7e_digests": [
+    "56241d2258a01d088c6ac56283450384deeb5a4d8f48e8dd4bf8058a5ca8af1f",
+    "ab5944a8167f1f73bda7797dfb6eed86f4fd166dade24b290bf2cac8ef4600f3"
+   ],
+   "rows": 27,
+   "control_path": {
+    "row_m7h_keys": 0,
+    "run_json_config_curriculum": false,
+    "experiment_summary_curriculum": false,
+    "compat_view_curriculum_keys": [],
+    "summary_curriculum_or_stop": [],
+    "summary_m7h_worker_blocks": 0,
+    "curriculum_dir": false,
+    "final_set_extra_or_interruption": [],
+    "artifacts_with_m7h_start": 0,
+    "incomplete_dirs": []
+   },
+   "first_pass_ok": true
+  },
+  "R2_s1": {
+   "ok": true,
+   "compared": {
+    "stochastic": {
+     "episodes": 100,
+     "equal": 100
+    },
+    "deterministic": {
+     "episodes": 100,
+     "equal": 100
+    }
+   },
+   "wall_s": 694.2
+  },
+  "R1_s2": {
+   "ok": true,
+   "final_digests": [
+    "5177b527a802e5e4c7c99ba3389cb404c81911c1aa6384158e9e6520b130509e",
+    "18c6a19bbf970bc47bd65d4bf48561cb06e0be78bb967878d76f919a95578502"
+   ],
+   "m7e_digests": [
+    "5177b527a802e5e4c7c99ba3389cb404c81911c1aa6384158e9e6520b130509e",
+    "18c6a19bbf970bc47bd65d4bf48561cb06e0be78bb967878d76f919a95578502"
+   ],
+   "rows": 29,
+   "control_path": {
+    "row_m7h_keys": 0,
+    "run_json_config_curriculum": false,
+    "experiment_summary_curriculum": false,
+    "compat_view_curriculum_keys": [],
+    "summary_curriculum_or_stop": [],
+    "summary_m7h_worker_blocks": 0,
+    "curriculum_dir": false,
+    "final_set_extra_or_interruption": [],
+    "artifacts_with_m7h_start": 0,
+    "incomplete_dirs": []
+   },
+   "first_pass_ok": true
+  },
+  "R2_s2": {
+   "ok": true,
+   "compared": {
+    "stochastic": {
+     "episodes": 100,
+     "equal": 100
+    },
+    "deterministic": {
+     "episodes": 100,
+     "equal": 100
+    }
+   },
+   "wall_s": 684.8
+  },
+  "R3": {
+   "ok": true,
+   "per_seed": {
+    "0": {
+     "r2": {
+      "k": "0",
+      "chi": "0",
+      "T": "118/25",
+      "falls": "1"
+     },
+     "registered": {
+      "k": "0",
+      "chi": "0",
+      "T": "118/25",
+      "falls": "1"
+     }
+    },
+    "1": {
+     "r2": {
+      "k": "0",
+      "chi": "0",
+      "T": "19/4",
+      "falls": "1"
+     },
+     "registered": {
+      "k": "0",
+      "chi": "0",
+      "T": "19/4",
+      "falls": "1"
+     }
+    },
+    "2": {
+     "r2": {
+      "k": "0",
+      "chi": "0",
+      "T": "427/100",
+      "falls": "0"
+     },
+     "registered": {
+      "k": "0",
+      "chi": "0",
+      "T": "427/100",
+      "falls": "0"
+     }
+    }
+   }
+  }
+ },
+ "E": {
+  "E1": {
+   "ok": true,
+   "passed": 13,
+   "total": 13,
+   "tests": [
+    {
+     "test": "codec_cells_digest",
+     "ok": true
+    },
+    {
+     "test": "classify_and_trace",
+     "ok": true
+    },
+    {
+     "test": "archive",
+     "ok": true
+    },
+    {
+     "test": "selector",
+     "ok": true
+    },
+    {
+     "test": "curriculum_vecenv_in_vecnormalize",
+     "ok": true
+    },
+    {
+     "test": "reward_rebase",
+     "ok": true
+    },
+    {
+     "test": "worker_refuses_non_fresh",
+     "ok": true
+    },
+    {
+     "test": "atomic_checkpoint_set",
+     "ok": true
+    },
+    {
+     "test": "interruption_and_stop",
+     "ok": true
+    },
+    {
+     "test": "episode_invariants_prefix_aware",
+     "ok": true
+    },
+    {
+     "test": "guard_levels",
+     "ok": true
+    },
+    {
+     "test": "config_and_control_path",
+     "ok": true
+    },
+    {
+     "test": "isolation_guard",
+     "ok": true
+    }
+   ]
+  },
+  "E2": {
+   "ok": true,
+   "static_guard": {
+    "modules": 4,
+    "forbidden_fragments": 11
+   },
+   "provenance": {
+    "entries": 1165,
+    "other_run": 0,
+    "source_not_a_row": 0,
+    "full_digest_ne_row": 0,
+    "prefix_digest_ne_artifact": 0,
+    "artifact_checked": 1165
+   },
+   "evaluation": {
+    "artifacts": 10,
+    "with_m7h_start": 0,
+    "initial_not_tick0": 0,
+    "first_row_not_tick0": 0
+   },
+   "first_check_false_positive": [
+    "stochastic: an evaluation episode row carries an m7h block",
+    "deterministic: an evaluation episode row carries an m7h block"
+   ]
+  },
+  "E3": {
+   "ok": true,
+   "entries_eligible": 986,
+   "replayed": 200,
+   "exact": 200,
+   "startup_modes": {
+    "cold_start": 3,
+    "standby_promoted": 173,
+    "cold_fallback": 24
+   },
+   "L": {
+    "min": 1,
+    "max": 2978,
+    "mean": 1031.5
+   },
+   "host_frame_equal": 200,
+   "ticks_per_s_median": 1093.9,
+   "wall_s": 231.9,
+   "negative_controls": {
+    "mismatch": "refused: prefix end observation differs from the archive: {'position_x': (1490.201171875, 1491.201171875)}",
+    "lifecycle": {
+     "kind": "tick0_after_prefix_lifecycle_failure",
+     "killed_pid": 4208,
+     "failed_summary_end": "lifecycle_failure",
+     "fresh_tick0": true,
+     "new_pid": 19616,
+     "failure_log_lines": 1
+    }
+   },
+   "full_trajectory_replays": {
+    "exact": 20,
+    "total": 20
+   }
+  },
+  "E4": {
+   "ok": true,
+   "counts": {
+    "rows": 41,
+    "prefix_starts": 24,
+    "tick0_starts": 17
+   },
+   "violations": {
+    "missing_m7h": 0,
+    "reset_contract": 0,
+    "first_row_not_tick0": 0,
+    "consumed_ticks": 0,
+    "digest_disagrees": 0,
+    "rows_ne_prefix_plus_policy": 0,
+    "over_horizon": 0,
+    "horizon_not_3600": 0,
+    "return_formula": 0,
+    "total_ne_prefix_plus_policy": 0,
+    "policy_steps_ne_vec_steps": 0,
+    "select_outside_auto_reset": 0,
+    "delivered_ne_archived_end": 0,
+    "artifact_initial_not_tick0": 0,
+    "artifact_ticks_not_contiguous": 0,
+    "artifact_prefix_digest": 0,
+    "artifact_full_digest": 0
+   },
+   "selection": {
+    "draws": 41,
+    "u1_below_half": 15,
+    "share_tick0": 0.3659
+   },
+   "policy_steps_checked": 41,
+   "delivered_checked": 24,
+   "artifacts": {
+    "total": 41,
+    "curriculum": 24
+   },
+   "observation_log": {
+    "batches": 20481,
+    "rows": 102405,
+    "obs_rms_count": 102405.0001,
+    "exact": true
+   },
+   "verify_training_run_problems": [],
+   "curriculum": {
+    "starts": {
+     "tick0_initial": 5,
+     "archive_prefix": 26,
+     "tick0": 15
+    },
+    "prefix_ticks": 30273,
+    "prefix_dispatches": 26,
+    "dispatch_wall_s": 21.6834,
+    "max_dispatch_wall_s": 1.9249,
+    "invariant_checks": 39,
+    "delivered_equals_archived_end": 26,
+    "lifecycle_failures": 0,
+    "archive": {
+     "cells": 1165,
+     "eligible": 986,
+     "reports": 41,
+     "ingested": 41,
+     "skipped_end": 0,
+     "inserted": 1165,
+     "replaced": 800,
+     "digest_mismatch": 0,
+     "consumed_tick_mismatch": 0
+    }
+   }
+  },
+  "E5": {
+   "ok": true,
+   "final_digests": [
+    "ce5f99734220b547e80942b30740585ef013b0a55dabde505d9c0a2b45704cb1",
+    "28f4d05ee6385406fbf9376f4e81d0c9f43b9522d317e31eb3239e387b2c0773"
+   ],
+   "rows": 19,
+   "archive_cells": 857,
+   "selection_log_rows": 51,
+   "e4_ckpt_000051200_equal": true,
+   "identity_fields_excluded": [
+    "episode_id",
+    "source_episode_id",
+    "run_id",
+    "dispatch_wall_s",
+    "prefix_wall_s",
+    "archive wall-clock stats"
+   ],
+   "first_compare_problems": [
+    "archives differ",
+    "selection logs differ"
+   ]
+  },
+  "E6": {
+   "ok": true,
+   "throughput": {
+    "curriculum_on": 824.0,
+    "curriculum_off_r1_s0": 1069.6,
+    "ratio": 0.7704
+   },
+   "prefix": {
+    "starts": 24,
+    "ticks": 30137,
+    "mean_L": 1255.7,
+    "worker_ticks_per_s": 1397.2,
+    "dispatch_wall_s": 21.6834,
+    "dispatch_steps": 26,
+    "stall_per_dispatch_s": 0.834,
+    "max_dispatch_wall_s": 1.9249,
+    "e3_ticks_per_s_median": 1093.9
+   },
+   "projection_min_per_3072000": {
+    "scaled_e4": 62.1,
+    "base_r1": 47.9,
+    "worst_case_740x3000": 74.4,
+    "note": "scaled_e4 uses the young E4 archive; worst_case adds 740 starts of 3,000 ticks at the measured worker rate"
+   },
+   "memory": {
+    "curriculum_on": {
+     "commit_drawn_gib": 5.079,
+     "min_avail_commit_gib": 11.529,
+     "min_avail_phys_gib": 3.928
+    },
+    "curriculum_off_r1_s0": {
+     "commit_drawn_gib": 5.021,
+     "min_avail_commit_gib": 11.914,
+     "min_avail_phys_gib": 4.222
+    }
+   }
+  },
+  "E7": {
+   "ok": true,
+   "note": "the probe level was SIMULATED after 12 logged rollouts (DrillOverride); the real memory probe ran throughout and every simulated sample is marked",
+   "drills": {
+    "cooperative": {
+     "ok": true,
+     "facts": {
+      "stop_kind": "cooperative_stop",
+      "exit_code": 130,
+      "moved_to": "C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\runs\\m7h\\_gate\\_partial\\m7h_e7_cooperative__20260924T144423Z",
+      "sets": [
+       "ckpt_000000000",
+       "ckpt_000051200",
+       "interrupted"
+      ],
+      "incomplete_dirs": [],
+      "artifacts": {
+       "total": 29,
+       "aborted": 5,
+       "aborted_with_m7h_start": 3,
+       "failed": 0
+      },
+      "episode_rows": {
+       "complete": 24,
+       "torn_tail_bytes": 0
+      },
+      "leftovers": [],
+      "interruption": {
+       "kind": "stopped",
+       "completed_update_checkpoint": false,
+       "trigger": {
+        "trigger": "stop_request",
+        "request": {
+         "reason": "low_commit",
+         "policy": {
+          "warn_gib": 4.0,
+          "stop_gib": 3.0,
+          "emergency_gib": 1.0,
+          "probe_interval_s": 2.0,
+          "escalate_after_s": 30.0,
+          "kill_grace_s": 240.0
+         },
+         "sample": {
+          "t": "2026-09-24T14:44:18+00:00",
+          "level": "stop",
+          "simulated": true,
+          "memory": {
+           "load_pct": 76,
+           "avail_phys_gib": 3.677,
+           "total_phys_gib": 15.912,
+           "commit_used_gib": 20.053,
+           "commit_limit_gib": 31.412,
+           "avail_commit_gib": 11.359
+          }
+         },
+         "simulated": true,
+         "requested_utc": "2026-09-24T14:44:18+00:00"
+        },
+        "seen_utc": "2026-09-24T14:44:18+00:00",
+        "phase": "collect",
+        "num_timesteps": 62580
+       },
+       "phase_at_stop": "collect",
+       "policy_parameters": {
+        "state": "last_completed_update",
+        "n_updates": 120,
+        "digest": "747e8d66da3bb77f4c104e06a6a2238aeb06727347d47c106c6472c1bf911f94",
+        "equals_update_boundary_digest": true
+       },
+       "update_boundary": {
+        "rollouts_completed": 12,
+        "num_timesteps": 61440,
+        "n_updates": 120,
+        "policy_digest": "747e8d66da3bb77f4c104e06a6a2238aeb06727347d47c106c6472c1bf911f94",
+        "obs_rms_digest": "b78f9248d39340ab4cfadf25efe129c450591649774b374e24814671af088807",
+        "obs_rms_count": 61445.000100000005,
+        "utc": "2026-09-24T14:44:17+00:00"
+       },
+       "num_timesteps": {
+        "at_stop": 62580,
+        "at_last_completed_update": 61440,
+        "partial_rollout_steps": 1140
+       },
+       "vecnormalize": {
+        "state": "advanced_through_partial_rollout",
+        "obs_rms_digest": "8a57738e5a4654f5f250ac97a8abd0556c55e782293a84f4bdb9cb343ace5fee",
+        "obs_rms_count": 62585.000100000005,
+        "update_boundary_file": "obs_rms_update_boundary.pkl"
+       },
+       "workers": "advanced into the partial rollout; in-flight episodes preserved as aborted artifacts at close",
+       "curriculum": {
+        "contract": "btt_curriculum_frontier_v1",
+        "settings": {
+         "contract": "btt_curriculum_frontier_v1",
+         "tick0_probability": 0.5,
+         "max_prefix_ticks": 3000,
+         "pre_fall_exclusion_ticks": 60,
+         "cell_size": 300
+        },
+        "vec_steps": 12516,
+        "auto_resets": 24,
+        "initial_resets": 5,
+        "starts": {
+         "tick0_initial": 5,
+         "archive_prefix": 15,
+         "tick0": 9
+        },
+        "prefix_ticks": 17691,
+        "prefix_dispatches": 15,
+        "dispatch_wall_s": 13.6859,
+        "dispatch_steps": 15,
+        "max_dispatch_wall_s": 2.0279,
+        "invariant_checks": 22,
+        "delivered_equals_archived_end": 15,
+        "lifecycle_failures": 0,
+        "classes": {},
+        "archive": {
+         "cells": 960,
+         "eligible": 833,
+         "reports": 24,
+         "ingested": 24,
+         "skipped_end": 0,
+         "inserted": 960,
+         "replaced": 608,
+         "digest_mismatch": 0,
+         "consumed_tick_mismatch": 0
+        },
+        "selector_draws": 39
+       },
+       "note": "interrupted set: policy parameters are those after the last completed update only when policy_parameters.state says so; num_timesteps, VecNormalize statistics, RNG and worker state include the partial rollout. Use a periodic ckpt_* set as a completed-update checkpoint."
+      },
+      "file_checks": {
+       "policy_digest_file_eq_record": true,
+       "obs_rms_count": 62585.000100000005,
+       "expected_count": 62585.0001,
+       "boundary_count": 61445.000100000005,
+       "boundary_expected": 61445.0001
+      }
+     },
+     "events": [
+      {
+       "t": "2026-09-24T14:44:18+00:00",
+       "event": "stop_request_written",
+       "path": "C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\runs\\m7h\\_gate\\e7\\m7h_e7_cooperative\\coordination\\STOP_REQUEST.json",
+       "simulated": true
+      }
+     ]
+    },
+    "fallback": {
+     "ok": true,
+     "facts": {
+      "stop_kind": "fallback_ctrl_break",
+      "exit_code": 130,
+      "moved_to": "C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\runs\\m7h\\_gate\\_partial\\m7h_e7_fallback__20260924T144616Z",
+      "sets": [
+       "ckpt_000000000",
+       "ckpt_000051200",
+       "interrupted"
+      ],
+      "incomplete_dirs": [],
+      "artifacts": {
+       "total": 34,
+       "aborted": 5,
+       "aborted_with_m7h_start": 3,
+       "failed": 0
+      },
+      "episode_rows": {
+       "complete": 28,
+       "torn_tail_bytes": 0
+      },
+      "leftovers": [],
+      "interruption": {
+       "kind": "interrupted",
+       "completed_update_checkpoint": false,
+       "trigger": {
+        "trigger": "keyboard_interrupt",
+        "phase": "collect",
+        "seen_utc": "2026-09-24T14:46:12+00:00",
+        "num_timesteps": 77820
+       },
+       "phase_at_stop": "collect",
+       "policy_parameters": {
+        "state": "last_completed_update",
+        "n_updates": 150,
+        "digest": "48aacaaacaa0e09ff72598b21478a890b3aa55b551d6c551e8c8e25b5c924160",
+        "equals_update_boundary_digest": true
+       },
+       "update_boundary": {
+        "rollouts_completed": 15,
+        "num_timesteps": 76800,
+        "n_updates": 150,
+        "policy_digest": "48aacaaacaa0e09ff72598b21478a890b3aa55b551d6c551e8c8e25b5c924160",
+        "obs_rms_digest": "4ccd799b4681cc3ba16e5b55d9782066ea040cae5b26aa35151e2716de973f4a",
+        "obs_rms_count": 76805.0001,
+        "utc": "2026-09-24T14:46:10+00:00"
+       },
+       "num_timesteps": {
+        "at_stop": 77820,
+        "at_last_completed_update": 76800,
+        "partial_rollout_steps": 1020
+       },
+       "vecnormalize": {
+        "state": "advanced_through_partial_rollout",
+        "obs_rms_digest": "d9b29a1338bd01f104475044630178c6fec5ddbbff743ecfacf86a98e1697081",
+        "obs_rms_count": 77825.0001,
+        "update_boundary_file": "obs_rms_update_boundary.pkl"
+       },
+       "workers": "advanced into the partial rollout; in-flight episodes preserved as aborted artifacts at close",
+       "curriculum": {
+        "contract": "btt_curriculum_frontier_v1",
+        "settings": {
+         "contract": "btt_curriculum_frontier_v1",
+         "tick0_probability": 0.5,
+         "max_prefix_ticks": 3000,
+         "pre_fall_exclusion_ticks": 60,
+         "cell_size": 300
+        },
+        "vec_steps": 15564,
+        "auto_resets": 28,
+        "initial_resets": 5,
+        "starts": {
+         "tick0_initial": 5,
+         "archive_prefix": 19,
+         "tick0": 9
+        },
+        "prefix_ticks": 21978,
+        "prefix_dispatches": 19,
+        "dispatch_wall_s": 15.8271,
+        "dispatch_steps": 19,
+        "max_dispatch_wall_s": 2.0155,
+        "invariant_checks": 26,
+        "delivered_equals_archived_end": 19,
+        "lifecycle_failures": 0,
+        "classes": {},
+        "archive": {
+         "cells": 991,
+         "eligible": 867,
+         "reports": 28,
+         "ingested": 28,
+         "skipped_end": 0,
+         "inserted": 991,
+         "replaced": 711,
+         "digest_mismatch": 0,
+         "consumed_tick_mismatch": 0
+        },
+        "selector_draws": 47
+       },
+       "note": "interrupted set: policy parameters are those after the last completed update only when policy_parameters.state says so; num_timesteps, VecNormalize statistics, RNG and worker state include the partial rollout. Use a periodic ckpt_* set as a completed-update checkpoint."
+      },
+      "file_checks": {
+       "policy_digest_file_eq_record": true,
+       "obs_rms_count": 77825.0001,
+       "expected_count": 77825.0001,
+       "boundary_count": 76805.0001,
+       "boundary_expected": 76805.0001
+      }
+     },
+     "events": [
+      {
+       "t": "2026-09-24T14:45:57+00:00",
+       "event": "stop_request_written",
+       "path": "C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\runs\\m7h\\_gate\\e7\\m7h_e7_fallback\\coordination\\STOP_REQUEST.json",
+       "simulated": true
+      },
+      {
+       "t": "2026-09-24T14:46:12+00:00",
+       "event": "ctrl_break_sent",
+       "after_s": 15.0
+      }
+     ]
+    },
+    "emergency": {
+     "ok": true,
+     "facts": {
+      "stop_kind": "emergency_kill",
+      "exit_code": 1,
+      "moved_to": "C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\runs\\m7h\\_gate\\_partial\\m7h_e7_emergency__20260924T144744Z",
+      "sets": [
+       "ckpt_000000000",
+       "ckpt_000051200"
+      ],
+      "incomplete_dirs": [],
+      "artifacts": {
+       "total": 24,
+       "aborted": 0,
+       "aborted_with_m7h_start": 0,
+       "failed": 0
+      },
+      "episode_rows": {
+       "complete": 24,
+       "torn_tail_bytes": 0
+      },
+      "leftovers": []
+     },
+     "events": [
+      {
+       "t": "2026-09-24T14:47:44+00:00",
+       "event": "emergency_kill",
+       "sample": {
+        "t": "2026-09-24T14:47:44+00:00",
+        "level": "emergency",
+        "simulated": true,
+        "memory": {
+         "load_pct": 78,
+         "avail_phys_gib": 3.419,
+         "total_phys_gib": 15.912,
+         "commit_used_gib": 20.423,
+         "commit_limit_gib": 31.412,
+         "avail_commit_gib": 10.989
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

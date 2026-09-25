@@ -1,0 +1,78 @@
+{
+ "schema": "m7h_manifest_amendment_v1",
+ "amendment": 1,
+ "date": "2026-09-24",
+ "created_utc": "2026-09-24T23:40:12Z",
+ "authority": "user, 2026-09-24: repair the tick-0 evaluation verifier, record a dated amendment, adapt the evaluation provenance check narrowly, resume evaluation; no training restart",
+ "manifest": {
+  "frozen": "runs/m7h/campaign/_matrix/manifest.json",
+  "docs_copy": "docs/rl_frontier_curriculum_m7h_manifest.json",
+  "note": "both byte-identical; neither is rebuilt or edited by this amendment"
+ },
+ "manifest_sha256": "9d5e0c155317b5177ccad350910db9dab59ea3b4f40b20dbc6b0249def7b03ea",
+ "original_code_sha256": "8f9a911263e01402c4f645cd30119638aa2bdefa43d1e4f5aa2ba8bd48e9c0a7",
+ "original_code_role": "the registered campaign code: the R1-R3 control check ran on it and m7h_f_s0, m7h_f_s1 and m7h_f_s2 were trained on it (their training and curriculum verification ran on it too)",
+ "amended_code_sha256": "fd61fcae463c38ba8f5620efc8beb4d3fe830db23c3128cb53e658a29e43ae0d",
+ "files": {
+  "rl/m7h_verify.py": {
+   "before": "2c7b3f8a984e5d75df98e49952f4137fefafdede528d3662a6bffeb7b4d9e7fe",
+   "after": "355dde584bd0a0f2a04799f37bc4cdcbe0a4b7cdd191e0d7e484c1183380a049",
+   "change": "verify_eval_tick0 only (plus its private helpers _tail, _ledger, _kept and constants): artifacts = counted rows + the evaluator's recorded excess episodes; per-artifact identity; excess identity against the worker ledgers; tick-0 checks on every artifact, excess included, extended with contiguous consumed ticks and the native digest"
+  },
+  "rl/m7h_campaign.py": {
+   "before": "ba770d244b0bb540d7f14c4ae7fc04c379f260b2c5f701140b7513790f283152",
+   "after": "ca08ccfaf786ce1a76000871081c517edc174d84adc30f3d03e62fb64fcee218",
+   "change": "the amendment gate (amendment_problems, evaluation_drift, post_training_gate) used by evaluate, verify-clears, verify-entries and analyze; analyze records the honoured amendment. train, control-check, the launch path, checkpoint provenance, evaluate_label and build_report are unchanged"
+  }
+ },
+ "files_not_in_the_fingerprint": {
+  "rl/m7h_campaign_tests.py": "two new cases (unit_eval_tick0_excess, unit_amendment); test modules are excluded from the code fingerprint by construction"
+ },
+ "reason": "The first 'evaluate' stopped at m7h_f_s0:curve_t000307200 with 'tick0: 66 artifacts for 65 evaluation rows'. m7_evaluation counts the episodes that finish on the vector step that meets the quota as excess_episodes_not_counted and leaves them out of the rows, while preserve_all still writes their artifact. The original verify_eval_tick0 required artifacts == rows, so it refused a legitimate, recorded, tick-0 excess episode. The same check refuses historical Phase K labels (3 of 132 mode-sets carry one excess episode, e.g. m7g_s1_v1 curve_t000614400). The tick-0 condition itself held for every artifact.",
+ "scope": {
+  "honoured_by": ["evaluate", "verify-clears", "verify-entries", "analyze"],
+  "never_honoured_by": ["train", "control-check", "manifest"],
+  "amendable_files": ["rl/m7h_verify.py", "rl/m7h_campaign.py"],
+  "still_refused": "any other code file (trainer, worker, vector env, evaluator, configuration, analysis, matrix), any profile, the executable, parent HEAD, submodules, the decision rule, a changed control record, wrong hashes, another manifest, or a change of this record after its first use (frozen to runs/m7h/campaign/_matrix/amendments/)"
+ },
+ "unchanged_identity": {
+  "executable_sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+  "head": "78e56f4c6aeddaf730eb8c81dd3dea94529870c9",
+  "submodules": {"decomp": "3c7fd5d0547ae82a240a6ffd134985e4b9697b14", "libultraship": "805f195041573230cf0402171337b22ffd558759", "torch": "3aa9c9739af95659f19adc73afeb12df93957fc3"},
+  "decision_rule_sha256": "98d1d55d43d106da186c81074a5cc4d6078b4a6b97e4d816f694bb8f5919d2c9",
+  "profiles": "all 10 M7h campaign profiles and the 6 gate profiles: per-file hashes equal the manifest",
+  "trained_runs_final_checkpoint_json_sha256": {
+   "m7h_f_s0": "63d9eab17eea48ed4c1584678adeff84fc5c69f08b5574d080ff2dff8bf1284c",
+   "m7h_f_s1": "3915a4bde30a0f15e4d11dade0b30087f93dd84b3e3254341bc0500313dd35fc",
+   "m7h_f_s2": "50625f2f2310d37423a2b135f61ac6504c56e3894d3ea81d7030c191e8974846"
+  }
+ },
+ "control_record": {
+  "path": "runs/m7h/campaign/_control/control_check.json",
+  "sha256": "ba6499abeef8d99d3ba11af9e3e81debfeaf3c7d253ba781b5546d0d4b799609",
+  "code_sha256": "8f9a911263e01402c4f645cd30119638aa2bdefa43d1e4f5aa2ba8bd48e9c0a7",
+  "reuse": "reused unchanged. The R1-R3 code (rl/m7h_run.py and everything it imports) imports neither changed module, and the driver's control-check path (cmd_control_check, _run_r_checks) is byte-for-byte unchanged inside rl/m7h_campaign.py; the changed functions run only after an evaluation has finished (verification) or before it starts (the drift gate); the evaluator, workers, trainer and checkpoint loading are byte-identical; the reproduction below re-evaluated two labels with the amended code and matched every episode"
+ },
+ "evidence": {
+  "tests": {
+   "command": "python rl/m7h_campaign_tests.py --root runs/m7h/_amendment/campaign_tests_20260924T232509Z",
+   "result": "16/16 PASS + archived trees unchanged",
+   "results_sha256": "4525362f6faa350ca368e6451e65ee6d1fab69901738e122655ce987e73b83f2",
+   "new_cases": {
+    "unit_eval_tick0_excess": "accepted: 5 ordinary labels (M7h F s0 initial, Phase K v1 s0-s2 final, gate E2) and 4 excess labels (Phase K m7g_s0_v2 curve_t000921600 and curve_t002150400, m7g_s1_v1 curve_t000614400; M7h F s0 curve_t000307200); refused: excess record 0 / missing / not an int / forged 2, excess artifact removed, a forged duplicate artifact, an unrecorded ledger entry, an aborted in-flight artifact, not the worker's next episode, not the final vector step, another run id, a lower rank than a counted final-step episode, a start label, a non-tick-0 initial observation, edited rows (digest), swapped counted rows",
+    "unit_amendment": "honoured only for the declared verifier file; refused: an undeclared or declared training file, a profile file, wrong hashes, another manifest, wrong original or amended code, another control record, executable, HEAD, submodule, profile-fingerprint and decision-rule drift, another schema, a change after the first use; train --dry-run and control-check --dry-run stay strict"
+   }
+  },
+  "real_label_scan": "the amended verifier over every label of runs/m7g_k/_eval/m7g_s*_v* (66), both M7h labels and the gate E2 evaluation: 69 labels, 6,189 artifacts, 0 refused; exactly 4 excess episodes, each identified",
+  "reproduction": {
+   "what": "with the amended code, the campaign's own evaluation call (m7_evaluation.evaluate_checkpoint, kr.phase_k_settings, 5 deterministic + 60 stochastic, preserve_all) re-run into runs/m7h/_amendment/repro for m7h_f_s0 ckpt_000307200 (after the campaign's checkpoint_provenance: no problems) and the historical m7g_s1_v1 ckpt_000614400",
+   "result": "both labels: 65/65 rows equal in every field except episode_id and artifact_dir; aggregates equal except best_episode.episode_id / artifact_dir; vec_steps 43,200 / 3,600 and excess 1 / 0 equal; 66/66 artifact digests equal, the excess episode included; frozen statistics and parameters unchanged; no monitor alert; no leftover process",
+   "files": {"raw": "runs/m7h/_amendment/repro/repro.json (sha256 655f16a4dc0039d192641b4dd0d65c750f93c863f453cbdec0fb08a6cf2448b7; it compared aggregates wholesale and so lists the volatile best_episode ids)",
+             "compare": "runs/m7h/_amendment/repro/repro_compare.json (sha256 d1d47b18d8382926d352ffd639938d446a077f9bf430317b7109e5acb540b325; ok)"}
+  }
+ },
+ "residual_limitations": [
+  "an in-flight episode that is aborted at close is preserved only through a manual note or an anomaly event; such an artifact is neither a counted row nor recorded excess and is still refused (none exists in the 132 Phase K sets or the M7h labels so far)",
+  "train refuses the amended code (strict drift); a later training launch (the extension or a retrain) would need its own decision"
+ ]
+}

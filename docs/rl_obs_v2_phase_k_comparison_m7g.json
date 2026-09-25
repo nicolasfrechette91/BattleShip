@@ -1368,5 +1368,148 @@
    "interpretation": "hypothesis only (not verified): a projectile over the wall top; not a gate input (gate 4 uses the final stochastic episodes)"
   }
  },
- "reward_note": "diagnostic returns are reported only; never used to rank arms or checkpoints"
+ "reward_note": "diagnostic returns are reported only; never used to rank arms or checkpoints",
+ "addenda": [
+  {
+   "id": "A",
+   "date": "2026-09-24",
+   "kind": "descriptive_correction",
+   "decision_changed": false,
+   "decision": "gate 7 no_benefit, recorded 2026-09-24T10:17:18+00:00 in runs/m7g_k/_matrix/state.json decisions.n3 (unchanged)",
+   "sections_corrected": [
+    "5",
+    "6"
+   ],
+   "existing_fields_edited": false,
+   "target6_replay": {
+    "episode": "episode_20260924T095405Z_5d068ee4",
+    "artifact_dir": "runs/m7g_k/_eval/m7g_s2_v2/curve_t001228800/stochastic/workers/w04/artifacts/episode_20260924T095405Z_5d068ee4",
+    "executable_sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+    "tools": [
+     "m7f_trace.run_stepping_trace",
+     "m7f_targets.check_trace",
+     "m7f_replay.position_summary",
+     "m7g_eval_metrics.metrics_from_trace"
+    ],
+    "replays": 3,
+    "flags": {
+     "eval_flags_x2": [
+      "SSB64_RL_NO_RENDER",
+      "SSB64_RAPHNET_DISABLE",
+      "SSB64_RL_SPATIAL",
+      "SSB64_RL_TARGET_DIAG"
+     ],
+     "no_spatial_x1": [
+      "SSB64_RL_NO_RENDER",
+      "SSB64_RAPHNET_DISABLE",
+      "SSB64_RL_TARGET_DIAG"
+     ]
+    },
+    "evidence": "runs/review/phase_k_target6_20260924/verification.json (git-ignored)",
+    "exact_match": {
+     "consumed_ticks": "3600/3600",
+     "native_action_digest": "ccac49e3752e4c5480ffa885e10c9a9bdf1ee5c38c281d277fc98ce48f71bc0b",
+     "initial_and_final_observation_incl_host_frame": true,
+     "end": "horizon, no native failure",
+     "target_diag_problems": 0,
+     "break_ticks": [
+      41,
+      743,
+      1871,
+      1893,
+      2132,
+      3034
+     ],
+     "eval_metrics_record_equal": true,
+     "three_streams_identical": true
+    },
+    "target_id": 6,
+    "break_consumed_tick": 1871,
+    "native_break_input_tick": 1872,
+    "target_position_at_break": [
+     -3300.0,
+     3300.0
+    ],
+    "mario_at_break": {
+     "x": -548.3733520507812,
+     "y": 882.16162109375,
+     "air_velocity_y": -44.0,
+     "fighter_status_id": 224,
+     "fighter_status": "Mario SpecialAirN",
+     "facing_direction": -1,
+     "jumps_used": 2,
+     "distance_to_target": 3663
+    },
+    "left_region_entry": null,
+    "left_region_steps": 0,
+    "left_targets_broken": [
+     6
+    ],
+    "min_live_x": -1650.0,
+    "min_live_x_ticks": [
+     2342,
+     2365
+    ],
+    "min_live_x_y_range": [
+     -1711.8,
+     -1181.7
+    ],
+    "special_air_n_runs_near_break": [
+     [
+      1787,
+      1831
+     ],
+     [
+      1839,
+      1883
+     ]
+    ],
+    "peak_y": {
+     "tick": 1795,
+     "y": 3811.96
+    },
+    "corrections": [
+     "min_live_x -1650 is an episode-wide value reached about 470 ticks after the break at low height; it does not describe Mario's position at the break",
+     "b_presses_before is not mechanism evidence: presses 1843-1871 fall inside one continuous 45-tick SpecialAirN (1839-1883) that began at y about 2290, below the wall top",
+     "mechanism remains a hypothesis: Mario's body is excluded by distance; no native evidence identifies the attacker; with decomp fireball constants a direct flight from the 1787-1831 window reaches x -3300 no higher than about y 1310 plus an unknown spawn offset, so a fireball would need at least one rebound (unverified)"
+    ],
+    "rule_impact": "none: X uses final stochastic episodes only; rescan of 5,910 model-evaluation episodes: 1 left-target break, 0 left entries, 0 seven-target episodes"
+   },
+   "memory": {
+    "gate_measure": "available system commit before launch = GlobalMemoryStatusEx.ullAvailPageFile (commit limit - commit charge), >= 6.0 GiB; available physical >= 2.5 GiB separately",
+    "commit_drawn_measure": "monitor max commit charge during the run - commit charge at the pre-launch gate; system-wide; 15 s sampling",
+    "corrections": [
+     "'0.42 GiB under the 6.0 GiB gate' compares a draw with a pre-launch threshold; it is the margin a launch at exactly 6.0 GiB would have had, not observed headroom",
+     "'at least 14 GiB of commit stayed available throughout' is wrong for m7g_s0_v1 (lowest 11.84 GiB)"
+    ],
+    "commit_limit_gib": 31.412,
+    "lowest_available_commit_gib": {
+     "m7g_s0_v1": 11.838,
+     "m7g_s0_v2": 14.531,
+     "m7g_s1_v2": 14.538,
+     "m7g_s1_v1": 14.729,
+     "m7g_s2_v1": 14.66,
+     "m7g_s2_v2": 14.197,
+     "evaluation": 14.861
+    },
+    "lowest_available_physical_gib": {
+     "m7g_s0_v1": 4.174,
+     "m7g_s0_v2": 6.43,
+     "m7g_s1_v2": 6.533,
+     "m7g_s1_v1": 6.374,
+     "m7g_s2_v1": 6.273,
+     "m7g_s2_v2": 6.147,
+     "evaluation": 6.154
+    },
+    "m7e_context": "docs/rl_extended_training_m7e.json: launched at 6.56-6.95 GiB available commit, lowest 1.49-1.56 GiB",
+    "recommended_gate": {
+     "commit_before_launch_gib": 10.0,
+     "formula": "1.2 x D + R, D = 5.6 GiB largest measured N=5 standby draw (re-measure per pilot, use the larger), R = 3 GiB reserve",
+     "physical_before_launch_gib": 4.0,
+     "in_run_stop": "available commit < 1.5 GiB in two consecutive samples",
+     "status": "recommendation only; no code changed"
+    }
+   }
+  }
+ ]
 }

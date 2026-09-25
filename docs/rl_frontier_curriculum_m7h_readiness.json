@@ -1,0 +1,543 @@
+{
+ "schema": "battleship_m7h_campaign_readiness_v1",
+ "date": "2026-09-24",
+ "status": "prepared; every launch and analysis path dry-run tested; campaign NOT started; nothing committed or pushed",
+ "correction": "the gate hand-off message said 6 of 13 fail for m7g_k_campaign_tests; the record is 6 of 13 PASSED (7 failed)",
+ "phase_k_campaign_tests": {
+  "failing_before": [
+   "unit_manifest",
+   "unit_drift_detection",
+   "unit_dry_runs",
+   "unit_partial_and_resume",
+   "unit_pilot_gating",
+   "unit_checkpoint_provenance",
+   "unit_analysis"
+  ],
+  "cause": "the frozen manifest records HEAD afa42fc (the Phase K launch commit); any checkout after 78e56f4 drifts",
+  "clean_head_checkout": {
+   "failures": 7,
+   "drift": [
+    "HEAD",
+    "code (line endings of rl/m6_raphnet_bypass_regression.py)"
+   ],
+   "with_campaign_bytes": {
+    "code_fingerprint": "78ee37f6 (equal)",
+    "drift": [
+     "HEAD"
+    ],
+    "failures": 7
+   }
+  },
+  "current_tree_before": {
+   "drift": [
+    "HEAD",
+    "code"
+   ],
+   "passed": "6/13",
+   "with_current_manifest_wrapper": "12/13"
+  },
+  "fix": "test isolation only: temporary roots seeded with a current-tree manifest (km.build_manifest); archived checks (frozen bytes, consistency, drift limited to HEAD/code with ancestry; executable, submodules and profiles must match; current-tree manifest equal in every contract field); unit_dry_runs split into archived and temporary roots; default roots moved out of runs/m7g_k",
+  "after": {
+   "current_tree": "13/13",
+   "clean_head_worktree": "13/13"
+  },
+  "frozen_manifest_sha256": "9a58f03b6f6f2f0fc8db8824c65e27a5f4470bddf4b113dbd890425ee4ac6e4e",
+  "frozen_run_copy_equal": true
+ },
+ "prefix_rows": {
+  "rule": "m7h_curriculum.prefix_rows(labels, rows): no label -> 0; archive_prefix -> prefix_length; archive_prefix_in_progress / archive_prefix_failed -> rows",
+  "gap_fixed": "the label was written only after a successful prefix phase; a hard prefix failure could leave a preserved aborted artifact with prefix rows and no label; archive_prefix_in_progress is now written before the first prefix row",
+  "row_format_changed": false,
+  "proof": {
+   "ok": true,
+   "runs": {
+    "e4": {
+     "ok": true,
+     "rows": 41,
+     "artifacts": 41,
+     "without_row": 0,
+     "kinds": {
+      "tick0": 17,
+      "archive_prefix": 24
+     }
+    },
+    "e5a": {
+     "ok": true,
+     "rows": 19,
+     "artifacts": 19,
+     "without_row": 0,
+     "kinds": {
+      "tick0": 10,
+      "archive_prefix": 9
+     }
+    },
+    "e5b": {
+     "ok": true,
+     "rows": 19,
+     "artifacts": 19,
+     "without_row": 0,
+     "kinds": {
+      "tick0": 10,
+      "archive_prefix": 9
+     }
+    },
+    "m7h_e4_on_s0__20260924T141524Z": {
+     "ok": true,
+     "rows": 2,
+     "artifacts": 7,
+     "without_row": 5,
+     "kinds": {
+      "tick0": 6,
+      "archive_prefix": 1
+     }
+    },
+    "m7h_e7_cooperative__20260924T144423Z": {
+     "ok": true,
+     "rows": 24,
+     "artifacts": 29,
+     "without_row": 5,
+     "kinds": {
+      "tick0": 14,
+      "archive_prefix": 15
+     }
+    },
+    "m7h_e7_emergency__20260924T144744Z": {
+     "ok": true,
+     "rows": 24,
+     "artifacts": 24,
+     "without_row": 0,
+     "kinds": {
+      "tick0": 12,
+      "archive_prefix": 12
+     }
+    },
+    "m7h_e7_fallback__20260924T144616Z": {
+     "ok": true,
+     "rows": 28,
+     "artifacts": 34,
+     "without_row": 6,
+     "kinds": {
+      "tick0": 15,
+      "archive_prefix": 19
+     }
+    }
+   },
+   "e3_failure_artifact": {
+    "artifacts": 1,
+    "kinds": [
+     [
+      "archive_prefix_failed",
+      "failed"
+     ]
+    ],
+    "problems": []
+   },
+   "replays": [
+    {
+     "status": "truncated",
+     "kind": "archive_prefix",
+     "L": 6,
+     "rows": 3600,
+     "ok": true,
+     "boundary_host_frame_equal": true
+    },
+    {
+     "status": "truncated",
+     "kind": "archive_prefix",
+     "L": 193,
+     "rows": 3600,
+     "ok": true,
+     "boundary_host_frame_equal": true
+    },
+    {
+     "status": "truncated",
+     "kind": "archive_prefix",
+     "L": 430,
+     "rows": 3600,
+     "ok": true,
+     "boundary_host_frame_equal": true
+    },
+    {
+     "status": "truncated",
+     "kind": "archive_prefix",
+     "L": 883,
+     "rows": 3600,
+     "ok": true,
+     "boundary_host_frame_equal": true
+    },
+    {
+     "status": "truncated",
+     "kind": "archive_prefix",
+     "L": 1520,
+     "rows": 3600,
+     "ok": true,
+     "boundary_host_frame_equal": true
+    },
+    {
+     "status": "terminal",
+     "kind": "archive_prefix",
+     "L": 1897,
+     "rows": 1961,
+     "ok": true,
+     "boundary_host_frame_equal": true
+    },
+    {
+     "status": "terminal",
+     "kind": "archive_prefix",
+     "L": 2038,
+     "rows": 2094,
+     "ok": true,
+     "boundary_host_frame_equal": true
+    },
+    {
+     "status": "truncated",
+     "kind": "archive_prefix",
+     "L": 2947,
+     "rows": 3600,
+     "ok": true,
+     "boundary_host_frame_equal": true
+    },
+    {
+     "status": "truncated",
+     "kind": "tick0",
+     "L": 0,
+     "rows": 3600,
+     "ok": true,
+     "boundary_host_frame_equal": null
+    },
+    {
+     "status": "truncated",
+     "kind": "tick0",
+     "L": 0,
+     "rows": 3600,
+     "ok": true,
+     "boundary_host_frame_equal": null
+    },
+    {
+     "status": "aborted",
+     "kind": "archive_prefix",
+     "L": 6,
+     "rows": 714,
+     "ok": true,
+     "boundary_host_frame_equal": true
+    },
+    {
+     "status": "aborted",
+     "kind": "archive_prefix",
+     "L": 144,
+     "rows": 1943,
+     "ok": true,
+     "boundary_host_frame_equal": true
+    }
+   ]
+  },
+  "game_provisional_label": {
+   "L": 61,
+   "refused_artifact": {
+    "kind": "archive_prefix_in_progress",
+    "L": 61,
+    "rows": 61,
+    "status": "aborted"
+   },
+   "prefix_then_policy": {
+    "kind": "archive_prefix",
+    "L": 61,
+    "rows": 86,
+    "status": "aborted"
+   }
+  },
+  "tamper_cases_detected": [
+   "dropped_label",
+   "foreign_archive_source",
+   "label_L",
+   "log_L",
+   "row_L",
+   "row_start_kind"
+  ],
+  "e5_recheck": {
+   "final_digests_equal": true,
+   "rows_equal": 19,
+   "archive_equal": true,
+   "selection_log_equal": true,
+   "prefix_bytes_equal": true,
+   "verifiers_clean": true,
+   "probe": {
+    "min_avail_commit_gib": 10.854,
+    "min_avail_phys_gib": 3.495,
+    "samples_physical_below_launch_gate": 31,
+    "samples": 36
+   },
+   "launch": {
+    "avail_commit_gib": 15.933,
+    "avail_phys_gib": 4.452
+   }
+  },
+  "limitation": "no left-region training episode exists (the fixtures are never read); the section-4 positive path is unit-tested with stubbed replay facts"
+ },
+ "campaign": {
+  "profiles": [
+   "m7h_c_s0",
+   "m7h_c_s1",
+   "m7h_c_s2",
+   "m7h_c_s3",
+   "m7h_c_s4",
+   "m7h_f_s0",
+   "m7h_f_s1",
+   "m7h_f_s2",
+   "m7h_f_s3",
+   "m7h_f_s4"
+  ],
+  "manifest_sha256": "9d5e0c155317b5177ccad350910db9dab59ea3b4f40b20dbc6b0249def7b03ea",
+  "code_sha256": "8f9a911263e01402c4f645cd30119638aa2bdefa43d1e4f5aa2ba8bd48e9c0a7",
+  "code_files": 76,
+  "decision_rule_sha256": "98d1d55d43d106da186c81074a5cc4d6078b4a6b97e4d816f694bb8f5919d2c9",
+  "executable_sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+  "head": "78e56f4c6aeddaf730eb8c81dd3dea94529870c9",
+  "order": {
+   "historical_control": [
+    "m7h_f_s0",
+    "m7h_f_s1",
+    "m7h_f_s2"
+   ],
+   "control_retrained": [
+    "m7h_c_s0",
+    "m7h_f_s0",
+    "m7h_f_s1",
+    "m7h_c_s1",
+    "m7h_c_s2",
+    "m7h_f_s2"
+   ],
+   "extension": [
+    "m7h_c_s3",
+    "m7h_f_s3",
+    "m7h_f_s4",
+    "m7h_c_s4"
+   ]
+  },
+  "census": {
+   "runs": 3,
+   "per_run": 985,
+   "episodes": 2955,
+   "arithmetic": "3 runs x 985 = 2955",
+   "labels_per_run": 11,
+   "historical_control_reused": true
+  },
+  "census_with_extension": 6895,
+  "untrained_digests": {
+   "0": "68155f41065d243fed9bcdc9e0be71bb0b583595bd1da02f7d9d7cbf42054fa2",
+   "1": "1dd753aeda5f450e77d5ecbc83380b390dfc3783084ec50bd266cc2340b13f6c",
+   "2": "9fa632c6ffeb559d0daf4751648776dfbbaf2e3d750bd622019f7f8b0d1a8f87",
+   "3": "cc03f07ae8f9d721510cdcd2b995e652ba20cf3701debc807b23f68e7d99091b",
+   "4": "f6f9126a2d5ec6c63cdf558f90fa07f1d715c9c283394b2cdc937d030c51f301"
+  },
+  "historical_control_rule_inputs": {
+   "0": {
+    "k": 0,
+    "c": "0",
+    "chi": 0,
+    "x": "0",
+    "T": "118/25",
+    "phi": 1,
+    "native_clears": 0,
+    "verified_clears": 0
+   },
+   "1": {
+    "k": 0,
+    "c": "0",
+    "chi": 0,
+    "x": "0",
+    "T": "19/4",
+    "phi": 1,
+    "native_clears": 0,
+    "verified_clears": 0
+   },
+   "2": {
+    "k": 0,
+    "c": "0",
+    "chi": 0,
+    "x": "0",
+    "T": "427/100",
+    "phi": 0,
+    "native_clears": 0,
+    "verified_clears": 0
+   }
+  },
+  "registered_settings": {
+   "curriculum": {
+    "contract": "btt_curriculum_frontier_v1",
+    "tick0_probability": 0.5,
+    "max_prefix_ticks": 3000,
+    "pre_fall_exclusion_ticks": 60,
+    "cell_size": 300,
+    "cell_key": "(floor(x/300), floor(y/300), targets_remaining) on live steps",
+    "selection": "after automatic resets only; u1 < 1/2 -> tick0, else a visit-weighted eligible cell w = 1/sqrt(1 + visits); an empty archive -> tick0_archive_empty",
+    "initial_episode": "every worker's first episode is an ordinary tick-0 start",
+    "reset_contract": "every exposed reset() returns the tick-0 observation and consumes nothing"
+   },
+   "launch_gate": {
+    "available_commit_gib_min": 10.0,
+    "available_physical_gib_min": 4.0,
+    "free_disk_gib_min": 10.0,
+    "system_cpu_pct_max": 40.0,
+    "boundaries": "inclusive; a missing reading fails; commit and physical evaluated separately",
+    "when": "before every training launch"
+   },
+   "in_run_memory_policy": {
+    "warn_gib": 4.0,
+    "stop_gib": 3.0,
+    "emergency_gib": 1.0,
+    "probe_interval_s": 2.0,
+    "escalate_after_s": 30.0,
+    "kill_grace_s": 240.0,
+    "watches": "available system commit only",
+    "physical": "recorded and reported, never a stop trigger"
+   },
+   "atomic_checkpoint_sets": true,
+   "budget": {
+    "policy_transitions_per_run": 3072000,
+    "prefix_ticks": "reported, not budgeted",
+    "hard_maximum": true
+   },
+   "stop_conditions": [
+    "a hard failure or alert (prefix mismatch or precondition failure, more than 3 prefix-phase lifecycle failures, a leak, more than 10 game processes, a changed user config, low disk)",
+    "the in-run memory policy",
+    "a manifest drift",
+    "the budget cap"
+   ],
+   "restart_policy": "a stopped or partial run is moved to _partial (never deleted) and restarted from scratch after the launch gate passes again; a curriculum run is never resumed; no early stop on results",
+   "evaluation": "post hoc, frozen statistics, tick-0 starts only (Phase K protocol), btt_eval_metrics_v1 with SSB64_RL_TARGET_DIAG=1, clear verification, census",
+   "training_inputs": "the run's own finished training episodes only; never the crossing fixtures, the TAS, capture recordings, other runs or hand-written routes"
+  },
+  "limits": {
+   "runs_planned": 3,
+   "runs_max": 10,
+   "transitions_planned": 9216000,
+   "transitions_max": 30720000,
+   "max_game_processes": 10
+  }
+ },
+ "resource_gates": {
+  "launch": {
+   "available_commit_gib_min": 10.0,
+   "available_physical_gib_min": 4.0,
+   "inclusive": true,
+   "separately_evaluated": true,
+   "observed_dip_values_refused_at_launch": [
+    3.2,
+    3.5
+   ]
+  },
+  "in_run": {
+   "watches": "available commit only",
+   "warn_stop_emergency_gib": [
+    4.0,
+    3.0,
+    1.0
+   ],
+   "physical": "counted and reported (samples_physical_below_launch_gate), never a stop"
+  },
+  "observed": {
+   "r1_first_pass": {
+    "launch_phys": [
+     5.19,
+     5.31
+    ],
+    "min_phys": [
+     4.07,
+     4.22
+    ]
+   },
+   "r1_final_pass": {
+    "launch_phys": [
+     4.24,
+     4.4
+    ],
+    "min_phys": [
+     3.18,
+     3.49
+    ],
+    "min_commit": [
+     10.42,
+     10.83
+    ]
+   },
+   "e5_recheck": {
+    "launch_phys": 4.45,
+    "min_phys": 3.5,
+    "below_4_samples": "31/36",
+    "min_commit": 10.85
+   },
+   "real_root_dry_run": {
+    "commit": 15.57,
+    "phys": 4.3
+   }
+  },
+  "thresholds_changed": false
+ },
+ "tests": {
+  "m7h_tests": "13/13",
+  "m7h_analysis_self_test": "PASS",
+  "m7h_campaign_tests": "14/14",
+  "m7h_campaign_tests_archived_trees_unchanged": true,
+  "m7g_k_campaign_tests_unit": "13/13",
+  "m7g_k_tests_unit": "6/6",
+  "prove_rows": "PASS",
+  "real_root_train_dry_run": {
+   "exit": 1,
+   "blocking": [
+    "the R1-R3 control check has not run on this code"
+   ]
+  },
+  "git_diff_check": "clean"
+ },
+ "other_findings": [
+  "m7h_run r3 always exited 0 (the recorded R3 result was correct); fixed",
+  "the driver's stop record passed kind= into event(); found by the launch test; fixed",
+  "premature analyze would have recorded a permanent gate 0; pending vs integrity split",
+  "test copies followed evaluation-worker junctions into build-us/Release/.tcc; the copies were removed after checking they held no links; executable and .tcc intact; copies now skip runtime folders",
+  "byte-level fingerprints are line-ending sensitive (core.autocrlf=true); not changed"
+ ],
+ "blockers": [
+  "R1-R3 control check on the frozen code (python rl/m7h_campaign.py control-check, about 45 min; trains 3 x 102,400 curriculum-off transitions and re-evaluates 600 episodes); needs the user's go-ahead",
+  "user approval to launch the campaign",
+  "physical-memory margin at launch 0.24-0.45 GiB over the 4 GiB gate (operational; thresholds unchanged)",
+  "a commit before launch changes HEAD: rebuild the manifest before the first launch (the control-check record stays valid unless file bytes change)"
+ ],
+ "projection": {
+  "time_h": {
+   "three_seed_campaign": [
+    4.7,
+    5.7
+   ],
+   "worst_case": 6.3,
+   "extension_extra": [
+    5.0,
+    6.0
+   ],
+   "control_retrain_extra": 3.5,
+   "control_check_min": 45,
+   "f_training_min_per_run": {
+    "expected": 44,
+    "e6_projection": 62,
+    "bound": 74
+   },
+   "evaluation_min_per_run": 36
+  },
+  "disk_gb": {
+   "per_f_run": [
+    0.6,
+    0.8
+   ],
+   "control_check": 0.24,
+   "three_seed_campaign": [
+    2.0,
+    2.6
+   ],
+   "extension_extra": [
+    2.3,
+    2.9
+   ],
+   "free": 133.7
+  }
+ }
+}

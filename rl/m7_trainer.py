@@ -43,9 +43,11 @@ Run layout (never overwritten; a resume is a new run directory):
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
+import pickle
 import platform
 import shutil
 import statistics
@@ -54,7 +56,7 @@ import time
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import gymnasium
 import numpy as np
@@ -99,7 +101,9 @@ from m7_evaluation import (  # noqa: E402
     check_model_identity,
     check_vecnormalize_identity,
     evaluate_checkpoint,
+    obs_rms_digest,
     obs_rms_record,
+    policy_parameter_digest,
     read_checkpoint_set,
 )
 from m7_runtime import (  # noqa: E402
@@ -132,6 +136,12 @@ POLICY = "MlpPolicy"
 ACTIVATIONS = {"tanh": torch.nn.Tanh, "relu": torch.nn.ReLU}
 EXPERIMENT_TOML = "experiment.toml"              # unmodified copy of the source profile (M7b)
 EXPERIMENT_RESOLVED = "experiment_resolved.json"  # canonical resolved configuration (M7b)
+# M7h (all runs): a cooperative stop is requested by this file in the run's coordination directory; the trainer then
+# ends learn() after the current vector step (SB3 abandons the rollout in progress, which is never trained on).
+STOP_REQUEST_FILE = "STOP_REQUEST.json"
+IGNORE_STOP_ENV = "M7_TEST_IGNORE_STOP_REQUEST"   # E7 fallback drill only: the trainer ignores the request
+BOUNDARY_OBS_RMS_FILE = "obs_rms_update_boundary.pkl"
+INCOMPLETE_SUFFIX = ".incomplete"                 # a checkpoint set being written: .<name>.incomplete, renamed when complete
 
 try:
     from bench import ProcessMetrics  # rl/tools/bench.py
@@ -312,6 +322,8 @@ class M7Config:
     # M7g Phase K: policy observation contract and the SB3 policy class it requires (defaults = v1, M7a-M7f)
     observation: str = POLICY_OBSERVATION_CONTRACT
     policy: str = POLICY
+    # M7h: the [curriculum] table (None = no curriculum: nothing of M7h is constructed and no record gains a key)
+    curriculum: Optional[Dict[str, Any]] = None
     # M7c standby lifecycle (rl/m7_standby.py); defaults = M7a/M7b behaviour
     standby_preboot: bool = False
     standby_count: int = 0
@@ -381,6 +393,8 @@ class M7Config:
             "ppo.vecnormalize.clip_obs": float(self.clip_obs),
             "environment.standby_preboot": bool(self.standby_preboot),
             "environment.standby_count": int(self.standby_count),
+            # M7h: present only with a curriculum (the experiment's view carries the same keys only then)
+            **({f"curriculum.{k}": v for k, v in self.curriculum.items()} if self.curriculum else {}),
         }
 
     @property
@@ -437,9 +451,19 @@ class M7Config:
             raise ValueError("horizon must be >= 1")
         if self.device != "cpu":
             raise ValueError("M7a trains on the CPU only")
+        if self.curriculum is not None:
+            import m7h_curriculum as mc
+
+            mc.check_registered(self.curriculum)
+            if self.observation_v2:
+                raise ValueError("the M7h curriculum is registered for btt_policy_obs_v1 only")
+            if self.resume_from is not None:
+                raise ValueError("a curriculum run is never resumed (a partial run is restarted)")
 
     def to_json(self) -> Dict[str, Any]:
         d = {k: v for k, v in asdict(self).items() if k != "experiment"}
+        if d.get("curriculum") is None:
+            d.pop("curriculum", None)       # M7h: a run without a curriculum records exactly what it did before
         d["runs_dir"] = portable_path(self.runs_dir)
         d["executable"] = portable_path(self.executable)
         d["resume_from"] = portable_path(self.resume_from) if self.resume_from else None
@@ -507,6 +531,7 @@ def config_from_experiment(exp: "ec.Experiment", *, run_id: Optional[str] = None
         standby_wait_timeout=float(v["environment.standby_wait_timeout_s"]),
         allow_lifecycle_change=bool(v["resume.allow_lifecycle_change"]),
         observation=str(v["contracts.observation"]), policy=str(v["ppo.policy"]),
+        curriculum=exp.curriculum,
     )
 
 
@@ -521,7 +546,12 @@ def run_contracts(config: M7Config) -> Dict[str, Any]:
 
 
 def worker_factory(config: M7Config, spec: WorkerSpec) -> Any:
-    """The picklable worker factory of the configured observation (v2 = the M7 stack + SpatialObsV2Wrapper)."""
+    """The picklable worker factory of the configured observation (v2 = the M7 stack + SpatialObsV2Wrapper); with an
+    M7h curriculum (v1 only) the M7 stack + the outermost CurriculumWorkerWrapper."""
+    if config.curriculum is not None:
+        from m7h_worker import CurriculumWorkerFactory
+
+        return CurriculumWorkerFactory(spec, config.curriculum)
     return mo.M7gWorkerFactory(spec) if config.observation_v2 else WorkerFactory(spec)
 
 
@@ -624,14 +654,43 @@ class M7Layout:
             d.mkdir(parents=True, exist_ok=False)
 
 
-def save_checkpoint_set(directory: Path, model: PPO, vecnorm: VecNormalize, *, run_meta: Mapping[str, Any],
-                        coordinator: RunCoordinator, label: str, rollouts: int) -> Dict[str, Any]:
-    """Write model + matching VecNormalize statistics + metadata + preservation snapshot. Refuses to overwrite."""
+def incomplete_path(directory: Path) -> Path:
+    """Where a checkpoint set is written before it becomes visible: <parent>/.<name>.incomplete (never matches the
+    ckpt_* / final / interrupted names any reader looks for)."""
     directory = Path(directory)
+    return directory.with_name(f".{directory.name}{INCOMPLETE_SUFFIX}")
+
+
+def _rename_dir_with_retry(src: Path, dst: Path, attempts: int = 20, delay: float = 0.1) -> None:
+    for i in range(attempts):
+        try:
+            os.rename(src, dst)
+            return
+        except PermissionError:          # a scanner briefly holding a handle (Windows); the target never exists here
+            if i == attempts - 1:
+                raise
+            time.sleep(delay)
+
+
+def save_checkpoint_set(directory: Path, model: PPO, vecnorm: VecNormalize, *, run_meta: Mapping[str, Any],
+                        coordinator: RunCoordinator, label: str, rollouts: int,
+                        extra_writer: Optional[Callable[[Path], Dict[str, str]]] = None,
+                        interruption: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+    """Write model + matching VecNormalize statistics + metadata + preservation snapshot. Refuses to overwrite.
+
+    Atomic (M7h): everything is written into .<name>.incomplete and the directory is renamed to <name> only after
+    checkpoint.json (with every file's sha256) is complete, so a set is either complete or absent under its name.
+    `extra_writer(dir)` adds files (M7h curriculum state) and returns {name: sha256}; `interruption` is the provenance
+    block of an interrupted / stopped set."""
+    directory = Path(directory)
+    if directory.exists():
+        raise FileExistsError(f"checkpoint set already exists (never overwritten): {directory}")
+    final_dir, directory = directory, incomplete_path(directory)
     directory.mkdir(parents=True, exist_ok=False)
     model.save(str(directory / MODEL_FILE))
     vecnorm.save(str(directory / VECNORM_FILE))
     write_json(directory / PRESERVATION_FILE, coordinator.read())
+    extra_files = extra_writer(directory) if extra_writer is not None else {}
     meta = {
         "checkpoint_schema": CHECKPOINT_SCHEMA,
         "milestone": M7_MILESTONE,
@@ -656,8 +715,13 @@ def save_checkpoint_set(directory: Path, model: PPO, vecnorm: VecNormalize, *, r
     }
     if run_meta.get("policy_network") is not None:   # M7g: v2 observation / network identity (absent for v1)
         meta["policy_network"] = run_meta["policy_network"]
+    if extra_files:                                   # M7h: additional files of this set (curriculum state)
+        meta["extra_files"] = dict(extra_files)
+    if interruption is not None:                      # M7h: never a completed-update checkpoint (see the block)
+        meta["interruption"] = dict(interruption)
     write_json(directory / META_FILE, meta)
-    return {"label": label, "path": portable_path(directory), "num_timesteps": meta["num_timesteps"],
+    _rename_dir_with_retry(directory, final_dir)
+    return {"label": label, "path": portable_path(final_dir), "num_timesteps": meta["num_timesteps"],
             "n_updates": meta["n_updates"]}
 
 
@@ -677,7 +741,7 @@ class M7Callback(BaseCallback):
 
     def _on_step(self) -> bool:
         self.run.on_step(self.locals)
-        return True
+        return self.run.continue_training()      # M7h: False only after a cooperative stop request
 
     def _on_rollout_end(self) -> None:
         self.run.on_rollout_end()
@@ -726,6 +790,13 @@ class M7Run:
         self.cpu_optimize: List[Tuple[float, float]] = []
         self.run_meta: Dict[str, Any] = {}
         self.start_timesteps = 0
+        # M7h (all runs): stop handling and the provenance of an interrupted set
+        self.curriculum_env: Any = None          # CurriculumVecEnv when the profile has a curriculum
+        self._stop: Optional[Dict[str, Any]] = None
+        self._ignored_stop_logged = False
+        self._phase = "setup"                    # setup | collect | optimize | ended
+        self.update_boundary: Optional[Dict[str, Any]] = None
+        self._boundary_obs_rms: Any = None
 
     # -- construction ----------------------------------------------------------------------------------
 
@@ -793,7 +864,89 @@ class M7Run:
 
     def on_training_start(self) -> None:
         self.walls["initial_reset_s"] = time.perf_counter() - self._t_learn
+        self._snapshot_update_boundary()
         self._broadcast()
+
+    # -- M7h: cooperative stop and update-boundary provenance (all runs; no effect on training) -------------------
+
+    def continue_training(self) -> bool:
+        """False once a stop request exists (checked after every vector step, before SB3 stores that step)."""
+        if self._stop is not None:
+            return False
+        path = self.layout.coordination / STOP_REQUEST_FILE
+        if not path.is_file():
+            return True
+        if os.environ.get(IGNORE_STOP_ENV) == "1":
+            if not self._ignored_stop_logged:
+                log(f"[m7] stop request IGNORED ({IGNORE_STOP_ENV}=1, E7 fallback drill)")
+                self._ignored_stop_logged = True
+            return True
+        try:
+            request = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            request = {"unreadable": f"{type(exc).__name__}: {exc}"}
+        self._stop = {"trigger": "stop_request", "request": request, "seen_utc": utc_now(), "phase": self._phase,
+                      "num_timesteps": int(self.model.num_timesteps) if self.model is not None else None}
+        log(f"[m7] stop request seen at t={self._stop['num_timesteps']} ({self._phase}): {request.get('reason')}")
+        return False
+
+    def _snapshot_update_boundary(self) -> None:
+        """The state after the last completed PPO update (or the start of learning): policy digest, statistics digest
+        and a copy of the statistics. A checkpoint saved at this point would hold exactly these parameters."""
+        m, vn = self.model, self.vecnorm
+        self._phase = "collect"
+        self._boundary_obs_rms = copy.deepcopy(vn.obs_rms)
+        self.update_boundary = {"rollouts_completed": len(self.rollouts), "num_timesteps": int(m.num_timesteps),
+                                "n_updates": int(m._n_updates), "policy_digest": policy_parameter_digest(m),
+                                "obs_rms_digest": obs_rms_digest(vn), **obs_rms_record(vn), "utc": utc_now()}
+
+    def _interruption_record(self, trigger: Mapping[str, Any]) -> Dict[str, Any]:
+        """Component-by-component provenance of an interrupted / stopped set. Never a completed-update checkpoint:
+        timesteps, statistics, generator and worker state are not restored to the update boundary."""
+        m, vn, b = self.model, self.vecnorm, dict(self.update_boundary or {})
+        digest = policy_parameter_digest(m)
+        at_update = digest == b.get("policy_digest")
+        phase = trigger.get("phase", self._phase)
+        if phase == "collect" and at_update:
+            policy_state = "last_completed_update"
+        elif phase == "optimize":
+            policy_state = "possibly_mid_update"
+        else:
+            policy_state = "last_completed_update" if at_update else "unverified"
+        t_now, t_b = int(m.num_timesteps), b.get("num_timesteps")
+        partial = None if t_b is None else t_now - int(t_b)
+        return {
+            "kind": "stopped" if trigger.get("trigger") == "stop_request" else "interrupted",
+            "completed_update_checkpoint": False,
+            "trigger": dict(trigger),
+            "phase_at_stop": phase,
+            "policy_parameters": {"state": policy_state, "n_updates": int(m._n_updates), "digest": digest,
+                                  "equals_update_boundary_digest": at_update},
+            "update_boundary": b,
+            "num_timesteps": {"at_stop": t_now, "at_last_completed_update": t_b, "partial_rollout_steps": partial},
+            "vecnormalize": {"state": ("advanced_through_partial_rollout" if partial else "at_update_boundary"),
+                             "obs_rms_digest": obs_rms_digest(vn), **obs_rms_record(vn),
+                             "update_boundary_file": BOUNDARY_OBS_RMS_FILE},
+            "workers": "advanced into the partial rollout; in-flight episodes preserved as aborted artifacts at close",
+            "curriculum": self.curriculum_env.report() if self.curriculum_env is not None else None,
+            "note": ("interrupted set: policy parameters are those after the last completed update only when "
+                     "policy_parameters.state says so; num_timesteps, VecNormalize statistics, RNG and worker state "
+                     "include the partial rollout. Use a periodic ckpt_* set as a completed-update checkpoint."),
+        }
+
+    def _set_extra_writer(self, *, boundary: bool = False) -> Optional[Callable[[Path], Dict[str, str]]]:
+        cur = self.curriculum_env
+        if cur is None and not boundary:
+            return None
+
+        def write(directory: Path) -> Dict[str, str]:
+            out = cur.write_state(directory) if cur is not None else {}
+            if boundary and self._boundary_obs_rms is not None:
+                with open(directory / BOUNDARY_OBS_RMS_FILE, "wb") as fp:
+                    pickle.dump(self._boundary_obs_rms, fp)
+                out[BOUNDARY_OBS_RMS_FILE] = sha256_file(directory / BOUNDARY_OBS_RMS_FILE)
+            return out
+        return write
 
     def on_rollout_start(self) -> None:
         now = time.perf_counter()
@@ -806,6 +959,7 @@ class M7Run:
                 self.rollouts[-1]["cpu_util_optimize"] = cpu_utilisation(self._cpu_opt, system_cpu_times())
                 append_jsonl(self.layout.metrics / "rollouts.jsonl", self.rollouts[-1])
         t = int(self.model.num_timesteps)
+        self._snapshot_update_boundary()          # M7h: the previous update is complete here
         self._boundary(t)
         self._broadcast()
         self._timing_snapshot = self.venv.timing.to_json()
@@ -853,12 +1007,15 @@ class M7Run:
         }
         self.rollouts.append(record)
         self._last_rollout_end = now
+        self._phase = "optimize"                  # M7h: PPO.train() follows until the next on_rollout_start
         if self.config.purpose != "test":
             log(f"[m7] {self.config.run_id} rollout {record['rollout']}: t={record['num_timesteps']} "
                 f"collect {collect:.2f}s ({self.config.rollout_size / collect:.0f} tr/s) episodes {len(finished)} "
                 f"targets mean {record['targets_mean']} max {record['targets_max']} ends {record['end_reasons']}")
 
     def on_training_end(self) -> None:
+        if self._stop is None:
+            self._phase = "ended"
         if self._last_rollout_end is not None:
             now = time.perf_counter()
             self.optimize_walls.append(now - self._last_rollout_end)
@@ -892,7 +1049,8 @@ class M7Run:
         if c.checkpoint_interval and t % c.checkpoint_interval == 0:
             t0 = time.perf_counter()
             saved = save_checkpoint_set(self.layout.checkpoint(t), self.model, self.vecnorm, run_meta=self.run_meta,
-                                        coordinator=self.coordinator, label=f"ckpt_{t:09d}", rollouts=len(self.rollouts))
+                                        coordinator=self.coordinator, label=f"ckpt_{t:09d}", rollouts=len(self.rollouts),
+                                        extra_writer=self._set_extra_writer())
             self.checkpoints.append(saved)
             self._label = saved["label"]
             self.walls["checkpoint_s"] += time.perf_counter() - t0
@@ -1041,6 +1199,11 @@ class M7Run:
                 # the constructor literal is pinned by the M7d / M7e source guards; make_vecnormalize() is the same call
                 self.vecnorm = VecNormalize(self.venv, training=True, norm_obs=c.norm_obs, norm_reward=False,
                                             clip_obs=c.clip_obs, gamma=c.gamma, **vecnormalize_keys(c))
+                if c.curriculum is not None:     # M7h only: CurriculumVecEnv between VecNormalize and the workers
+                    from m7h_vec import attach
+
+                    self.curriculum_env = attach(self.vecnorm, self.venv, settings=c.curriculum, run_id=c.run_id,
+                                                 seed=c.base_seed, log_dir=self.layout.root / "curriculum")
                 self.model = make_model(c, self.vecnorm)
             annotate_model(c, self.model)
             self.forward = ForwardTimer(self.model.policy)
@@ -1066,10 +1229,22 @@ class M7Run:
                                  reset_num_timesteps=(source is None), progress_bar=False)
             except KeyboardInterrupt:
                 interrupted, status = True, "interrupted"
+                if self._stop is None:
+                    self._stop = {"trigger": "keyboard_interrupt", "phase": self._phase, "seen_utc": utc_now(),
+                                  "num_timesteps": int(self.model.num_timesteps)}
                 log("[m7] interrupted: draining workers, saving interrupted/, closing")
                 self.venv.drain_pending()
                 try:
                     self.venv.env_method("request_manual_preservation", "training interrupted (KeyboardInterrupt)")
+                except M7VecEnvError as exc:
+                    log(f"[m7] could not request manual preservation: {exc}")
+            if self._stop is not None and not interrupted:
+                # M7h: learn() returned because a stop request was seen; the rollout in progress was abandoned.
+                interrupted, status = True, "stopped"
+                reason = (self._stop.get("request") or {}).get("reason")
+                log(f"[m7] stopped by request ({reason}): preserving in-flight episodes, saving interrupted/, closing")
+                try:
+                    self.venv.env_method("request_manual_preservation", f"training stopped by request ({reason})")
                 except M7VecEnvError as exc:
                     log(f"[m7] could not request manual preservation: {exc}")
             learn_s = time.perf_counter() - self._t_learn
@@ -1090,9 +1265,15 @@ class M7Run:
             target = self.layout.interrupted if interrupted else (self.layout.final if error is None else None)
             if target is not None:
                 t0 = time.perf_counter()
+                if interrupted:      # M7h: component provenance; never labelled a completed-update checkpoint
+                    trigger = self._stop or {"trigger": "keyboard_interrupt", "phase": self._phase}
+                    kw: Dict[str, Any] = {"interruption": self._interruption_record(trigger),
+                                          "extra_writer": self._set_extra_writer(boundary=True)}
+                else:
+                    kw = {"extra_writer": self._set_extra_writer()}
                 final_set = save_checkpoint_set(target, self.model, self.vecnorm, run_meta=self.run_meta,
                                                 coordinator=self.coordinator, label=target.name,
-                                                rollouts=len(self.rollouts))
+                                                rollouts=len(self.rollouts), **kw)
                 self.walls["checkpoint_s"] += time.perf_counter() - t0
         if error is None and not interrupted and c.eval_final and final_set is not None:
             try:
@@ -1105,6 +1286,10 @@ class M7Run:
         summary = self._summary(status=status, error=error, learn_s=learn_s, run_s=time.perf_counter() - t_run,
                                 final_set=final_set, survivors=survivors, job_pids=job_pids,
                                 user_cfg=(user_cfg_before, user_cfg_after), created=created)
+        if self._stop is not None:               # M7h: only when a stop / interrupt happened
+            summary["stop"] = dict(self._stop, update_boundary=self.update_boundary)
+        if self.curriculum_env is not None:      # M7h: only for a curriculum run
+            summary["curriculum"] = self.curriculum_env.report()
         write_json(self.layout.summary, summary)
         log(f"[m7] {c.run_id}: {status}; e2e {summary['throughput'].get('end_to_end_transitions_per_s')} tr/s; "
             f"episodes {summary['episodes']['finished']}; leaks {len(survivors)}; summary {portable_path(self.layout.summary)}")

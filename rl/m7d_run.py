@@ -237,12 +237,18 @@ def validate_episode_row(row: Mapping[str, Any], contract: Any, horizon: int) ->
         p.append(f"{tag}: steps {steps!r}")
     if p:
         return p
+    # M7h: an episode that began with a recorded prefix phase (row["m7h"]) has L prefix ticks before its policy steps
+    # and prefix breaks that earned nothing; `steps` / `targets_broken` / `return` stay policy-only. Rows without the
+    # block (every tick-0 and historical row) have L = 0 and no prefix breaks: the checks below are unchanged for them.
+    m7h = row.get("m7h") or {}
+    prefix_len = int(m7h.get("prefix_length") or 0)
+    prefix_t = int(m7h.get("prefix_targets_broken") or 0)
     fall, clear = end == "fall", end == "clear"
     obs = row.get("terminal_native_observation") or {}
-    if end == "horizon" and steps != horizon:
-        p.append(f"{tag}: horizon truncation after {steps} steps")
+    if end == "horizon" and prefix_len + steps != horizon:
+        p.append(f"{tag}: horizon truncation after {prefix_len} prefix + {steps} steps")
     if clear:
-        if not (row.get("cleared") is True and t == TARGETS_TOTAL and row.get("completion_time_passed") is not None
+        if not (row.get("cleared") is True and prefix_t + t == TARGETS_TOTAL and row.get("completion_time_passed") is not None
                 and row.get("completion_input_tick") is not None):
             p.append(f"{tag}: clear without verified completion facts")
         if obs and int(obs.get("targets_remaining", -1)) != 0:
@@ -254,8 +260,8 @@ def validate_episode_row(row: Mapping[str, Any], contract: Any, horizon: int) ->
             p.append(f"{tag}: fall with termination_reason {row.get('termination_reason')!r}")
         if obs and not (int(obs.get("game_status", -1)) == 5 and int(obs.get("targets_remaining", 0)) > 0):
             p.append(f"{tag}: fall observation game_status {obs.get('game_status')} targets {obs.get('targets_remaining')}")
-    if obs and int(obs.get("btt_active", 0)) == 1 and int(obs.get("targets_remaining", -1)) != TARGETS_TOTAL - t:
-        p.append(f"{tag}: terminal targets_remaining {obs.get('targets_remaining')} != {TARGETS_TOTAL - t}")
+    if obs and int(obs.get("btt_active", 0)) == 1 and int(obs.get("targets_remaining", -1)) != TARGETS_TOTAL - prefix_t - t:
+        p.append(f"{tag}: terminal targets_remaining {obs.get('targets_remaining')} != {TARGETS_TOTAL - prefix_t - t}")
     if end != "lifecycle_failure":
         want = expected_return(t, steps, cleared=clear, native_failure=fall, contract=contract)
         got = float(row.get("return"))
@@ -269,7 +275,7 @@ def validate_episode_row(row: Mapping[str, Any], contract: Any, horizon: int) ->
     ticks = row.get("target_break_ticks")
     if ticks is not None:
         if len(ticks) != t or any(not isinstance(k, int) for k in ticks) or list(ticks) != sorted(ticks) \
-                or (ticks and not (0 <= ticks[0] and ticks[-1] <= steps - 1)):
+                or (ticks and not (prefix_len <= ticks[0] and ticks[-1] <= prefix_len + steps - 1)):
             p.append(f"{tag}: target_break_ticks {ticks} inconsistent with {t} targets / {steps} steps")
     if row.get("startup_mode") not in STARTUP_MODES:
         p.append(f"{tag}: startup_mode {row.get('startup_mode')!r}")

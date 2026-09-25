@@ -4,6 +4,9 @@ Status (2026-09-24): **complete. Decision recorded: gate 7, `no_benefit`. Stoppe
 extension is not unlocked and was not launched, and no longer training was started. Code and profiles were not edited
 during the campaign. Nothing was committed or pushed.
 
+> **Addendum A (2026-09-24)** at the end of this report corrects descriptive statements in sections 5 and 6 (the
+> target-6 episode and the memory figures). The registered gate-7 decision and every rule quantity are unchanged.
+
 The design and rule are in [`rl_obs_v2_experiment_proposal_m7g.md`](rl_obs_v2_experiment_proposal_m7g.md) (revision 2)
 and the pilot in [`rl_obs_v2_phase_k_pilot_m7g.md`](rl_obs_v2_phase_k_pilot_m7g.md). The machine-readable record is
 [`rl_obs_v2_phase_k_comparison_m7g.json`](rl_obs_v2_phase_k_comparison_m7g.json). The driver's own analysis is
@@ -209,3 +212,110 @@ throughout. New in this step: this document and its JSON.
 The Phase K files had been staged in the index (`A`) before the campaign started. That was not done by me, and I left
 the index as found. Nothing was committed or pushed. decomp is clean on `rl-main` (`3c7fd5d05`); libultraship and torch
 are unchanged.
+
+## Addendum A (2026-09-24): corrections to sections 5 and 6
+
+**Scope.** These are descriptive corrections only. The following are unchanged:
+- the registered decision (gate 7, `no_benefit`, recorded at 2026-09-24T10:17:18Z in `runs/m7g_k/_matrix/state.json`,
+  `decisions.n3`);
+- every rule quantity and every table in sections 0–9.
+
+Nothing was retrained or re-evaluated. The only game processes run for this addendum were three replays of one stored
+episode. The JSON record gains an additive `addenda` entry; its existing fields are correct raw values and were not
+edited.
+
+### A.1 The target-6 episode, replayed
+
+**Method.** The stored 3,600 canonical actions of `episode_20260924T095405Z_5d068ee4` were replayed from tick 0 in
+fresh processes with executable `1e7c62a0…`. The replay used the existing tools only:
+- `m7f_trace.run_stepping_trace`;
+- `m7f_targets.check_trace`;
+- `m7f_replay.position_summary`;
+- `m7g_eval_metrics.metrics_from_trace`.
+
+There were three runs: two with the evaluation's flags (`SSB64_RL_NO_RENDER`, `SSB64_RAPHNET_DISABLE`,
+`SSB64_RL_SPATIAL`, `SSB64_RL_TARGET_DIAG`) and one without `SSB64_RL_SPATIAL`. The evidence is git-ignored under
+`runs/review/phase_k_target6_20260924/`: `verification.json`, the raw traces and the scratch script.
+
+**Result.** All three replays match the recorded episode exactly:
+- 3,600 of 3,600 consumed ticks;
+- the native action digest `ccac49e3…`;
+- the initial and final observations, including `host_frame`;
+- a horizon end with no native failure;
+- 0 target-diagnostic problems;
+- break ticks [41, 743, 1871, 1893, 2132, 3034];
+- the `btt_eval_metrics_v1` record recomputed from the replay equals the stored record, field for field.
+
+The three step streams are identical.
+
+| fact (native evidence from the replay) | value |
+| --- | --- |
+| target | ID 6, break order 3; the target was at its spawn (−3300, 3300) when it broke |
+| break | consumed tick 1871 (native break input tick 1872, break time_passed 1871) |
+| Mario at the break | (−548.4, 882.2): airborne, falling (air velocity y −44), fighter status 224 (Mario SpecialAirN), facing left, both jumps used; about 3,660 units from the target |
+| left-region entry (live x < −2100) | none (0 of 3,600 steps) |
+| left-target break | 1 (ID 6); a separate metric from left-region entry |
+| where the minimum live x of −1650 occurred | ticks 2342–2365, at y −1712 to −1182 (the bottom of the wall face), about 470 ticks after the break |
+
+**Corrections to section 5:**
+1. **The minimum x.** "Mario's minimum live x was −1650.0, the wall face" is true for the whole episode. It does not
+   describe where Mario was at the break (see the table).
+2. **The cited B presses are not evidence for the mechanism.**
+   - The mid-air special that started at tick 1839 is one continuous 45-tick SpecialAirN status (1839–1883).
+   - Every uninterrupted SpecialAirN in this episode lasts 45 ticks, so the presses at 1843, 1845, 1868 and 1871
+     started no new special.
+   - That special began at y ≈ 2,290, below the wall top (y 3,000).
+   - The only SpecialAirN that began high up and facing left is 1787–1831. Mario peaked at y 3,812 at tick 1795
+     during it.
+3. **The mechanism remains a hypothesis.**
+   - The native evidence excludes contact with Mario's body, which was about 3,660 units away.
+   - The target diagnostic records no attacker, so no native evidence identifies what broke target 6.
+   - A check using only the decomp constants (`decomp/src/wp/wpmario/wpmariofireball.c`: 50 units/tick at −5°, gravity
+     1.2, terminal speed 55, lifetime 140): a direct flight launched from Mario's position at any tick of the 1787–1831
+     window reaches x −3300 no higher than about y 1,310, plus an unknown spawn offset. That is far below the target.
+   - So a fireball could have hit target 6 only after at least one rebound, for example on the wall top. This is not
+     verified. Verifying it would need a new PORT-only attacker diagnostic.
+
+**Rule impact: none.**
+- X counts only the 100 final stochastic episodes (the section 6.1 definitions in `rl/m7g_k_analysis.py`), and this
+  episode is from a mid-run checkpoint.
+- A rescan of all 5,910 model-evaluation episodes confirms exactly one left-target break, 0 left-region entries and 0
+  seven-target episodes.
+- 465–809 of the 985 episodes per run reached x ≤ −1600, so reaching the wall face is common and says nothing on its own.
+
+### A.2 Commit and physical memory (section 6)
+
+**What each figure measures:**
+- **The gate** (`evaluate_resources` in `rl/m7g_k_run.py`, via `m7d_run.memory_status`) is the available system commit
+  *before launch*. It reads `GlobalMemoryStatusEx.ullAvailPageFile`, which is the commit limit minus the commit charge,
+  and requires at least 6.0 GiB. Available physical memory (≥ 2.5 GiB) is gated separately.
+- **"Commit drawn"** is the monitor's maximum commit charge during the run minus the commit charge at the pre-launch
+  gate. It is system-wide, so it includes unrelated processes. It is sampled every 15 s, so short peaks can be missed.
+
+**Corrections:**
+- **The 0.42 GiB figure.** "0.42 GiB under the 6.0 GiB gate" compares a draw (a change in demand) with a pre-launch
+  availability threshold, so it is not the observed headroom. It is only the margin a launch would have had if it had
+  started exactly at the threshold: 6.0 − 5.58 = 0.42 GiB.
+- **The 14 GiB claim.** "At least 14 GiB of commit stayed available throughout" is wrong for v1 s0. The observed
+  headroom is the lowest available commit during each run, which is the commit limit (31.412 GiB, constant throughout)
+  minus the maximum commit charge:
+
+| GiB | v1 s0 | v1 s1 | v1 s2 | v2 s0 | v2 s1 | v2 s2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| available commit at the gate | 16.88 | 19.87 | 19.82 | 19.83 | 19.75 | 19.78 |
+| lowest available commit during the run | **11.84** | 14.73 | 14.66 | 14.53 | 14.54 | 14.20 |
+| lowest available physical during the run | 4.17 | 6.37 | 6.27 | 6.43 | 6.53 | 6.15 |
+
+v1 s0 launched with a commit charge of 14.54 GiB, against 11.54–11.66 GiB for the other five launches. The difference,
+about 3 GiB, was other activity on the machine. During evaluation the lowest available commit was 14.86 GiB and the
+lowest available physical memory was 6.15 GiB.
+
+**Context.** M7e (`docs/rl_extended_training_m7e.json`) launched with 6.56–6.95 GiB of commit available and bottomed
+out at 1.49–1.56 GiB. A 6.0 GiB threshold therefore admits launches that come within about 1 GiB of commit exhaustion.
+
+**Recommended gate for future N = 5 standby runs** (this replaces the section-6 suggestion of "about 7 GiB"; it is a
+recommendation only and no code was changed):
+- **Commit before launch:** at least 1.2 × D + R, which gives **10 GiB**. D = 5.6 GiB is the largest measured draw;
+  re-measure it in each new pilot and use the larger value. R = 3 GiB is the reserve that must remain.
+- **Physical before launch:** at least **4 GiB**.
+- **During the run:** stop when available commit is below 1.5 GiB in two consecutive samples.

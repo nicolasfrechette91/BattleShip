@@ -37,7 +37,8 @@ Game cases (no training; fresh BattleShip processes, at most 10 at a time, one c
     game_target_diag_probe   both smoke checkpoints evaluate cleanly with SSB64_RL_TARGET_DIAG=1 added (the Phase K
                              evaluation instrumentation flag)
 
-Usage: python rl/m7g_k_tests.py [unit|game|<case> ...] [--root runs/m7g_k/_tests_<utc>]
+Usage: python rl/m7g_k_tests.py [unit|game|<case> ...] [--root runs/_tests/m7g_k_<utc>]
+(the default root is outside the archived Phase K tree runs/m7g_k)
 Exit 0 all pass, 1 any failure.
 """
 from __future__ import annotations
@@ -241,7 +242,7 @@ def unit_existing_profiles(s: Suite) -> Dict[str, Any]:
     from m7_evaluation import obs_rms_digest, policy_parameter_digest
 
     found = sorted(p.relative_to(REPO_ROOT).as_posix() for p in (RL_DIR / "configs").rglob("*.toml")
-                   if "m7g" not in p.relative_to(RL_DIR / "configs").parts)
+                   if not {"m7g", "m7h"} & set(p.relative_to(RL_DIR / "configs").parts))   # M7h: later milestone
     check(found == sorted(PINNED_PROFILES), f"pre-existing profile set changed: {found}")
     for rel, pinned in PINNED_PROFILES.items():
         exp = ec.load_experiment(REPO_ROOT / rel)
@@ -883,7 +884,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if unknown:
         ap.error(f"unknown cases {unknown}")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    root = (Path(args.root) if args.root else REPO_ROOT / "runs" / "m7g_k" / f"_tests_{stamp}").resolve()
+    root = (Path(args.root) if args.root else REPO_ROOT / "runs" / "_tests" / f"m7g_k_{stamp}").resolve()
     root.mkdir(parents=True, exist_ok=True)
     if any(n in GAME_CASES for n in names):
         from m7_runtime import install_kill_on_close_job

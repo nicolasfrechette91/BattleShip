@@ -238,7 +238,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except KeyboardInterrupt:
         print("interrupted", flush=True)
         return EXIT_INTERRUPTED
-    if summary["status"] == "interrupted":
+    if summary["status"] in ("interrupted", "stopped"):     # M7h: "stopped" = cooperative stop request
         return EXIT_INTERRUPTED
     return EXIT_OK if summary["status"] == "completed" and summary["cleanup"]["leak_free"] else EXIT_FAILED
 

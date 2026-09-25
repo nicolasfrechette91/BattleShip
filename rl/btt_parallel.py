@@ -844,6 +844,15 @@ class M7RewardWrapper(RewardV1Wrapper):
         info["reward_contract"] = self.reward_contract.contract
         return observation, info
 
+    def rebase_for_policy_phase(self, observation: Mapping[str, Any]) -> int:
+        """M7h (rl/m7h_worker.py) only: after an explicit, recorded prefix phase and before the first policy step, the
+        target reference becomes the post-prefix observation, so targets broken during the prefix earn nothing. The
+        episode's return, steps, breaks and failure terms must still be zero. Returns the new reference."""
+        if self.episode_steps or self.episode_return or self.episode_targets_broken or self.episode_failure_terms:
+            raise RuntimeError("rebase_for_policy_phase after a policy step: the prefix phase must precede every policy step")
+        self._previous_targets = live_targets(observation)
+        return int(self._previous_targets)
+
     def step(self, action: Any):
         observation, _placeholder, terminated, truncated, info = self.env.step(action)  # EpisodeFailure propagates
         reason = info.get("termination_reason") if terminated else None
@@ -1138,6 +1147,16 @@ class M7EpisodeTracker:
         if native is not None:
             cur["digest"].update(f"{native.buttons},{native.stick_x},{native.stick_y},{info.get('consumed_tick')}\n"
                                  .encode("ascii"))
+
+    def note_prefix_step(self, native: Any, consumed_tick: int) -> None:
+        """M7h (rl/m7h_worker.py) only: one recorded prefix step. It is a native step of this episode, so it enters
+        native_action_digest (which then covers the whole trajectory from tick 0) and native_steps; it is never a
+        policy step (steps, return, breaks and break ticks are left to note_step)."""
+        self.native_steps += 1
+        cur = self._current
+        if cur:
+            cur["digest"].update(f"{native.buttons},{native.stick_x},{native.stick_y},{consumed_tick}\n".encode("ascii"))
+            cur["prefix_steps"] = int(cur.get("prefix_steps", 0)) + 1
 
     def request_manual_preservation(self, note: str) -> None:
         self._manual_note = note

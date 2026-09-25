@@ -25,7 +25,7 @@ import multiprocessing as mp
 import os
 import sys
 import time
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -249,6 +249,17 @@ class M7SubprocVecEnv(SubprocVecEnv):
 
     def env_method(self, method_name: str, *method_args, indices: VecEnvIndices = None, **method_kwargs) -> List[Any]:
         return self._call("env_method", (method_name, method_args, method_kwargs), indices)
+
+    def env_method_each(self, method_name: str, calls: Mapping[int, Tuple[Sequence[Any], Mapping[str, Any]]]
+                        ) -> Dict[int, Any]:
+        """M7h: one env_method per listed worker, each with its own arguments. Every command is sent before any reply
+        is awaited (the workers run in parallel); replies are collected in index order. Unused by M7a-M7g."""
+        order = sorted(int(i) for i in calls)
+        for i in order:
+            args, kwargs = calls[i]
+            self._send(i, ("env_method", (method_name, tuple(args), dict(kwargs))))
+            self._pending.add(i)
+        return {i: self._recv(i, "env_method") for i in order}
 
     def env_is_wrapped(self, wrapper_class, indices: VecEnvIndices = None) -> List[bool]:
         return self._call("is_wrapped", wrapper_class, indices)

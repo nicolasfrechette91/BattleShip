@@ -1,0 +1,143 @@
+{
+ "schema": "m7h_decision_rule_v1",
+ "milestone": "M7h",
+ "experiment": "btt_curriculum_frontier_v1 (arm F) versus curriculum-off v1 (arm C); observation v1, reward v2, Track 1, 3,072,000 policy transitions per run",
+ "authority": "docs/rl_frontier_curriculum_m7h_proposal.md revision 2, section 7 (the text is authoritative; this file is its machine-readable registration, read by rl/m7h_analysis.py)",
+ "registered_utc": "2026-09-24",
+ "status": "registered before any campaign run; applied once at n = 3 and, only through gate 3, once at n = 5; never re-decided",
+ "arithmetic": "exact rationals (fractions.Fraction); every threshold below is an exact fraction written 'p/q'; the first gate that fires decides; every gate condition is reported",
+ "arms": {
+  "C": {"description": "plain v1, curriculum off", "seeds_0_2": "historical runs/m7g_k/m7g_s{0,1,2}_v1 (reused only while the R1-R3 control check passes for the frozen campaign code); otherwise m7h_c_s{0,1,2} trained in full", "seeds_3_4": "m7h_c_s{3,4} (extension only)"},
+  "F": {"description": "the same configuration plus btt_curriculum_frontier_v1", "runs": "m7h_f_s{0,1,2}; m7h_f_s{3,4} in the extension only"}
+ },
+ "evaluation_basis": {
+  "checkpoint": "final (3,072,000 policy transitions)",
+  "episodes": {"stochastic": 100, "deterministic": 100},
+  "starts": "tick 0 only (every evaluation episode must be a tick-0 start; otherwise gate 0)",
+  "metrics": "btt_eval_metrics_v1 with SSB64_RL_TARGET_DIAG=1 (evaluation workers only)"
+ },
+ "definitions": {
+  "k[a][s]": "1 iff at least one of the 200 final episodes is a verified clear (Phase K clear verification: native replay from tick 0 reproduces completion_time_passed and completion_input_tick)",
+  "c[a][s]": "verified clears among the 100 final stochastic episodes, divided by 100",
+  "chi[a][s]": "1 iff at least one of the 100 final stochastic episodes has a live step with position_x < -2100 (eval_metrics.first_left_entry is not null)",
+  "x[a][s]": "the number of final stochastic episodes with such a step, divided by 100",
+  "T[a][s]": "total targets_broken over the final stochastic episodes that are not verified clears, divided by their count; undefined if the count is 0",
+  "phi[a][s]": "the number of final stochastic episodes whose end_reason is fall (native_failure)",
+  "K[a]": "sum over seeds of k[a][s]",
+  "X[a]": "sum over seeds of chi[a][s]",
+  "S_T": "the seeds where T is defined in both arms",
+  "D[s]": "T[F][s] - T[C][s] for s in S_T",
+  "Dbar": "(sum over s in S_T of D[s]) / |S_T|",
+  "Phi[a]": "(sum over seeds of phi[a][s]) / (100 n)",
+  "g[s]": "1 iff F's training run of seed s has at least one verified genuine_new_policy_entry (section 4: replayed from tick 0 in a fresh process; exact; no live left step on a prefix row; the first live left step is the recorded one, on a row >= L)",
+  "G": "sum over F seeds of g[s]",
+  "m(n)": "m(3) = 2, m(5) = 3"
+ },
+ "known_control_values_n3": {
+  "K_C": 0, "X_C": 0,
+  "T_C": {"0": "472/100", "1": "475/100", "2": "427/100"},
+  "phi_C": {"0": 1, "1": 1, "2": 0},
+  "Phi_C": "2/300",
+  "source": "Phase K final evaluations of runs/m7g_k/m7g_s{0,1,2}_v1, re-confirmed by R2/R3 (docs/rl_frontier_curriculum_m7h_gate.md)"
+ },
+ "integrity": {
+  "gate": 0,
+  "any_of": [
+   "the R1-R3 control check has not passed for the frozen campaign code (or, on the retrain branch, a C run is not verified)",
+   "a campaign run is not verified (training verification, curriculum verification of every F run: reset contract, accounting, prefix rows, VecNormalize counts, archive provenance)",
+   "the evaluation census is incomplete",
+   "an evaluation episode is not a tick-0 start",
+   "an archive entry without own-run provenance",
+   "a prefix mismatch or prefix precondition failure",
+   "a reset-contract violation",
+   "a native clear whose clear verification did not run or did not reproduce both clocks (Phase K precedent)"
+  ],
+  "response": "no decision; report"
+ },
+ "n3": {
+  "seeds": [0, 1, 2],
+  "gates": [
+   {"gate": 0, "name": "integrity", "response": "no decision; report"},
+   {"gate": 1, "name": "clears", "condition": "K_F >= clears_min", "clears_min": 2,
+    "response": "adopt F; the next milestone targets reliable clears"},
+   {"gate": 2, "name": "crossings", "condition": "K_F <= 1 and X_F >= crossings_min", "crossings_min": 2,
+    "response": "adopt F as the exploration base; next milestone: from crossings to left targets and clears"},
+   {"gate": 3, "name": "extension", "condition": "gates 1 and 2 did not fire and (K_F = 1 or X_F = 1)",
+    "response": "seeds 3 and 4 in both arms (extension), then the n = 5 rule", "extension_required": true},
+   {"gate": 4, "name": "discovered_not_consolidated", "condition": "gates 1-3 did not fire and G >= discovery_min",
+    "discovery_min": 2,
+    "response": "record it; next: a separately registered consolidation proposal built on F and the agent's own verified discoveries (never the fixtures); no budget extension"},
+   {"gate": 5, "name": "targets", "condition": "gates 1-4 did not fire and S_T is not empty",
+    "branches": {
+     "a": {"condition": "D[s] > 0 for every s in S_T and Dbar >= targets_dbar_min and Phi_F - Phi_C <= falls_phi_diff_max",
+           "response": "F preferred on targets and becomes the base; the ceiling stays open", "decides": true},
+     "b": {"condition": "D[s] > 0 for every s in S_T and Dbar >= targets_dbar_min and Phi_F - Phi_C > falls_phi_diff_max",
+           "response": "record 'more targets with more falls', not adopted; go to gate 6", "decides": false},
+     "c": {"condition": "D[s] < 0 for every s in S_T and Dbar <= targets_dbar_worse",
+           "response": "F worse on targets; the curriculum line stops", "decides": true},
+     "otherwise": {"response": "go to gate 6", "decides": false}
+    },
+    "targets_dbar_min": "1/2", "targets_dbar_worse": "-1/2", "falls_phi_diff_max": "1/10"},
+   {"gate": 6, "name": "null", "condition": "none of the above",
+    "response": "record 'no measurable benefit of frontier restarts at 3.072M policy transitions'; no extension; the next step is the user's decision"}
+  ]
+ },
+ "n5": {
+  "seeds": [0, 1, 2, 3, 4],
+  "only_if": "the n = 3 decision is gate 3 and the four extension runs are verified",
+  "gates": [
+   {"gate": 0, "name": "integrity", "response": "no decision (over all 10 runs)"},
+   {"gate": 1, "name": "clears", "metric": {"K": "K", "per_seed": "c"}, "adopt_min": 3, "delta_min": "1/20",
+    "branches": {
+     "a": {"condition": "K_F >= adopt_min and K_C = 0", "response": "adopt F", "decides": true},
+     "b": {"condition": "K_C >= adopt_min and K_F = 0", "response": "F worse at clears; stop", "decides": true},
+     "c": {"condition": "K_F >= 1 and K_C >= 1; Delta = mean over the 5 seeds of (c_F - c_C)",
+           "adopt": "Delta >= delta_min and c_F[s] >= c_C[s] for every s -> adopt F (decides)",
+           "worse": "Delta <= -delta_min and c_F[s] <= c_C[s] for every s -> F worse; stop (decides)",
+           "otherwise": "record 'clears in both arms' and continue"},
+     "d": {"condition": "otherwise, exactly one arm has 1 or 2 clear seeds (the other has none)",
+           "response": "record 'clear not reproduced (k of 5)' and continue", "decides": false}
+    }},
+   {"gate": 2, "name": "crossings", "metric": {"K": "X", "per_seed": "x"}, "adopt_min": 3, "delta_min": "1/20",
+    "branches": {
+     "a": {"condition": "X_F >= adopt_min and X_C = 0", "response": "adopt F as the exploration base", "decides": true},
+     "b": {"condition": "X_C >= adopt_min and X_F = 0", "response": "F worse at the ceiling; stop", "decides": true},
+     "c": {"condition": "X_F >= 1 and X_C >= 1; Delta = mean over the 5 seeds of (x_F - x_C)",
+           "adopt": "Delta >= delta_min and x_F[s] >= x_C[s] for every s -> adopt F as the exploration base (decides)",
+           "worse": "Delta <= -delta_min and x_F[s] <= x_C[s] for every s -> F worse at the ceiling; stop (decides)",
+           "otherwise": "record 'crossings in both arms' and continue"},
+     "d": {"condition": "otherwise, exactly one arm has 1 or 2 crossing seeds (the other has none)",
+           "response": "record 'crossing not reproduced (k of 5)' and continue", "decides": false}
+    }},
+   {"gate": 3, "name": "discovered_not_consolidated", "condition": "G >= discovery_min", "discovery_min": 3,
+    "response": "as gate 4 at n = 3"},
+   {"gate": 4, "name": "targets", "condition": "the same inequalities as gate 5 at n = 3, over S_T within seeds 0-4",
+    "targets_dbar_min": "1/2", "targets_dbar_worse": "-1/2", "falls_phi_diff_max": "1/10"},
+   {"gate": 5, "name": "null", "condition": "none of the above", "response": "record 'no measurable benefit after 5 seeds'"}
+  ],
+  "further_extension": false
+ },
+ "inequalities": {
+  "strict": ["D[s] > 0", "D[s] < 0", "Phi_F - Phi_C > 1/10 (branch 5b)"],
+  "inclusive": ["K_F >= 2", "X_F >= 2", "K_F <= 1", "G >= 2", "Dbar >= 1/2", "Dbar <= -1/2", "Phi_F - Phi_C <= 1/10", "n = 5: >= 3, Delta >= 1/20, Delta <= -1/20, c_F[s] >= c_C[s], c_F[s] <= c_C[s]"],
+  "note": "D[s] = 0 in any seed blocks 5(a) and 5(c)"
+ },
+ "precedence_example": "K_F = 1 with X_F = 2 is adopted at gate 2, and the single clear is recorded",
+ "extension": {
+  "trigger": "gate 3 at n = 3 only; targets, discovery, left-target breaks and non-final checkpoints never trigger it",
+  "runs": ["m7h_c_s3", "m7h_f_s3", "m7h_f_s4", "m7h_c_s4"],
+  "order": ["m7h_c_s3", "m7h_f_s3", "m7h_f_s4", "m7h_c_s4"],
+  "budget": "3,072,000 policy transitions per run, the same protocol",
+  "precondition": "the n = 3 decision 'extension required' is recorded; each run passes the launch gate"
+ },
+ "reported_never_gating": [
+  "left-target breaks (IDs 1, 6 and 8, each separately)",
+  "seven-target episodes",
+  "target 2",
+  "non-final crossings and left-target breaks at every checkpoint",
+  "deterministic results and policy entropy",
+  "the training classes other than genuine_new_policy_entry",
+  "archive size, eligible cells, the lowest x at y >= 3000, the distribution of L and the prefix cost"
+ ],
+ "no_early_stop": "there is no early stop based on results"
+}
