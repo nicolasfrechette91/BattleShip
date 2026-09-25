@@ -1,0 +1,875 @@
+{
+ "schema": "m7j_reward_v3_registration_v1",
+ "created_utc": "2026-09-25T13:58:56Z",
+ "document": "docs/rl_reward_v3_m7j.md",
+ "status": "contract frozen and registered; implemented opt-in (v2 stays every existing profile's reward); Stage 0 integration pilot passed; no learning run; nothing committed",
+ "repository": {
+  "head": "15f7850b3fe6d29cc15e75fa46db59cc570e8f16",
+  "origin_main": "15f7850b3fe6d29cc15e75fa46db59cc570e8f16",
+  "executable_sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+  "submodules": [
+   "3c7fd5d0547ae82a240a6ffd134985e4b9697b14 decomp (heads/rl-main)",
+   " 805f195041573230cf0402171337b22ffd558759 libultraship (heads/m6/raphnet-bypass)",
+   " 3aa9c9739af95659f19adc73afeb12df93957fc3 torch (remotes/origin/agent/issue-batch)"
+  ]
+ },
+ "contract": {
+  "id": "btt_reward_v3",
+  "rule": "btt_route_rule_v3",
+  "json": {
+   "contract": "btt_reward_v3",
+   "target_broken": 1.0,
+   "per_step": -0.001,
+   "clear_bonus": 10.0,
+   "failure_penalty": -5.0,
+   "route": {
+    "rule": "btt_route_rule_v3",
+    "right_target_ids": [
+     0,
+     2,
+     3,
+     4,
+     5,
+     7,
+     9
+    ],
+    "right_sweep_bonus": 3.0,
+    "right_sweep_timing_max": 2.0,
+    "horizon_ticks": 3600,
+    "crossing_landing_bonus": 2.0,
+    "post_landing_failure_penalty": -1.0,
+    "left_boundary_x": -2100.0,
+    "wall_top_y": 3000.0,
+    "under_stage_y": -2850.0,
+    "entry_y_tolerance": 1.0,
+    "landing_floor_y": -1950.0,
+    "landing_floor_x_min": -3900.0,
+    "landing_floor_x_max": -2700.0,
+    "landing_tolerance": 1.0
+   }
+  },
+  "canonical_json_sha256": "d9447d471b95dd59533dfd87192e8eff5e059a6fd42c8bc380e3e27ee6037196",
+  "per_step": [
+   "base = reward_v1(prev targets_remaining, cur, native clear): +1.0 per newly broken target, -0.001 per step, +10.0 on the native clear; newly broken must equal the remaining_mask bits turned off; no bit may turn back on",
+   "sweep (one-time): first reply with {0,2,3,4,5,7,9} all broken: 3.0 + 2.0 * (3600 - n) / 3600, n = consumed_tick + 1 (1..3600, else violation)",
+   "entry (live pairs P,E with x_P >= -2100 > x_E; o_0 is the first predecessor): y_c at x = -2100; over_wall y_c >= 2999; under_stage y_c <= -2849; through_face otherwise (anomaly); unpaired without a live predecessor",
+   "qualified entry: over_wall AND the sweep complete in the entry step's reply; an exit (x_P < -2100 <= x_E) ends the visit's qualification",
+   "landing: live, ground_air_state == 0, |y + 1950| <= 1, -3901 <= x <= -2699 (line 3); +2.0 once per episode on the first landing of a qualified visit; never on the native-failure step",
+   "failure (btt_native_failure_v1 step only): -1.0 if a qualified landing happened on an earlier step, else -5.0; never on clear / truncation / interruption / startup / transport / lifecycle / administrative endings",
+   "total = ((base + failure) + sweep) + crossing (bit-identical to v2 on a step without a route term)"
+  ],
+  "scope": [
+   "contracts.observation = btt_policy_obs_v1 only",
+   "environment.horizon = 3600 only",
+   "no [curriculum]",
+   "adds SSB64_RL_TARGET_DIAG=1 (reward-only read; never in the policy observation)",
+   "canonical values enforced; resume across contracts refused",
+   "native RNG never read"
+  ],
+  "numbers_decision": "frozen unchanged (+3, 0..2 timing, +2, -1, -5): ranking inequalities hold; no crossing / landing combination has ever been observed, so no offline evidence could justify other values; sparsity is a frequency problem, not a magnitude problem",
+  "registered_property_change": "after a qualified landing, a fall before tick 2,600 outscores idling to the horizon (0.001 t + 1 < 3.6); kept deliberately (cheap attempts at the last left target); game-backed constructed demonstration: land+fall 14.138556 vs land+idle 12.200556"
+ },
+ "code_sha256": {
+  "rl/btt_reward_v3.py": "04589be48921a9e4bda6a6c1f13f1a35f26bd89ccb50d544a959adf878cdeaa4",
+  "rl/m7j_reward_env.py": "21478dbfd62bc4f5c97aa5f63320302c8500849035fb0cfe138d1b7bfd6cfc06",
+  "rl/m7j_offline.py": "c3673d0048a31bf7aee6ebd9e310606aa0d261b525af58fae1df369728aedf70",
+  "rl/m7j_tests.py": "a88b3e496371af4d9671f7be06ecc731defb6ce5a742dda7762a1dd452049cf5",
+  "rl/m7j_run.py": "b56baa5b5ae3669169ff589f25d9727321fcb7afb369c573d77bf08c9c1ee62c",
+  "rl/configs/m7j/m7j_v3_pilot_s0.toml": "805875b7df2ad59930be3f8b66e7642de879aca40bfefab264011af0ff3e1c32",
+  "rl/btt_rewards.py": "2df8dd4edf450dd071a2a938c2848e12f20e0d0ef801e68cc1e34da8b0d12e5e",
+  "rl/experiment_config.py": "fadd87d9ea546f2793f1952437626bf347b28b240abf133d07e8decbc4ad78c3",
+  "rl/btt_parallel.py": "edca6e87126d82ec3c271377f696f2ac0acd25e4e74c2ec65464af1bac50b339",
+  "rl/m7_evaluation.py": "584becdeb5677783dd23f4af851d03ca439315f19dbaffc7b5e076056507fb4c",
+  "rl/m7g_k_tests.py": "5d892569278c0aed8e03cd0738ea279a258f21cc6ba2592e66c4bd37a7077cf7",
+  "rl/m7g_k_campaign_tests.py": "cf5f2e1251d80a3ea8d8725b8825ab4294aec5a5d5384e6f466fcafe9947a9ab"
+ },
+ "offline_check": {
+  "dir": "runs/m7j/offline/final (git-ignored)",
+  "files_sha256": {
+   "census.json": "9bd88797d611d7f94e146fa14103a60adb34fc86ca265983ac31a3eea75b52d1",
+   "ranking.json": "d9a6ee7ef9c8d995060e40481f522cf7a88a690e96047d54ed9d07bfc317b211",
+   "replay.json": "2b48ff673f40be383ba2379c0ce5c2a64b334a4cd847b67bfb12c682079d90cb"
+  },
+  "eval_census": {
+   "phase_k": {
+    "episodes": 6010,
+    "labels": 133,
+    "left_entries": 0,
+    "left_target_breaks": 1,
+    "sweeps": 0,
+    "early_sweeps": 0,
+    "v3_equal_v2": 6010,
+    "v3_differs": 0,
+    "target2": 56,
+    "static6": 48,
+    "falls": 319,
+    "horizon": 5691,
+    "clears": 0
+   },
+   "m7h": {
+    "episodes": 2955,
+    "labels": 66,
+    "left_entries": 0,
+    "left_target_breaks": 0,
+    "sweeps": 1,
+    "early_sweeps": 0,
+    "v3_equal_v2": 2954,
+    "v3_differs": 1,
+    "target2": 13,
+    "static6": 81,
+    "falls": 113,
+    "horizon": 2842,
+    "clears": 0
+   }
+  },
+  "eval_differing": [
+   {
+    "family": "m7h",
+    "file": "runs/m7h/campaign/_eval/m7h_f_s2/final/stochastic/evaluation.json",
+    "episode_id": "episode_20260925T020610Z_9a130d1f",
+    "mode": "stochastic",
+    "end_reason": "horizon",
+    "sweep_consumed_tick": 3570,
+    "v2_return": 3.4000000000002735,
+    "v3_minus_v2": 3.016111111111111,
+    "v3_return": 6.416111111111384,
+    "broken_ids_in_order": [
+     0,
+     3,
+     4,
+     5,
+     9,
+     7,
+     2
+    ]
+   }
+  ],
+  "training_census": {
+   "runs/m7a_pilot_n5": {
+    "runs": 1,
+    "rows": 371,
+    "tick0_rows": 371,
+    "rows_lt7_total_targets": 370,
+    "rows_ge7_total_targets": 1,
+    "max_total_targets": 7,
+    "contracts": {
+     "btt_reward_v1(legacy)": 371
+    }
+   },
+   "runs/m7d": {
+    "runs": 6,
+    "rows": 2420,
+    "tick0_rows": 2420,
+    "rows_lt7_total_targets": 2420,
+    "rows_ge7_total_targets": 0,
+    "max_total_targets": 6,
+    "contracts": {
+     "btt_reward_v1": 1539,
+     "btt_reward_v2": 881
+    }
+   },
+   "runs/m7e": {
+    "runs": 3,
+    "rows": 2604,
+    "tick0_rows": 2604,
+    "rows_lt7_total_targets": 2604,
+    "rows_ge7_total_targets": 0,
+    "max_total_targets": 6,
+    "contracts": {
+     "btt_reward_v2": 2604
+    }
+   },
+   "runs/m7g_k": {
+    "runs": 6,
+    "rows": 5231,
+    "tick0_rows": 5231,
+    "rows_lt7_total_targets": 5231,
+    "rows_ge7_total_targets": 0,
+    "max_total_targets": 6,
+    "contracts": {
+     "btt_reward_v2": 5231
+    }
+   },
+   "runs/m7h/campaign": {
+    "runs": 3,
+    "rows": 3762,
+    "tick0_rows": 1880,
+    "rows_lt7_total_targets": 3758,
+    "rows_ge7_total_targets": 4,
+    "max_total_targets": 7,
+    "contracts": {
+     "btt_reward_v2": 3762
+    }
+   }
+  },
+  "training_need_identity_all_replayed": [
+   "episode_20260922T021311Z_50bbb545",
+   "episode_20260924T211641Z_79be8064",
+   "episode_20260924T211738Z_d9c5249d",
+   "episode_20260924T211741Z_67d3898c",
+   "episode_20260924T221344Z_9052fc6d"
+  ],
+  "tick0_v2_training_episodes": 10596,
+  "tick0_v2_training_sweeps": 0,
+  "feasibility_review": {
+   "available": true,
+   "episodes": 558,
+   "prefix_breaks": "83112a8c prefix: IDs 4, 0, 9, 3, 5, 7 (target 2 never broken in the anchor)",
+   "episodes_breaking_target_2_in_policy_phase": 0,
+   "landings": 76,
+   "falls": 302,
+   "conclusion": "without target 2 no episode can complete the right sweep, so every v3 term is zero and v3 equals v2 on every step"
+  },
+  "replay": {
+   "all_exact": true,
+   "flags": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "episodes": [
+    {
+     "key": "tas",
+     "episode_id": null,
+     "source": "tas_input_2/mario_743.btti",
+     "rows": 447,
+     "end": "clear",
+     "exact": true,
+     "v2_return": 19.553,
+     "v3_return": 24.353555556,
+     "sweep_consumed_tick": 358,
+     "first_entry": {
+      "consumed_tick": 359,
+      "class": "over_wall",
+      "y_c": 3458.65,
+      "qualified": true
+     },
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": null,
+     "broken_ids": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+     ]
+    },
+    {
+     "key": "m7h_f_s2_final_9a130d1f",
+     "episode_id": null,
+     "source": "runs/m7h/campaign/_eval/m7h_f_s2/final/stochastic/workers/w02/artifacts/episode_20260925T020610Z_9a130d1f",
+     "rows": 3600,
+     "end": "horizon",
+     "exact": true,
+     "v2_return": 3.4,
+     "v3_return": 6.416111111,
+     "sweep_consumed_tick": 3570,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": null,
+     "broken_ids": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      7,
+      9
+     ]
+    },
+    {
+     "key": "m7a_pilot_50bbb545",
+     "episode_id": null,
+     "source": "runs/m7a_pilot_n5/workers/w01/artifacts/episode_20260922T021311Z_50bbb545",
+     "rows": 3005,
+     "end": "fall",
+     "exact": true,
+     "v2_return": -1.005,
+     "v3_return": 2.69,
+     "sweep_consumed_tick": 2348,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": "standard",
+     "broken_ids": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      7,
+      9
+     ]
+    },
+    {
+     "key": "m7h_s1_83112a8c",
+     "episode_id": "episode_20260924T205836Z_83112a8c",
+     "source": "runs/m7h/campaign/m7h_f_s1/curriculum/left_episodes.jsonl",
+     "rows": 3221,
+     "end": "fall",
+     "exact": true,
+     "v2_return": -2.221,
+     "v3_return": -2.221,
+     "sweep_consumed_tick": null,
+     "first_entry": {
+      "consumed_tick": 2816,
+      "class": "over_wall",
+      "y_c": 4114.1,
+      "qualified": false
+     },
+     "first_line3_landing": {
+      "consumed_tick": 3004,
+      "qualified": false
+     },
+     "qualified_landing": false,
+     "failure_category": "standard",
+     "broken_ids": [
+      0,
+      3,
+      4,
+      5,
+      7,
+      9
+     ]
+    },
+    {
+     "key": "m7h_s1_438d5fcb",
+     "episode_id": "episode_20260924T211719Z_438d5fcb",
+     "source": "runs/m7h/campaign/m7h_f_s1/curriculum/left_episodes.jsonl",
+     "rows": 534,
+     "end": "fall",
+     "exact": true,
+     "v2_return": -4.534,
+     "v3_return": -4.534,
+     "sweep_consumed_tick": null,
+     "first_entry": {
+      "consumed_tick": 314,
+      "class": "over_wall",
+      "y_c": 4070.51,
+      "qualified": false
+     },
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": "standard",
+     "broken_ids": [
+      7
+     ]
+    },
+    {
+     "key": "m7h_s2_56a1af09",
+     "episode_id": "episode_20260924T220106Z_56a1af09",
+     "source": "runs/m7h/campaign/m7h_f_s2/curriculum/left_episodes.jsonl",
+     "rows": 3171,
+     "end": "fall",
+     "exact": true,
+     "v2_return": -2.171,
+     "v3_return": -2.171,
+     "sweep_consumed_tick": null,
+     "first_entry": {
+      "consumed_tick": 3145,
+      "class": "under_stage",
+      "y_c": -8400.82,
+      "qualified": false
+     },
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": "standard",
+     "broken_ids": [
+      0,
+      3,
+      4,
+      5,
+      7,
+      9
+     ]
+    },
+    {
+     "key": "m7h_s1_79be8064",
+     "episode_id": "episode_20260924T211641Z_79be8064",
+     "source": "runs/m7h/campaign/m7h_f_s1/curriculum/left_episodes.jsonl",
+     "rows": 3222,
+     "end": "fall",
+     "exact": true,
+     "v2_return": -1.222,
+     "v3_return": -1.222,
+     "sweep_consumed_tick": null,
+     "first_entry": {
+      "consumed_tick": 2816,
+      "class": "over_wall",
+      "y_c": 4114.1,
+      "qualified": false
+     },
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": "standard",
+     "broken_ids": [
+      0,
+      3,
+      4,
+      5,
+      7,
+      8,
+      9
+     ]
+    },
+    {
+     "key": "m7h_s1_d9c5249d",
+     "episode_id": "episode_20260924T211738Z_d9c5249d",
+     "source": "runs/m7h/campaign/m7h_f_s1/curriculum/left_episodes.jsonl",
+     "rows": 3145,
+     "end": "fall",
+     "exact": true,
+     "v2_return": -1.145,
+     "v3_return": -1.145,
+     "sweep_consumed_tick": null,
+     "first_entry": {
+      "consumed_tick": 2816,
+      "class": "over_wall",
+      "y_c": 4114.1,
+      "qualified": false
+     },
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": "standard",
+     "broken_ids": [
+      0,
+      3,
+      4,
+      5,
+      6,
+      7,
+      9
+     ]
+    },
+    {
+     "key": "m7h_s1_67d3898c",
+     "episode_id": "episode_20260924T211741Z_67d3898c",
+     "source": "runs/m7h/campaign/m7h_f_s1/curriculum/left_episodes.jsonl",
+     "rows": 3143,
+     "end": "fall",
+     "exact": true,
+     "v2_return": -1.143,
+     "v3_return": -1.143,
+     "sweep_consumed_tick": null,
+     "first_entry": {
+      "consumed_tick": 2816,
+      "class": "over_wall",
+      "y_c": 4114.1,
+      "qualified": false
+     },
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": "standard",
+     "broken_ids": [
+      0,
+      3,
+      4,
+      5,
+      6,
+      7,
+      9
+     ]
+    },
+    {
+     "key": "m7h_s2_9052fc6d",
+     "episode_id": null,
+     "source": "runs/m7h/campaign/m7h_f_s2/workers/w02/artifacts/episode_20260924T221344Z_9052fc6d",
+     "rows": 3600,
+     "end": "horizon",
+     "exact": true,
+     "v2_return": 3.4,
+     "v3_return": 6.601111111,
+     "sweep_consumed_tick": 3237,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": null,
+     "broken_ids": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      7,
+      9
+     ]
+    },
+    {
+     "key": "m7h_f_s0_final_det0",
+     "episode_id": "episode_20260925T001201Z_4d5bc596",
+     "source": "runs/m7h/campaign/_eval/m7h_f_s0/final/deterministic/workers/w00/artifacts/episode_20260925T001201Z_4d5bc596",
+     "rows": 3600,
+     "end": "horizon",
+     "exact": true,
+     "v2_return": -1.6,
+     "v3_return": -1.6,
+     "sweep_consumed_tick": null,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": null,
+     "broken_ids": [
+      0,
+      9
+     ]
+    },
+    {
+     "key": "m7h_f_s1_final_det0",
+     "episode_id": "episode_20260925T010608Z_e23a65ef",
+     "source": "runs/m7h/campaign/_eval/m7h_f_s1/final/deterministic/workers/w00/artifacts/episode_20260925T010608Z_e23a65ef",
+     "rows": 3600,
+     "end": "horizon",
+     "exact": true,
+     "v2_return": 0.4,
+     "v3_return": 0.4,
+     "sweep_consumed_tick": null,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": null,
+     "broken_ids": [
+      0,
+      4,
+      5,
+      9
+     ]
+    },
+    {
+     "key": "m7h_f_s2_final_det0",
+     "episode_id": "episode_20260925T015935Z_cf40df43",
+     "source": "runs/m7h/campaign/_eval/m7h_f_s2/final/deterministic/workers/w00/artifacts/episode_20260925T015935Z_cf40df43",
+     "rows": 3600,
+     "end": "horizon",
+     "exact": true,
+     "v2_return": -2.6,
+     "v3_return": -2.6,
+     "sweep_consumed_tick": null,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": null,
+     "broken_ids": [
+      0
+     ]
+    },
+    {
+     "key": "m7h_f_s0_final_sto0",
+     "episode_id": "episode_20260925T001716Z_5b10eaf1",
+     "source": "runs/m7h/campaign/_eval/m7h_f_s0/final/stochastic/workers/w00/artifacts/episode_20260925T001716Z_5b10eaf1",
+     "rows": 3600,
+     "end": "horizon",
+     "exact": true,
+     "v2_return": 1.4,
+     "v3_return": 1.4,
+     "sweep_consumed_tick": null,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": null,
+     "broken_ids": [
+      0,
+      3,
+      4,
+      5,
+      9
+     ]
+    },
+    {
+     "key": "m7h_f_s1_final_sto0",
+     "episode_id": "episode_20260925T011111Z_5ef9a30b",
+     "source": "runs/m7h/campaign/_eval/m7h_f_s1/final/stochastic/workers/w00/artifacts/episode_20260925T011111Z_5ef9a30b",
+     "rows": 3600,
+     "end": "horizon",
+     "exact": true,
+     "v2_return": 0.4,
+     "v3_return": 0.4,
+     "sweep_consumed_tick": null,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": null,
+     "broken_ids": [
+      0,
+      4,
+      5,
+      9
+     ]
+    },
+    {
+     "key": "m7h_f_s2_final_sto0",
+     "episode_id": "episode_20260925T020436Z_65a53df6",
+     "source": "runs/m7h/campaign/_eval/m7h_f_s2/final/stochastic/workers/w00/artifacts/episode_20260925T020436Z_65a53df6",
+     "rows": 3600,
+     "end": "horizon",
+     "exact": true,
+     "v2_return": 0.4,
+     "v3_return": 0.4,
+     "sweep_consumed_tick": null,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": null,
+     "broken_ids": [
+      0,
+      4,
+      5,
+      9
+     ]
+    },
+    {
+     "key": "m7h_f_s0_final_fall0",
+     "episode_id": "episode_20260925T001955Z_d96d8bee",
+     "source": "runs/m7h/campaign/_eval/m7h_f_s0/final/stochastic/workers/w00/artifacts/episode_20260925T001955Z_d96d8bee",
+     "rows": 1049,
+     "end": "fall",
+     "exact": true,
+     "v2_return": -1.049,
+     "v3_return": -1.049,
+     "sweep_consumed_tick": null,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": "standard",
+     "broken_ids": [
+      0,
+      3,
+      4,
+      5,
+      9
+     ]
+    },
+    {
+     "key": "m7h_f_s2_final_fall0",
+     "episode_id": "episode_20260925T020659Z_35e6beec",
+     "source": "runs/m7h/campaign/_eval/m7h_f_s2/final/stochastic/workers/w03/artifacts/episode_20260925T020659Z_35e6beec",
+     "rows": 3373,
+     "end": "fall",
+     "exact": true,
+     "v2_return": -3.373,
+     "v3_return": -3.373,
+     "sweep_consumed_tick": null,
+     "first_entry": null,
+     "first_line3_landing": null,
+     "qualified_landing": false,
+     "failure_category": "standard",
+     "broken_ids": [
+      0,
+      3,
+      4,
+      5,
+      9
+     ]
+    }
+   ]
+  },
+  "ranking_inequalities": [
+   {
+    "claim": "a sweep then surviving on the right beats any premature crossing that strands with all 3 left targets",
+    "holds": true,
+    "detail": "min over sweep ticks 6.4000 > 5.4000 (v2: 3.4000 < 5.4000, i.e. v2 ranks the stranded route higher)"
+   },
+   {
+    "claim": "after a sweep, crossing + landing + a later fall beats staying right to the horizon (any ticks)",
+    "holds": true,
+    "detail": "grid over sweep / fall ticks"
+   },
+   {
+    "claim": "after a sweep, crossing and falling WITHOUT a landing is worse than staying right to the horizon",
+    "holds": true,
+    "detail": "grid; the -5 dominates -0.001/tick"
+   },
+   {
+    "claim": "a premature crossing is scored exactly as under v2",
+    "holds": true,
+    "detail": "no v3 term fires without the sweep"
+   },
+   {
+    "claim": "no fall (without a qualified landing) outscores surviving to the horizon with the same targets (M7b invariant kept wherever v2 applies)",
+    "holds": true,
+    "detail": ""
+   },
+   {
+    "claim": "POST-LANDING: a fall on any step before tick 2,600 outscores idling to the horizon (the M7b invariant is deliberately broken after a qualified landing)",
+    "holds": true,
+    "detail": "fall better iff 0.001 * t_f + 1 < 3.6, i.e. t_f < 2600 (last such t_f = 2599); both outcomes have the same targets and neither clears"
+   },
+   {
+    "claim": "the sweep is worth more the earlier it completes, by at most 2.0",
+    "holds": true,
+    "detail": ""
+   }
+  ],
+  "loophole_cases": [
+   {
+    "case": "farming: sweep re-reported on every later step",
+    "ok": true,
+    "kind": "synthetic"
+   },
+   {
+    "case": "multi-target tick: last right + left target 6 on one tick",
+    "ok": true,
+    "kind": "synthetic"
+   },
+   {
+    "case": "repeated landing after a qualified crossing",
+    "ok": true,
+    "kind": "synthetic"
+   },
+   {
+    "case": "premature crossing, then the sweep completes while on the left, then a landing",
+    "ok": true,
+    "kind": "synthetic"
+   },
+   {
+    "case": "under-stage entry after the sweep, then a line-3 landing",
+    "ok": true,
+    "kind": "synthetic"
+   },
+   {
+    "case": "wrong surface: ledge top and the moving platform after the sweep",
+    "ok": true,
+    "kind": "synthetic"
+   },
+   {
+    "case": "landing on the native-failure step is not counted",
+    "ok": true,
+    "kind": "synthetic"
+   },
+   {
+    "case": "sweep on the same step as the over-wall entry qualifies",
+    "ok": true,
+    "kind": "synthetic"
+   },
+   {
+    "case": "exit right after a qualified landing, then a fall on the right keeps -1 (landing latched)",
+    "ok": true,
+    "kind": "synthetic"
+   }
+  ],
+  "fixture_classifier_check": {
+   "dir": "runs/m7j/offline/fixture_check (git-ignored; validation evidence only)",
+   "sha256": "41914a635caa7dd353ca11ef85890cf551182f187f6f3165dae4a3926075987d",
+   "ok": true,
+   "fixtures": {
+    "lower_precision_2ad7b1da89d8.json": {
+     "sha256": "18446e2b749022a6460f9b0ce1c754d731f6f3e1852c3d5048dc7c0f83c57626",
+     "entry_tick": 1093,
+     "y_c": 4356.651394609592,
+     "class": "over_wall",
+     "line3_landing": 1292
+    },
+    "upper_moving_platform_8b9ecf2b967f.json": {
+     "sha256": "adfd9eda15cf92577f846fb722d9dff0e2f70faf50bcbc8566d10cf141766ec9",
+     "entry_tick": 464,
+     "y_c": 3000.0,
+     "class": "over_wall",
+     "line3_landing": 666
+    }
+   }
+  },
+  "never_observed_together": [
+   "sweep + any left entry (policy)",
+   "qualified over-wall entry (policy; TAS only)",
+   "qualified landing (any trajectory incl. the TAS; constructed tests only)",
+   "post-landing fall (constructed tests only)",
+   "sweep + left target (policy)",
+   "clear (policy)"
+  ],
+  "encounter": {
+   "per_episode_rate_tick0_v2_upper95": 0.00028312570781426955,
+   "finished_episodes_per_3072000_run": 870,
+   "expected_sweeps_per_run_at_most": 0.25,
+   "episodes_for_20_sweeps": 70000,
+   "transitions_for_20_sweeps_per_seed": "about 250M (about 45 h per seed at 1,540 tr/s)",
+   "early_sweeps_in_tick0_evaluation": 0
+  }
+ },
+ "stage0_integration_pilot": {
+  "profile": "rl/configs/m7j/m7j_v3_pilot_s0.toml",
+  "profile_sha256": "805875b7df2ad59930be3f8b66e7642de879aca40bfefab264011af0ff3e1c32",
+  "semantic_fingerprint": "004df8a58ad54629cc135c35b3c2844c03153aad4e6d750848eca28fbae6bb81",
+  "command": "python rl/m7j_run.py pilot",
+  "registered_expectation": "final set == Phase K m7g_s0_v1 ckpt_000102400 == M7e s0 ckpt_000102400; rows equal on the M7h R1 keys and return (sb3_num_timesteps_seen <= 102,400); no v3 route event",
+  "result": {
+   "ok": true,
+   "final_digests": [
+    "5cec5fc4028dbca5f0e2402408718fb01ca21fa8aaa8242333c40ac0917b4b97",
+    "050acde93d9b43f3fd92eea767412991073cc11523d12691acea2d0c834ecee1"
+   ],
+   "rows": 30,
+   "throughput_e2e": 1077.1,
+   "verification_file": "runs/m7j/_pilot/verification_20260925T135513Z.json",
+   "verification_sha256": "5fddcc92c0defc426bcd01051f502eaac9cbb410ca9dc748262ddedd3f7772fa",
+   "first_record_refused_by_a_verifier_defect": "runs/m7j/_pilot/verification_20260925T135419Z.json (twin rows filtered by sb3_num_timesteps_at_end; fixed to the M7h R1 rule; run unchanged)"
+  },
+  "v2_r1_throughput_same_size": [
+   1097.4,
+   1069.6,
+   1076.7
+  ]
+ },
+ "comparison_protocol_v2_vs_v3": {
+  "recommended_now": false,
+  "arms": {
+   "v2": "Phase K v1 body (rl/configs/m7g/m7g_s{s}_v1.toml form)",
+   "v3": "the same body with contracts.reward = btt_reward_v3"
+  },
+  "fixed": [
+   "btt_policy_obs_v1",
+   "Track 1 btt_s9_b8_v1",
+   "tick-0 starts",
+   "M7e / Phase K PPO",
+   "N = 5 with standby",
+   "3,072,000 transitions",
+   "Phase K tick-0 evaluation protocol with btt_eval_metrics_v1"
+  ],
+  "seeds": [
+   3,
+   4,
+   5
+  ],
+  "seeds_0_2": "already decided: v3 == the historical v2 control (no sweep in its training)",
+  "twin_rule": "train v3 first; a v3 run without any training sweep has a bit-identical v2 twin by construction, verified by a 102,400-transition digest check instead of a full run; otherwise train the v2 twin",
+  "primary_endpoints": [
+   "training sweep events",
+   "tick-0 final stochastic early-sweep rate (sweep by tick 2,699)",
+   "sweep rate"
+  ],
+  "secondary_endpoints": [
+   "target-2 rate",
+   "static-six completion tick",
+   "T",
+   "falls",
+   "crossings / landings / clears (reported)"
+  ],
+  "prediction": "not encountered (each pair identical) -> the staged right-side timing experiment",
+  "cost": "about 3.5 h (three v3 runs + evaluation) + 3 twin checks; about 7 h if every twin is trained"
+ },
+ "staged_right_side_timing_proposal": {
+  "implemented": false,
+  "registered_contract": false,
+  "stage_R1": "btt_reward_v3_rt (provisional id) = v3 + one-time +c*(3600-n)/3600 per right target's first break, c = 2/7; compared with the Phase K v1 control (seeds 0-2, reusable after a Stage-0-style identity check); gate to R2: early sweeps in >= 5/100 final stochastic tick-0 episodes in >= 2 of 3 seeds; needs its own offline check and registration first",
+  "stage_R2": "continue the same contract; endpoints qualified crossings, qualified landings, left targets, verified clears",
+  "known_risk": "timing credit may speed the six static targets without producing target 2 (the dominant bottleneck)"
+ },
+ "tests": {
+  "m7j_all": "18/18 (final code: runs/m7j/_tests_20260925T135639Z; the first game run was 8/9: transient leak_free on g_ppo_smoke_v3, not reproduced in 3 later runs)",
+  "m7b_config_tests": "16/16",
+  "m7b_smoke": "7/7",
+  "m7_smoke_unit": "8/8",
+  "m7c_standby_unit": "4/4",
+  "m7g_obs_unit": "8/8",
+  "m7g_k_unit": "6/6",
+  "m7g_k_campaign_unit": "13/13",
+  "m7h_tests": "13/13",
+  "m7h_campaign_unit": "15/15",
+  "m7g_tests_unit": "8/9 (pre-existing at HEAD: unit_training_isolation flags three M7h files)"
+ }
+}

@@ -73,7 +73,8 @@ from btt_parallel import (  # noqa: E402
     WorkerSpec,
     initial_coordination_state,
 )
-from btt_rewards import REWARD_V1, RewardContract, RewardContractError, reward_contract_from_json  # noqa: E402
+from btt_rewards import (REWARD_V1, RewardContract, RewardContractError, reward_contract_from_json,  # noqa: E402
+                         reward_extra_env)
 from m7_runtime import (  # noqa: E402
     PORT_BLOCK_BASE,
     PORT_BLOCK_SIZE,
@@ -391,12 +392,23 @@ class EvaluationSettings:
         return self.observation or POLICY_OBSERVATION_CONTRACT
 
     def effective_extra_env(self) -> Tuple[Tuple[str, str], ...]:
-        """The native flags the evaluation workers boot with (the diagnostic flag added when metrics are on)."""
-        if not self.eval_metrics:
+        """The native flags the evaluation workers boot with (the diagnostic flag added when metrics are on, and the
+        flags the reward contract needs: M7j btt_reward_v3 reads the target diagnostic; v1 / v2 add none)."""
+        needed = reward_extra_env(self.reward)
+        if not self.eval_metrics and not needed:
             return tuple(self.extra_env)
-        from m7g_eval_metrics import with_diag_flag
+        flags = dict(self.extra_env)
+        if self.eval_metrics:
+            from m7g_eval_metrics import with_diag_flag
 
-        return with_diag_flag(self.extra_env)
+            flags = dict(with_diag_flag(self.extra_env))
+        flags.update(dict(needed))
+        return tuple(flags.items())
+
+    @property
+    def records_flags(self) -> bool:
+        """Whether an evaluation record carries extra_env (M7g v2 / metrics; M7j v3). Earlier v1 / v2 records unchanged."""
+        return self.eval_metrics or bool(reward_extra_env(self.reward))
 
     def lifecycle(self) -> Dict[str, Any]:
         s = StandbySettings(preboot=self.standby_preboot, count=self.standby_count, wait_timeout=self.standby_wait_timeout).to_json()
@@ -538,8 +550,8 @@ def run_episodes(*, mode: str, episodes: int, out_dir: Path, run_id: str, settin
     if mode == "deterministic":
         digests = {e["native_action_digest"] for e in collected}
         result["deterministic_episodes_identical"] = len(digests) == 1
-    if settings.observation_contract != POLICY_OBSERVATION_CONTRACT or settings.eval_metrics:
-        # M7g: v2 and/or evaluation metrics only (earlier v1 records unchanged)
+    if settings.observation_contract != POLICY_OBSERVATION_CONTRACT or settings.records_flags:
+        # M7g: v2 and/or evaluation metrics only (earlier v1 records unchanged); M7j: v3 reward too
         result["policy_observation_contract"] = settings.observation_contract
         result["extra_env"] = dict(settings.effective_extra_env())
     if settings.eval_metrics:
@@ -617,7 +629,7 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
                                       f"keys {list(mo.NORMALIZED_KEYS)}) -> MultiInputPolicy")
         result["policy_observation_contract"] = observation
         result["policy_network"] = meta.get("policy_network")
-    if observation == mo.OBS_CONTRACT or settings.eval_metrics:
+    if observation == mo.OBS_CONTRACT or settings.records_flags:
         result["extra_env"] = dict(settings.effective_extra_env())
     if settings.eval_metrics:
         result["policy_observation_contract"] = observation
@@ -648,8 +660,9 @@ def evaluate_random(out_dir: os.PathLike | str, *, settings: EvaluationSettings,
               "reward_contract": settings.reward.to_json(), "experiment": settings.experiment,
               "lifecycle": settings.lifecycle(),
               "modes": {"random": r}, "wall_s": r["wall_s"]}
-    if settings.eval_metrics:   # M7g Phase K (earlier random baselines unchanged)
+    if settings.records_flags:   # M7g Phase K / M7j v3 (earlier random baselines unchanged)
         result["extra_env"] = dict(settings.effective_extra_env())
+    if settings.eval_metrics:
         result["eval_metrics"] = True
     with open(out / "evaluation_summary.json", "w", encoding="utf-8", newline="\n") as fp:
         json.dump(result, fp, indent=2)

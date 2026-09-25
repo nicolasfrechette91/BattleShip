@@ -30,11 +30,28 @@ number of targets.
 A custom contract (arbitrary finite values) is allowed only under a
 noncanonical identity derived from its own values
 (btt_reward_custom_<12 hex of the reward fingerprint>); it can never
-identify itself as v1 or v2. No other shaping term exists.
+identify itself as v1, v2 or v3. No other shaping term exists in v1 / v2.
 
 The per-step arithmetic delegates the target / step / clear terms to the
 unchanged M5 reward_v1() (rl/btt_learning.py is not modified); only the
 failure term is added here.
+
+M7j adds a third canonical contract, btt_reward_v3 (opt-in; every existing
+profile keeps v1 or v2 and v1 / v2 values, identities and JSON are
+unchanged). v3 = the v2 terms plus three route terms that need the native
+target identity (SSB64_RL_TARGET_DIAG=1) and the native position:
+
+    +3.0 + 2.0 * (3600 - n) / 3600   once, when the seven right-side targets
+                                     {0, 2, 3, 4, 5, 7, 9} are all broken;
+                                     n = consumed_tick + 1 of that step
+    +2.0                             once, on the first left-floor landing
+                                     after a qualified over-wall entry
+    -1.0 instead of -5.0             native-failure penalty after that landing
+
+Its constants live in RouteRewardContract (below, fingerprinted through
+to_json()["route"]); its per-step arithmetic lives in rl/btt_reward_v3.py.
+reward_step() / expected_return() refuse a route contract: they cannot see
+target identity or position.
 """
 
 from __future__ import annotations
@@ -43,12 +60,13 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 from btt_learning import RewardBreakdown, RewardV1Config, reward_v1
 
 REWARD_V1_ID = "btt_reward_v1"
 REWARD_V2_ID = "btt_reward_v2"
+REWARD_V3_ID = "btt_reward_v3"
 REWARD_CUSTOM_PREFIX = "btt_reward_custom_"
 REWARD_CUSTOM_REQUEST = "custom"   # the value written in [contracts].reward of a TOML profile
 REWARD_VALUE_FIELDS = ("target_broken", "per_step", "clear_bonus", "failure_penalty")
@@ -84,10 +102,93 @@ class RewardContract:
         return RewardV1Config(target_broken=self.target_broken, per_step=self.per_step, clear_bonus=self.clear_bonus)
 
 
+ROUTE_RULE_V3 = "btt_route_rule_v3"          # the event rules implemented by rl/btt_reward_v3.py
+ROUTE_FIELDS = ("rule", "right_target_ids", "right_sweep_bonus", "right_sweep_timing_max", "horizon_ticks",
+                "crossing_landing_bonus", "post_landing_failure_penalty", "left_boundary_x", "wall_top_y",
+                "under_stage_y", "entry_y_tolerance", "landing_floor_y", "landing_floor_x_min", "landing_floor_x_max",
+                "landing_tolerance")
+
+
+@dataclass(frozen=True)
+class RouteRewardContract(RewardContract):
+    """M7j btt_reward_v3: the four v2 constants plus the frozen route constants.
+
+    Geometry = native collision data of Mario's Break the Targets (decomp/src/relocData/124_GRBonus1MarioFile2.c; the
+    pinned line table m7g_spatial.EXPECTED_LINES, which rl/m7j_tests.py compares with every value): the main solid's left face
+    (line 17, x = -2100, y -2850..3000), the ledge top (line 0, y = 3000), the main solid's underside (line 6,
+    y = -2850) and the only left-side floor (line 3, y = -1950, x -3900..-2700). Right targets = the M7f native IDs
+    right of the wall. The event rules themselves are rl/btt_reward_v3.py (identity `rule`)."""
+
+    rule: str = ROUTE_RULE_V3
+    right_target_ids: Tuple[int, ...] = (0, 2, 3, 4, 5, 7, 9)
+    right_sweep_bonus: float = 3.0
+    right_sweep_timing_max: float = 2.0
+    horizon_ticks: int = 3600
+    crossing_landing_bonus: float = 2.0
+    post_landing_failure_penalty: float = -1.0
+    left_boundary_x: float = -2100.0
+    wall_top_y: float = 3000.0
+    under_stage_y: float = -2850.0
+    entry_y_tolerance: float = 1.0
+    landing_floor_y: float = -1950.0
+    landing_floor_x_min: float = -3900.0
+    landing_floor_x_max: float = -2700.0
+    landing_tolerance: float = 1.0
+
+    def route_json(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        for k in ROUTE_FIELDS:
+            v = getattr(self, k)
+            out[k] = list(v) if isinstance(v, tuple) else (v if isinstance(v, str) else
+                                                           (int(v) if k == "horizon_ticks" else float(v)))
+        return out
+
+    def to_json(self) -> Dict[str, Any]:
+        return {**super().to_json(), "route": self.route_json()}
+
+
 REWARD_V1 = RewardContract(REWARD_V1_ID, 1.0, -0.001, 10.0, 0.0)
 REWARD_V2 = RewardContract(REWARD_V2_ID, 1.0, -0.001, 10.0, -5.0)
-CANONICAL_REWARD_CONTRACTS: Dict[str, RewardContract] = {REWARD_V1_ID: REWARD_V1, REWARD_V2_ID: REWARD_V2}
+REWARD_V3 = RouteRewardContract(REWARD_V3_ID, 1.0, -0.001, 10.0, -5.0)
+
+
+# M7k: btt_reward_v3_t2 = btt_reward_v3 unchanged plus a one-time, time-sensitive credit on the moving target (native
+# ID 2): moving_target_timing_max * (3600 - n) / 3600 on the step whose reply first shows it broken, n = consumed_tick
+# + 1 (the v3 timing convention). Arithmetic: rl/btt_reward_t2.py. btt_reward_v3's constants, JSON and code path are
+# unchanged; the new constants are fingerprinted inside this contract's route block ("moving_target").
+REWARD_V3_T2_ID = "btt_reward_v3_t2"
+MOVING_TARGET_RULE_V1 = "btt_moving_target_timing_v1"
+
+
+@dataclass(frozen=True)
+class MovingTargetRouteRewardContract(RouteRewardContract):
+    moving_target_id: int = 2
+    moving_target_timing_max: float = 2.0
+    moving_target_rule: str = MOVING_TARGET_RULE_V1
+
+    def route_json(self) -> Dict[str, Any]:
+        out = super().route_json()
+        out["moving_target"] = {"rule": self.moving_target_rule, "target_id": int(self.moving_target_id),
+                                "timing_max": float(self.moving_target_timing_max)}
+        return out
+
+
+REWARD_V3_T2 = MovingTargetRouteRewardContract(REWARD_V3_T2_ID, 1.0, -0.001, 10.0, -5.0)
+CANONICAL_REWARD_CONTRACTS: Dict[str, RewardContract] = {REWARD_V1_ID: REWARD_V1, REWARD_V2_ID: REWARD_V2,
+                                                         REWARD_V3_ID: REWARD_V3, REWARD_V3_T2_ID: REWARD_V3_T2}
 DEFAULT_REWARD_CONTRACT = REWARD_V1
+# The native flags a contract needs in every process of its workers (v3 reads the M7f target-identity diagnostic).
+REWARD_EXTRA_ENV: Dict[str, Tuple[Tuple[str, str], ...]] = {REWARD_V3_ID: (("SSB64_RL_TARGET_DIAG", "1"),),
+                                                            REWARD_V3_T2_ID: (("SSB64_RL_TARGET_DIAG", "1"),)}
+
+
+def is_route_contract(contract: RewardContract) -> bool:
+    return isinstance(contract, RouteRewardContract)
+
+
+def reward_extra_env(contract: RewardContract) -> Tuple[Tuple[str, str], ...]:
+    """Native flags the contract requires (none for v1 / v2 / custom)."""
+    return REWARD_EXTRA_ENV.get(contract.contract, ())
 
 
 def reward_values_fingerprint(values: Mapping[str, float]) -> str:
@@ -159,7 +260,15 @@ def reward_contract_from_json(record: Optional[Mapping[str, Any]], *, contract_i
         if rid != REWARD_V1_ID:
             raise RewardContractError(f"reward: record for {rid!r} lacks failure_penalty; only legacy v1 records may omit it")
         values["failure_penalty"] = 0.0
-    return make_reward_contract(rid, values)
+    contract = make_reward_contract(rid, values)
+    # M7j: a route contract's record must carry its frozen route block exactly; no other record may carry one.
+    if is_route_contract(contract):
+        if record.get("route") != contract.route_json():
+            raise RewardContractError(f"reward: record for {rid!r} does not carry the frozen route constants "
+                                      f"(got {record.get('route')!r})")
+    elif "route" in record:
+        raise RewardContractError(f"reward: record for {rid!r} carries route constants; only btt_reward_v3 has them")
+    return contract
 
 
 # -- per-step arithmetic -------------------------------------------------------------------------------
@@ -192,6 +301,8 @@ def reward_step(previous_targets: Optional[int], current_targets: Optional[int],
     clear: the step returned the native EpisodeEnded result (clear bonus and
     the targets_remaining == 0 check, exactly as M5). native_failure: the step
     is the M7 native-failure termination. Both true is a contract violation."""
+    if is_route_contract(contract):
+        raise RewardContractError(f"{contract.contract} needs target identity and position: use btt_reward_v3")
     if clear and native_failure:
         raise RewardContractError("a step cannot be both a native clear and a native failure")
     base = reward_v1(previous_targets, current_targets, clear, contract.v1_config())
@@ -203,6 +314,8 @@ def reward_step(previous_targets: Optional[int], current_targets: Optional[int],
 def expected_return(targets_broken: int, steps: int, *, cleared: bool, native_failure: bool = False,
                     contract: RewardContract = REWARD_V1) -> float:
     """Closed form of an episode return under a contract (for checks; wrappers accumulate per step)."""
+    if is_route_contract(contract):
+        raise RewardContractError(f"{contract.contract}: use btt_reward_v3.expected_return_v3")
     if cleared and native_failure:
         raise RewardContractError("an episode cannot be both cleared and a native failure")
     return (targets_broken * contract.target_broken + steps * contract.per_step

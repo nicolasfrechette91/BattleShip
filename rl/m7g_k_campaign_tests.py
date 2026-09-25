@@ -315,8 +315,13 @@ def unit_recorder_wiring(s: Suite) -> Dict[str, Any]:
     check(tracker.extend_pending_summary(lambda s_: {"eval_metrics": {"steps_seen": s_["steps"]}})
           and tracker._pending_summary == {"steps": 3, "eval_metrics": {"steps_seen": 3}}, "merge")
     # Training never records evaluation metrics: no profile sets the diagnostic flag, the trainer never enables it.
+    # M7j/M7k: the one exception is a route-reward profile (btt_reward_v3, btt_reward_v3_t2), whose reward (not the
+    # recorder) reads the diagnostic; the recorder is still never built in training (the trainer checks are unchanged).
+    from btt_rewards import is_route_contract
+
     profiles = sorted((REPO_ROOT / "rl" / "configs").rglob("*.toml"))
-    flagged = [p.name for p in profiles if "SSB64_RL_TARGET_DIAG" in dict(ec.load_experiment(p).extra_env)]
+    flagged = [p.name for p in profiles if "SSB64_RL_TARGET_DIAG" in dict(ec.load_experiment(p).extra_env)
+               and not is_route_contract(ec.load_experiment(p).reward)]
     trainer_src = (RL_DIR / "m7_trainer.py").read_text(encoding="utf-8")
     check(not flagged and "eval_metrics" not in trainer_src and "TARGET_DIAG" not in trainer_src,
           f"training could record metrics: {flagged}")

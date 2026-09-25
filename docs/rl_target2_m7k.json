@@ -1,0 +1,962 @@
+{
+ "schema": "m7k_target2_record_v1",
+ "created_utc": "2026-09-25T15:16:31Z",
+ "document": "docs/rl_target2_m7k.md",
+ "status": "analysis + offline comparison + opt-in btt_reward_v3_t2 + two bounded integration pilots + teardown investigation; one experiment proposed; no learning run; nothing committed",
+ "repository": {
+  "head": "15f7850b3fe6d29cc15e75fa46db59cc570e8f16",
+  "origin_main": "15f7850b3fe6d29cc15e75fa46db59cc570e8f16",
+  "executable_sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97"
+ },
+ "preserved": {
+  "btt_reward_v3_canonical_sha256": "d9447d471b95dd59533dfd87192e8eff5e059a6fd42c8bc380e3e27ee6037196",
+  "m7j_registration_sha256": "b7593c16b25cf498cdaf3064009de77d8f606bbbf02ec2b6329529ba1da6f3a2",
+  "m7j_document_sha256": "6b6b179b9f9698dfdc50176a1bb03229b71b000422dd4aca5ccd8a939bf90757",
+  "stage0_verification_sha256": "5fddcc92c0defc426bcd01051f502eaac9cbb410ca9dc748262ddedd3f7772fa",
+  "stage0_reverified_in_memory_with_current_code": true,
+  "note": "the M7j registration's code hashes for btt_rewards.py, experiment_config.py and m7j_reward_env.py are historical: those files gained additive M7k lines; btt_reward_v3.py is byte-identical"
+ },
+ "contract": {
+  "id": "btt_reward_v3_t2",
+  "json": {
+   "contract": "btt_reward_v3_t2",
+   "target_broken": 1.0,
+   "per_step": -0.001,
+   "clear_bonus": 10.0,
+   "failure_penalty": -5.0,
+   "route": {
+    "rule": "btt_route_rule_v3",
+    "right_target_ids": [
+     0,
+     2,
+     3,
+     4,
+     5,
+     7,
+     9
+    ],
+    "right_sweep_bonus": 3.0,
+    "right_sweep_timing_max": 2.0,
+    "horizon_ticks": 3600,
+    "crossing_landing_bonus": 2.0,
+    "post_landing_failure_penalty": -1.0,
+    "left_boundary_x": -2100.0,
+    "wall_top_y": 3000.0,
+    "under_stage_y": -2850.0,
+    "entry_y_tolerance": 1.0,
+    "landing_floor_y": -1950.0,
+    "landing_floor_x_min": -3900.0,
+    "landing_floor_x_max": -2700.0,
+    "landing_tolerance": 1.0,
+    "moving_target": {
+     "rule": "btt_moving_target_timing_v1",
+     "target_id": 2,
+     "timing_max": 2.0
+    }
+   }
+  },
+  "canonical_json_sha256": "fa74d7d7edf88936fcb63e1c65cc5751dddc0bc6b1c974a70af232160b9def99",
+  "formula": "btt_reward_v3 + 2.0 * (3600 - n) / 3600 once on the step whose diagnostic reply first shows native target 2 broken, n = consumed_tick + 1 (1..3600); total = v3 total + term",
+  "scope": "obs v1, horizon 3600, no curriculum, SSB64_RL_TARGET_DIAG=1; never a policy input; inherits v3's post-landing -1"
+ },
+ "code_sha256": {
+  "rl/btt_reward_t2.py": "9a4419ed6b23cb377576878a5c3441eab2c90ace64b13b98f86ceed7930e27b5",
+  "rl/m7k_target2.py": "b954e5990d6c02ad8d5f067cddadb847caf785726b98d4e666c7fd12923369d3",
+  "rl/m7k_rewards.py": "e2a35eafd1b123ee995b2234af67433cc8f8c3f5bd52977df61c0577da1812c9",
+  "rl/m7k_teardown_probe.py": "d7a511d18267abcc9bf61279c7487fe2cbc4c51682957b013835d183e4fbfb1e",
+  "rl/m7k_tests.py": "73ee2da693586bd158cc7378bce0c9d8b7cbc57ccbe6de0567d691d8ac8129c4",
+  "rl/m7k_run.py": "a3f001c89bbc58b0c4b866c5516d6f88cb63a64ccd1937adc81b7d45fc86034d",
+  "rl/configs/m7k/m7k_v3t2_pilot_s0.toml": "3dbf947d8ab5ccd0982f4d2ef554bd7e5f84c406c5b6e4b3c066248272c081cb",
+  "rl/btt_rewards.py": "15bd68fd664a871c9dbdb7285882ab0219b353899573f777813207afe05dae4e",
+  "rl/experiment_config.py": "68566862b2bb8a75c302ed9da3e0651b1ce7c8fcf565961e8703ddc2cf53dcfd",
+  "rl/m7j_reward_env.py": "b49cd6cfd203514f674aadb38969addd95ebb183d19e72e9cfdd69fc9b848240",
+  "rl/btt_reward_v3.py": "04589be48921a9e4bda6a6c1f13f1a35f26bd89ccb50d544a959adf878cdeaa4",
+  "rl/m7g_k_tests.py": "ba72d1c31d8fdd4f3cd1647024c0e6d7bf12e8416b9ca503f22f53b7bf6a948e",
+  "rl/m7g_k_campaign_tests.py": "4c4145a3a52893f7a1ef6727aa95e8dde2d5101f74cd6176a2a70b4f4f2fc43b"
+ },
+ "target2_analysis": {
+  "selection_sha256": "a935a8748ed20e797c804f69d2f77257b8216585c5b086d421b3bab552a3bea6",
+  "analysis_file": "runs/m7k/target2/v1/analysis_20260925T145157Z.json",
+  "analysis_sha256": "efd3e33065b0428323739732515c130d8335e20fdaf39dfe41d963519ccf0770",
+  "traces": 621,
+  "all_exact": true,
+  "sets": {
+   "A": 65,
+   "B": 128,
+   "C": 183,
+   "D": 259
+  },
+  "platform": {
+   "samples": 2188702,
+   "ticks": 3600,
+   "max_spread_same_tick": 0.0,
+   "first_minima_ticks": [
+    238,
+    538,
+    838,
+    1138,
+    1438,
+    1738
+   ],
+   "period_estimate": 300,
+   "y_range": [
+    1500.0,
+    3300.0
+   ]
+  },
+  "t2_breaks": {
+   "episodes": 67,
+   "tick": {
+    "n": 67,
+    "min": 223,
+    "p25": 1191,
+    "median": 2496,
+    "p75": 2986,
+    "max": 3570,
+    "mean": 2133.94
+   },
+   "horizon_left": {
+    "n": 67,
+    "min": 29,
+    "p25": 643,
+    "median": 1103,
+    "p75": 2425,
+    "max": 3376,
+    "mean": 1465.06
+   },
+   "break_order": {
+    "n": 67,
+    "min": 1,
+    "p25": 4,
+    "median": 5,
+    "p75": 5,
+    "max": 7,
+    "mean": 4.27
+   },
+   "static_remaining_before": {
+    "0": 1,
+    "1": 8,
+    "2": 26,
+    "3": 15,
+    "4": 11,
+    "5": 2,
+    "6": 4
+   },
+   "mario_status": {
+    "226": 40,
+    "225": 18,
+    "223": 3,
+    "211": 2,
+    "210": 2,
+    "224": 1,
+    "228": 1
+   },
+   "on_platform": 4,
+   "platform_contact_before": 7,
+   "grounded": 4,
+   "distance_prev": {
+    "n": 67,
+    "min": 286.4,
+    "p25": 570.5,
+    "median": 679.3,
+    "p75": 745.4,
+    "max": 1659.1,
+    "mean": 656.94
+   },
+   "plat_y": {
+    "n": 67,
+    "min": 1500.239,
+    "p25": 1550.4,
+    "median": 1587.467,
+    "p75": 1934.995,
+    "max": 3285.186,
+    "mean": 1823.16
+   },
+   "plat_rising": 35,
+   "mario_x": {
+    "n": 67,
+    "min": 1062.51,
+    "p25": 2414.34,
+    "median": 2486.28,
+    "p75": 2713.38,
+    "max": 3135.51,
+    "mean": 2563.42
+   },
+   "mario_y": {
+    "n": 67,
+    "min": 1382.03,
+    "p25": 1451.28,
+    "median": 1679.27,
+    "p75": 2004.57,
+    "max": 3585.19,
+    "mean": 1858.13
+   }
+  },
+  "by_set": {
+   "A": {
+    "n": 65,
+    "t2_broken": 65,
+    "within_600_any": 0,
+    "within_1000_any": 0,
+    "zone_visit": 64,
+    "zone_visit_no_t2": 0,
+    "platform_contact": 23,
+    "closest_distance": null
+   },
+   "B": {
+    "n": 128,
+    "t2_broken": 0,
+    "within_600_any": 0,
+    "within_1000_any": 6,
+    "zone_visit": 9,
+    "zone_visit_no_t2": 9,
+    "platform_contact": 0,
+    "closest_distance": {
+     "n": 128,
+     "min": 632.5,
+     "p25": 1698.1,
+     "median": 2031.6,
+     "p75": 2484.9,
+     "max": 3233.9,
+     "mean": 2035.63
+    }
+   },
+   "C": {
+    "n": 183,
+    "t2_broken": 2,
+    "within_600_any": 0,
+    "within_1000_any": 7,
+    "zone_visit": 9,
+    "zone_visit_no_t2": 7,
+    "platform_contact": 0,
+    "closest_distance": {
+     "n": 181,
+     "min": 625.2,
+     "p25": 1843.8,
+     "median": 2357.1,
+     "p75": 2993.4,
+     "max": 4074.9,
+     "mean": 2382.25
+    }
+   },
+   "D": {
+    "n": 259,
+    "t2_broken": 2,
+    "within_600_any": 0,
+    "within_1000_any": 2,
+    "zone_visit": 13,
+    "zone_visit_no_t2": 11,
+    "platform_contact": 1,
+    "closest_distance": {
+     "n": 257,
+     "min": 676.1,
+     "p25": 2055.6,
+     "median": 2648.2,
+     "p75": 3175.2,
+     "max": 4467.3,
+     "mean": 2601.04
+    }
+   }
+  },
+  "phase_within_60_ticks_of_platform_minimum": [
+   58,
+   67
+  ],
+  "falls_after_break": {
+   "episodes": 17,
+   "of": 67,
+   "ticks_to_fall": [
+    174,
+    174,
+    174,
+    174,
+    175,
+    175,
+    184,
+    188,
+    228,
+    282,
+    332,
+    364,
+    369,
+    400,
+    497,
+    793,
+    857
+   ],
+   "reference_fall_rate_set_C": 0.016
+  },
+  "break_step_discounted_value": {
+   "b0_v2_v3": 0.067,
+   "b1": 0.473,
+   "b2": 0.88,
+   "b4": 1.694
+  },
+  "t2_rate_by_stage_stochastic": {
+   "phase_k": {
+    "initial": 0.023,
+    "curve<=921600": 0.006,
+    "final": 0.015
+   },
+   "m7h": {
+    "initial": 0.023,
+    "curve<=921600": 0.002,
+    "final": 0.007
+   },
+   "random_baseline": 0.04
+  },
+  "unreplayable_random_baseline_episodes": 18
+ },
+ "reward_comparison": {
+  "file": "runs/m7k/rewards/final/comparison.json",
+  "sha256": "3503283460ca398101a3a828b1aa698cd0e24dc63c0237d3be4bc0a0e42ac059",
+  "populations": {
+   "eval_all_tick0": {
+    "episodes": 8965,
+    "t2_episodes": 69,
+    "candidates": {
+     "v2": {
+      "z": 0.1818,
+      "t2_percentile": 0.5753,
+      "gap_any": 0.5908,
+      "new_term_nonzero_rate": null,
+      "new_term_mass_on_target2": null
+     },
+     "v3": {
+      "z": 0.2212,
+      "t2_percentile": 0.5753,
+      "gap_any": 0.6345,
+      "new_term_nonzero_rate": null,
+      "new_term_mass_on_target2": null
+     },
+     "ER_c2/7": {
+      "z": 0.21,
+      "t2_percentile": 0.6377,
+      "gap_any": 0.7795,
+      "new_term_nonzero_rate": 0.90909,
+      "new_term_mass_on_target2": 0.0012
+     },
+     "T2_b2": {
+      "z": 0.9731,
+      "t2_percentile": 0.761,
+      "gap_any": 1.4568,
+      "new_term_nonzero_rate": 0.0077,
+      "new_term_mass_on_target2": 1.0
+     },
+     "T2_b1": {
+      "z": 0.602,
+      "t2_percentile": 0.7493,
+      "gap_any": 1.0457,
+      "new_term_nonzero_rate": 0.0077,
+      "new_term_mass_on_target2": 1.0
+     },
+     "T2_b4": {
+      "z": 1.6679,
+      "t2_percentile": 0.7992,
+      "gap_any": 2.2791,
+      "new_term_nonzero_rate": 0.0077,
+      "new_term_mass_on_target2": 1.0
+     }
+    }
+   },
+   "eval_policies_stochastic": {
+    "episodes": 6660,
+    "t2_episodes": 65,
+    "candidates": {
+     "v2": {
+      "z": 0.2084,
+      "t2_percentile": 0.5882,
+      "gap_any": 0.1426,
+      "new_term_nonzero_rate": null,
+      "new_term_mass_on_target2": null
+     },
+     "v3": {
+      "z": 0.2491,
+      "t2_percentile": 0.5882,
+      "gap_any": 0.189,
+      "new_term_nonzero_rate": null,
+      "new_term_mass_on_target2": null
+     },
+     "ER_c2/7": {
+      "z": 0.2364,
+      "t2_percentile": 0.6542,
+      "gap_any": 0.1981,
+      "new_term_nonzero_rate": 0.9964,
+      "new_term_mass_on_target2": 0.0012
+     },
+     "T2_b2": {
+      "z": 1.0074,
+      "t2_percentile": 0.7814,
+      "gap_any": 0.9884,
+      "new_term_nonzero_rate": 0.00976,
+      "new_term_mass_on_target2": 1.0
+     },
+     "T2_b1": {
+      "z": 0.6333,
+      "t2_percentile": 0.7703,
+      "gap_any": 0.5887,
+      "new_term_nonzero_rate": 0.00976,
+      "new_term_mass_on_target2": 1.0
+     },
+     "T2_b4": {
+      "z": 1.7067,
+      "t2_percentile": 0.8154,
+      "gap_any": 1.7878,
+      "new_term_nonzero_rate": 0.00976,
+      "new_term_mass_on_target2": 1.0
+     }
+    }
+   },
+   "eval_phase_k_v1_final_stochastic": {
+    "episodes": 300,
+    "t2_episodes": 3,
+    "candidates": {
+     "v2": {
+      "z": -1.5315,
+      "t2_percentile": 0.5667,
+      "gap_any": -0.7286,
+      "new_term_nonzero_rate": null,
+      "new_term_mass_on_target2": null
+     },
+     "v3": {
+      "z": -1.5315,
+      "t2_percentile": 0.5667,
+      "gap_any": -0.7286,
+      "new_term_nonzero_rate": null,
+      "new_term_mass_on_target2": null
+     },
+     "ER_c2/7": {
+      "z": -1.4129,
+      "t2_percentile": 0.6467,
+      "gap_any": -0.6334,
+      "new_term_nonzero_rate": 1.0,
+      "new_term_mass_on_target2": 0.0012
+     },
+     "T2_b2": {
+      "z": -0.5567,
+      "t2_percentile": 0.6567,
+      "gap_any": 0.1461,
+      "new_term_nonzero_rate": 0.01,
+      "new_term_mass_on_target2": 1.0
+     },
+     "T2_b1": {
+      "z": -1.0106,
+      "t2_percentile": 0.6533,
+      "gap_any": -0.2913,
+      "new_term_nonzero_rate": 0.01,
+      "new_term_mass_on_target2": 1.0
+     },
+     "T2_b4": {
+      "z": 0.1647,
+      "t2_percentile": 0.6567,
+      "gap_any": 1.0207,
+      "new_term_nonzero_rate": 0.01,
+      "new_term_mass_on_target2": 1.0
+     }
+    }
+   },
+   "train_phase_k_v1_sample": {
+    "episodes": 259,
+    "t2_episodes": 2,
+    "candidates": {
+     "v2": {
+      "z": -3.1832,
+      "t2_percentile": 0.0227,
+      "gap_any": -2.9721,
+      "new_term_nonzero_rate": null,
+      "new_term_mass_on_target2": null
+     },
+     "v3": {
+      "z": -3.1832,
+      "t2_percentile": 0.0227,
+      "gap_any": -2.9721,
+      "new_term_nonzero_rate": null,
+      "new_term_mass_on_target2": null
+     },
+     "ER_c2/7": {
+      "z": -2.739,
+      "t2_percentile": 0.0227,
+      "gap_any": -2.9172,
+      "new_term_nonzero_rate": 1.0,
+      "new_term_mass_on_target2": 0.0015
+     },
+     "T2_b2": {
+      "z": -1.7975,
+      "t2_percentile": 0.0341,
+      "gap_any": -1.686,
+      "new_term_nonzero_rate": 0.00772,
+      "new_term_mass_on_target2": 1.0
+     },
+     "T2_b1": {
+      "z": -2.5192,
+      "t2_percentile": 0.0284,
+      "gap_any": -2.329,
+      "new_term_nonzero_rate": 0.00772,
+      "new_term_mass_on_target2": 1.0
+     },
+     "T2_b4": {
+      "z": -0.2356,
+      "t2_percentile": 0.2122,
+      "gap_any": -0.3999,
+      "new_term_nonzero_rate": 0.00772,
+      "new_term_mass_on_target2": 1.0
+     }
+    }
+   }
+  },
+  "pair_rankings": [
+   {
+    "candidate": "v2",
+    "returns": {
+     "A: six static early (last at 1,699), no target 2": 2.4,
+     "B: six static late (last at 2,930), no target 2": 2.4,
+     "C: four static + target 2 at 1,500": 1.4,
+     "D: four static + target 2 at 3,000": 1.4,
+     "E: sweep late (six static early + target 2 at 3,570)": 3.4,
+     "F: sweep early (six static early + target 2 at 1,800)": 3.4,
+     "G: five static early, no target 2": 1.4
+    },
+    "order": [
+     "E: sweep late (six static early + target 2 at 3,570)",
+     "F: sweep early (six static early + target 2 at 1,800)",
+     "A: six static early (last at 1,699), no target 2",
+     "B: six static late (last at 2,930), no target 2",
+     "C: four static + target 2 at 1,500",
+     "D: four static + target 2 at 3,000",
+     "G: five static early, no target 2"
+    ]
+   },
+   {
+    "candidate": "v3",
+    "returns": {
+     "A: six static early (last at 1,699), no target 2": 2.4,
+     "B: six static late (last at 2,930), no target 2": 2.4,
+     "C: four static + target 2 at 1,500": 1.4,
+     "D: four static + target 2 at 3,000": 1.4,
+     "E: sweep late (six static early + target 2 at 3,570)": 6.4161,
+     "F: sweep early (six static early + target 2 at 1,800)": 7.3994,
+     "G: five static early, no target 2": 1.4
+    },
+    "order": [
+     "F: sweep early (six static early + target 2 at 1,800)",
+     "E: sweep late (six static early + target 2 at 3,570)",
+     "A: six static early (last at 1,699), no target 2",
+     "B: six static late (last at 2,930), no target 2",
+     "C: four static + target 2 at 1,500",
+     "D: four static + target 2 at 3,000",
+     "G: five static early, no target 2"
+    ]
+   },
+   {
+    "candidate": "ER_c2/7",
+    "returns": {
+     "A: six static early (last at 1,699), no target 2": 3.8543,
+     "B: six static late (last at 2,930), no target 2": 3.5733,
+     "C: four static + target 2 at 1,500": 2.6559,
+     "D: four static + target 2 at 3,000": 2.5368,
+     "E: sweep late (six static early + target 2 at 3,570)": 7.8727,
+     "F: sweep early (six static early + target 2 at 1,800)": 8.9965,
+     "G: five static early, no target 2": 2.7035
+    },
+    "order": [
+     "F: sweep early (six static early + target 2 at 1,800)",
+     "E: sweep late (six static early + target 2 at 3,570)",
+     "A: six static early (last at 1,699), no target 2",
+     "B: six static late (last at 2,930), no target 2",
+     "G: five static early, no target 2",
+     "C: four static + target 2 at 1,500",
+     "D: four static + target 2 at 3,000"
+    ]
+   },
+   {
+    "candidate": "T2_b2",
+    "returns": {
+     "A: six static early (last at 1,699), no target 2": 2.4,
+     "B: six static late (last at 2,930), no target 2": 2.4,
+     "C: four static + target 2 at 1,500": 2.5661,
+     "D: four static + target 2 at 3,000": 1.7328,
+     "E: sweep late (six static early + target 2 at 3,570)": 6.4322,
+     "F: sweep early (six static early + target 2 at 1,800)": 8.3989,
+     "G: five static early, no target 2": 1.4
+    },
+    "order": [
+     "F: sweep early (six static early + target 2 at 1,800)",
+     "E: sweep late (six static early + target 2 at 3,570)",
+     "C: four static + target 2 at 1,500",
+     "A: six static early (last at 1,699), no target 2",
+     "B: six static late (last at 2,930), no target 2",
+     "D: four static + target 2 at 3,000",
+     "G: five static early, no target 2"
+    ]
+   },
+   {
+    "candidate": "T2_b1",
+    "returns": {
+     "A: six static early (last at 1,699), no target 2": 2.4,
+     "B: six static late (last at 2,930), no target 2": 2.4,
+     "C: four static + target 2 at 1,500": 1.9831,
+     "D: four static + target 2 at 3,000": 1.5664,
+     "E: sweep late (six static early + target 2 at 3,570)": 6.4242,
+     "F: sweep early (six static early + target 2 at 1,800)": 7.8992,
+     "G: five static early, no target 2": 1.4
+    },
+    "order": [
+     "F: sweep early (six static early + target 2 at 1,800)",
+     "E: sweep late (six static early + target 2 at 3,570)",
+     "A: six static early (last at 1,699), no target 2",
+     "B: six static late (last at 2,930), no target 2",
+     "C: four static + target 2 at 1,500",
+     "D: four static + target 2 at 3,000",
+     "G: five static early, no target 2"
+    ]
+   },
+   {
+    "candidate": "T2_b4",
+    "returns": {
+     "A: six static early (last at 1,699), no target 2": 2.4,
+     "B: six static late (last at 2,930), no target 2": 2.4,
+     "C: four static + target 2 at 1,500": 3.7322,
+     "D: four static + target 2 at 3,000": 2.0656,
+     "E: sweep late (six static early + target 2 at 3,570)": 6.4483,
+     "F: sweep early (six static early + target 2 at 1,800)": 9.3983,
+     "G: five static early, no target 2": 1.4
+    },
+    "order": [
+     "F: sweep early (six static early + target 2 at 1,800)",
+     "E: sweep late (six static early + target 2 at 3,570)",
+     "C: four static + target 2 at 1,500",
+     "A: six static early (last at 1,699), no target 2",
+     "B: six static late (last at 2,930), no target 2",
+     "D: four static + target 2 at 3,000",
+     "G: five static early, no target 2"
+    ]
+   }
+  ],
+  "decision": "T2 with b = 2.0 (equal budget to ER): break-step value +0.07 -> +0.88; early target 2 over the 5th/6th static, late target 2 not; ER puts 0.12 % of its mass on target 2"
+ },
+ "landing_assessment_future_btt_reward_v3_l2": {
+  "question": "a qualified-landing fall penalty under which immediate falling never scores higher than surviving without another target",
+  "rows": [
+   {
+    "penalty": "v3 registered: -1",
+    "fall_beats_idle_ticks": [
+     1,
+     2599
+    ],
+    "no_suicide_incentive": false,
+    "crossing_landing_fall_loses_to_staying_right_ticks": null,
+    "failed_attempt_cost_vs_idle": [
+     -2.599,
+     1.0
+    ],
+    "attempt_break_even_probability": [
+     0.0,
+     0.0833
+    ]
+   },
+   {
+    "penalty": "constant -3.7",
+    "fall_beats_idle_ticks": null,
+    "no_suicide_incentive": true,
+    "crossing_landing_fall_loses_to_staying_right_ticks": [
+     1900,
+     3600
+    ],
+    "failed_attempt_cost_vs_idle": [
+     0.101,
+     3.7
+    ],
+    "attempt_break_even_probability": [
+     0.0091,
+     0.2517
+    ]
+   },
+   {
+    "penalty": "time-dependent, delta 0.25",
+    "fall_beats_idle_ticks": null,
+    "no_suicide_incentive": true,
+    "crossing_landing_fall_loses_to_staying_right_ticks": null,
+    "failed_attempt_cost_vs_idle": [
+     0.25,
+     0.25
+    ],
+    "attempt_break_even_probability": [
+     0.0222,
+     0.0222
+    ]
+   },
+   {
+    "penalty": "time-dependent, delta 0.5",
+    "fall_beats_idle_ticks": null,
+    "no_suicide_incentive": true,
+    "crossing_landing_fall_loses_to_staying_right_ticks": null,
+    "failed_attempt_cost_vs_idle": [
+     0.5,
+     0.5
+    ],
+    "attempt_break_even_probability": [
+     0.0435,
+     0.0435
+    ]
+   },
+   {
+    "penalty": "time-dependent, delta 1.0",
+    "fall_beats_idle_ticks": null,
+    "no_suicide_incentive": true,
+    "crossing_landing_fall_loses_to_staying_right_ticks": null,
+    "failed_attempt_cost_vs_idle": [
+     1.0,
+     1.0
+    ],
+    "attempt_break_even_probability": [
+     0.0833,
+     0.0833
+    ]
+   },
+   {
+    "penalty": "v2 standard: -5",
+    "fall_beats_idle_ticks": null,
+    "no_suicide_incentive": true,
+    "crossing_landing_fall_loses_to_staying_right_ticks": [
+     600,
+     3600
+    ],
+    "failed_attempt_cost_vs_idle": [
+     1.401,
+     5.0
+    ],
+    "attempt_break_even_probability": [
+     0.113,
+     0.3125
+    ]
+   }
+  ],
+  "recommendation": "time-dependent P(t_f) = -0.001*(3600 - t_f) - delta with delta > 0 (a fall is exactly delta worse than idling at every tick, and crossing + landing + a later fall still beats staying right for delta < 2); delta = 0.5 proposed; a separate future id (btt_reward_v3_l2)"
+ },
+ "relevance_test": {
+  "definition": "L (leading): target 2 broken by consumed tick 2,699 in an episode that also breaks >= 5 of the 6 static targets.\nR (relevance): all seven right targets broken by consumed tick 2,699 (>= 900 ticks left for crossing + left side).",
+  "baselines": {
+   "definition": "L (leading): target 2 broken by consumed tick 2,699 in an episode that also breaks >= 5 of the 6 static targets.\nR (relevance): all seven right targets broken by consumed tick 2,699 (>= 900 ticks left for crossing + left side).",
+   "final_stochastic": {
+    "m7g_s0_v1:final:stochastic": {
+     "n": 100,
+     "L": 0,
+     "R": 0,
+     "t2": 1
+    },
+    "m7g_s1_v1:final:stochastic": {
+     "n": 100,
+     "L": 0,
+     "R": 0,
+     "t2": 0
+    },
+    "m7g_s2_v1:final:stochastic": {
+     "n": 100,
+     "L": 1,
+     "R": 0,
+     "t2": 2
+    },
+    "m7g_s0_v2:final:stochastic": {
+     "n": 100,
+     "L": 0,
+     "R": 0,
+     "t2": 0
+    },
+    "m7g_s1_v2:final:stochastic": {
+     "n": 100,
+     "L": 0,
+     "R": 0,
+     "t2": 1
+    },
+    "m7g_s2_v2:final:stochastic": {
+     "n": 100,
+     "L": 2,
+     "R": 0,
+     "t2": 5
+    },
+    "m7h_f_s0:final:stochastic": {
+     "n": 100,
+     "L": 0,
+     "R": 0,
+     "t2": 0
+    },
+    "m7h_f_s1:final:stochastic": {
+     "n": 100,
+     "L": 0,
+     "R": 0,
+     "t2": 0
+    },
+    "m7h_f_s2:final:stochastic": {
+     "n": 100,
+     "L": 0,
+     "R": 0,
+     "t2": 2
+    }
+   },
+   "pooled_all_labels": {
+    "n": 8965,
+    "L": 9,
+    "R": 0,
+    "t2": 69
+   }
+  },
+  "reward_level": {
+   "tas_v3_t2": 26.262444444444444,
+   "best_recorded_non_clear_v3_t2": [
+    6.432222,
+    "9a130d1f"
+   ]
+  }
+ },
+ "teardown": {
+  "micro": {
+   "file": "runs/m7k/teardown/micro_20260925T141648Z.json",
+   "sha256": "4267e06c8c4dea764732eec9813e66697dec0df573e3b39a5316fbac797fad2f",
+   "iterations": 400,
+   "leftovers": 0
+  },
+  "smoke_under_load": {
+   "dir": "runs/m7k/teardown/smoke_20260925T143548Z",
+   "runs_completed": 3,
+   "leak_free": 3,
+   "note": "a fourth repeat was cut by the command timeout; no summary JSON for this batch"
+  },
+  "suite": {
+   "file": "runs/m7k/teardown/suite_20260925T144940Z.json",
+   "sha256": "eb415c7315cb87eed8e8b062ae7460e1cec11e3a4f6671445c295687922b06ee",
+   "rounds": 2,
+   "passed": "18/18",
+   "leftovers": 0
+  },
+  "files_idle": {
+   "file": "runs/m7k/teardown/files_20260925T143051Z.json",
+   "sha256": "e83e41be288442a01c3ccd95cddbcd34086e0f4fce72329d36d6a240c0f66198",
+   "episodes": 40,
+   "locked": 0
+  },
+  "files_load": {
+   "file": "runs/m7k/teardown/files_20260925T143432Z.json",
+   "sha256": "2ad490e6a6934b126d114ee415099d0a0a2cff2b1f5e76f43445291762a4696b",
+   "episodes": 60,
+   "locked": 52,
+   "holder": "the episode's own, already reaped BattleShip.exe pid (Restart Manager)",
+   "deletable_after_ms": {
+    "median": 4012.1,
+    "p90": 11137.6,
+    "max": 20047.8
+   },
+   "second_terminate_needed": 53
+  },
+  "historical_training_summaries_with_leftovers": [
+   1,
+   142
+  ],
+  "historical_long_runs_failed_deletions": 0,
+  "conclusion": "reproducible under load: game file handles outlive close(); the two-helper-process report is not reproducible; no blocker for a long run on an idle machine"
+ },
+ "pilots": {
+  "seed0": {
+   "file": "runs/m7k/_pilot/verification_20260925T145822Z.json",
+   "sha256": "0a6e4d6b6cb9b09d5eb9b3248850e15e59213259cc2ae7cccdcf936ade59f192",
+   "transitions": 204800,
+   "ok": true,
+   "rows": 63,
+   "control_rows": 63,
+   "rows_action_identical_to_control": 63,
+   "target2_rows": [],
+   "first_target2_rollout_end": null,
+   "first_action_divergence": null,
+   "final_digests": [
+    "690e82cc10aa6e07ed11528ff2f9135b65b6fcb01a3cd2e9e19053937941e09d",
+    "d29164a4b2c9b668df42979349852eee1970fbd5a550c81b6d5ca0efef60dacf"
+   ],
+   "control_digests": [
+    "690e82cc10aa6e07ed11528ff2f9135b65b6fcb01a3cd2e9e19053937941e09d",
+    "d29164a4b2c9b668df42979349852eee1970fbd5a550c81b6d5ca0efef60dacf"
+   ],
+   "final_equals_control": true,
+   "throughput_e2e": 1113.9
+  },
+  "seed2": {
+   "file": "runs/m7k/_pilot/verification_20260925T150239Z.json",
+   "sha256": "2937eb304613472ad2349a32a586a64806ce27b1e12a7e0d4c5517a1f6e09498",
+   "seed": 2,
+   "transitions": 204800,
+   "ok": true,
+   "rows": 60,
+   "control_rows": 62,
+   "rows_action_identical_to_control": 38,
+   "target2_rows": [
+    {
+     "episode_id": "episode_20260925T150111Z_e3f0bab7",
+     "consumed_tick": 2055,
+     "credit": 0.8577777777777778,
+     "global_transitions": 123085
+    }
+   ],
+   "first_target2_rollout_end": 128000,
+   "first_action_divergence": {
+    "episode_id": "episode_20260925T150111Z_e3f0bab7",
+    "sb3_num_timesteps_at_end": 128000
+   },
+   "final_digests": [
+    "d648140d950958c45ad1d84b6f6d851f07a1c83d386cb0aba16dd23d733c5dbb",
+    "33f2b1af1df846c9a66ac8efb420d64eba71be5661107af8fc5f7c0876c56698"
+   ],
+   "control_digests": [
+    "35aa74693e86ad51a74f95121f521ed454bc469f18f7d1c8dd76f0a337cc0575",
+    "321add9a6a4d4677a6ba37940daa39587f9b375f639e3f7dc75a64541c14c0e0"
+   ],
+   "final_equals_control": false,
+   "throughput_e2e": 1105.0
+  }
+ },
+ "pilot_profile": {
+  "file": "rl/configs/m7k/m7k_v3t2_pilot_s0.toml",
+  "semantic_fingerprint": "0ae5fe3dd93f195582e398588ed33f2a2f980fde1bbf481be55764071f415c2d"
+ },
+ "tests": {
+  "m7k_tests_all": "11/11 (runs/m7k/_tests_20260925T145310Z)",
+  "m7j_unit_current_code": "9/9",
+  "m7j_game_current_code": "9/9 in each of 2 probe rounds",
+  "btt_reward_v3_self_test": "PASS",
+  "btt_reward_t2_self_test": "PASS",
+  "m7b_config_tests": "16/16",
+  "m7b_smoke": "7/7",
+  "m7_smoke_unit": "8/8",
+  "m7c_standby_unit": "4/4",
+  "m7g_obs_unit": "8/8",
+  "m7h_tests": "13/13",
+  "m7h_campaign_unit": "15/15",
+  "m7g_k_unit": "6/6 (m7k added to the later-milestone profile exclusion)",
+  "m7g_k_campaign_unit": "13/13 (diagnostic-flag invariant scoped to non-route rewards)",
+  "m7g_tests_unit": "8/9 (pre-existing unit_training_isolation on three M7h files; no M7k file matches)"
+ },
+ "proposal": {
+  "arms": {
+   "T": "btt_reward_v3_t2, seeds 0,1,2 (new runs)",
+   "C": "historical Phase K v1 control m7g_s{0,1,2}_v1 (reused)"
+  },
+  "fixed": [
+   "btt_policy_obs_v1",
+   "Track 1",
+   "tick-0 starts",
+   "M7e/Phase K PPO",
+   "N=5 standby",
+   "3,072,000 transitions",
+   "checkpoint 102,400",
+   "no in-process evaluation"
+  ],
+  "evaluation": "Phase K protocol with btt_eval_metrics_v1 (seed 12345) + post-hoc exact replays (spatial) of all final stochastic episodes",
+  "primary": "final stochastic target-2 rate per seed (C: 1/0/2 %)",
+  "decision_rule": [
+   "0 integrity: complete, verified, T rows equal their closed forms; any leak_free false explained or reported",
+   "1 learned: p_T >= p_C + 5 points in >= 2 of 3 seeds and pooled p_T >= 3 x pooled p_C",
+   "2 no trade-off: pooled static targets per episode not lower by more than 0.5",
+   "3 first-clear relevant: 1 and 2, and (R >= 1 in >= 1 seed or pooled L >= 5/300)",
+   "outcomes: 3 -> crossing stage with btt_reward_v3_l2 registered; 1+2 only -> add ER as a registered follow-up; 1 fails -> exploration mechanism (user decision)"
+  ],
+  "cost": "about 4 h (3 runs + evaluations + replays)",
+  "launched": false
+ }
+}

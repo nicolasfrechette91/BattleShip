@@ -1,0 +1,283 @@
+{
+ "decision": {
+  "n": "n3",
+  "gate": 4,
+  "branch": "discovered_not_consolidated",
+  "response": "record it; next: a separately registered consolidation proposal built on F and the agent's own verified discoveries (never the fixtures); no budget extension",
+  "extension_required": false,
+  "quantities": {
+   "n": 3,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "K_C": 0,
+   "X_C": 0,
+   "Phi_C": "1/150",
+   "K_F": 0,
+   "X_F": 0,
+   "Phi_F": "1/75",
+   "S_T": [
+    0,
+    1,
+    2
+   ],
+   "D": {
+    "0": "9/50",
+    "1": "-39/100",
+    "2": "1/2"
+   },
+   "Dbar": "29/300",
+   "G": 2,
+   "c": {
+    "C": {
+     "0": "0",
+     "1": "0",
+     "2": "0"
+    },
+    "F": {
+     "0": "0",
+     "1": "0",
+     "2": "0"
+    }
+   },
+   "x": {
+    "C": {
+     "0": "0",
+     "1": "0",
+     "2": "0"
+    },
+    "F": {
+     "0": "0",
+     "1": "0",
+     "2": "0"
+    }
+   }
+  },
+  "conditions": {
+   "gate0_integrity_problems": 0,
+   "gate1_K_F_ge_min": false,
+   "gate2_K_F_le_1_and_X_F_ge_min": false,
+   "gate3_K_F_eq_1_or_X_F_eq_1": false,
+   "gate4_G_ge_min": true
+  },
+  "notes": [],
+  "problems": [],
+  "rule_sha256": "98d1d55d43d106da186c81074a5cc4d6078b4a6b97e4d816f694bb8f5919d2c9"
+ },
+ "per_seed": {
+  "0": {
+   "C": {
+    "k": 0,
+    "c": "0",
+    "chi": 0,
+    "x": "0",
+    "T": "118/25",
+    "phi": 1,
+    "native_clears": 0,
+    "verified_clears": 0
+   },
+   "F": {
+    "k": 0,
+    "c": "0",
+    "chi": 0,
+    "x": "0",
+    "T": "49/10",
+    "phi": 2,
+    "native_clears": 0,
+    "verified_clears": 0
+   },
+   "g": 0,
+   "training_F": {
+    "episodes": 1280,
+    "falls": 373,
+    "classes": {},
+    "starts": {
+     "tick0_initial": 5,
+     "archive_prefix": 649,
+     "tick0": 631
+    },
+    "archive": {
+     "cells": 4249,
+     "eligible": 2937,
+     "reports": 1280,
+     "ingested": 1280,
+     "skipped_end": 0,
+     "inserted": 4249,
+     "replaced": 8959,
+     "digest_mismatch": 0,
+     "consumed_tick_mismatch": 0
+    },
+    "lowest_x_at_y_ge_3000_policy": -1023.543212890625,
+    "prefix_L": {
+     "starts": 648,
+     "min": 6,
+     "median": 993,
+     "max": 2947,
+     "mean": 1087.0
+    },
+    "prefix_cost": {
+     "prefix_ticks": 705805,
+     "dispatch_wall_s": 543.2034,
+     "dispatch_steps": 649,
+     "max_dispatch_wall_s": 2.7443
+    },
+    "left_episodes_kept": 0
+   }
+  },
+  "1": {
+   "C": {
+    "k": 0,
+    "c": "0",
+    "chi": 0,
+    "x": "0",
+    "T": "19/4",
+    "phi": 1,
+    "native_clears": 0,
+    "verified_clears": 0
+   },
+   "F": {
+    "k": 0,
+    "c": "0",
+    "chi": 0,
+    "x": "0",
+    "T": "109/25",
+    "phi": 0,
+    "native_clears": 0,
+    "verified_clears": 0
+   },
+   "g": 1,
+   "training_F": {
+    "episodes": 1234,
+    "falls": 308,
+    "classes": {
+     "genuine_new_policy_entry": 2,
+     "prefix_reproduced": 15,
+     "policy_reentry_exposed_lineage": 1
+    },
+    "starts": {
+     "tick0_initial": 5,
+     "archive_prefix": 591,
+     "tick0": 643
+    },
+    "archive": {
+     "cells": 4564,
+     "eligible": 3112,
+     "reports": 1234,
+     "ingested": 1234,
+     "skipped_end": 0,
+     "inserted": 4564,
+     "replaced": 6614,
+     "digest_mismatch": 0,
+     "consumed_tick_mismatch": 0
+    },
+    "lowest_x_at_y_ge_3000_policy": -4936.19921875,
+    "prefix_L": {
+     "starts": 589,
+     "min": 1,
+     "median": 1207,
+     "max": 2997,
+     "mean": 1368.0
+    },
+    "prefix_cost": {
+     "prefix_ticks": 808440,
+     "dispatch_wall_s": 596.0543,
+     "dispatch_steps": 590,
+     "max_dispatch_wall_s": 2.2634
+    },
+    "left_episodes_kept": 18
+   }
+  },
+  "2": {
+   "C": {
+    "k": 0,
+    "c": "0",
+    "chi": 0,
+    "x": "0",
+    "T": "427/100",
+    "phi": 0,
+    "native_clears": 0,
+    "verified_clears": 0
+   },
+   "F": {
+    "k": 0,
+    "c": "0",
+    "chi": 0,
+    "x": "0",
+    "T": "477/100",
+    "phi": 2,
+    "native_clears": 0,
+    "verified_clears": 0
+   },
+   "g": 1,
+   "training_F": {
+    "episodes": 1248,
+    "falls": 328,
+    "classes": {
+     "genuine_new_policy_entry": 1
+    },
+    "starts": {
+     "tick0_initial": 5,
+     "archive_prefix": 646,
+     "tick0": 602
+    },
+    "archive": {
+     "cells": 4806,
+     "eligible": 3015,
+     "reports": 1248,
+     "ingested": 1248,
+     "skipped_end": 0,
+     "inserted": 4806,
+     "replaced": 8977,
+     "digest_mismatch": 0,
+     "consumed_tick_mismatch": 0
+    },
+    "lowest_x_at_y_ge_3000_policy": -875.373291015625,
+    "prefix_L": {
+     "starts": 645,
+     "min": 1,
+     "median": 1341,
+     "max": 2994,
+     "mean": 1416.5
+    },
+    "prefix_cost": {
+     "prefix_ticks": 915915,
+     "dispatch_wall_s": 670.0572,
+     "dispatch_steps": 645,
+     "max_dispatch_wall_s": 2.2509
+    },
+    "left_episodes_kept": 1
+   }
+  }
+ },
+ "census": {
+  "plan": {
+   "runs": 3,
+   "per_run": 985,
+   "episodes": 2955,
+   "arithmetic": "3 runs x 985 = 2955",
+   "labels_per_run": 11,
+   "historical_control_reused": true
+  },
+  "executed_episodes": 2955,
+  "missing": [],
+  "complete": true
+ },
+ "control": "historical",
+ "amendments": [
+  {
+   "amendment": 1,
+   "date": "2026-09-24",
+   "sha256": "d8a229114045ce20f84f00eb26a64bd91166698b41bc4e5fa48bd9cf1b67cbcc",
+   "path": "docs/rl_frontier_curriculum_m7h_amendment_1.json",
+   "files": [
+    "rl/m7h_campaign.py",
+    "rl/m7h_verify.py"
+   ],
+   "original_code_sha256": "8f9a911263e01402c4f645cd30119638aa2bdefa43d1e4f5aa2ba8bd48e9c0a7",
+   "amended_code_sha256": "fd61fcae463c38ba8f5620efc8beb4d3fe830db23c3128cb53e658a29e43ae0d"
+  }
+ ],
+ "utc": "2026-09-25T02:13:51+00:00"
+}

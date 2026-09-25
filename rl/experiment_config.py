@@ -97,11 +97,15 @@ from btt_rewards import (  # noqa: E402
     REWARD_CUSTOM_REQUEST,
     REWARD_V1_ID,
     REWARD_V2_ID,
+    REWARD_V3_ID,
+    REWARD_V3_T2_ID,
     REWARD_VALUE_FIELDS,
     RewardContract,
     RewardContractError,
+    is_route_contract,
     make_reward_contract,
     reward_contract_from_json,
+    reward_extra_env,
 )
 from run_artifacts import ARTIFACT_SCHEMA  # noqa: E402
 
@@ -149,7 +153,10 @@ OBSERVATION_POLICY: Dict[str, str] = {POLICY_OBSERVATION_CONTRACT: M7_POLICY, OB
 OBSERVATION_EXTRA_ENV: Dict[str, Tuple[Tuple[str, str], ...]] = {POLICY_OBSERVATION_CONTRACT: (),
                                                                    OBS_V2_SPATIAL: m7g_obs.SPATIAL_EXTRA_ENV}
 SUPPORTED_ACTION_CONTRACTS = (TRACK1_CONTRACT,)
-SUPPORTED_REWARD_REQUESTS = (REWARD_V1_ID, REWARD_V2_ID, REWARD_CUSTOM_REQUEST)
+# M7j: btt_reward_v3 is opt-in (only a profile naming it uses it); it adds SSB64_RL_TARGET_DIAG=1 to the derived native
+# flags (btt_rewards.reward_extra_env), so v1 / v2 profiles keep their values, extra_env and fingerprints.
+SUPPORTED_REWARD_REQUESTS = (REWARD_V1_ID, REWARD_V2_ID, REWARD_V3_ID, REWARD_V3_T2_ID,   # M7k: v3_t2 opt-in too
+                             REWARD_CUSTOM_REQUEST)
 RUN_MODES = ("train", "pilot", "resume")
 ACTIVATIONS = ("tanh", "relu")
 DEVICES = ("cpu",)   # M7a trains on the CPU only; other devices are rejected as unsupported
@@ -494,6 +501,7 @@ class Experiment:
         if self.values["environment.raphnet_disable"]:
             flags.append(("SSB64_RAPHNET_DISABLE", "1"))
         flags.extend(OBSERVATION_EXTRA_ENV[self.values["contracts.observation"]])   # M7g: v2 only (v1 adds none)
+        flags.extend(reward_extra_env(self.reward))                                   # M7j: v3 only (v1 / v2 add none)
         return tuple(flags)
 
     def policy_observation(self) -> Optional[Dict[str, Any]]:
@@ -804,6 +812,18 @@ def _cross_field(v: Dict[str, Any], problems: List[str]) -> Optional[RewardContr
                             f"contracts.observation = {POLICY_OBSERVATION_CONTRACT!r} only, not {_repr_value(obs)}")
         if g("run.mode") == "resume":
             problems.append("curriculum.contract: a curriculum run is never resumed (a partial run is restarted)")
+    # M7j: btt_reward_v3 is defined for tick-0 episodes of its own horizon under the frozen observation v1, and is
+    # never combined with a start-distribution change (its sweep timing counts native ticks from the tick-0 reset).
+    if reward is not None and is_route_contract(reward):
+        if obs != POLICY_OBSERVATION_CONTRACT:
+            problems.append(f"contracts.reward = {reward.contract!r}: registered for contracts.observation = "
+                            f"{POLICY_OBSERVATION_CONTRACT!r} only, not {_repr_value(obs)}")
+        if _is_int(g("environment.horizon")) and g("environment.horizon") != int(reward.horizon_ticks):
+            problems.append(f"environment.horizon = {g('environment.horizon')}: contracts.reward = {reward.contract!r} "
+                            f"is defined for a {reward.horizon_ticks}-tick horizon only")
+        if g("curriculum.contract") is not None:
+            problems.append(f"curriculum.contract = {_repr_value(g('curriculum.contract'))}: contracts.reward = "
+                            f"{reward.contract!r} is registered for tick-0 starts only (no curriculum)")
     # M7c lifecycle: the two standby fields must agree (explicit, never inferred).
     sp, sc = g("environment.standby_preboot"), g("environment.standby_count")
     if isinstance(sp, bool) and _is_int(sc):

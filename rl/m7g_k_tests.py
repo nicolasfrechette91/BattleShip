@@ -242,7 +242,7 @@ def unit_existing_profiles(s: Suite) -> Dict[str, Any]:
     from m7_evaluation import obs_rms_digest, policy_parameter_digest
 
     found = sorted(p.relative_to(REPO_ROOT).as_posix() for p in (RL_DIR / "configs").rglob("*.toml")
-                   if not {"m7g", "m7h"} & set(p.relative_to(RL_DIR / "configs").parts))   # M7h: later milestone
+                   if not {"m7g", "m7h", "m7j", "m7k"} & set(p.relative_to(RL_DIR / "configs").parts))   # M7h/M7j/M7k: later
     check(found == sorted(PINNED_PROFILES), f"pre-existing profile set changed: {found}")
     for rel, pinned in PINNED_PROFILES.items():
         exp = ec.load_experiment(REPO_ROOT / rel)

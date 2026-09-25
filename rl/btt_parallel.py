@@ -84,7 +84,7 @@ from btt_learning import (  # noqa: E402
     contracts as m5_contracts,
     live_targets,
 )
-from btt_rewards import REWARD_V1, RewardContract, reward_step  # noqa: E402
+from btt_rewards import REWARD_V1, RewardContract, is_route_contract, reward_step  # noqa: E402
 from m7_runtime import (  # noqa: E402
     IS_WINDOWS,
     PORT_BLOCK_BASE,
@@ -833,7 +833,12 @@ class M7RewardWrapper(RewardV1Wrapper):
     returns it as a truncation with reward 0.0 above this wrapper), an
     interruption or a cleanup never reaches this arithmetic as a failure."""
 
+    route_capable = False   # M7j: only rl/m7j_reward_env.M7RouteRewardWrapper evaluates btt_reward_v3
+
     def __init__(self, env: Any, contract: RewardContract = REWARD_V1, tracker: Optional["M7EpisodeTracker"] = None):
+        if is_route_contract(contract) and not self.route_capable:
+            raise ValueError(f"{contract.contract} needs target identity and position: build the worker with "
+                             "make_reward_wrapper (rl/m7j_reward_env.py), not M7RewardWrapper")
         super().__init__(env, contract.v1_config(), tracker)
         self.reward_contract = contract
         self.episode_failure_terms = 0
@@ -1138,6 +1143,8 @@ class M7EpisodeTracker:
         if failure_term:
             cur["failure_term_total"] += failure_term
             cur["failure_terms"] += 1
+        if "reward_v3_episode" in info:   # M7j: btt_reward_v3 per-episode record (absent under v1 / v2)
+            cur["reward_v3"] = info["reward_v3_episode"]
         cur["termination_reason"] = info.get("termination_reason")
         cur["truncation_reason"] = info.get("truncation_reason")
         cur["episode_dir"] = info.get("episode_dir") or cur["episode_dir"]
@@ -1229,6 +1236,8 @@ class M7EpisodeTracker:
             "preservation_events": [e["event"] for e in events],
             "native_action_digest": cur["digest"].hexdigest(),
         })
+        if cur.get("reward_v3") is not None:   # M7j: v3 episodes only (v1 / v2 labels unchanged)
+            recorder.labels["reward_v3"] = cur["reward_v3"]
         preserved = recorder.preserved
         # Disposition of the M2 per-episode directory (save, result JSON, process log).
         if preserved:
@@ -1296,6 +1305,8 @@ class M7EpisodeTracker:
             "sb3_num_timesteps_at_end": self.sb3_num_timesteps,
             "checkpoint_label": self.checkpoint_label,
         }
+        if cur.get("reward_v3") is not None:   # M7j: v3 episodes only (v1 / v2 rows unchanged)
+            self._pending_summary["reward_v3"] = cur["reward_v3"]
 
     def pop_summary(self) -> Optional[Dict[str, Any]]:
         s, self._pending_summary = self._pending_summary, None
@@ -1587,6 +1598,16 @@ class _PortSquatter:
         threading.Timer(0.15, self._bind, args=(port,)).start()
 
 
+def make_reward_wrapper(base: Any, spec: WorkerSpec, tracker: "M7EpisodeTracker") -> M7RewardWrapper:
+    """M7RewardWrapper for v1 / v2 / custom contracts (unchanged); M7j's route wrapper for btt_reward_v3, which also
+    requires SSB64_RL_TARGET_DIAG=1 in the worker's flags (imported lazily: no v1 / v2 worker imports it)."""
+    if not is_route_contract(spec.reward_contract):
+        return M7RewardWrapper(base, spec.reward_contract, tracker)
+    from m7j_reward_env import M7RouteRewardWrapper
+
+    return M7RouteRewardWrapper(base, spec.reward_contract, tracker, extra_env=dict(spec.extra_env))
+
+
 def build_worker_env(spec: WorkerSpec) -> M7WorkerWrapper:
     """The full worker stack for one rank. Launches nothing until reset()."""
     random.seed(spec.worker_seed)            # Python-side reproducibility only; never reaches the game
@@ -1617,7 +1638,7 @@ def build_worker_env(spec: WorkerSpec) -> M7WorkerWrapper:
                                ledger_path=paths["ledger"], env=base, reward=spec.reward_contract,
                                retain_failed_cap=spec.retain_failed_cap, preserve_all=spec.preserve_all,
                                experiment=spec.experiment)
-    rewarded = M7RewardWrapper(base, spec.reward_contract, tracker)
+    rewarded = make_reward_wrapper(base, spec, tracker)
     recording = EpisodeRecordingWrapper(rewarded, paths["artifacts"],
                                         detectors=[PositionDeltaDetector(spec.position_delta_threshold)],
                                         labels=tracker.labels_for_new_episode, on_episode_end=tracker.on_episode_end,
