@@ -1,0 +1,124 @@
+{
+ "schema": "m7m_decision_rule_v1",
+ "milestone": "M7m",
+ "design": "docs/rl_sweep_consolidation_m7m_design.md (section 7), approved by the user 2026-09-26",
+ "question": "After +1,536,000 policy-controlled transitions from the same Phase K reward-v2 checkpoint, does training with anchored backward starts cut from the one registered sweep (arm E) make normal tick-0 play break all seven right targets by consumed tick 2699 more often than the same training with tick-0 starts only (arm K), without losing static targets?",
+ "frozen": "before any training (the integration pilot included); applied once to the complete n = 3 paired campaign; never re-decided; the pilot is never an input",
+ "parameters": {
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "episodes_per_seed": 100,
+  "moving_target_id": 2,
+  "right_ids": [
+   0,
+   2,
+   3,
+   4,
+   5,
+   7,
+   9
+  ],
+  "static_right_ids": [
+   0,
+   3,
+   4,
+   5,
+   7,
+   9
+  ],
+  "left_ids": [
+   1,
+   6,
+   8
+  ],
+  "deadline_consumed_tick": 2699,
+  "L_static_right_min": 5,
+  "collapse_share_min": "1/2",
+  "consolidated_R_min": 5,
+  "consolidated_pairs_min": 2,
+  "static_loss_max_per_episode": "1/2",
+  "reproduced_R_min": 1,
+  "reproduced_seeds_min": 2,
+  "progress_window_index": 8,
+  "progress_runs_min": 2,
+  "evaluation_reruns_max": 1
+ },
+ "primary_sample": "per run, the final checkpoint's stochastic evaluation: exactly the 100 counted episodes of the registered Phase K protocol (seed 12345, frozen VecNormalize statistics, stochastic actions, 5 workers with standby, btt_eval_metrics_v1 with SSB64_RL_TARGET_DIAG=1), every one a normal tick-0 start (no prefix label, input_tick 0 reset, verified by m7h_verify.verify_eval_tick0); episodes beyond the 100th are never counted",
+ "definitions": {
+  "R": "episodes whose btt_eval_metrics_v1 first-break table holds all seven right targets {0,2,3,4,5,7,9}, the latest at consumed tick <= 2699 (a later fall or horizon end does not undo it)",
+  "S": "static targets broken, summed over the 100 episodes (every native target except ID 2)",
+  "L": "target 2 broken at consumed tick <= 2699 and >= 5 static right targets broken (reported)",
+  "seven_right": "all seven right targets broken at any tick (reported)",
+  "collapse": "M7e: longest run of one joint action / episode length of the deterministic play >= 1/2",
+  "verified_clear": "a native clear whose exact native replay reproduces the clear (m7g_k_run.verify_clears_in)"
+ },
+ "denominators": "R_j and S_j per run over its 100 counted final stochastic episodes; pooled static means over 300 episodes per arm; exact rational arithmetic, never rounded",
+ "ties": "R_E > R_K and sum R_E > sum R_K are strict (equal counts are no gain); every >= threshold and the static guard are inclusive",
+ "incomplete_evaluations": "a label with fewer than its registered episodes, a lifecycle-failure row, an unclean metrics record or a failed tick-0 / row verification is moved aside (preserved) and re-run once from the same checkpoint (evaluation only); still incomplete or unverified -> gate 0 (no_decision)",
+ "gates": [
+  {
+   "gate": 0,
+   "outcome": "no_decision",
+   "condition": "any integrity failure: a run not verified (training verification, warm-start lineage, continuation, policy-only accounting), manifest drift, a final or curve label not complete and verified after its one re-run, a counted episode that is not a tick-0 start, or a native clear candidate that fails its native replay"
+  },
+  {
+   "gate": 1,
+   "outcome": "consolidated",
+   "condition": "(1a) #{j : R_E_j >= 5 and R_E_j > R_K_j} >= 2 AND (1b) S_E / 300 >= S_K / 300 - 1/2"
+  },
+  {
+   "gate": "1'",
+   "outcome": "r_gain_with_static_loss",
+   "condition": "(1a) holds and (1b) fails"
+  },
+  {
+   "gate": 2,
+   "outcome": "reproduced_not_consolidated",
+   "condition": "#{j : R_E_j >= 1} >= 2 AND sum_j R_E_j > sum_j R_K_j"
+  },
+  {
+   "gate": 3,
+   "outcome": "curriculum_progress_without_tick0_gain",
+   "condition": "the E schedule reached the final window [1, 60] (window index 8) or completed in >= 2 E runs"
+  },
+  {
+   "gate": 4,
+   "outcome": "null",
+   "condition": "none of the above"
+  }
+ ],
+ "precedence": "gate 0, then 1, 1', 2, 3, 4: the first that holds is the outcome",
+ "responses": {
+  "no_decision": "report the integrity failure; no conclusion",
+  "consolidated": "the anchored backward starts consolidated this sweep into tick-0 play (one anchor)",
+  "r_gain_with_static_loss": "tick-0 sweeps increased, but at a static-target cost beyond the guard",
+  "reproduced_not_consolidated": "the sweep reappears in tick-0 play but below the consolidation threshold",
+  "curriculum_progress_without_tick0_gain": "the schedule advanced through its windows, but normal tick-0 play shows no registered gain; window progress is a curriculum diagnostic, not evidence that the earlier behaviour was learned",
+  "null": "no registered effect of the anchored starts at this budget"
+ },
+ "interpretation": {
+  "pointer": "pointer movement is a curriculum-progress diagnostic only: a block can pass through block-to-block variation or motion inherited from the anchor prefix; reaching an earlier window is never reported as proof that the earlier behaviour was learned",
+  "anchored_successes": "successes from anchored starts (training) are reported separately from normal tick-0 performance and never enter R",
+  "feasibility": "F1-F5 are feasibility evidence only; the late-cut target-2 breaks of F5 (cuts 828 and 837, carried by the anchor's own up-B) do not demonstrate policy initiation of the up-B",
+  "anchor": "the sweep stays a replay-verified M7l training event; one anchor, so no claim about how often seeds discover a usable sweep",
+  "route": "'right-side sweep before crossing' is a working route hypothesis, not a requirement of a clear"
+ },
+ "in_flight_outcomes": "an anchored outcome is counted only toward the block of the window in which its episode started, and only while that window is current; episodes that started under an earlier window and finish after the pointer moved are logged as stale and never counted; lifecycle failures and aborted episodes are logged as excluded; outcomes are ingested in parent order (vector step, then environment index) before that step's draws",
+ "reported_never_gating": [
+  "L",
+  "seven_right at any tick",
+  "target-2 breaks and ticks",
+  "falls",
+  "deterministic collapse",
+  "left entries and left-target breaks",
+  "verified clears",
+  "pointer progression and blocks",
+  "anchored successes by window (training)",
+  "tick-0 training sweeps",
+  "prefix replay costs",
+  "curve points"
+ ]
+}

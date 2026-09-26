@@ -223,7 +223,7 @@ def system_state(*, label: str) -> Dict[str, Any]:
 
 def validate_episode_row(row: Mapping[str, Any], contract: Any, horizon: int) -> List[str]:
     """Invariants of one worker episode summary (training episodes.jsonl or an evaluation row normalised to it)."""
-    from btt_rewards import expected_return
+    from btt_rewards import expected_return, is_route_contract
 
     p: List[str] = []
     end = row.get("end_reason")
@@ -262,14 +262,24 @@ def validate_episode_row(row: Mapping[str, Any], contract: Any, horizon: int) ->
             p.append(f"{tag}: fall observation game_status {obs.get('game_status')} targets {obs.get('targets_remaining')}")
     if obs and int(obs.get("btt_active", 0)) == 1 and int(obs.get("targets_remaining", -1)) != TARGETS_TOTAL - prefix_t - t:
         p.append(f"{tag}: terminal targets_remaining {obs.get('targets_remaining')} != {TARGETS_TOTAL - prefix_t - t}")
+    # M7l: a route contract (btt_reward_v3 / btt_reward_v3_t2) closes over the row's own reward_v3 record
+    # (rl/m7l_route_rows.py); expected_return raises for it. v1 / v2 rows take the unchanged branch below.
+    route_failure_total = None
     if end != "lifecycle_failure":
-        want = expected_return(t, steps, cleared=clear, native_failure=fall, contract=contract)
+        if is_route_contract(contract):
+            from m7l_route_rows import route_expected
+
+            want, route_failure_total, rp = route_expected(row, contract)
+            p.extend(f"{tag}: {x}" for x in rp)
+        else:
+            want = expected_return(t, steps, cleared=clear, native_failure=fall, contract=contract)
         got = float(row.get("return"))
-        if abs(got - want) > 1e-6:
+        if want is not None and abs(got - want) > 1e-6:
             p.append(f"{tag}: return {got!r} != contract closed form {want!r} ({contract.contract})")
     terms = 1 if (fall and float(contract.failure_penalty) != 0.0) else 0
+    want_total = terms * float(contract.failure_penalty) if route_failure_total is None else route_failure_total
     if int(row.get("failure_penalty_terms", -1)) != terms or \
-            abs(float(row.get("failure_penalty_total", 0.0)) - terms * float(contract.failure_penalty)) > 1e-12:
+            abs(float(row.get("failure_penalty_total", 0.0)) - want_total) > 1e-12:
         p.append(f"{tag}: failure penalty terms {row.get('failure_penalty_terms')} total "
                  f"{row.get('failure_penalty_total')} (expected {terms} under {contract.contract})")
     ticks = row.get("target_break_ticks")
@@ -286,13 +296,17 @@ def eval_row_as_summary(r: Mapping[str, Any], contract: Any) -> Dict[str, Any]:
     """An evaluation.json row in the worker-summary shape validate_episode_row expects (evaluation rows carry the
     penalty term count; the total follows from the checkpoint's contract)."""
     terms = r.get("failure_penalty_terms")
-    return {"rank": r.get("rank"), "worker_episode": r.get("worker_episode"), "end_reason": r.get("end_reason"),
-            "targets_broken": r.get("targets_broken"), "steps": r.get("length"), "return": r.get("raw_return"),
-            "cleared": r.get("cleared"), "completion_time_passed": r.get("completion_time_passed"),
-            "completion_input_tick": r.get("completion_input_tick"), "termination_reason": r.get("termination_reason"),
-            "failure_penalty_terms": terms,
-            "failure_penalty_total": None if terms is None else int(terms) * float(contract.failure_penalty),
-            "target_break_ticks": r.get("target_break_ticks"), "startup_mode": r.get("startup_mode")}
+    out = {"rank": r.get("rank"), "worker_episode": r.get("worker_episode"), "end_reason": r.get("end_reason"),
+           "targets_broken": r.get("targets_broken"), "steps": r.get("length"), "return": r.get("raw_return"),
+           "cleared": r.get("cleared"), "completion_time_passed": r.get("completion_time_passed"),
+           "completion_input_tick": r.get("completion_input_tick"), "termination_reason": r.get("termination_reason"),
+           "failure_penalty_terms": terms,
+           "failure_penalty_total": None if terms is None else int(terms) * float(contract.failure_penalty),
+           "target_break_ticks": r.get("target_break_ticks"), "startup_mode": r.get("startup_mode")}
+    if r.get("reward_v3") is not None:   # M7l: route evaluations only (the record carries the failure term actually paid)
+        out["reward_v3"] = r["reward_v3"]
+        out["failure_penalty_total"] = float((r["reward_v3"].get("term_totals") or {}).get("failure_term", 0.0))
+    return out
 
 
 def verify_artifacts(paths: Sequence[str], contract_id: str) -> Dict[str, Any]:

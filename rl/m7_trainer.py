@@ -324,6 +324,9 @@ class M7Config:
     policy: str = POLICY
     # M7h: the [curriculum] table (None = no curriculum: nothing of M7h is constructed and no record gains a key)
     curriculum: Optional[Dict[str, Any]] = None
+    # M7m: the [anchor_curriculum] table (None = none: nothing of M7m is constructed and no record gains a key). Only a
+    # warm start: resume_from a checkpoint trained without any curriculum (see _source_checkpoint).
+    anchor_curriculum: Optional[Dict[str, Any]] = None
     # M7c standby lifecycle (rl/m7_standby.py); defaults = M7a/M7b behaviour
     standby_preboot: bool = False
     standby_count: int = 0
@@ -395,6 +398,8 @@ class M7Config:
             "environment.standby_count": int(self.standby_count),
             # M7h: present only with a curriculum (the experiment's view carries the same keys only then)
             **({f"curriculum.{k}": v for k, v in self.curriculum.items()} if self.curriculum else {}),
+            # M7m: likewise, only with an anchor curriculum
+            **({f"anchor_curriculum.{k}": v for k, v in self.anchor_curriculum.items()} if self.anchor_curriculum else {}),
         }
 
     @property
@@ -459,11 +464,26 @@ class M7Config:
                 raise ValueError("the M7h curriculum is registered for btt_policy_obs_v1 only")
             if self.resume_from is not None:
                 raise ValueError("a curriculum run is never resumed (a partial run is restarted)")
+        if self.anchor_curriculum is not None:
+            import m7m_anchor as ma
+
+            ma.check_table(self.anchor_curriculum)
+            if self.observation_v2 or self.curriculum is not None or self.reward.contract != "btt_reward_v2":
+                raise ValueError("the M7m anchor curriculum is registered for btt_policy_obs_v1 + btt_reward_v2 only, "
+                                 "without the M7h curriculum")
+            if self.resume_from is None:
+                raise ValueError("the M7m anchor curriculum is a warm start only (resume_from a checkpoint trained "
+                                 "without any curriculum)")
+            missing = [f"{k}={v}" for k, v in ec.ANCHOR_CURRICULUM_EXTRA_ENV if dict(self.extra_env).get(k) != v]
+            if missing:
+                raise ValueError(f"the M7m anchor curriculum needs the native flags {missing} in extra_env")
 
     def to_json(self) -> Dict[str, Any]:
         d = {k: v for k, v in asdict(self).items() if k != "experiment"}
         if d.get("curriculum") is None:
             d.pop("curriculum", None)       # M7h: a run without a curriculum records exactly what it did before
+        if d.get("anchor_curriculum") is None:
+            d.pop("anchor_curriculum", None)    # M7m: likewise
         d["runs_dir"] = portable_path(self.runs_dir)
         d["executable"] = portable_path(self.executable)
         d["resume_from"] = portable_path(self.resume_from) if self.resume_from else None
@@ -531,7 +551,7 @@ def config_from_experiment(exp: "ec.Experiment", *, run_id: Optional[str] = None
         standby_wait_timeout=float(v["environment.standby_wait_timeout_s"]),
         allow_lifecycle_change=bool(v["resume.allow_lifecycle_change"]),
         observation=str(v["contracts.observation"]), policy=str(v["ppo.policy"]),
-        curriculum=exp.curriculum,
+        curriculum=exp.curriculum, anchor_curriculum=exp.anchor_curriculum,
     )
 
 
@@ -547,7 +567,12 @@ def run_contracts(config: M7Config) -> Dict[str, Any]:
 
 def worker_factory(config: M7Config, spec: WorkerSpec) -> Any:
     """The picklable worker factory of the configured observation (v2 = the M7 stack + SpatialObsV2Wrapper); with an
-    M7h curriculum (v1 only) the M7 stack + the outermost CurriculumWorkerWrapper."""
+    M7h curriculum (v1 only) the M7 stack + the outermost CurriculumWorkerWrapper; with an M7m anchor curriculum the
+    M7 stack + the outermost AnchorWorkerWrapper."""
+    if config.anchor_curriculum is not None:
+        from m7m_worker import AnchorWorkerFactory
+
+        return AnchorWorkerFactory(spec, config.anchor_curriculum)
     if config.curriculum is not None:
         from m7h_worker import CurriculumWorkerFactory
 
@@ -844,6 +869,8 @@ class M7Run:
             # resume across modes is never silent: it needs resume.allow_lifecycle_change and is recorded.
             meta["_lifecycle_change"] = {"diffs": compat, "accepted_by": "resume.allow_lifecycle_change"}
             compat = {}
+        if c.anchor_curriculum is not None:
+            compat = self._accept_warm_start(meta, compat)
         if compat:
             hint = (" (only the standby lifecycle differs: set resume.allow_lifecycle_change = true to accept it)"
                     if ec.lifecycle_only_diffs(compat) else "")
@@ -859,6 +886,33 @@ class M7Run:
             meta["_executable_change"] = {"checkpoint_sha256": stored_exe, "current_sha256": current_exe,
                                           "accepted_by": "resume.allow_executable_change"}
         return meta
+
+    def _accept_warm_start(self, meta: Dict[str, Any], compat: Dict[str, Any]) -> Dict[str, Any]:
+        """M7m (opt-in by the [anchor_curriculum] table): a warm start from a checkpoint trained WITHOUT any
+        curriculum. The one accepted compatibility difference is the read-only target diagnostic flag the table adds
+        to extra_env (every other flag equal); it is recorded in the lineage. Returns the differences still refused."""
+        exp_block = meta.get("experiment") or {}
+        src_view = exp_block.get("compatibility_view") or {}
+        files = meta.get("files") or {}
+        if (exp_block.get("curriculum") or exp_block.get("anchor_curriculum")
+                or any(str(k).startswith(("curriculum.", "anchor_curriculum.")) for k in src_view)
+                or any(name in files for name in ("curriculum_archive.json", "anchor_schedule.json"))):
+            raise CheckpointError("warm start rejected: the source checkpoint was trained with a curriculum "
+                                  "(a curriculum run is never resumed or warm-started from)")
+        left = dict(compat)
+        env_diff = left.pop("environment.extra_env", None)
+        accepted = None
+        if env_diff is not None:
+            want = dict(env_diff["checkpoint"] or {})
+            want.update(dict(ec.ANCHOR_CURRICULUM_EXTRA_ENV))
+            if dict(env_diff["requested"] or {}) != want:
+                left["environment.extra_env"] = env_diff
+            else:
+                accepted = env_diff
+        meta["_warm_start_change"] = {"accepted_diffs": ({"environment.extra_env": accepted} if accepted else {}),
+                                      "accepted_by": "anchor_curriculum (M7m warm start)",
+                                      "source_checkpoint_curriculum": None}
+        return left
 
     # -- callbacks ----------------------------------------------------------------------------------------
 
@@ -1121,6 +1175,7 @@ class M7Run:
                 "experiment": source.get("experiment"),
                 "executable_change": source.get("_executable_change"),
                 "lifecycle_change": source.get("_lifecycle_change"),
+                **({"warm_start_change": source.get("_warm_start_change")} if c.anchor_curriculum is not None else {}),
                 "lifecycle_at_checkpoint": source.get("lifecycle"),
                 "versions_at_checkpoint": source.get("versions")}]
         # M7b provenance: the source profile copy, the resolved configuration and the fingerprints.
@@ -1191,6 +1246,12 @@ class M7Run:
                                           f"clip_obs {self.vecnorm.clip_obs}) differs from the configuration "
                                           f"(norm_obs {c.norm_obs}, clip_obs {c.clip_obs})")
                 check_vecnormalize_identity(self.vecnorm, c.observation)   # M7g: statistics of this observation
+                if c.anchor_curriculum is not None:   # M7m only: AnchorVecEnv between VecNormalize and the workers
+                    from m7m_vec import attach as attach_anchor
+
+                    self.curriculum_env = attach_anchor(self.vecnorm, self.venv, settings=c.anchor_curriculum,
+                                                        run_id=c.run_id, seed=c.base_seed,
+                                                        log_dir=self.layout.root / "curriculum")
                 self.model = M7PPO.load(str(Path(c.resume_from) / MODEL_FILE), env=self.vecnorm, device=c.device)
                 check_model_identity(self.model, c.observation)            # M7g: never across observations
                 self.model.set_random_seed(c.base_seed)

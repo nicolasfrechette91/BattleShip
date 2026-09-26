@@ -1,0 +1,326 @@
+{
+ "schema": "m7m_feasibility_plan_v1",
+ "design": "docs/rl_sweep_consolidation_m7m_design.md",
+ "registered_before_any_check": true,
+ "head": "14f5a632020f0b8626fdeb897fcbadb87e98fba7",
+ "anchor_file": {
+  "path": "docs/rl_sweep_consolidation_m7m_anchor.json",
+  "sha256": "7a1bbf3a0eb91a7a81ea3d27ff64e8caf9a575abbff7897a586cf8a24a496d4a"
+ },
+ "executable_sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+ "native_flags": {
+  "SSB64_RL_NO_RENDER": "1",
+  "SSB64_RAPHNET_DISABLE": "1",
+  "SSB64_RL_TARGET_DIAG": "1"
+ },
+ "harness": "rl/m7m_feasibility.py (plan = m7m_anchor.registered_plan())",
+ "warm_starts": [
+  {
+   "seed": 0,
+   "arm_use": "warm start of both paired arms (E and K) of seed pair 0",
+   "run": "m7g_s0_v1 (Phase K control, btt_policy_obs_v1, btt_reward_v2, fresh model at t=0)",
+   "checkpoint": "runs/m7g_k/m7g_s0_v1/final",
+   "num_timesteps": 3072000,
+   "files_sha256": {
+    "checkpoint.json": "b04ca3c139e9f9b565c012f038167e5f3b62fb30e6c736ccc06599f5a6eb29b6",
+    "model.zip": "36fea1fdbc2d6863d604f487534c9587bde5be5470b54f5a16fdf28a767fe4f9",
+    "vecnormalize.pkl": "85ca39eb53b1e3a98d7ed8f4c1a178748ef84a6573237ce2fac1587ec61d2624"
+   },
+   "policy_parameter_digest": "6edb91f4e2475e228c566608fd80e26a63eb0105cc9b7e8a220e40703459f7a3",
+   "obs_rms_digest": "6560d0e7f6adbe6f5049383dfd933e8630c8e10c3534f5041d41dea5d9387b9d",
+   "obs_rms_count": 3072005.0001,
+   "phase_k_final_evaluation": {
+    "deterministic": {
+     "episodes": 100,
+     "distinct_digests": 1,
+     "falls": 0,
+     "mean_length": 3600.0,
+     "digests": [
+      "868152fa5790f282ca2d360c4e2f0ffdbec1c5d57b95a54a5b68b9f20c718a3e"
+     ],
+     "raw_returns": [
+      -1.6
+     ]
+    },
+    "stochastic": {
+     "episodes": 100,
+     "distinct_digests": 100,
+     "falls": 1,
+     "mean_length": 3595.0
+    }
+   },
+   "m7l_control_check": {
+    "file": "runs/m7l/campaign/_control/control_check.json",
+    "ok": true,
+    "sha256": "4308c655a6ca4f44f4307ecbf09f000157a07435244092c6c7e2cac2ba938b22"
+   }
+  },
+  {
+   "seed": 1,
+   "arm_use": "warm start of both paired arms (E and K) of seed pair 1",
+   "run": "m7g_s1_v1 (Phase K control, btt_policy_obs_v1, btt_reward_v2, fresh model at t=0)",
+   "checkpoint": "runs/m7g_k/m7g_s1_v1/final",
+   "num_timesteps": 3072000,
+   "files_sha256": {
+    "checkpoint.json": "9d9cb38a2f35c8a1c02be6d14dae4c163a447c7f413aceef804b7cc5490b37a1",
+    "model.zip": "57d9060fb555e8a8a9e0d1d134ae07310933fa78e117b2505252813e17f708f2",
+    "vecnormalize.pkl": "9c7295e974815ccf266ad9e3f26921ca2343b1cd3f67f828211edf6d91e8a549"
+   },
+   "policy_parameter_digest": "086f73adf33d68893ad627c2ded0e8f5c526ad4e8d978ce8fc853bb67f1f5993",
+   "obs_rms_digest": "2ad775aab624aaeaddfca82082adf2490f20861c5df3d3253b96aa771da35e9e",
+   "obs_rms_count": 3072005.0001,
+   "phase_k_final_evaluation": {
+    "deterministic": {
+     "episodes": 100,
+     "distinct_digests": 1,
+     "falls": 0,
+     "mean_length": 3600.0,
+     "digests": [
+      "dc0072c7e21fc071d504934bb55587d6be93904956188d05956157f54b119ca3"
+     ],
+     "raw_returns": [
+      -1.6
+     ]
+    },
+    "stochastic": {
+     "episodes": 100,
+     "distinct_digests": 100,
+     "falls": 1,
+     "mean_length": 3577.2
+    }
+   },
+   "m7l_control_check": {
+    "file": "runs/m7l/campaign/_control/control_check.json",
+    "ok": true,
+    "sha256": "4308c655a6ca4f44f4307ecbf09f000157a07435244092c6c7e2cac2ba938b22"
+   }
+  },
+  {
+   "seed": 2,
+   "arm_use": "warm start of both paired arms (E and K) of seed pair 2",
+   "run": "m7g_s2_v1 (Phase K control, btt_policy_obs_v1, btt_reward_v2, fresh model at t=0)",
+   "checkpoint": "runs/m7g_k/m7g_s2_v1/final",
+   "num_timesteps": 3072000,
+   "files_sha256": {
+    "checkpoint.json": "0543d7d5bfb030970ee77e823bd892f195876041fdd52447a7b3e2bbf312eeed",
+    "model.zip": "1c26908cc2ae4f9768d4b817e35760fde58e1ee81022b218a48580afad536049",
+    "vecnormalize.pkl": "38bcc4e3dc801d471628e6d3a7e5d21e8cf414b820db8e92227799f1226ee5fa"
+   },
+   "policy_parameter_digest": "ce9a8e0a931258f8dac39650cea7b0ccb9e4cbe626e18747cbcc2eb1131ef410",
+   "obs_rms_digest": "1363d93d9022acfb71f54098df9f702961ed5c48690dcce1726a88bbca2b81e5",
+   "obs_rms_count": 3072005.0001,
+   "phase_k_final_evaluation": {
+    "deterministic": {
+     "episodes": 100,
+     "distinct_digests": 1,
+     "falls": 0,
+     "mean_length": 3600.0,
+     "digests": [
+      "cf18b7cbb923812ab05f6849de83d431117404b72f42eb507dbed5d83c16e510"
+     ],
+     "raw_returns": [
+      -0.6
+     ]
+    },
+    "stochastic": {
+     "episodes": 100,
+     "distinct_digests": 100,
+     "falls": 0,
+     "mean_length": 3600.0
+    }
+   },
+   "m7l_control_check": {
+    "file": "runs/m7l/campaign/_control/control_check.json",
+    "ok": true,
+    "sha256": "4308c655a6ca4f44f4307ecbf09f000157a07435244092c6c7e2cac2ba938b22"
+   }
+  }
+ ],
+ "plan": {
+  "anchor": {
+   "anchor_id": "m7l_t2_s1_sweep_49414363",
+   "native_action_digest": "8ccf81f247571f2c3219f1b64efaa107eeedfb1cacebb2d4b7c26218699163a5",
+   "max_cut": 1020
+  },
+  "cut_semantics": "cut tau (1..1020): after the ordinary non-consuming tick-0 reset, anchor rows 0..tau-1 are submitted one per native tick (consumed ticks 0..tau-1); the policy's first action is for input tick tau; the horizon counts from the reset, so at most 3600 - tau policy steps; prefix breaks earn nothing (reward reference rebased on the post-prefix observation)",
+  "success": "all seven right targets {0,2,3,4,5,7,9} broken, the last at consumed tick <= 2699 (for a cut, the standing right targets broken by the policy; a later fall does not undo it)",
+  "F1": {
+   "replays": 3,
+   "what": "full 3,600-row anchor replay from tick 0, each in a fresh process; digest, consumed ticks 0..3599, break table, horizon end; observation table rows 1..1020 identical across replays (every field except host_frame)"
+  },
+  "F2": {
+   "what": "the artifact's native rows map one-to-one onto Track 1 indices; re-encoding reproduces the recorded native action digest; equals the registered action bytes"
+  },
+  "F3": {
+   "landmark_cuts": [
+    42,
+    120,
+    166,
+    581,
+    801,
+    838,
+    1020
+   ],
+   "random_cuts": [
+    67,
+    83,
+    87,
+    97,
+    119,
+    124,
+    176,
+    187,
+    199,
+    210,
+    216,
+    225,
+    233,
+    241,
+    312,
+    371,
+    373,
+    388,
+    396,
+    404,
+    410,
+    421,
+    428,
+    454,
+    475,
+    480,
+    508,
+    512,
+    626,
+    651,
+    661,
+    675,
+    684,
+    693,
+    719,
+    729,
+    740,
+    781,
+    794,
+    819,
+    823,
+    875,
+    880,
+    893,
+    904,
+    935,
+    936,
+    937,
+    952,
+    980
+   ],
+   "random_cut_generator": "random.Random(sha256('m7m_f3_random_cuts_v1')[:8]).sample(1..1020 minus landmarks, 50)",
+   "full_cuts": [
+    42,
+    838,
+    1020
+   ],
+   "what": "the M7m training worker (in-process, fresh game process per cut): run_prefix_phase delivers o_tau equal to the F1 table (every field except host_frame) with the registered broken mask; for the full cuts the anchor's remaining rows run through the worker's normal step() to the horizon: 3600 - tau policy steps, policy-only return (prefix breaks earn nothing), full-row digest equal to the anchor, the episode row valid under the m7d validator"
+  },
+  "harness_validation": "per warm start, a deterministic tick-0 harness episode reproduces the Phase K final deterministic evaluation digest and return",
+  "F4": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "windows": [
+    [
+     1020,
+     901,
+     1020
+    ],
+    [
+     900,
+     781,
+     900
+    ],
+    [
+     780,
+     661,
+     780
+    ]
+   ],
+   "cuts_by_window": {
+    "W0": [
+     901,
+     925,
+     949,
+     973,
+     997,
+     1020
+    ],
+    "W1": [
+     781,
+     805,
+     829,
+     853,
+     877,
+     900
+    ],
+    "W2": [
+     661,
+     685,
+     709,
+     733,
+     757,
+     780
+    ]
+   },
+   "episodes_per_cut": 5,
+   "episodes_per_window": 30,
+   "max_episodes_per_seed": 90,
+   "max_episodes_total": 270,
+   "policy": "frozen warm start, stochastic actions, VecNormalize statistics frozen (evaluator semantics)",
+   "episode_end": "success, native clear / failure, or the step that consumed tick 2699 (whichever first)",
+   "episode_seed": "int(sha256('m7m_f4|s<seed>|<tau>|<k>')[:8], 16) (policy sampling only)",
+   "classes": {
+    "blocked": "<= 2/30",
+    "foothold": "3..27/30",
+    "saturated": ">= 28/30"
+   },
+   "procedure": "per seed: evaluate W0; while the last window is saturated and fewer than 3 windows were evaluated, evaluate the next earlier window. Seed status = the class of the first non-saturated window (foothold passes, blocked fails) or saturated_through_max_window (passes; the schedule would move past those windows in one block each)",
+   "pass": ">= 2 of 3 seeds pass",
+   "schedule_unchanged": "F4 never changes the registered schedule (every run starts at pointer 1020)"
+  },
+  "F5": {
+   "role": "diagnostic only: never gates GO / NO-GO; not proof that reward v2 can or cannot consolidate the route",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "cuts": [
+    801,
+    810,
+    819,
+    828,
+    837
+   ],
+   "episodes_per_cut": 10,
+   "episodes_per_seed": 50,
+   "episodes_total": 150,
+   "episode_end": "natural end (native clear / failure / horizon)",
+   "episode_seed": "int(sha256('m7m_f5|s<seed>|<tau>|<k>')[:8], 16)",
+   "measure": "policy-phase btt_reward_v2 return (rebased at o_tau) of episodes where the policy broke target 2 (any tick) vs episodes where it did not; fall rates of both groups",
+   "classification": "pooled over seeds: inconclusive_insufficient_samples if either group < 10; positive if delta - 2 SE > 0; negative if delta + 2 SE < 0; else inconclusive_within_2se (Welch SE). Per seed only with >= 5 in each group. Rare target-2 breaks are reported as they are; sampling is never extended and reward v2 is never changed",
+   "confound": "groups differ in cut composition; per-cut counts are reported"
+  },
+  "GO": "F1, F2, F3, the harness validation and F4 pass, with no integrity, provenance, resource or process stop. F5 is reported and never gates.",
+  "stops": "a failed launch gate (after 5 readings 60 s apart), available commit < 3 GiB during a check, an integrity or provenance mismatch, or a leftover BattleShip process stops the checks; every episode already written is preserved; nothing is relaunched without the user",
+  "budget": {
+   "episodes_max": {
+    "F1": 3,
+    "F3": 57,
+    "harness_validation": 3,
+    "F4": 270,
+    "F5": 150
+   },
+   "verification_replays_max": 150
+  }
+ }
+}

@@ -1,0 +1,1394 @@
+{
+ "schema": "battleship_m7m_campaign_manifest_v1",
+ "milestone": "M7m",
+ "campaign": "anchored_sweep_consolidation_v1",
+ "created_utc": "2026-09-26T01:34:17+00:00",
+ "authority": {
+  "design": "docs/rl_sweep_consolidation_m7m_design.md",
+  "design_sha256": "08f9bd58efadd327adb820a63fc3e013f33bcf723ab5f85aca229506feba3b15",
+  "approval": "user, 2026-09-26: implement the campaign, run one capped integration pilot and the six campaign runs if every launch and integrity gate passes; no pause between them"
+ },
+ "question": "After +1,536,000 policy-controlled transitions from the same Phase K reward-v2 checkpoint, does training with anchored backward starts cut from the one registered sweep (arm E) make normal tick-0 play break all seven right targets by consumed tick 2699 more often than the same training with tick-0 starts only (arm K), without losing static targets?",
+ "arms": {
+  "E": "m7m_e_s{0,1,2}: anchored backward starts from the registered anchor, p0 = 1/2",
+  "K": "m7m_k_s{0,1,2}: matched control, the same machinery, tick-0 starts only"
+ },
+ "order": [
+  "m7m_e_s0",
+  "m7m_k_s0",
+  "m7m_e_s1",
+  "m7m_k_s1",
+  "m7m_e_s2",
+  "m7m_k_s2"
+ ],
+ "sequencing": "pilot E then K; then strictly sequential E0, K0, E1, K1, E2, K2, the launch gate before each",
+ "registered_settings": {
+  "contracts": {
+   "reward": "btt_reward_v2 (unchanged)",
+   "observation": "btt_policy_obs_v1",
+   "action": "btt_s9_b8_v1 (Track 1)",
+   "horizon_ticks": 3600,
+   "native_flags": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "diagnostic_flag": "SSB64_RL_TARGET_DIAG=1, read-only and gameplay-neutral, in both arms and in every evaluation; never part of the policy observation"
+  },
+  "warm_start": "both arms of pair j load runs/m7g_k/m7g_s{j}_v1/final: policy parameters and Adam optimizer state (step 60,000) from model.zip, VecNormalize statistics continuing (training=True, observations only), num_timesteps continuing from 3,072,000 (reset_num_timesteps=False), constant learning rate 3e-4 and clip range 0.2, set_random_seed(base_seed) at load with the same base seed (100 + j) in E_j and K_j; the one accepted compatibility difference is the diagnostic flag (recorded in the lineage); a checkpoint trained with any curriculum is refused",
+  "budget": {
+   "policy_transitions_per_run": 1536000,
+   "cumulative_target": 4608000,
+   "rollouts": 300,
+   "hard_maximum": true,
+   "prefix_ticks": "never counted as transitions; reported separately"
+  },
+  "schedule": {
+   "E": "anchored starts drawn after automatic resets with probability 1/2 (tick0_probability 0.5) until the schedule completes; then tick-0 starts only",
+   "K": "tick0_probability 1.0: normal tick-0 starts only (the same worker, vector wrapper and logs)",
+   "windows": [
+    [
+     1020,
+     901,
+     1020
+    ],
+    [
+     900,
+     781,
+     900
+    ],
+    [
+     780,
+     661,
+     780
+    ],
+    [
+     660,
+     541,
+     660
+    ],
+    [
+     540,
+     421,
+     540
+    ],
+    [
+     420,
+     301,
+     420
+    ],
+    [
+     300,
+     181,
+     300
+    ],
+    [
+     180,
+     61,
+     180
+    ],
+    [
+     60,
+     1,
+     60
+    ]
+   ],
+   "block": 10,
+   "block_successes": 5,
+   "cut_semantics": "cut tau (1..1020): after the ordinary non-consuming tick-0 reset, anchor rows 0..tau-1 are submitted one per native tick (consumed ticks 0..tau-1); the policy's first action is for input tick tau; the horizon counts from the reset, so at most 3600 - tau policy steps; prefix breaks earn nothing (reward reference rebased on the post-prefix observation)",
+   "success": "all seven right targets {0,2,3,4,5,7,9} broken, the last at consumed tick <= 2699 (for a cut, the standing right targets broken by the policy; a later fall does not undo it)",
+   "in_flight_outcomes": "an anchored outcome is counted only toward the block of the window in which its episode started, and only while that window is current; episodes that started under an earlier window and finish after the pointer moved are logged as stale and never counted; lifecycle failures and aborted episodes are logged as excluded; outcomes are ingested in parent order (vector step, then environment index) before that step's draws"
+  },
+  "launch_gate": {
+   "available_commit_gib_min": 10.0,
+   "available_physical_gib_min": 4.0,
+   "free_disk_gib_min": 10.0,
+   "system_cpu_pct_max": 40.0,
+   "readings": "a failed reading is re-measured after 60 s, at most 5 readings; the run launches only on a passing reading",
+   "when": "before every training launch (pilot and campaign runs)"
+  },
+  "in_run_memory_policy": {
+   "warn_gib": 4.0,
+   "stop_gib": 3.0,
+   "emergency_gib": 1.0,
+   "probe_interval_s": 2.0,
+   "escalate_after_s": 30.0,
+   "kill_grace_s": 240.0,
+   "watches": "available system commit only"
+  },
+  "monitor": "m7d Monitor: hard alerts stop the run (an episode row violating its prefix-aware btt_reward_v2 closed form, more than 10 game processes or listeners in two samples, a changed user config, low disk)",
+  "stop_conditions": [
+   "a failed launch gate",
+   "a monitor hard alert",
+   "the in-run memory policy",
+   "manifest drift",
+   "a provenance mismatch",
+   "a process leak",
+   "a training or evaluation verification failure (an evaluation label may be re-run once)",
+   "a failed pilot check"
+  ],
+  "after_a_stop": "the campaign stops and reports; a stopped run directory is moved to _partial by the guard and preserved; nothing is resumed, relaunched or extended",
+  "training_inputs": "the run's own episodes and the registered anchor's start states only; never supervised targets, other runs' weights, the crossing fixtures, TAS, feasibility or pilot outputs",
+  "never": "native RNG state is never inspected, logged, validated, controlled, compared or hashed; no training videos"
+ },
+ "reward_contract": {
+  "contract": "btt_reward_v2",
+  "canonical_sha256": "814c79f70238e5bfe65352cba9357b9f02d2d9a5646efd6d4f00d088bc47d24e",
+  "json": {
+   "contract": "btt_reward_v2",
+   "target_broken": 1.0,
+   "per_step": -0.001,
+   "clear_bonus": 10.0,
+   "failure_penalty": -5.0
+  }
+ },
+ "evidence": {
+  "anchor": {
+   "path": "docs/rl_sweep_consolidation_m7m_anchor.json",
+   "sha256": "7a1bbf3a0eb91a7a81ea3d27ff64e8caf9a575abbff7897a586cf8a24a496d4a",
+   "source": "m7l_t2_s1 episode_20260925T190612Z_49414363",
+   "discovered_under": "btt_reward_v3_t2",
+   "native_action_digest": "8ccf81f247571f2c3219f1b64efaa107eeedfb1cacebb2d4b7c26218699163a5"
+  },
+  "start_state_table": {
+   "path": "docs/rl_sweep_consolidation_m7m_anchor_observations.json",
+   "sha256": "8880607470e23a36bf99b934b7cc5b0eee33f87ba382817f14fe59016955ab27",
+   "note": "durable evidence: kept in docs, never discarded (it can be regenerated by F1, which is not a reason to drop it)"
+  },
+  "feasibility_plan": {
+   "path": "docs/rl_sweep_consolidation_m7m_feasibility_plan.json",
+   "sha256": "433b784fd2d824db9f6cf5ee39146837c9f02a2401ade6d9b850b4b85463f41a"
+  },
+  "feasibility_result": {
+   "path": "runs/m7m/feasibility/summary.json",
+   "sha256": "1107604048f9c5ef59c493ef6cdc3306d9e10d0fa2c47568db39de95b6b681cc",
+   "decision": "GO",
+   "doc": "docs/rl_sweep_consolidation_m7m_feasibility.md",
+   "doc_sha256": "a2321767efee9cbfce9b9da107dee4cc7d6ca1d5d85e414a9615d8141ff772eb",
+   "classification": "feasibility evidence only (never a training input or a result)"
+  },
+  "m7l_preserved": {
+   "docs/rl_target2_m7l_decision_rule.json": "01762dcbb9c331ddecc400f751a3332b5eda6affbbe22eeaa4d1ff9bf8256f0e",
+   "docs/rl_target2_m7l_manifest.json": "1beed7f7ad2709b45bb2c03c41f035ab4af44a4f1cd209325abf237ee8ac36b6",
+   "docs/rl_target2_m7l_analysis_n3.json": "83fb48ad2ef9070e76a7c2377e3cf7eb7e5e4a6bab4ded0a9b838b267c0e9582",
+   "docs/rl_target2_m7l_results.md": "c793d3f09edd1f0766ab240c2a0893407872ab0c2eeb94dbafa17e1596a23edf",
+   "runs/m7l/campaign/_matrix/manifest.json": "1beed7f7ad2709b45bb2c03c41f035ab4af44a4f1cd209325abf237ee8ac36b6",
+   "runs/m7l/campaign/_matrix/analysis_n3.json": "83fb48ad2ef9070e76a7c2377e3cf7eb7e5e4a6bab4ded0a9b838b267c0e9582"
+  }
+ },
+ "executable": {
+  "path": "build-us/Release/BattleShip.exe",
+  "sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+  "size": 23608320
+ },
+ "revisions": {
+  "head": "14f5a632020f0b8626fdeb897fcbadb87e98fba7",
+  "dirty": true,
+  "submodules": {
+   "decomp": "3c7fd5d0547ae82a240a6ffd134985e4b9697b14",
+   "libultraship": "805f195041573230cf0402171337b22ffd558759",
+   "torch": "3aa9c9739af95659f19adc73afeb12df93957fc3"
+  },
+  "submodules_differ_from_index": []
+ },
+ "code": {
+  "files": 94,
+  "sha256": "fcb777715e38632e39975f5dfafbdc48ddcf377251b7ce5ef7f77a257d316ea4",
+  "per_file": {
+   "rl/battleship_client.py": "0d119f0297480821791017a2e5caac0e360cfd7f08bb50f74650386d90f07253",
+   "rl/battleship_env.py": "11397c73322f90f4505d675a2a878aef36835e8309a1eedf0e749fb24b85ae42",
+   "rl/battleship_process.py": "ac3cc658aec825cc128c1030c3cd0ab48645e2711eca065c67698ccb8ad8e705",
+   "rl/btt_learning.py": "4f23ecd086639d6750f0e96e1fa085316cc0cff44dcc60bee913cf6c17b6a8b6",
+   "rl/btt_parallel.py": "edca6e87126d82ec3c271377f696f2ac0acd25e4e74c2ec65464af1bac50b339",
+   "rl/btt_reward_t2.py": "9a4419ed6b23cb377576878a5c3441eab2c90ace64b13b98f86ceed7930e27b5",
+   "rl/btt_reward_v3.py": "04589be48921a9e4bda6a6c1f13f1a35f26bd89ccb50d544a959adf878cdeaa4",
+   "rl/btt_rewards.py": "15bd68fd664a871c9dbdb7285882ab0219b353899573f777813207afe05dae4e",
+   "rl/btti_replay.py": "8cb086ddc17db2dc1d019826ce60fe57f93227374842ee0713ee3e33755e666b",
+   "rl/eval_m7.py": "16c6be093ce2f0fe816d2fa9f64b64b3dc3dc208e2b469ffdf95cedc3adabfa4",
+   "rl/experiment_config.py": "322808964fdb5f18ec3b7f2bc2fa68b77d95567862e6ca822fc00c057ecf9e77",
+   "rl/m1e_replay_regression.py": "1e648d74316b9e1d2e9fb71634823d868df061f9f85968bbb6ea0f65053e261a",
+   "rl/m2_restart_regression.py": "6712660dc1f8ecf4da87a1e02735e649faaee05184a3edd25bd62a7825e7a674",
+   "rl/m6_equivalence_regression.py": "822d5fd4bc0b35be1c8de35e7ecede62832d7f30de9b41a60e55127374a252f6",
+   "rl/m6_raphnet_bypass_regression.py": "3464433d146bcb6ce29d47666f88949fa3f978b5ee112c91d7bd96461613a963",
+   "rl/m7_evaluation.py": "fc923df2a7f0851c293f1fb7619ba0ad515187802665a5f44fd5f8b604fcdee5",
+   "rl/m7_report.py": "1c3800ee23491f3f689a3eeb2d30fa38fbaa873ffcf5676735a050ff3bc915c2",
+   "rl/m7_runtime.py": "3dc56722c924065356e6134174d5e2c4724c0f495ee8c4e0eed027dfd2d9c452",
+   "rl/m7_standby.py": "6318a595ef774d9f7bfbd79782f11cc0eea9e716eb08f424a208aa6d9e1e3eb3",
+   "rl/m7_trainer.py": "b21baf09e7d26f38c625ec02442e58a6301474fbb988bf984c97efdc08951f6e",
+   "rl/m7_vec_env.py": "f067a3fd6085b9d78f27dea0b72cbd76fe7b797f132a14e548515d9d76e62f86",
+   "rl/m7c_compare.py": "22034568393a802d08f3caa7107cf6a76c3c398833b97550f54ebf24389a6890",
+   "rl/m7d_analysis.py": "faa0451628e714286ba7a31192fae9c2d1284c34b6d212415329e580812698c4",
+   "rl/m7d_matrix.py": "8ec9b4f9665d2f7c806ca73f322bfe403ec992951db4ea0d409e0f197b3e98bf",
+   "rl/m7d_run.py": "35003a37255c8f99b9167091c6e23e9e6ca6bf3d5f9dc3eef3f96879533440b1",
+   "rl/m7e_analysis.py": "5546e15168e5a79a70897af6d42ef3d13c857621fed90e0a5a6d62acb65919b1",
+   "rl/m7e_idle_analysis.py": "46d502681b87689b769d435ad345bc100fc75fcf0294ceb09f9a91a6efd2de79",
+   "rl/m7e_matrix.py": "07fe6e7602ab1572eff354f8abf6cf8e66a45fc8b27f27fdd976487e4abe42f7",
+   "rl/m7e_run.py": "ea021d97ee463bae73c3fd1d5e64fe05ab003ee67adb372cef3479e38f75e39a",
+   "rl/m7f_analysis.py": "afdd14d3cfc344a62c6bbd53113b5e50718c048208b453c9386d52de93be8a77",
+   "rl/m7f_manifest.py": "d5c1e935f48a9880c0113378bcdaf8d6ad88a165785e77b8a57ff6e0e5047e6f",
+   "rl/m7f_nonport_view.py": "a859195a1a61e349d930d4bceded4b328fb2803bd246629a4e35bd9a41b78e91",
+   "rl/m7f_regressions.py": "bca01125d6a86677c00c13bc2917ff37b3368ffe6b9a06cf4ef77030b304f236",
+   "rl/m7f_replay.py": "f3a28dc2c4fa1c30d1337030acc8589f856eecb83e88e53a8efe3a3950a6d20c",
+   "rl/m7f_targets.py": "3fc8f9dfbdb4c68bc482821a2fdba368a547252a54e194afc7ab08075ad13d98",
+   "rl/m7f_trace.py": "99399e16718a9e5a5f4d4eb3ce6c4b00bb62e6f9483522b03946b52180cb9190",
+   "rl/m7f_validate.py": "8af405a27084a410a3f0af6db81d36ecc1cb3a38cd83292906162fb229f78b34",
+   "rl/m7g_capture.py": "619c28baa7f9cbb1efb246b923fc023c28023666d6df9f0b261787451004ee6b",
+   "rl/m7g_crossing.py": "d1325e9364bd7f5a8da93c42ab669dcc19a9f00eb0890563bf7421817b561ca8",
+   "rl/m7g_equivalence.py": "e4ebfaddfe7be1e12f7e183dc28ac05459d3d71e3c0e0083b9d34652a72b8bb8",
+   "rl/m7g_eval_metrics.py": "6033b1021968e772955f2146bf5d43e95b3576e5ba06e8f3fa1aba63296ebd21",
+   "rl/m7g_fixture.py": "880e641e22609ae7aa3da7b339fecae5eee69bc5c6e9cf4237413f0db6e1770b",
+   "rl/m7g_k_analysis.py": "5a79a0d18b1a709e9943242dee1886da80adbaaace377846063e47f3adc03f7c",
+   "rl/m7g_k_matrix.py": "3d2c01cf4af10ab47de5d5f527166f01d413937e9e2dbb8fe7764562dfe8055b",
+   "rl/m7g_k_run.py": "4c8afb6ecf29d2b6130a3bebb2f70e0f9648d8a7044c65112cf1180274de4bb2",
+   "rl/m7g_obs.py": "b65b9e16763f7e2f71168f01aba5312ad80f077b08e54ad39c0d09cc08728d14",
+   "rl/m7g_policy.py": "2b3042ea9ed455d95a2fbbe8d38d29117ec58dab785d962c97f1262dc092c8ef",
+   "rl/m7g_representations.py": "21953779658197e43be56e2aa5fc825185840cfea72593e9722ed2eb6cefce4e",
+   "rl/m7g_spatial.py": "d95269b65648942594c2f9b598629c76dafb1fd839f08babc2621085f0e0b17c",
+   "rl/m7h_analysis.py": "b44132bab4bbc6055fb523d387ea6c1adb1c4c515aa16abd48f5d92b6fbe1fd3",
+   "rl/m7h_campaign.py": "ca08ccfaf786ce1a76000871081c517edc174d84adc30f3d03e62fb64fcee218",
+   "rl/m7h_curriculum.py": "12428c0cc6044ae501b5d288d129259d1ea64eb0b5e26586be43376b4fb0ea8e",
+   "rl/m7h_guard.py": "0d581b987670d7ed91748e6ec9954353a84052790f8f11e2cbb580b36eb766da",
+   "rl/m7h_matrix.py": "89163c1bf2d16240b14283d1f4860ebca508812ebb4ea1cd7643c5acfeddc558",
+   "rl/m7h_run.py": "b2f2e4d3e4ff237cf561ce99feb69d502f5252e5022b2bdd8c3acfc755a66d70",
+   "rl/m7h_vec.py": "711c4c160f65ac0829af2877bd90e571bbe88df3b9a03af1736ddd980aa49331",
+   "rl/m7h_verify.py": "355dde584bd0a0f2a04799f37bc4cdcbe0a4b7cdd191e0d7e484c1183380a049",
+   "rl/m7h_worker.py": "f0212ac95bf8850c4d2f2505837f2a2d14178761ee238a58f0400dcb440b1446",
+   "rl/m7j_offline.py": "c3673d0048a31bf7aee6ebd9e310606aa0d261b525af58fae1df369728aedf70",
+   "rl/m7j_reward_env.py": "b49cd6cfd203514f674aadb38969addd95ebb183d19e72e9cfdd69fc9b848240",
+   "rl/m7j_run.py": "b56baa5b5ae3669169ff589f25d9727321fcb7afb369c573d77bf08c9c1ee62c",
+   "rl/m7k_rewards.py": "e2a35eafd1b123ee995b2234af67433cc8f8c3f5bd52977df61c0577da1812c9",
+   "rl/m7k_run.py": "a3f001c89bbc58b0c4b866c5516d6f88cb63a64ccd1937adc81b7d45fc86034d",
+   "rl/m7k_target2.py": "b954e5990d6c02ad8d5f067cddadb847caf785726b98d4e666c7fd12923369d3",
+   "rl/m7k_teardown_probe.py": "d7a511d18267abcc9bf61279c7487fe2cbc4c51682957b013835d183e4fbfb1e",
+   "rl/m7l_analysis.py": "841cd21544c47274837d2f303ec345df9518cd5be5696a334b94099e0d504fbc",
+   "rl/m7l_campaign.py": "a481e1435222f1aedbe06c2bace4455c34afeb8a8d8e3cf6b889c5306fb6cc48",
+   "rl/m7l_matrix.py": "de8339b39b4f21de51f34c1efb72ac5564c86d9dbaeac698d57c8fae6683a882",
+   "rl/m7l_route_rows.py": "c3b08bbebef2a67159f544afd3199a3726df10c421b18e968bf10f8874314b4b",
+   "rl/m7m_analysis.py": "7ff3c72b47e2e1607585eb3ff389244fe9906aae26563e3529df1f025b2139ff",
+   "rl/m7m_anchor.py": "550dd2b5df0e56a76b048168e22e231044cd1034b4a446449cedc828c9b470f0",
+   "rl/m7m_campaign.py": "46a594e7a0b97e6fa69a7c39db87a85423c3e283f9469ffbbf15fbd47c36dd9e",
+   "rl/m7m_feasibility.py": "ac5dd6042a58c2aadfeaa6520bbd879457262d0d4e9f987372dacc05b41a2927",
+   "rl/m7m_matrix.py": "498c4d582a99d5b3ae9b130847e8e4f5f4a6ccd5e46eaff71873e6111cb4e7fd",
+   "rl/m7m_vec.py": "40693883e320ea5d98bed241abbb509ee102dae8446c93e278cc8e51b4f700a0",
+   "rl/m7m_worker.py": "901fd21de490dfa06d12c4643f92ed942f0e614a36fe4417652bfae1489f14cd",
+   "rl/run_artifacts.py": "bcab944115d893bf6c447ad285d25f94a73111e2df1b273fdd5efbd1453cac5c",
+   "rl/train_m5.py": "69c9306677723017ee0fdc4015b216eb69aecb539489bb3d9aa73450f54b00e4",
+   "rl/train_m7.py": "501ef378452ba210bc158f2492d57c72ceaa80648e26baa46c61222e26bf03ea",
+   "rl/configs/m7m/m7m_e_s0.toml": "d6a69ce309a174ce202ee9bf0f7b368fb4180daa55c11553859ff3820177f6f3",
+   "rl/configs/m7m/m7m_e_s1.toml": "2c4e8da00fccee0f717757db22ed23929d44391d304a52a62e120c1d6cb7cde5",
+   "rl/configs/m7m/m7m_e_s2.toml": "2928f559b64af2efb86851936ff86e5be5c9a7fe3c01913e5bb5cab043a59909",
+   "rl/configs/m7m/m7m_k_s0.toml": "305f8edecbbaf11bbce16569f451a3392583055a6c2161f5815199a05c899b5e",
+   "rl/configs/m7m/m7m_k_s1.toml": "1a6b1e55fd36a8fdc8e9cfb14aa30ec16afb6f0738c42bb9a3d74beca751dda6",
+   "rl/configs/m7m/m7m_k_s2.toml": "b6c5bc7e4aa16e2b5c9a256ebb7141e37b0962d5d1c78573a1b0835bf87925e0",
+   "rl/configs/m7m/pilot/m7m_pilot_e_s0.toml": "377b44508360e3c0fbbccd1fd4a100b326883a0ff84a6b797faf624e8c5e81e0",
+   "rl/configs/m7m/pilot/m7m_pilot_k_s0.toml": "b66e2ebf7b2b514d1a3ea43de78c24ebe1f74b4198098610adf289a6de77229d",
+   "rl/configs/m7g/m7g_s0_v1.toml": "d9f763f701deadf3432256736d0d904be192d74a965cff7af5bbb0dab143faa9",
+   "rl/configs/m7g/m7g_s1_v1.toml": "ab7dbbb4b68180f0935e42999a1fb442b05994e17aff9c783b1ada6251947699",
+   "rl/configs/m7g/m7g_s2_v1.toml": "6b8b6285c1703571031a4d1c8111d71daa762f9b2585e08314b08726d5a8367f",
+   "docs/rl_sweep_consolidation_m7m_anchor.json": "7a1bbf3a0eb91a7a81ea3d27ff64e8caf9a575abbff7897a586cf8a24a496d4a",
+   "docs/rl_sweep_consolidation_m7m_anchor_observations.json": "8880607470e23a36bf99b934b7cc5b0eee33f87ba382817f14fe59016955ab27",
+   "docs/rl_sweep_consolidation_m7m_feasibility_plan.json": "433b784fd2d824db9f6cf5ee39146837c9f02a2401ade6d9b850b4b85463f41a",
+   "docs/rl_sweep_consolidation_m7m_decision_rule.json": "307da29996a3b26d0ec7a827ef4d6dafdcbb9e724480a116ebadd1316ed4c67a"
+  }
+ },
+ "decision_rule": {
+  "path": "docs/rl_sweep_consolidation_m7m_decision_rule.json",
+  "sha256": "307da29996a3b26d0ec7a827ef4d6dafdcbb9e724480a116ebadd1316ed4c67a",
+  "schema": "m7m_decision_rule_v1"
+ },
+ "warm_starts": {
+  "0": {
+   "path": "runs/m7g_k/m7g_s0_v1/final",
+   "files_sha256": {
+    "checkpoint.json": "b04ca3c139e9f9b565c012f038167e5f3b62fb30e6c736ccc06599f5a6eb29b6",
+    "model.zip": "36fea1fdbc2d6863d604f487534c9587bde5be5470b54f5a16fdf28a767fe4f9",
+    "vecnormalize.pkl": "85ca39eb53b1e3a98d7ed8f4c1a178748ef84a6573237ce2fac1587ec61d2624"
+   },
+   "policy_parameter_digest": "6edb91f4e2475e228c566608fd80e26a63eb0105cc9b7e8a220e40703459f7a3",
+   "obs_rms_digest": "6560d0e7f6adbe6f5049383dfd933e8630c8e10c3534f5041d41dea5d9387b9d",
+   "num_timesteps": 3072000,
+   "n_updates": 6000,
+   "adam_steps": [
+    60000
+   ],
+   "obs_rms_count": 3072005.0001,
+   "checkpoint_files": {
+    "model.zip": "36fea1fdbc2d6863d604f487534c9587bde5be5470b54f5a16fdf28a767fe4f9",
+    "vecnormalize.pkl": "85ca39eb53b1e3a98d7ed8f4c1a178748ef84a6573237ce2fac1587ec61d2624",
+    "preservation_state.json": "7bb1c0dfc2cd7ede5fde59807620a0e551cf62d3859c1dead17616bcd1115a20"
+   },
+   "problems": [],
+   "ok": true
+  },
+  "1": {
+   "path": "runs/m7g_k/m7g_s1_v1/final",
+   "files_sha256": {
+    "checkpoint.json": "9d9cb38a2f35c8a1c02be6d14dae4c163a447c7f413aceef804b7cc5490b37a1",
+    "model.zip": "57d9060fb555e8a8a9e0d1d134ae07310933fa78e117b2505252813e17f708f2",
+    "vecnormalize.pkl": "9c7295e974815ccf266ad9e3f26921ca2343b1cd3f67f828211edf6d91e8a549"
+   },
+   "policy_parameter_digest": "086f73adf33d68893ad627c2ded0e8f5c526ad4e8d978ce8fc853bb67f1f5993",
+   "obs_rms_digest": "2ad775aab624aaeaddfca82082adf2490f20861c5df3d3253b96aa771da35e9e",
+   "num_timesteps": 3072000,
+   "n_updates": 6000,
+   "adam_steps": [
+    60000
+   ],
+   "obs_rms_count": 3072005.0001,
+   "checkpoint_files": {
+    "model.zip": "57d9060fb555e8a8a9e0d1d134ae07310933fa78e117b2505252813e17f708f2",
+    "vecnormalize.pkl": "9c7295e974815ccf266ad9e3f26921ca2343b1cd3f67f828211edf6d91e8a549",
+    "preservation_state.json": "19d1f7adc86162e2e6afbb3bdaca9b228a9a01e558f8f7185d3a8cf9035e5aee"
+   },
+   "problems": [],
+   "ok": true
+  },
+  "2": {
+   "path": "runs/m7g_k/m7g_s2_v1/final",
+   "files_sha256": {
+    "checkpoint.json": "0543d7d5bfb030970ee77e823bd892f195876041fdd52447a7b3e2bbf312eeed",
+    "model.zip": "1c26908cc2ae4f9768d4b817e35760fde58e1ee81022b218a48580afad536049",
+    "vecnormalize.pkl": "38bcc4e3dc801d471628e6d3a7e5d21e8cf414b820db8e92227799f1226ee5fa"
+   },
+   "policy_parameter_digest": "ce9a8e0a931258f8dac39650cea7b0ccb9e4cbe626e18747cbcc2eb1131ef410",
+   "obs_rms_digest": "1363d93d9022acfb71f54098df9f702961ed5c48690dcce1726a88bbca2b81e5",
+   "num_timesteps": 3072000,
+   "n_updates": 6000,
+   "adam_steps": [
+    60000
+   ],
+   "obs_rms_count": 3072005.0001,
+   "checkpoint_files": {
+    "model.zip": "1c26908cc2ae4f9768d4b817e35760fde58e1ee81022b218a48580afad536049",
+    "vecnormalize.pkl": "38bcc4e3dc801d471628e6d3a7e5d21e8cf414b820db8e92227799f1226ee5fa",
+    "preservation_state.json": "57f67b16e3051b5fb73a7b0f563b61f9bca824e0142ad3097a3761a5a2d17d40"
+   },
+   "problems": [],
+   "ok": true
+  }
+ },
+ "runs": {
+  "m7m_e_s0": {
+   "seed": 0,
+   "arm": "E",
+   "order": 0,
+   "base_seed": 100,
+   "config": "rl/configs/m7m/m7m_e_s0.toml",
+   "source_sha256": "d6a69ce309a174ce202ee9bf0f7b368fb4180daa55c11553859ff3820177f6f3",
+   "semantic_fingerprint": "d22016a3a0c4ceb025329cd7d5ccc852490cce828f97da18e6827650ac211e87",
+   "compatibility_fingerprint": "b71a3b1f55e1fbb06ee7dc013d5c2afdf46b1e53109fbab96e2eb6a71a98705e",
+   "anchor_curriculum": {
+    "contract": "btt_curriculum_anchor_sweep_v1",
+    "anchor": "m7l_t2_s1_sweep_49414363",
+    "tick0_probability": 0.5,
+    "start_pointer": 1020,
+    "window": 120,
+    "block": 10,
+    "block_successes": 5,
+    "deadline_consumed_tick": 2699,
+    "max_cut": 1020,
+    "observation_table_sha256": "8880607470e23a36bf99b934b7cc5b0eee33f87ba382817f14fe59016955ab27"
+   },
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "warm_start": "runs/m7g_k/m7g_s0_v1/final",
+   "run_dir": "runs/m7m/campaign/m7m_e_s0",
+   "eval_dir": "runs/m7m/campaign/_eval/m7m_e_s0",
+   "checks": {
+    "name": true,
+    "warm_start_mode": true,
+    "total_transitions": true,
+    "base_seed": true,
+    "anchor_table": true,
+    "no_m7h_curriculum": true,
+    "reward_v2": true,
+    "observation_v1": true,
+    "track1": true,
+    "flags": true,
+    "horizon_n5_standby": true,
+    "checkpoint_interval": true,
+    "post_hoc_evaluation": true
+   },
+   "phase_k_proof": {
+    "base": "rl/configs/m7g/m7g_s0_v1.toml",
+    "value_differences": [
+     "anchor_curriculum.anchor",
+     "anchor_curriculum.block",
+     "anchor_curriculum.block_successes",
+     "anchor_curriculum.contract",
+     "anchor_curriculum.deadline_consumed_tick",
+     "anchor_curriculum.max_cut",
+     "anchor_curriculum.observation_table_sha256",
+     "anchor_curriculum.start_pointer",
+     "anchor_curriculum.tick0_probability",
+     "anchor_curriculum.window",
+     "resume.source_checkpoint",
+     "run.base_seed",
+     "run.mode",
+     "run.name",
+     "run.notes",
+     "run.output_root",
+     "run.total_transitions"
+    ],
+    "ok": true
+   }
+  },
+  "m7m_k_s0": {
+   "seed": 0,
+   "arm": "K",
+   "order": 1,
+   "base_seed": 100,
+   "config": "rl/configs/m7m/m7m_k_s0.toml",
+   "source_sha256": "305f8edecbbaf11bbce16569f451a3392583055a6c2161f5815199a05c899b5e",
+   "semantic_fingerprint": "56f66d5a311743cce782d19ad5865427b18ba9a8c72bc45840e46f163a595d0f",
+   "compatibility_fingerprint": "97c50b875ba6b9fb6688e988c20da107ba9abc4338d6b0735cfd2f96851ff28c",
+   "anchor_curriculum": {
+    "contract": "btt_curriculum_anchor_sweep_v1",
+    "anchor": "m7l_t2_s1_sweep_49414363",
+    "tick0_probability": 1.0,
+    "start_pointer": 1020,
+    "window": 120,
+    "block": 10,
+    "block_successes": 5,
+    "deadline_consumed_tick": 2699,
+    "max_cut": 1020,
+    "observation_table_sha256": "8880607470e23a36bf99b934b7cc5b0eee33f87ba382817f14fe59016955ab27"
+   },
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "warm_start": "runs/m7g_k/m7g_s0_v1/final",
+   "run_dir": "runs/m7m/campaign/m7m_k_s0",
+   "eval_dir": "runs/m7m/campaign/_eval/m7m_k_s0",
+   "checks": {
+    "name": true,
+    "warm_start_mode": true,
+    "total_transitions": true,
+    "base_seed": true,
+    "anchor_table": true,
+    "no_m7h_curriculum": true,
+    "reward_v2": true,
+    "observation_v1": true,
+    "track1": true,
+    "flags": true,
+    "horizon_n5_standby": true,
+    "checkpoint_interval": true,
+    "post_hoc_evaluation": true
+   },
+   "phase_k_proof": {
+    "base": "rl/configs/m7g/m7g_s0_v1.toml",
+    "value_differences": [
+     "anchor_curriculum.anchor",
+     "anchor_curriculum.block",
+     "anchor_curriculum.block_successes",
+     "anchor_curriculum.contract",
+     "anchor_curriculum.deadline_consumed_tick",
+     "anchor_curriculum.max_cut",
+     "anchor_curriculum.observation_table_sha256",
+     "anchor_curriculum.start_pointer",
+     "anchor_curriculum.tick0_probability",
+     "anchor_curriculum.window",
+     "resume.source_checkpoint",
+     "run.base_seed",
+     "run.mode",
+     "run.name",
+     "run.notes",
+     "run.output_root",
+     "run.total_transitions"
+    ],
+    "ok": true
+   }
+  },
+  "m7m_e_s1": {
+   "seed": 1,
+   "arm": "E",
+   "order": 2,
+   "base_seed": 101,
+   "config": "rl/configs/m7m/m7m_e_s1.toml",
+   "source_sha256": "2c4e8da00fccee0f717757db22ed23929d44391d304a52a62e120c1d6cb7cde5",
+   "semantic_fingerprint": "074692ddc9201def7a40de6ac13d47333a56a96f7a99aa4da40ba1989a4ea2ef",
+   "compatibility_fingerprint": "b71a3b1f55e1fbb06ee7dc013d5c2afdf46b1e53109fbab96e2eb6a71a98705e",
+   "anchor_curriculum": {
+    "contract": "btt_curriculum_anchor_sweep_v1",
+    "anchor": "m7l_t2_s1_sweep_49414363",
+    "tick0_probability": 0.5,
+    "start_pointer": 1020,
+    "window": 120,
+    "block": 10,
+    "block_successes": 5,
+    "deadline_consumed_tick": 2699,
+    "max_cut": 1020,
+    "observation_table_sha256": "8880607470e23a36bf99b934b7cc5b0eee33f87ba382817f14fe59016955ab27"
+   },
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "warm_start": "runs/m7g_k/m7g_s1_v1/final",
+   "run_dir": "runs/m7m/campaign/m7m_e_s1",
+   "eval_dir": "runs/m7m/campaign/_eval/m7m_e_s1",
+   "checks": {
+    "name": true,
+    "warm_start_mode": true,
+    "total_transitions": true,
+    "base_seed": true,
+    "anchor_table": true,
+    "no_m7h_curriculum": true,
+    "reward_v2": true,
+    "observation_v1": true,
+    "track1": true,
+    "flags": true,
+    "horizon_n5_standby": true,
+    "checkpoint_interval": true,
+    "post_hoc_evaluation": true
+   },
+   "phase_k_proof": {
+    "base": "rl/configs/m7g/m7g_s1_v1.toml",
+    "value_differences": [
+     "anchor_curriculum.anchor",
+     "anchor_curriculum.block",
+     "anchor_curriculum.block_successes",
+     "anchor_curriculum.contract",
+     "anchor_curriculum.deadline_consumed_tick",
+     "anchor_curriculum.max_cut",
+     "anchor_curriculum.observation_table_sha256",
+     "anchor_curriculum.start_pointer",
+     "anchor_curriculum.tick0_probability",
+     "anchor_curriculum.window",
+     "resume.source_checkpoint",
+     "run.base_seed",
+     "run.mode",
+     "run.name",
+     "run.notes",
+     "run.output_root",
+     "run.total_transitions"
+    ],
+    "ok": true
+   }
+  },
+  "m7m_k_s1": {
+   "seed": 1,
+   "arm": "K",
+   "order": 3,
+   "base_seed": 101,
+   "config": "rl/configs/m7m/m7m_k_s1.toml",
+   "source_sha256": "1a6b1e55fd36a8fdc8e9cfb14aa30ec16afb6f0738c42bb9a3d74beca751dda6",
+   "semantic_fingerprint": "72211395e4d5a3ac6d9eac4e8c9e0240bf44d63307663d80bd3c2e1069742118",
+   "compatibility_fingerprint": "97c50b875ba6b9fb6688e988c20da107ba9abc4338d6b0735cfd2f96851ff28c",
+   "anchor_curriculum": {
+    "contract": "btt_curriculum_anchor_sweep_v1",
+    "anchor": "m7l_t2_s1_sweep_49414363",
+    "tick0_probability": 1.0,
+    "start_pointer": 1020,
+    "window": 120,
+    "block": 10,
+    "block_successes": 5,
+    "deadline_consumed_tick": 2699,
+    "max_cut": 1020,
+    "observation_table_sha256": "8880607470e23a36bf99b934b7cc5b0eee33f87ba382817f14fe59016955ab27"
+   },
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "warm_start": "runs/m7g_k/m7g_s1_v1/final",
+   "run_dir": "runs/m7m/campaign/m7m_k_s1",
+   "eval_dir": "runs/m7m/campaign/_eval/m7m_k_s1",
+   "checks": {
+    "name": true,
+    "warm_start_mode": true,
+    "total_transitions": true,
+    "base_seed": true,
+    "anchor_table": true,
+    "no_m7h_curriculum": true,
+    "reward_v2": true,
+    "observation_v1": true,
+    "track1": true,
+    "flags": true,
+    "horizon_n5_standby": true,
+    "checkpoint_interval": true,
+    "post_hoc_evaluation": true
+   },
+   "phase_k_proof": {
+    "base": "rl/configs/m7g/m7g_s1_v1.toml",
+    "value_differences": [
+     "anchor_curriculum.anchor",
+     "anchor_curriculum.block",
+     "anchor_curriculum.block_successes",
+     "anchor_curriculum.contract",
+     "anchor_curriculum.deadline_consumed_tick",
+     "anchor_curriculum.max_cut",
+     "anchor_curriculum.observation_table_sha256",
+     "anchor_curriculum.start_pointer",
+     "anchor_curriculum.tick0_probability",
+     "anchor_curriculum.window",
+     "resume.source_checkpoint",
+     "run.base_seed",
+     "run.mode",
+     "run.name",
+     "run.notes",
+     "run.output_root",
+     "run.total_transitions"
+    ],
+    "ok": true
+   }
+  },
+  "m7m_e_s2": {
+   "seed": 2,
+   "arm": "E",
+   "order": 4,
+   "base_seed": 102,
+   "config": "rl/configs/m7m/m7m_e_s2.toml",
+   "source_sha256": "2928f559b64af2efb86851936ff86e5be5c9a7fe3c01913e5bb5cab043a59909",
+   "semantic_fingerprint": "f3f964d18584aefbee5f30db49218f23112cae93410557ca1764e9e652625de0",
+   "compatibility_fingerprint": "b71a3b1f55e1fbb06ee7dc013d5c2afdf46b1e53109fbab96e2eb6a71a98705e",
+   "anchor_curriculum": {
+    "contract": "btt_curriculum_anchor_sweep_v1",
+    "anchor": "m7l_t2_s1_sweep_49414363",
+    "tick0_probability": 0.5,
+    "start_pointer": 1020,
+    "window": 120,
+    "block": 10,
+    "block_successes": 5,
+    "deadline_consumed_tick": 2699,
+    "max_cut": 1020,
+    "observation_table_sha256": "8880607470e23a36bf99b934b7cc5b0eee33f87ba382817f14fe59016955ab27"
+   },
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "warm_start": "runs/m7g_k/m7g_s2_v1/final",
+   "run_dir": "runs/m7m/campaign/m7m_e_s2",
+   "eval_dir": "runs/m7m/campaign/_eval/m7m_e_s2",
+   "checks": {
+    "name": true,
+    "warm_start_mode": true,
+    "total_transitions": true,
+    "base_seed": true,
+    "anchor_table": true,
+    "no_m7h_curriculum": true,
+    "reward_v2": true,
+    "observation_v1": true,
+    "track1": true,
+    "flags": true,
+    "horizon_n5_standby": true,
+    "checkpoint_interval": true,
+    "post_hoc_evaluation": true
+   },
+   "phase_k_proof": {
+    "base": "rl/configs/m7g/m7g_s2_v1.toml",
+    "value_differences": [
+     "anchor_curriculum.anchor",
+     "anchor_curriculum.block",
+     "anchor_curriculum.block_successes",
+     "anchor_curriculum.contract",
+     "anchor_curriculum.deadline_consumed_tick",
+     "anchor_curriculum.max_cut",
+     "anchor_curriculum.observation_table_sha256",
+     "anchor_curriculum.start_pointer",
+     "anchor_curriculum.tick0_probability",
+     "anchor_curriculum.window",
+     "resume.source_checkpoint",
+     "run.base_seed",
+     "run.mode",
+     "run.name",
+     "run.notes",
+     "run.output_root",
+     "run.total_transitions"
+    ],
+    "ok": true
+   }
+  },
+  "m7m_k_s2": {
+   "seed": 2,
+   "arm": "K",
+   "order": 5,
+   "base_seed": 102,
+   "config": "rl/configs/m7m/m7m_k_s2.toml",
+   "source_sha256": "b6c5bc7e4aa16e2b5c9a256ebb7141e37b0962d5d1c78573a1b0835bf87925e0",
+   "semantic_fingerprint": "a1a810f0903026f247e6ec74428e088a7c667b98a0de468962c0c7ce6b7c6d74",
+   "compatibility_fingerprint": "97c50b875ba6b9fb6688e988c20da107ba9abc4338d6b0735cfd2f96851ff28c",
+   "anchor_curriculum": {
+    "contract": "btt_curriculum_anchor_sweep_v1",
+    "anchor": "m7l_t2_s1_sweep_49414363",
+    "tick0_probability": 1.0,
+    "start_pointer": 1020,
+    "window": 120,
+    "block": 10,
+    "block_successes": 5,
+    "deadline_consumed_tick": 2699,
+    "max_cut": 1020,
+    "observation_table_sha256": "8880607470e23a36bf99b934b7cc5b0eee33f87ba382817f14fe59016955ab27"
+   },
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "warm_start": "runs/m7g_k/m7g_s2_v1/final",
+   "run_dir": "runs/m7m/campaign/m7m_k_s2",
+   "eval_dir": "runs/m7m/campaign/_eval/m7m_k_s2",
+   "checks": {
+    "name": true,
+    "warm_start_mode": true,
+    "total_transitions": true,
+    "base_seed": true,
+    "anchor_table": true,
+    "no_m7h_curriculum": true,
+    "reward_v2": true,
+    "observation_v1": true,
+    "track1": true,
+    "flags": true,
+    "horizon_n5_standby": true,
+    "checkpoint_interval": true,
+    "post_hoc_evaluation": true
+   },
+   "phase_k_proof": {
+    "base": "rl/configs/m7g/m7g_s2_v1.toml",
+    "value_differences": [
+     "anchor_curriculum.anchor",
+     "anchor_curriculum.block",
+     "anchor_curriculum.block_successes",
+     "anchor_curriculum.contract",
+     "anchor_curriculum.deadline_consumed_tick",
+     "anchor_curriculum.max_cut",
+     "anchor_curriculum.observation_table_sha256",
+     "anchor_curriculum.start_pointer",
+     "anchor_curriculum.tick0_probability",
+     "anchor_curriculum.window",
+     "resume.source_checkpoint",
+     "run.base_seed",
+     "run.mode",
+     "run.name",
+     "run.notes",
+     "run.output_root",
+     "run.total_transitions"
+    ],
+    "ok": true
+   }
+  }
+ },
+ "pairs": [
+  {
+   "pair": [
+    "m7m_e_s0",
+    "m7m_k_s0"
+   ],
+   "value_differences": [
+    "anchor_curriculum.tick0_probability",
+    "run.name",
+    "run.notes"
+   ],
+   "ok": true
+  },
+  {
+   "pair": [
+    "m7m_e_s1",
+    "m7m_k_s1"
+   ],
+   "value_differences": [
+    "anchor_curriculum.tick0_probability",
+    "run.name",
+    "run.notes"
+   ],
+   "ok": true
+  },
+  {
+   "pair": [
+    "m7m_e_s2",
+    "m7m_k_s2"
+   ],
+   "value_differences": [
+    "anchor_curriculum.tick0_probability",
+    "run.name",
+    "run.notes"
+   ],
+   "ok": true
+  },
+  {
+   "pair": [
+    "m7m_pilot_e_s0",
+    "m7m_pilot_k_s0"
+   ],
+   "value_differences": [
+    "anchor_curriculum.tick0_probability",
+    "run.name",
+    "run.notes"
+   ],
+   "ok": true
+  }
+ ],
+ "pilot": {
+  "runs": {
+   "m7m_pilot_e_s0": {
+    "arm": "E",
+    "config": "rl/configs/m7m/pilot/m7m_pilot_e_s0.toml",
+    "source_sha256": "377b44508360e3c0fbbccd1fd4a100b326883a0ff84a6b797faf624e8c5e81e0",
+    "semantic_fingerprint": "b419093beb21be5c9cbe5aa58e36ebaf867ea873648ce25d2f993db01608f157",
+    "compatibility_fingerprint": "b71a3b1f55e1fbb06ee7dc013d5c2afdf46b1e53109fbab96e2eb6a71a98705e",
+    "checks": {
+     "name": true,
+     "warm_start_mode": true,
+     "total_transitions": true,
+     "base_seed": true,
+     "anchor_table": true,
+     "no_m7h_curriculum": true,
+     "reward_v2": true,
+     "observation_v1": true,
+     "track1": true,
+     "flags": true,
+     "horizon_n5_standby": true,
+     "checkpoint_interval": true,
+     "post_hoc_evaluation": true
+    },
+    "run_dir": "runs/m7m/pilot/m7m_pilot_e_s0"
+   },
+   "m7m_pilot_k_s0": {
+    "arm": "K",
+    "config": "rl/configs/m7m/pilot/m7m_pilot_k_s0.toml",
+    "source_sha256": "b66e2ebf7b2b514d1a3ea43de78c24ebe1f74b4198098610adf289a6de77229d",
+    "semantic_fingerprint": "09f4436ff6f09ff40650b447d2589cf7e13003074ee17685c2f7136e382a714f",
+    "compatibility_fingerprint": "97c50b875ba6b9fb6688e988c20da107ba9abc4338d6b0735cfd2f96851ff28c",
+    "checks": {
+     "name": true,
+     "warm_start_mode": true,
+     "total_transitions": true,
+     "base_seed": true,
+     "anchor_table": true,
+     "no_m7h_curriculum": true,
+     "reward_v2": true,
+     "observation_v1": true,
+     "track1": true,
+     "flags": true,
+     "horizon_n5_standby": true,
+     "checkpoint_interval": true,
+     "post_hoc_evaluation": true
+    },
+    "run_dir": "runs/m7m/pilot/m7m_pilot_k_s0"
+   }
+  },
+  "transition_cap_per_run": 40960,
+  "rollouts_per_run": 8,
+  "warm_start": "the seed-0 Phase K final, as the campaign pair 0",
+  "outputs": "runs/m7m/pilot",
+  "evaluation_smoke": {
+   "deterministic": 1,
+   "stochastic": 5,
+   "label": "final",
+   "note": "pipeline check only"
+  },
+  "checks": [
+   "actual PPO updates: n_updates +80, Adam step +800 on every parameter, policy digest changed",
+   "continuation: num_timesteps 3,112,960; 8 rollout records; obs_rms count = warm + 5 + 40,960",
+   "policy-only accounting: finished-episode policy steps <= 40,960 and >= 40,960 - 5 x 3,600; prefix ticks only in the selection log; row prefix_length = outcome tau; rows = prefix + policy",
+   "E: at least one anchored start delivered equal to the table in W0, its outcome ingested; K: no anchored draw, no prefix tick",
+   "schedule state = blocks recomputed from the logged outcomes (in-flight rule)",
+   "training verification (m7d, warm-start segment), lineage = the pinned Phase K final, leak-free",
+   "the evaluation smoke: tick-0 starts, metrics clean, rows verified"
+  ],
+  "never": "pilot performance is never used to tune the curriculum, reward or budget; pilot outputs are never campaign inputs; each campaign run starts again from its pinned Phase K checkpoint"
+ },
+ "evaluation_protocol": {
+  "plan": {
+   "m7m_e_s0": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_e_s0",
+     "arm": "E",
+     "label": "curve_t003584000",
+     "checkpoint": "m7m_e_s0/checkpoints/ckpt_003584000",
+     "num_timesteps": 3584000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_e_s0",
+     "arm": "E",
+     "label": "curve_t004096000",
+     "checkpoint": "m7m_e_s0/checkpoints/ckpt_004096000",
+     "num_timesteps": 4096000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_e_s0",
+     "arm": "E",
+     "label": "final",
+     "checkpoint": "m7m_e_s0/final",
+     "num_timesteps": 4608000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ],
+   "m7m_k_s0": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_k_s0",
+     "arm": "K",
+     "label": "curve_t003584000",
+     "checkpoint": "m7m_k_s0/checkpoints/ckpt_003584000",
+     "num_timesteps": 3584000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_k_s0",
+     "arm": "K",
+     "label": "curve_t004096000",
+     "checkpoint": "m7m_k_s0/checkpoints/ckpt_004096000",
+     "num_timesteps": 4096000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_k_s0",
+     "arm": "K",
+     "label": "final",
+     "checkpoint": "m7m_k_s0/final",
+     "num_timesteps": 4608000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ],
+   "m7m_e_s1": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_e_s1",
+     "arm": "E",
+     "label": "curve_t003584000",
+     "checkpoint": "m7m_e_s1/checkpoints/ckpt_003584000",
+     "num_timesteps": 3584000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_e_s1",
+     "arm": "E",
+     "label": "curve_t004096000",
+     "checkpoint": "m7m_e_s1/checkpoints/ckpt_004096000",
+     "num_timesteps": 4096000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_e_s1",
+     "arm": "E",
+     "label": "final",
+     "checkpoint": "m7m_e_s1/final",
+     "num_timesteps": 4608000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ],
+   "m7m_k_s1": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_k_s1",
+     "arm": "K",
+     "label": "curve_t003584000",
+     "checkpoint": "m7m_k_s1/checkpoints/ckpt_003584000",
+     "num_timesteps": 3584000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_k_s1",
+     "arm": "K",
+     "label": "curve_t004096000",
+     "checkpoint": "m7m_k_s1/checkpoints/ckpt_004096000",
+     "num_timesteps": 4096000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_k_s1",
+     "arm": "K",
+     "label": "final",
+     "checkpoint": "m7m_k_s1/final",
+     "num_timesteps": 4608000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ],
+   "m7m_e_s2": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_e_s2",
+     "arm": "E",
+     "label": "curve_t003584000",
+     "checkpoint": "m7m_e_s2/checkpoints/ckpt_003584000",
+     "num_timesteps": 3584000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_e_s2",
+     "arm": "E",
+     "label": "curve_t004096000",
+     "checkpoint": "m7m_e_s2/checkpoints/ckpt_004096000",
+     "num_timesteps": 4096000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_e_s2",
+     "arm": "E",
+     "label": "final",
+     "checkpoint": "m7m_e_s2/final",
+     "num_timesteps": 4608000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ],
+   "m7m_k_s2": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_k_s2",
+     "arm": "K",
+     "label": "curve_t003584000",
+     "checkpoint": "m7m_k_s2/checkpoints/ckpt_003584000",
+     "num_timesteps": 3584000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_k_s2",
+     "arm": "K",
+     "label": "curve_t004096000",
+     "checkpoint": "m7m_k_s2/checkpoints/ckpt_004096000",
+     "num_timesteps": 4096000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7m_k_s2",
+     "arm": "K",
+     "label": "final",
+     "checkpoint": "m7m_k_s2/final",
+     "num_timesteps": 4608000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ]
+  },
+  "census": {
+   "runs": 6,
+   "per_run": 330,
+   "episodes": 1980,
+   "arithmetic": "6 runs x (2 x 65 + 200) = 1980"
+  },
+  "tick0_check": "rl/m7h_verify.verify_eval_tick0 on every label",
+  "clear_verification": "every native clear in evaluation (m7g_k_run.verify_clears_in) and in training (exact artifact replay from tick 0)",
+  "warm_start_reference": "the Phase K final evaluations runs/m7g_k/_eval/m7g_s{j}_v1/final (read only; reported as the common starting point)"
+ },
+ "directory_plan": {
+  "root": "runs/m7m/campaign",
+  "pilot_root": "runs/m7m/pilot",
+  "planned": 31,
+  "existing": [],
+  "problems": [],
+  "ok": true
+ },
+ "limits": {
+  "runs": 6,
+  "transitions": 9216000,
+  "pilot_transitions": 81920,
+  "max_game_processes": 10,
+  "extension": "none",
+  "extra_seeds": "none",
+  "reward_changes": "none"
+ },
+ "problems": [],
+ "ok": true
+}

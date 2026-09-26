@@ -1,0 +1,1632 @@
+{
+ "schema": "battleship_m7l_campaign_manifest_v1",
+ "milestone": "M7l",
+ "campaign": "target2_credit_v1",
+ "created_utc": "2026-09-25T16:40:28+00:00",
+ "authority": {
+  "proposal": "docs/rl_target2_m7k.md section 10",
+  "approval": "user, 2026-09-25: run the controlled three-seed target-2 reward experiment if its registration and control checks pass; no pause between passing checks and training"
+ },
+ "question": "Does btt_reward_v3_t2 (a one-time, time-sensitive credit of up to +2.0 for native target 2) make fresh v1 policies break the moving target 2 more often at 3,072,000 transitions than the historical btt_reward_v2 control, without losing static targets, and is the gain early enough to matter for a first clear (L, R)?",
+ "arms": {
+  "T": "m7l_t2_s{0,1,2}: fresh models, btt_reward_v3_t2, otherwise the Phase K v1 profile of the seed",
+  "C": "historical runs/m7g_k/m7g_s{0,1,2}_v1 (btt_reward_v2), reused only while the control check passes"
+ },
+ "only_experimental_change": "the reward contract (btt_reward_v3_t2 instead of btt_reward_v2) and the native diagnostic flag it derives (SSB64_RL_TARGET_DIAG=1, read-only, gameplay-neutral)",
+ "order": [
+  "m7l_t2_s0",
+  "m7l_t2_s1",
+  "m7l_t2_s2"
+ ],
+ "sequencing": "strictly sequential, one run at a time, in the order T0, T1, T2; the launch gate before each",
+ "registered_settings": {
+  "reward": {
+   "experimental": "btt_reward_v3_t2",
+   "canonical_sha256": "fa74d7d7edf88936fcb63e1c65cc5751dddc0bc6b1c974a70af232160b9def99",
+   "control": "btt_reward_v2",
+   "unchanged": [
+    "btt_reward_v3 (d9447d47...)",
+    "btt_reward_v2"
+   ],
+   "credit": "2.0 * (3600 - n) / 3600 once, on the step that first shows native target ID 2 broken"
+  },
+  "launch_gate": {
+   "available_commit_gib_min": 10.0,
+   "available_physical_gib_min": 4.0,
+   "free_disk_gib_min": 10.0,
+   "system_cpu_pct_max": 40.0,
+   "boundaries": "inclusive; a missing reading fails; commit and physical evaluated separately",
+   "when": "before every training launch (control check R1 and campaign runs)",
+   "readings": "a failed reading is re-measured after 60 s, at most 5 readings; the run launches only on a passing reading; otherwise the campaign stops"
+  },
+  "in_run_memory_policy": {
+   "warn_gib": 4.0,
+   "stop_gib": 3.0,
+   "emergency_gib": 1.0,
+   "probe_interval_s": 2.0,
+   "escalate_after_s": 30.0,
+   "kill_grace_s": 240.0,
+   "watches": "available system commit only",
+   "physical": "recorded and reported, never a stop trigger"
+  },
+  "monitor": "m7d Monitor: hard alerts stop the run (an episode row that violates its btt_reward_v3_t2 closed form, more than 10 game processes or listeners in two samples, a changed user config, low disk)",
+  "budget": {
+   "policy_transitions_per_run": 3072000,
+   "hard_maximum": true
+  },
+  "stop_conditions": [
+   "a failed launch gate",
+   "a monitor hard alert",
+   "the in-run memory policy (a resource stop)",
+   "a provenance mismatch",
+   "a process leak (leak_free false or a leftover BattleShip process)",
+   "a training verification failure",
+   "a manifest drift"
+  ],
+  "after_a_stop": "the campaign stops and reports; the stopped run directory is moved to _partial by the guard and preserved (never deleted, never resumed); nothing is relaunched in this milestone",
+  "evaluation": "post hoc, frozen statistics, tick-0 starts only (Phase K protocol), btt_eval_metrics_v1 with SSB64_RL_TARGET_DIAG=1, clear verification of every native clear, census; then exact spatial replays (SSB64_RL_SPATIAL=1, read-only) of every final stochastic episode of both arms (approach zone, secondary)",
+  "training_inputs": "tick-0 episodes of the run itself only; never the crossing fixtures, the TAS, feasibility traces, capture recordings, other runs or hand-written routes",
+  "never": "native RNG state is never inspected, logged, validated, controlled, compared or hashed"
+ },
+ "reward_contracts": {
+  "btt_reward_v2": {
+   "canonical_sha256": "814c79f70238e5bfe65352cba9357b9f02d2d9a5646efd6d4f00d088bc47d24e",
+   "json": {
+    "contract": "btt_reward_v2",
+    "target_broken": 1.0,
+    "per_step": -0.001,
+    "clear_bonus": 10.0,
+    "failure_penalty": -5.0
+   }
+  },
+  "btt_reward_v3": {
+   "canonical_sha256": "d9447d471b95dd59533dfd87192e8eff5e059a6fd42c8bc380e3e27ee6037196",
+   "json": {
+    "contract": "btt_reward_v3",
+    "target_broken": 1.0,
+    "per_step": -0.001,
+    "clear_bonus": 10.0,
+    "failure_penalty": -5.0,
+    "route": {
+     "rule": "btt_route_rule_v3",
+     "right_target_ids": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      7,
+      9
+     ],
+     "right_sweep_bonus": 3.0,
+     "right_sweep_timing_max": 2.0,
+     "horizon_ticks": 3600,
+     "crossing_landing_bonus": 2.0,
+     "post_landing_failure_penalty": -1.0,
+     "left_boundary_x": -2100.0,
+     "wall_top_y": 3000.0,
+     "under_stage_y": -2850.0,
+     "entry_y_tolerance": 1.0,
+     "landing_floor_y": -1950.0,
+     "landing_floor_x_min": -3900.0,
+     "landing_floor_x_max": -2700.0,
+     "landing_tolerance": 1.0
+    }
+   }
+  },
+  "btt_reward_v3_t2": {
+   "canonical_sha256": "fa74d7d7edf88936fcb63e1c65cc5751dddc0bc6b1c974a70af232160b9def99",
+   "json": {
+    "contract": "btt_reward_v3_t2",
+    "target_broken": 1.0,
+    "per_step": -0.001,
+    "clear_bonus": 10.0,
+    "failure_penalty": -5.0,
+    "route": {
+     "rule": "btt_route_rule_v3",
+     "right_target_ids": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      7,
+      9
+     ],
+     "right_sweep_bonus": 3.0,
+     "right_sweep_timing_max": 2.0,
+     "horizon_ticks": 3600,
+     "crossing_landing_bonus": 2.0,
+     "post_landing_failure_penalty": -1.0,
+     "left_boundary_x": -2100.0,
+     "wall_top_y": 3000.0,
+     "under_stage_y": -2850.0,
+     "entry_y_tolerance": 1.0,
+     "landing_floor_y": -1950.0,
+     "landing_floor_x_min": -3900.0,
+     "landing_floor_x_max": -2700.0,
+     "landing_tolerance": 1.0,
+     "moving_target": {
+      "rule": "btt_moving_target_timing_v1",
+      "target_id": 2,
+      "timing_max": 2.0
+     }
+    }
+   }
+  }
+ },
+ "executable": {
+  "path": "build-us/Release/BattleShip.exe",
+  "sha256": "1e7c62a05a9397fb4ef1d404d85a793cd01c4dbdc187068e3a63890cb5cbeb97",
+  "size": 23608320
+ },
+ "revisions": {
+  "head": "14f5a632020f0b8626fdeb897fcbadb87e98fba7",
+  "dirty": true,
+  "submodules": {
+   "decomp": "3c7fd5d0547ae82a240a6ffd134985e4b9697b14",
+   "libultraship": "805f195041573230cf0402171337b22ffd558759",
+   "torch": "3aa9c9739af95659f19adc73afeb12df93957fc3"
+  },
+  "submodules_differ_from_index": []
+ },
+ "code": {
+  "files": 82,
+  "sha256": "ea9691fe3d7bc3c742bd9e18b099c5997e02a7bcc94ac318741a815d7f49ce09",
+  "per_file": {
+   "rl/battleship_client.py": "0d119f0297480821791017a2e5caac0e360cfd7f08bb50f74650386d90f07253",
+   "rl/battleship_env.py": "11397c73322f90f4505d675a2a878aef36835e8309a1eedf0e749fb24b85ae42",
+   "rl/battleship_process.py": "ac3cc658aec825cc128c1030c3cd0ab48645e2711eca065c67698ccb8ad8e705",
+   "rl/btt_learning.py": "4f23ecd086639d6750f0e96e1fa085316cc0cff44dcc60bee913cf6c17b6a8b6",
+   "rl/btt_parallel.py": "edca6e87126d82ec3c271377f696f2ac0acd25e4e74c2ec65464af1bac50b339",
+   "rl/btt_reward_t2.py": "9a4419ed6b23cb377576878a5c3441eab2c90ace64b13b98f86ceed7930e27b5",
+   "rl/btt_reward_v3.py": "04589be48921a9e4bda6a6c1f13f1a35f26bd89ccb50d544a959adf878cdeaa4",
+   "rl/btt_rewards.py": "15bd68fd664a871c9dbdb7285882ab0219b353899573f777813207afe05dae4e",
+   "rl/btti_replay.py": "8cb086ddc17db2dc1d019826ce60fe57f93227374842ee0713ee3e33755e666b",
+   "rl/eval_m7.py": "16c6be093ce2f0fe816d2fa9f64b64b3dc3dc208e2b469ffdf95cedc3adabfa4",
+   "rl/experiment_config.py": "68566862b2bb8a75c302ed9da3e0651b1ce7c8fcf565961e8703ddc2cf53dcfd",
+   "rl/m1e_replay_regression.py": "1e648d74316b9e1d2e9fb71634823d868df061f9f85968bbb6ea0f65053e261a",
+   "rl/m2_restart_regression.py": "6712660dc1f8ecf4da87a1e02735e649faaee05184a3edd25bd62a7825e7a674",
+   "rl/m6_equivalence_regression.py": "822d5fd4bc0b35be1c8de35e7ecede62832d7f30de9b41a60e55127374a252f6",
+   "rl/m6_raphnet_bypass_regression.py": "3464433d146bcb6ce29d47666f88949fa3f978b5ee112c91d7bd96461613a963",
+   "rl/m7_evaluation.py": "fc923df2a7f0851c293f1fb7619ba0ad515187802665a5f44fd5f8b604fcdee5",
+   "rl/m7_report.py": "1c3800ee23491f3f689a3eeb2d30fa38fbaa873ffcf5676735a050ff3bc915c2",
+   "rl/m7_runtime.py": "3dc56722c924065356e6134174d5e2c4724c0f495ee8c4e0eed027dfd2d9c452",
+   "rl/m7_standby.py": "6318a595ef774d9f7bfbd79782f11cc0eea9e716eb08f424a208aa6d9e1e3eb3",
+   "rl/m7_trainer.py": "11b48ee739262d585174977ad62b082d43ac2bbe18ce77416ec1ef20585dac88",
+   "rl/m7_vec_env.py": "f067a3fd6085b9d78f27dea0b72cbd76fe7b797f132a14e548515d9d76e62f86",
+   "rl/m7c_compare.py": "22034568393a802d08f3caa7107cf6a76c3c398833b97550f54ebf24389a6890",
+   "rl/m7d_analysis.py": "faa0451628e714286ba7a31192fae9c2d1284c34b6d212415329e580812698c4",
+   "rl/m7d_matrix.py": "8ec9b4f9665d2f7c806ca73f322bfe403ec992951db4ea0d409e0f197b3e98bf",
+   "rl/m7d_run.py": "35003a37255c8f99b9167091c6e23e9e6ca6bf3d5f9dc3eef3f96879533440b1",
+   "rl/m7e_analysis.py": "5546e15168e5a79a70897af6d42ef3d13c857621fed90e0a5a6d62acb65919b1",
+   "rl/m7e_idle_analysis.py": "46d502681b87689b769d435ad345bc100fc75fcf0294ceb09f9a91a6efd2de79",
+   "rl/m7e_matrix.py": "07fe6e7602ab1572eff354f8abf6cf8e66a45fc8b27f27fdd976487e4abe42f7",
+   "rl/m7e_run.py": "ea021d97ee463bae73c3fd1d5e64fe05ab003ee67adb372cef3479e38f75e39a",
+   "rl/m7f_analysis.py": "afdd14d3cfc344a62c6bbd53113b5e50718c048208b453c9386d52de93be8a77",
+   "rl/m7f_manifest.py": "d5c1e935f48a9880c0113378bcdaf8d6ad88a165785e77b8a57ff6e0e5047e6f",
+   "rl/m7f_nonport_view.py": "a859195a1a61e349d930d4bceded4b328fb2803bd246629a4e35bd9a41b78e91",
+   "rl/m7f_regressions.py": "bca01125d6a86677c00c13bc2917ff37b3368ffe6b9a06cf4ef77030b304f236",
+   "rl/m7f_replay.py": "f3a28dc2c4fa1c30d1337030acc8589f856eecb83e88e53a8efe3a3950a6d20c",
+   "rl/m7f_targets.py": "3fc8f9dfbdb4c68bc482821a2fdba368a547252a54e194afc7ab08075ad13d98",
+   "rl/m7f_trace.py": "99399e16718a9e5a5f4d4eb3ce6c4b00bb62e6f9483522b03946b52180cb9190",
+   "rl/m7f_validate.py": "8af405a27084a410a3f0af6db81d36ecc1cb3a38cd83292906162fb229f78b34",
+   "rl/m7g_capture.py": "619c28baa7f9cbb1efb246b923fc023c28023666d6df9f0b261787451004ee6b",
+   "rl/m7g_crossing.py": "d1325e9364bd7f5a8da93c42ab669dcc19a9f00eb0890563bf7421817b561ca8",
+   "rl/m7g_equivalence.py": "e4ebfaddfe7be1e12f7e183dc28ac05459d3d71e3c0e0083b9d34652a72b8bb8",
+   "rl/m7g_eval_metrics.py": "6033b1021968e772955f2146bf5d43e95b3576e5ba06e8f3fa1aba63296ebd21",
+   "rl/m7g_fixture.py": "880e641e22609ae7aa3da7b339fecae5eee69bc5c6e9cf4237413f0db6e1770b",
+   "rl/m7g_k_analysis.py": "5a79a0d18b1a709e9943242dee1886da80adbaaace377846063e47f3adc03f7c",
+   "rl/m7g_k_matrix.py": "3d2c01cf4af10ab47de5d5f527166f01d413937e9e2dbb8fe7764562dfe8055b",
+   "rl/m7g_k_run.py": "4c8afb6ecf29d2b6130a3bebb2f70e0f9648d8a7044c65112cf1180274de4bb2",
+   "rl/m7g_obs.py": "b65b9e16763f7e2f71168f01aba5312ad80f077b08e54ad39c0d09cc08728d14",
+   "rl/m7g_policy.py": "2b3042ea9ed455d95a2fbbe8d38d29117ec58dab785d962c97f1262dc092c8ef",
+   "rl/m7g_representations.py": "21953779658197e43be56e2aa5fc825185840cfea72593e9722ed2eb6cefce4e",
+   "rl/m7g_spatial.py": "d95269b65648942594c2f9b598629c76dafb1fd839f08babc2621085f0e0b17c",
+   "rl/m7h_analysis.py": "b44132bab4bbc6055fb523d387ea6c1adb1c4c515aa16abd48f5d92b6fbe1fd3",
+   "rl/m7h_campaign.py": "ca08ccfaf786ce1a76000871081c517edc174d84adc30f3d03e62fb64fcee218",
+   "rl/m7h_curriculum.py": "12428c0cc6044ae501b5d288d129259d1ea64eb0b5e26586be43376b4fb0ea8e",
+   "rl/m7h_guard.py": "0d581b987670d7ed91748e6ec9954353a84052790f8f11e2cbb580b36eb766da",
+   "rl/m7h_matrix.py": "89163c1bf2d16240b14283d1f4860ebca508812ebb4ea1cd7643c5acfeddc558",
+   "rl/m7h_run.py": "b2f2e4d3e4ff237cf561ce99feb69d502f5252e5022b2bdd8c3acfc755a66d70",
+   "rl/m7h_vec.py": "711c4c160f65ac0829af2877bd90e571bbe88df3b9a03af1736ddd980aa49331",
+   "rl/m7h_verify.py": "355dde584bd0a0f2a04799f37bc4cdcbe0a4b7cdd191e0d7e484c1183380a049",
+   "rl/m7h_worker.py": "f0212ac95bf8850c4d2f2505837f2a2d14178761ee238a58f0400dcb440b1446",
+   "rl/m7j_offline.py": "c3673d0048a31bf7aee6ebd9e310606aa0d261b525af58fae1df369728aedf70",
+   "rl/m7j_reward_env.py": "b49cd6cfd203514f674aadb38969addd95ebb183d19e72e9cfdd69fc9b848240",
+   "rl/m7j_run.py": "b56baa5b5ae3669169ff589f25d9727321fcb7afb369c573d77bf08c9c1ee62c",
+   "rl/m7k_rewards.py": "e2a35eafd1b123ee995b2234af67433cc8f8c3f5bd52977df61c0577da1812c9",
+   "rl/m7k_run.py": "a3f001c89bbc58b0c4b866c5516d6f88cb63a64ccd1937adc81b7d45fc86034d",
+   "rl/m7k_target2.py": "b954e5990d6c02ad8d5f067cddadb847caf785726b98d4e666c7fd12923369d3",
+   "rl/m7k_teardown_probe.py": "d7a511d18267abcc9bf61279c7487fe2cbc4c51682957b013835d183e4fbfb1e",
+   "rl/m7l_analysis.py": "841cd21544c47274837d2f303ec345df9518cd5be5696a334b94099e0d504fbc",
+   "rl/m7l_campaign.py": "a481e1435222f1aedbe06c2bace4455c34afeb8a8d8e3cf6b889c5306fb6cc48",
+   "rl/m7l_matrix.py": "de8339b39b4f21de51f34c1efb72ac5564c86d9dbaeac698d57c8fae6683a882",
+   "rl/m7l_route_rows.py": "c3b08bbebef2a67159f544afd3199a3726df10c421b18e968bf10f8874314b4b",
+   "rl/run_artifacts.py": "bcab944115d893bf6c447ad285d25f94a73111e2df1b273fdd5efbd1453cac5c",
+   "rl/train_m5.py": "69c9306677723017ee0fdc4015b216eb69aecb539489bb3d9aa73450f54b00e4",
+   "rl/train_m7.py": "501ef378452ba210bc158f2492d57c72ceaa80648e26baa46c61222e26bf03ea",
+   "rl/configs/m7l/m7l_t2_s0.toml": "cc23330a46407e21b4f6f6687b3d3548224c3b8d77189a9e45f68fb6f740a724",
+   "rl/configs/m7l/m7l_t2_s1.toml": "0199f263d4ac244f62243d12c440b7cdd339d045a1071bc358a934d29eaef5c9",
+   "rl/configs/m7l/m7l_t2_s2.toml": "5053b2835dcc939d4d75eab43a1a01350c5b70417eb51d46a94ca8e4e2e9ef92",
+   "rl/configs/m7g/m7g_s0_v1.toml": "d9f763f701deadf3432256736d0d904be192d74a965cff7af5bbb0dab143faa9",
+   "rl/configs/m7g/m7g_s1_v1.toml": "ab7dbbb4b68180f0935e42999a1fb442b05994e17aff9c783b1ada6251947699",
+   "rl/configs/m7g/m7g_s2_v1.toml": "6b8b6285c1703571031a4d1c8111d71daa762f9b2585e08314b08726d5a8367f",
+   "rl/configs/m7h/gate/m7h_r1_s0.toml": "d049d0d5683d01eb2c1ee6ad59ce85b352fa6fd9d91d1e1a556c6301fa5f2486",
+   "rl/configs/m7h/gate/m7h_r1_s1.toml": "6d4aefa5abff374a18f2e18780e51bb4dc3206ddcc575a460394124120d20d3f",
+   "rl/configs/m7h/gate/m7h_r1_s2.toml": "1a8fae66d86ea77b293f39db9375c1e217fb5eb32db520a06b756e0caeb39609",
+   "docs/rl_target2_m7l_decision_rule.json": "01762dcbb9c331ddecc400f751a3332b5eda6affbbe22eeaa4d1ff9bf8256f0e"
+  }
+ },
+ "decision_rule": {
+  "path": "docs/rl_target2_m7l_decision_rule.json",
+  "sha256": "01762dcbb9c331ddecc400f751a3332b5eda6affbbe22eeaa4d1ff9bf8256f0e",
+  "schema": "m7l_decision_rule_v1"
+ },
+ "runs": {
+  "m7l_t2_s0": {
+   "seed": 0,
+   "arm": "T",
+   "order": 1,
+   "config": "rl/configs/m7l/m7l_t2_s0.toml",
+   "source_sha256": "cc23330a46407e21b4f6f6687b3d3548224c3b8d77189a9e45f68fb6f740a724",
+   "semantic_fingerprint": "8df183aa128bfdfcc93f8d6164d18c68929db229d05223655c5b7c9c615577a2",
+   "compatibility_fingerprint": "2986166174911cd94f1f84108112a125fbd09e7d2c41315dd80c538f9bd4bd83",
+   "reward": {
+    "contract": "btt_reward_v3_t2",
+    "target_broken": 1.0,
+    "per_step": -0.001,
+    "clear_bonus": 10.0,
+    "failure_penalty": -5.0,
+    "route": {
+     "rule": "btt_route_rule_v3",
+     "right_target_ids": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      7,
+      9
+     ],
+     "right_sweep_bonus": 3.0,
+     "right_sweep_timing_max": 2.0,
+     "horizon_ticks": 3600,
+     "crossing_landing_bonus": 2.0,
+     "post_landing_failure_penalty": -1.0,
+     "left_boundary_x": -2100.0,
+     "wall_top_y": 3000.0,
+     "under_stage_y": -2850.0,
+     "entry_y_tolerance": 1.0,
+     "landing_floor_y": -1950.0,
+     "landing_floor_x_min": -3900.0,
+     "landing_floor_x_max": -2700.0,
+     "landing_tolerance": 1.0,
+     "moving_target": {
+      "rule": "btt_moving_target_timing_v1",
+      "target_id": 2,
+      "timing_max": 2.0
+     }
+    }
+   },
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "run_dir": "runs/m7l/campaign/m7l_t2_s0",
+   "eval_dir": "runs/m7l/campaign/_eval/m7l_t2_s0",
+   "control": "m7g_s0_v1",
+   "checks": {
+    "name": true,
+    "seed": true,
+    "mode_train_fresh": true,
+    "observation_v1": true,
+    "policy": true,
+    "native_flags": true,
+    "network": true,
+    "task": true,
+    "action_contract": true,
+    "reward_v3_t2_registered": true,
+    "reward_base_values": true,
+    "no_reward_normalisation": true,
+    "process_count_5_standby": true,
+    "horizon": true,
+    "budget": true,
+    "rollout_geometry": true,
+    "ppo": true,
+    "cpu_one_thread": true,
+    "no_in_process_evaluation": true,
+    "checkpoint_cadence": true,
+    "evaluation_protocol": true,
+    "artifacts_as_control": true,
+    "no_curriculum": true,
+    "run_dir": true,
+    "no_fixture_or_tas_path": true
+   },
+   "phase_k_proof": {
+    "base": "rl/configs/m7g/m7g_s0_v1.toml",
+    "compatibility_differences": [
+     "contracts.reward_resolved",
+     "environment.extra_env"
+    ],
+    "expected_compatibility_differences": [
+     "contracts.reward_resolved",
+     "environment.extra_env"
+    ],
+    "value_differences": [
+     "contracts.reward",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "expected_value_differences": [
+     "contracts.reward",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "ok": true
+   },
+   "expected_initial_policy_digest": "68155f41065d243fed9bcdc9e0be71bb0b583595bd1da02f7d9d7cbf42054fa2",
+   "expected_initial_obs_rms_digest": "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251",
+   "initial_model_equals_control_untrained_model": true
+  },
+  "m7l_t2_s1": {
+   "seed": 1,
+   "arm": "T",
+   "order": 2,
+   "config": "rl/configs/m7l/m7l_t2_s1.toml",
+   "source_sha256": "0199f263d4ac244f62243d12c440b7cdd339d045a1071bc358a934d29eaef5c9",
+   "semantic_fingerprint": "7df120e6a8b5925a48d01443ee6404af94d35c5775e041da40e9747063bf6487",
+   "compatibility_fingerprint": "2986166174911cd94f1f84108112a125fbd09e7d2c41315dd80c538f9bd4bd83",
+   "reward": {
+    "contract": "btt_reward_v3_t2",
+    "target_broken": 1.0,
+    "per_step": -0.001,
+    "clear_bonus": 10.0,
+    "failure_penalty": -5.0,
+    "route": {
+     "rule": "btt_route_rule_v3",
+     "right_target_ids": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      7,
+      9
+     ],
+     "right_sweep_bonus": 3.0,
+     "right_sweep_timing_max": 2.0,
+     "horizon_ticks": 3600,
+     "crossing_landing_bonus": 2.0,
+     "post_landing_failure_penalty": -1.0,
+     "left_boundary_x": -2100.0,
+     "wall_top_y": 3000.0,
+     "under_stage_y": -2850.0,
+     "entry_y_tolerance": 1.0,
+     "landing_floor_y": -1950.0,
+     "landing_floor_x_min": -3900.0,
+     "landing_floor_x_max": -2700.0,
+     "landing_tolerance": 1.0,
+     "moving_target": {
+      "rule": "btt_moving_target_timing_v1",
+      "target_id": 2,
+      "timing_max": 2.0
+     }
+    }
+   },
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "run_dir": "runs/m7l/campaign/m7l_t2_s1",
+   "eval_dir": "runs/m7l/campaign/_eval/m7l_t2_s1",
+   "control": "m7g_s1_v1",
+   "checks": {
+    "name": true,
+    "seed": true,
+    "mode_train_fresh": true,
+    "observation_v1": true,
+    "policy": true,
+    "native_flags": true,
+    "network": true,
+    "task": true,
+    "action_contract": true,
+    "reward_v3_t2_registered": true,
+    "reward_base_values": true,
+    "no_reward_normalisation": true,
+    "process_count_5_standby": true,
+    "horizon": true,
+    "budget": true,
+    "rollout_geometry": true,
+    "ppo": true,
+    "cpu_one_thread": true,
+    "no_in_process_evaluation": true,
+    "checkpoint_cadence": true,
+    "evaluation_protocol": true,
+    "artifacts_as_control": true,
+    "no_curriculum": true,
+    "run_dir": true,
+    "no_fixture_or_tas_path": true
+   },
+   "phase_k_proof": {
+    "base": "rl/configs/m7g/m7g_s1_v1.toml",
+    "compatibility_differences": [
+     "contracts.reward_resolved",
+     "environment.extra_env"
+    ],
+    "expected_compatibility_differences": [
+     "contracts.reward_resolved",
+     "environment.extra_env"
+    ],
+    "value_differences": [
+     "contracts.reward",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "expected_value_differences": [
+     "contracts.reward",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "ok": true
+   },
+   "expected_initial_policy_digest": "1dd753aeda5f450e77d5ecbc83380b390dfc3783084ec50bd266cc2340b13f6c",
+   "expected_initial_obs_rms_digest": "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251",
+   "initial_model_equals_control_untrained_model": true
+  },
+  "m7l_t2_s2": {
+   "seed": 2,
+   "arm": "T",
+   "order": 3,
+   "config": "rl/configs/m7l/m7l_t2_s2.toml",
+   "source_sha256": "5053b2835dcc939d4d75eab43a1a01350c5b70417eb51d46a94ca8e4e2e9ef92",
+   "semantic_fingerprint": "60643d82d517591f1bfc544ddc4300e7166205f76c2dd2f06276f61fa5842b4d",
+   "compatibility_fingerprint": "2986166174911cd94f1f84108112a125fbd09e7d2c41315dd80c538f9bd4bd83",
+   "reward": {
+    "contract": "btt_reward_v3_t2",
+    "target_broken": 1.0,
+    "per_step": -0.001,
+    "clear_bonus": 10.0,
+    "failure_penalty": -5.0,
+    "route": {
+     "rule": "btt_route_rule_v3",
+     "right_target_ids": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      7,
+      9
+     ],
+     "right_sweep_bonus": 3.0,
+     "right_sweep_timing_max": 2.0,
+     "horizon_ticks": 3600,
+     "crossing_landing_bonus": 2.0,
+     "post_landing_failure_penalty": -1.0,
+     "left_boundary_x": -2100.0,
+     "wall_top_y": 3000.0,
+     "under_stage_y": -2850.0,
+     "entry_y_tolerance": 1.0,
+     "landing_floor_y": -1950.0,
+     "landing_floor_x_min": -3900.0,
+     "landing_floor_x_max": -2700.0,
+     "landing_tolerance": 1.0,
+     "moving_target": {
+      "rule": "btt_moving_target_timing_v1",
+      "target_id": 2,
+      "timing_max": 2.0
+     }
+    }
+   },
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   },
+   "run_dir": "runs/m7l/campaign/m7l_t2_s2",
+   "eval_dir": "runs/m7l/campaign/_eval/m7l_t2_s2",
+   "control": "m7g_s2_v1",
+   "checks": {
+    "name": true,
+    "seed": true,
+    "mode_train_fresh": true,
+    "observation_v1": true,
+    "policy": true,
+    "native_flags": true,
+    "network": true,
+    "task": true,
+    "action_contract": true,
+    "reward_v3_t2_registered": true,
+    "reward_base_values": true,
+    "no_reward_normalisation": true,
+    "process_count_5_standby": true,
+    "horizon": true,
+    "budget": true,
+    "rollout_geometry": true,
+    "ppo": true,
+    "cpu_one_thread": true,
+    "no_in_process_evaluation": true,
+    "checkpoint_cadence": true,
+    "evaluation_protocol": true,
+    "artifacts_as_control": true,
+    "no_curriculum": true,
+    "run_dir": true,
+    "no_fixture_or_tas_path": true
+   },
+   "phase_k_proof": {
+    "base": "rl/configs/m7g/m7g_s2_v1.toml",
+    "compatibility_differences": [
+     "contracts.reward_resolved",
+     "environment.extra_env"
+    ],
+    "expected_compatibility_differences": [
+     "contracts.reward_resolved",
+     "environment.extra_env"
+    ],
+    "value_differences": [
+     "contracts.reward",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "expected_value_differences": [
+     "contracts.reward",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "ok": true
+   },
+   "expected_initial_policy_digest": "9fa632c6ffeb559d0daf4751648776dfbbaf2e3d750bd622019f7f8b0d1a8f87",
+   "expected_initial_obs_rms_digest": "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251",
+   "initial_model_equals_control_untrained_model": true
+  }
+ },
+ "historical_control": {
+  "seeds": {
+   "0": {
+    "run": "m7g_s0_v1",
+    "run_dir": "runs/m7g_k/m7g_s0_v1",
+    "eval_dir": "runs/m7g_k/_eval/m7g_s0_v1",
+    "final_checkpoint_json_sha256": "b04ca3c139e9f9b565c012f038167e5f3b62fb30e6c736ccc06599f5a6eb29b6",
+    "final_digests": [
+     "6edb91f4e2475e228c566608fd80e26a63eb0105cc9b7e8a220e40703459f7a3",
+     "6560d0e7f6adbe6f5049383dfd933e8630c8e10c3534f5041d41dea5d9387b9d"
+    ],
+    "initial_digests": [
+     "68155f41065d243fed9bcdc9e0be71bb0b583595bd1da02f7d9d7cbf42054fa2",
+     "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251"
+    ],
+    "ckpt_000102400_digests": [
+     "5cec5fc4028dbca5f0e2402408718fb01ca21fa8aaa8242333c40ac0917b4b97",
+     "050acde93d9b43f3fd92eea767412991073cc11523d12691acea2d0c834ecee1"
+    ],
+    "rows_at_102400": 30,
+    "rows_at_102400_sha256": "db0957abcd8775cfcd6397e2f77eed72e7c02f8747eb018432b4d60e80e1d842",
+    "final_evaluation_sha256": {
+     "stochastic": "d7b52898e9b41a558ca0c61d96a41d056ff454a6455c0753d9257836d97ae196",
+     "deterministic": "06656b78f9ea238f682cca399ef2b8cdd11b82e1cc5c137467556691842b34a0"
+    },
+    "decision_inputs": {
+     "n": 100,
+     "t2": 1,
+     "S": 471,
+     "S_right": 471,
+     "L": 0,
+     "R": 0,
+     "T": "118/25",
+     "falls": 1,
+     "native_clears": 0,
+     "verified_clears": 0,
+     "stochastic_verified_clears": 0,
+     "left_entries": 0,
+     "left_target_episodes": 0,
+     "left_target_breaks": {
+      "1": 0,
+      "6": 0,
+      "8": 0
+     },
+     "seven_right": 0,
+     "t2_ticks": [
+      2907
+     ],
+     "t2_falls": 1
+    },
+    "phase_k_status": "verified",
+    "problems": [],
+    "ok": true
+   },
+   "1": {
+    "run": "m7g_s1_v1",
+    "run_dir": "runs/m7g_k/m7g_s1_v1",
+    "eval_dir": "runs/m7g_k/_eval/m7g_s1_v1",
+    "final_checkpoint_json_sha256": "9d9cb38a2f35c8a1c02be6d14dae4c163a447c7f413aceef804b7cc5490b37a1",
+    "final_digests": [
+     "086f73adf33d68893ad627c2ded0e8f5c526ad4e8d978ce8fc853bb67f1f5993",
+     "2ad775aab624aaeaddfca82082adf2490f20861c5df3d3253b96aa771da35e9e"
+    ],
+    "initial_digests": [
+     "1dd753aeda5f450e77d5ecbc83380b390dfc3783084ec50bd266cc2340b13f6c",
+     "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251"
+    ],
+    "ckpt_000102400_digests": [
+     "56241d2258a01d088c6ac56283450384deeb5a4d8f48e8dd4bf8058a5ca8af1f",
+     "ab5944a8167f1f73bda7797dfb6eed86f4fd166dade24b290bf2cac8ef4600f3"
+    ],
+    "rows_at_102400": 27,
+    "rows_at_102400_sha256": "72aa410fc9c624028e80a5e6bea0cc25f92032192b515ab7295b32fabbb75fcf",
+    "final_evaluation_sha256": {
+     "stochastic": "673d00dcce3fe96c685f30b068be0be94bacf588349eca285dd8c791d2bd56c6",
+     "deterministic": "4eb10d63c6be60134857f7eb281fff48c8404dcf8290b56dfc14523a17660a62"
+    },
+    "decision_inputs": {
+     "n": 100,
+     "t2": 0,
+     "S": 475,
+     "S_right": 475,
+     "L": 0,
+     "R": 0,
+     "T": "19/4",
+     "falls": 1,
+     "native_clears": 0,
+     "verified_clears": 0,
+     "stochastic_verified_clears": 0,
+     "left_entries": 0,
+     "left_target_episodes": 0,
+     "left_target_breaks": {
+      "1": 0,
+      "6": 0,
+      "8": 0
+     },
+     "seven_right": 0,
+     "t2_ticks": [],
+     "t2_falls": 0
+    },
+    "phase_k_status": "verified",
+    "problems": [],
+    "ok": true
+   },
+   "2": {
+    "run": "m7g_s2_v1",
+    "run_dir": "runs/m7g_k/m7g_s2_v1",
+    "eval_dir": "runs/m7g_k/_eval/m7g_s2_v1",
+    "final_checkpoint_json_sha256": "0543d7d5bfb030970ee77e823bd892f195876041fdd52447a7b3e2bbf312eeed",
+    "final_digests": [
+     "ce9a8e0a931258f8dac39650cea7b0ccb9e4cbe626e18747cbcc2eb1131ef410",
+     "1363d93d9022acfb71f54098df9f702961ed5c48690dcce1726a88bbca2b81e5"
+    ],
+    "initial_digests": [
+     "9fa632c6ffeb559d0daf4751648776dfbbaf2e3d750bd622019f7f8b0d1a8f87",
+     "06b1b3703f44e9ef5ac7f68a9751c18e1ea0d32eca22e594695fbceb8b87d251"
+    ],
+    "ckpt_000102400_digests": [
+     "5177b527a802e5e4c7c99ba3389cb404c81911c1aa6384158e9e6520b130509e",
+     "18c6a19bbf970bc47bd65d4bf48561cb06e0be78bb967878d76f919a95578502"
+    ],
+    "rows_at_102400": 29,
+    "rows_at_102400_sha256": "74f49cabc0510c4e4819272e19edf2a122b4e79ad3bd12534ea94881145a4c0e",
+    "final_evaluation_sha256": {
+     "stochastic": "1d5f4fe71186de35f404450fb9991949d3378bc2f65f83b9eafc5cfbb7810fe9",
+     "deterministic": "bc6fcdba5f9ca7548f7469fc6292a7151bc73a875202ab1c5526fb457108629e"
+    },
+    "decision_inputs": {
+     "n": 100,
+     "t2": 2,
+     "S": 425,
+     "S_right": 425,
+     "L": 1,
+     "R": 0,
+     "T": "427/100",
+     "falls": 0,
+     "native_clears": 0,
+     "verified_clears": 0,
+     "stochastic_verified_clears": 0,
+     "left_entries": 0,
+     "left_target_episodes": 0,
+     "left_target_breaks": {
+      "1": 0,
+      "6": 0,
+      "8": 0
+     },
+     "seven_right": 0,
+     "t2_ticks": [
+      1134,
+      2033
+     ],
+     "t2_falls": 0
+    },
+    "phase_k_status": "verified",
+    "problems": [],
+    "ok": true
+   }
+  },
+  "control_check": {
+   "R1": {
+    "what": "curriculum-off btt_reward_v2 runs of 102,400 transitions (rl/configs/m7h/gate/m7h_r1_s{s}.toml = the Phase K v1 profile, bounded) on the frozen code",
+    "must_equal": "the pinned policy / statistics digests (Phase K = M7e ckpt_000102400) and every episode row up to 102,400 (rank, worker episode, end, steps, targets, native action digest), 30 / 27 / 29 rows",
+    "implementation": "rl/m7h_run.py cmd_r1 into the campaign's _control tree, plus an M7l comparison against the Phase K checkpoint and rows"
+   },
+   "R2": {
+    "what": "re-evaluation of the three historical final checkpoints (100 deterministic + 100 stochastic each, 600 episodes) on the frozen code",
+    "must_equal": "native action digest, targets, end reason and btt_eval_metrics_v1 of every registered Phase K evaluation episode",
+    "implementation": "rl/m7h_run.py cmd_r2"
+   },
+   "R3": {
+    "what": "the M7l decision inputs recomputed from the R2 records and from the historical records",
+    "must_equal": "each other and the rule's known_control_values",
+    "implementation": "rl/m7l_campaign.py"
+   }
+  },
+  "verification": "python rl/m7l_campaign.py control-check (bound to the code fingerprint and executable)"
+ },
+ "evaluation_protocol": {
+  "plan": {
+   "m7l_t2_s0": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "initial",
+     "checkpoint": "m7l_t2_s0/checkpoints/ckpt_000000000",
+     "num_timesteps": 0,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "curve_t000307200",
+     "checkpoint": "m7l_t2_s0/checkpoints/ckpt_000307200",
+     "num_timesteps": 307200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "curve_t000614400",
+     "checkpoint": "m7l_t2_s0/checkpoints/ckpt_000614400",
+     "num_timesteps": 614400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "curve_t000921600",
+     "checkpoint": "m7l_t2_s0/checkpoints/ckpt_000921600",
+     "num_timesteps": 921600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "curve_t001228800",
+     "checkpoint": "m7l_t2_s0/checkpoints/ckpt_001228800",
+     "num_timesteps": 1228800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "curve_t001536000",
+     "checkpoint": "m7l_t2_s0/checkpoints/ckpt_001536000",
+     "num_timesteps": 1536000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "curve_t001843200",
+     "checkpoint": "m7l_t2_s0/checkpoints/ckpt_001843200",
+     "num_timesteps": 1843200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "curve_t002150400",
+     "checkpoint": "m7l_t2_s0/checkpoints/ckpt_002150400",
+     "num_timesteps": 2150400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "curve_t002457600",
+     "checkpoint": "m7l_t2_s0/checkpoints/ckpt_002457600",
+     "num_timesteps": 2457600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "curve_t002764800",
+     "checkpoint": "m7l_t2_s0/checkpoints/ckpt_002764800",
+     "num_timesteps": 2764800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s0",
+     "arm": "T",
+     "label": "final",
+     "checkpoint": "m7l_t2_s0/final",
+     "num_timesteps": 3072000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ],
+   "m7l_t2_s1": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "initial",
+     "checkpoint": "m7l_t2_s1/checkpoints/ckpt_000000000",
+     "num_timesteps": 0,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "curve_t000307200",
+     "checkpoint": "m7l_t2_s1/checkpoints/ckpt_000307200",
+     "num_timesteps": 307200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "curve_t000614400",
+     "checkpoint": "m7l_t2_s1/checkpoints/ckpt_000614400",
+     "num_timesteps": 614400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "curve_t000921600",
+     "checkpoint": "m7l_t2_s1/checkpoints/ckpt_000921600",
+     "num_timesteps": 921600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "curve_t001228800",
+     "checkpoint": "m7l_t2_s1/checkpoints/ckpt_001228800",
+     "num_timesteps": 1228800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "curve_t001536000",
+     "checkpoint": "m7l_t2_s1/checkpoints/ckpt_001536000",
+     "num_timesteps": 1536000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "curve_t001843200",
+     "checkpoint": "m7l_t2_s1/checkpoints/ckpt_001843200",
+     "num_timesteps": 1843200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "curve_t002150400",
+     "checkpoint": "m7l_t2_s1/checkpoints/ckpt_002150400",
+     "num_timesteps": 2150400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "curve_t002457600",
+     "checkpoint": "m7l_t2_s1/checkpoints/ckpt_002457600",
+     "num_timesteps": 2457600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "curve_t002764800",
+     "checkpoint": "m7l_t2_s1/checkpoints/ckpt_002764800",
+     "num_timesteps": 2764800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s1",
+     "arm": "T",
+     "label": "final",
+     "checkpoint": "m7l_t2_s1/final",
+     "num_timesteps": 3072000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ],
+   "m7l_t2_s2": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "initial",
+     "checkpoint": "m7l_t2_s2/checkpoints/ckpt_000000000",
+     "num_timesteps": 0,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "curve_t000307200",
+     "checkpoint": "m7l_t2_s2/checkpoints/ckpt_000307200",
+     "num_timesteps": 307200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "curve_t000614400",
+     "checkpoint": "m7l_t2_s2/checkpoints/ckpt_000614400",
+     "num_timesteps": 614400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "curve_t000921600",
+     "checkpoint": "m7l_t2_s2/checkpoints/ckpt_000921600",
+     "num_timesteps": 921600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "curve_t001228800",
+     "checkpoint": "m7l_t2_s2/checkpoints/ckpt_001228800",
+     "num_timesteps": 1228800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "curve_t001536000",
+     "checkpoint": "m7l_t2_s2/checkpoints/ckpt_001536000",
+     "num_timesteps": 1536000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "curve_t001843200",
+     "checkpoint": "m7l_t2_s2/checkpoints/ckpt_001843200",
+     "num_timesteps": 1843200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "curve_t002150400",
+     "checkpoint": "m7l_t2_s2/checkpoints/ckpt_002150400",
+     "num_timesteps": 2150400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "curve_t002457600",
+     "checkpoint": "m7l_t2_s2/checkpoints/ckpt_002457600",
+     "num_timesteps": 2457600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "curve_t002764800",
+     "checkpoint": "m7l_t2_s2/checkpoints/ckpt_002764800",
+     "num_timesteps": 2764800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v1",
+     "reward_contract": "btt_reward_v3_t2",
+     "starts": "tick0_only",
+     "run": "m7l_t2_s2",
+     "arm": "T",
+     "label": "final",
+     "checkpoint": "m7l_t2_s2/final",
+     "num_timesteps": 3072000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ]
+  },
+  "census": {
+   "runs": 3,
+   "per_run": 985,
+   "episodes": 2955,
+   "arithmetic": "3 runs x 985 = 2955",
+   "labels_per_run": 11,
+   "historical_control_reused": true
+  },
+  "tick0_check": "rl/m7h_verify.verify_eval_tick0 on every label",
+  "route_rows": "every evaluation row equals its btt_reward_v3_t2 closed form (reward_v3 record) and its moving-target tick equals btt_eval_metrics_v1's",
+  "clear_verification": "rl/m7g_k_run.verify_clears_in on every T label",
+  "spatial_replays": "every final stochastic episode of both arms (600), exact, rl/m7k_target2.replay_one; descriptive"
+ },
+ "directory_plan": {
+  "root": "runs/m7l/campaign",
+  "planned": 23,
+  "existing": [],
+  "problems": [],
+  "ok": true
+ },
+ "limits": {
+  "runs": 3,
+  "transitions": 9216000,
+  "max_game_processes": 10,
+  "extension": "none",
+  "extra_seeds": "none"
+ },
+ "problems": [],
+ "ok": true
+}

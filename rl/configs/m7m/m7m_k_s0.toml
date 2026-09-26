@@ -1,0 +1,126 @@
+# M7m: anchored backward consolidation of the M7l training sweep, arm K: matched control (the same machinery, tick0_probability 1.0: never an anchored start), seed pair 0.
+# Design: docs/rl_sweep_consolidation_m7m_design.md (revision 1). NOT launched: the paired training comparison
+# needs its own go-ahead after the feasibility gate (rl/m7m_feasibility.py).
+#
+# Body = rl/configs/m7g/m7g_s0_v1.toml (Phase K control, reward v2) except: [run] (name, mode = resume,
+# base_seed 100 shared by E and K of this pair, cumulative total_transitions 4,608,000, output_root, notes),
+# [resume] source_checkpoint = the Phase K final of seed 0, and the [anchor_curriculum] table.
+# Warm start (not a fresh model): policy parameters + Adam state from model.zip, VecNormalize statistics
+# continuing, num_timesteps continuing from 3,072,000; constant learning rate and clip range. E and K identical
+# except anchor_curriculum.tick0_probability.
+#
+#   python rl/train_m7.py --config rl/configs/m7m/m7m_k_s0.toml --dry-run
+
+schema = "battleship_experiment_v1"
+
+[run]
+name = "m7m_k_s0"
+mode = "resume"
+base_seed = 100
+total_transitions = 4608000
+output_root = "runs/m7m/campaign"
+notes = "M7m arm K: matched control (the same machinery, tick0_probability 1.0: never an anchored start); warm start from the Phase K reward-v2 final runs/m7g_k/m7g_s0_v1/final (3,072,000); +1,536,000 policy-controlled transitions (hard maximum); btt_reward_v2, btt_policy_obs_v1, btt_s9_b8_v1, N=5 standby; prefix ticks never counted; no in-process evaluation (post-hoc Phase K protocol)"
+
+[task]
+id = "ssb64_us_mario_btt_v1"
+game_version = "us"
+character = "mario"
+stage = "btt_mario"
+player = 0
+costume = 0
+
+[contracts]
+protocol_version = 1
+observation = "btt_policy_obs_v1"
+action = "btt_s9_b8_v1"
+reward = "btt_reward_v2"
+artifact_schema = 1
+
+[reward]
+# btt_reward_v2 is frozen: these values are enforced, not configurable (v1 plus a one-time -5.0 native-failure penalty).
+target_broken = 1.0
+per_step = -0.001
+clear_bonus = 10.0
+failure_penalty = -5.0
+
+[environment]
+executable = "build-us/Release/BattleShip.exe"
+horizon = 3600
+process_count = 5
+no_render = true
+raphnet_disable = true
+startup_attempts = 3
+startup_timeout_s = 20.0
+ready_timeout_s = 60.0
+request_timeout_s = 10.0
+exit_timeout_s = 30.0
+step_timeout_s = 900.0
+worker_runtime_root = ""
+port_block_base = 30000
+port_block_size = 250
+position_delta_threshold = 300.0
+standby_preboot = true
+standby_count = 1
+standby_wait_timeout_s = 120.0
+
+[ppo]
+policy = "MlpPolicy"
+net_arch = [64, 64]
+activation = "tanh"
+learning_rate = 3e-4
+rollout_size = 5120
+n_steps = 1024
+batch_size = 512
+n_epochs = 10
+gamma = 0.999
+gae_lambda = 0.995
+clip_range = 0.2
+ent_coef = 0.0
+vf_coef = 0.5
+max_grad_norm = 0.5
+torch_threads = 1
+device = "cpu"
+
+[ppo.vecnormalize]
+normalize_observations = true
+normalize_rewards = false
+clip_obs = 10.0
+
+[checkpoint]
+interval = 102400
+initial = true
+
+[evaluation]
+# no in-process evaluation during training; evaluations run post hoc (Phase K protocol)
+interval = 0
+initial = false
+final = false
+deterministic_episodes = 5
+stochastic_episodes = 60
+random_baseline_episodes = 100
+seed = 12345
+workers = 0
+
+[artifacts]
+periodic_episodes = 10
+retain_failed_cap = 20
+
+[resume]
+source_checkpoint = "runs/m7g_k/m7g_s0_v1/final"
+allow_executable_change = false
+allow_lifecycle_change = false
+
+[anchor_curriculum]
+# M7m (rl/m7m_anchor.py, docs/rl_sweep_consolidation_m7m_design.md): every value is pinned. The table is the
+# opt-in to anchored prefix starts from the registered anchor AND to this curriculum warm start; it adds the
+# read-only SSB64_RL_TARGET_DIAG=1 flag, the only accepted compatibility difference from the source checkpoint.
+contract = "btt_curriculum_anchor_sweep_v1"
+anchor = "m7l_t2_s1_sweep_49414363"
+tick0_probability = 1.0
+start_pointer = 1020
+window = 120
+block = 10
+block_successes = 5
+deadline_consumed_tick = 2699
+max_cut = 1020
+observation_table_sha256 = "8880607470e23a36bf99b934b7cc5b0eee33f87ba382817f14fe59016955ab27"

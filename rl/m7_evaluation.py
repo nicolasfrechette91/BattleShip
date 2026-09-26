@@ -176,6 +176,8 @@ def _row(e: Mapping[str, Any]) -> Dict[str, Any]:
     row = _base_row(e)
     if e.get("eval_metrics") is not None:   # M7g Phase K btt_eval_metrics_v1, only when the evaluator enabled it
         row["eval_metrics"] = e["eval_metrics"]
+    if e.get("reward_v3") is not None:      # M7l: the route reward record, route contracts only (v1 / v2 rows unchanged)
+        row["reward_v3"] = e["reward_v3"]
     return row
 
 

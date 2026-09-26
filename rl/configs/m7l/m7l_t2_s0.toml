@@ -1,0 +1,110 @@
+# M7l: controlled three-seed target-2 reward experiment, arm T (btt_reward_v3_t2), seed 0. Fresh, untrained model.
+# Registration: docs/rl_target2_m7l_manifest.json and docs/rl_target2_m7l_decision_rule.json (proposal:
+# docs/rl_target2_m7k.md section 10). Control arm C = the historical Phase K run runs/m7g_k/m7g_s0_v1 (reward v2).
+#
+# Body = rl/configs/m7k/m7k_v3t2_pilot_s0.toml (= Phase K rl/configs/m7g/m7g_s0_v1.toml + btt_reward_v3_t2) except:
+#   [run]        name, base_seed = 0, total_transitions = 3072000 (the control's budget), output_root = "runs/m7l/campaign",
+#                notes
+# Against the Phase K profile of the same seed the compatibility view differs ONLY in contracts.reward_resolved and
+# environment.extra_env (SSB64_RL_TARGET_DIAG=1, derived from the reward); rl/m7l_matrix.py proves it for the manifest.
+# No curriculum, no fixture, TAS or feasibility input.
+#
+#   python rl/train_m7.py --config rl/configs/m7l/m7l_t2_s0.toml --dry-run
+
+schema = "battleship_experiment_v1"
+
+[run]
+name = "m7l_t2_s0"
+mode = "train"
+base_seed = 0
+total_transitions = 3072000
+output_root = "runs/m7l/campaign"
+notes = "M7l arm T: btt_reward_v3_t2 (v3 unchanged + one-time target-2 credit 2.0 * (3600 - n) / 3600), btt_policy_obs_v1, btt_s9_b8_v1, seed 0, N=5 standby, 3,072,000 transitions (hard maximum), fresh model, no curriculum, no in-process evaluation (post-hoc Phase K protocol)"
+
+[task]
+id = "ssb64_us_mario_btt_v1"
+game_version = "us"
+character = "mario"
+stage = "btt_mario"
+player = 0
+costume = 0
+
+[contracts]
+protocol_version = 1
+observation = "btt_policy_obs_v1"
+action = "btt_s9_b8_v1"
+reward = "btt_reward_v3_t2"
+artifact_schema = 1
+
+[reward]
+# btt_reward_v3_t2 is frozen: these four base values are enforced (equal to v2's); its route and moving-target constants are not configurable.
+target_broken = 1.0
+per_step = -0.001
+clear_bonus = 10.0
+failure_penalty = -5.0
+
+[environment]
+executable = "build-us/Release/BattleShip.exe"
+horizon = 3600
+process_count = 5
+no_render = true
+raphnet_disable = true
+startup_attempts = 3
+startup_timeout_s = 20.0
+ready_timeout_s = 60.0
+request_timeout_s = 10.0
+exit_timeout_s = 30.0
+step_timeout_s = 900.0
+worker_runtime_root = ""
+port_block_base = 30000
+port_block_size = 250
+position_delta_threshold = 300.0
+standby_preboot = true
+standby_count = 1
+standby_wait_timeout_s = 120.0
+
+[ppo]
+policy = "MlpPolicy"
+net_arch = [64, 64]
+activation = "tanh"
+learning_rate = 3e-4
+rollout_size = 5120
+n_steps = 1024
+batch_size = 512
+n_epochs = 10
+gamma = 0.999
+gae_lambda = 0.995
+clip_range = 0.2
+ent_coef = 0.0
+vf_coef = 0.5
+max_grad_norm = 0.5
+torch_threads = 1
+device = "cpu"
+
+[ppo.vecnormalize]
+normalize_observations = true
+normalize_rewards = false
+clip_obs = 10.0
+
+[checkpoint]
+interval = 102400
+initial = true
+
+[evaluation]
+interval = 0
+initial = false
+final = false
+deterministic_episodes = 5
+stochastic_episodes = 60
+random_baseline_episodes = 100
+seed = 12345
+workers = 0
+
+[artifacts]
+periodic_episodes = 10
+retain_failed_cap = 20
+
+[resume]
+source_checkpoint = ""
+allow_executable_change = false
+allow_lifecycle_change = false

@@ -1,0 +1,112 @@
+{
+ "schema": "m7l_decision_rule_v1",
+ "milestone": "M7l",
+ "experiment": "btt_reward_v3_t2 (arm T, fresh models) versus the historical Phase K control (arm C, btt_reward_v2); btt_policy_obs_v1, btt_s9_b8_v1, PPO as Phase K, N=5 standby, 3,600-tick horizon, tick-0 starts, no curriculum, 3,072,000 policy transitions per run, seeds 0-2",
+ "authority": "proposal docs/rl_target2_m7k.md section 10 (the M7k registration of btt_reward_v3_t2, canonical sha256 fa74d7d7edf88936fcb63e1c65cc5751dddc0bc6b1c974a70af232160b9def99); user authorization 2026-09-25 (primary rule, L and R, the separately recorded quantities). This file fixes the exact denominators, aggregation and tie handling and is read by rl/m7l_analysis.py",
+ "registered_utc": "2026-09-25",
+ "status": "registered before the control check and before any campaign run; applied once at n = 3; never re-decided; no extension, no extra seed",
+ "arithmetic": "exact integers and rationals (fractions.Fraction); no rounding anywhere; every comparison is inclusive exactly as written ('>=' / '<='); outcomes are decided by boolean gates, so no tie-breaking is needed",
+ "arms": {
+  "C": {"description": "historical Phase K v1 control, reward btt_reward_v2", "runs": "runs/m7g_k/m7g_s{0,1,2}_v1 (final checkpoints and their registered Phase K evaluations), reused only while the control check passes on the frozen campaign code"},
+  "T": {"description": "btt_reward_v3_t2 = btt_reward_v3 unchanged + a one-time moving-target credit 2.0 * (3600 - n) / 3600 on native target ID 2 (n = consumed_tick + 1)", "runs": "runs/m7l/campaign/m7l_t2_s{0,1,2}, fresh untrained models, trained in the order s0, s1, s2"}
+ },
+ "pairing": "by seed number (T seed s against C seed s)",
+ "evaluation_basis": {
+  "checkpoint": "final (3,072,000 policy transitions)",
+  "primary_population": "the 100 final stochastic evaluation episodes per seed and arm (Phase K protocol: seed 12345, frozen statistics, tick-0 starts only)",
+  "pooled_population": "the 300 final stochastic episodes of an arm (3 seeds x 100)",
+  "denominators": "every counted episode, whatever its end (horizon, fall, clear); excess episodes the evaluator did not count are never included",
+  "metrics": "btt_eval_metrics_v1 with SSB64_RL_TARGET_DIAG=1 (native target identity and first-break consumed ticks)",
+  "deterministic": "the 100 final deterministic episodes are reported (L, R, target 2, collapse) and never gate the primary rule; they count only for verified clears"
+ },
+ "parameters": {
+  "seeds": [0, 1, 2],
+  "episodes_per_seed": 100,
+  "moving_target_id": 2,
+  "right_ids": [0, 2, 3, 4, 5, 7, 9],
+  "static_right_ids": [0, 3, 4, 5, 7, 9],
+  "left_ids": [1, 6, 8],
+  "deadline_consumed_tick": 2699,
+  "L_static_right_min": 5,
+  "gain_min_episodes": 5,
+  "gain_seeds_min": 2,
+  "pooled_ratio_min": 3,
+  "static_loss_max_per_episode": "1/2",
+  "relevance_R_min_per_seed": 1,
+  "relevance_R_seeds_min": 1,
+  "relevance_L_pooled_min": 5,
+  "collapse_share_min": "1/2"
+ },
+ "definitions": {
+  "broken(e)": "the native target IDs broken in episode e (btt_eval_metrics_v1 broken_ids; first-break consumed ticks from first_break_tick)",
+  "t2(e)": "1 iff native target ID 2 is in broken(e), at any tick, whatever the episode's end",
+  "tick_i(e)": "the consumed tick of the first break of target i in e",
+  "t2[a][s]": "sum of t2(e) over the 100 final stochastic episodes of arm a, seed s",
+  "p[a][s]": "t2[a][s] / 100 (a percentage point is exactly one episode)",
+  "gain[s]": "t2[T][s] - t2[C][s], in episodes",
+  "P[a]": "(t2[a][0] + t2[a][1] + t2[a][2]) / 300",
+  "static(e)": "|broken(e) minus {2}|: every static target (right and left), all targets except the moving target 2",
+  "static_right(e)": "|broken(e) intersected with {0,3,4,5,7,9}| (the six static right targets; used by L, reported)",
+  "Sbar[a]": "(sum of static(e) over the 300 pooled final stochastic episodes of arm a) / 300",
+  "L(e)": "1 iff t2(e) and tick_2(e) <= 2699 and static_right(e) >= 5 (the five static right targets may break at any tick of the episode)",
+  "R(e)": "1 iff all seven right IDs {0,2,3,4,5,7,9} are broken and max over them of tick_i(e) <= 2699 (at least 900 ticks left)",
+  "L[a][s], R[a][s]": "sums over the 100 final stochastic episodes",
+  "verified clear": "a native clear whose Phase K clear verification (tick-0 replay in a fresh process) reproduced completion_time_passed and completion_input_tick",
+  "T_incomplete[a][s]": "total targets over the final stochastic episodes that are not verified clears, divided by their count (the 'incomplete-run targets'; reported)",
+  "left entry(e)": "btt_eval_metrics_v1 first_left_entry is not null (a live step with position_x < -2100)",
+  "left-target break(e)": "broken(e) intersects {1,6,8}",
+  "deterministic collapse": "M7e definition on the final deterministic play: collapse_share = longest run of one joint action / episode length; collapsed iff collapse_share >= 1/2"
+ },
+ "gates": [
+  {"gate": 0, "name": "integrity", "any_of": [
+    "the control check (R1 reproduction, R2 re-evaluation, R3 recomputed decision inputs) has not passed for the frozen campaign code, or a historical control file changed since the manifest",
+    "a T run is missing, stopped or not verified (training verification with every row equal to its btt_reward_v3_t2 closed form; fresh untrained model equal to the manifest digest; identity; the M7k control-equivalence checks V1-V5 against the historical control run)",
+    "a checkpoint provenance mismatch",
+    "the evaluation census of a T run is incomplete (985 episodes per run) or an evaluation label failed verification (tick-0 starts, clean metrics, frozen statistics, route-row closed forms)",
+    "a native clear whose clear verification did not run or did not reproduce both clocks"
+   ], "response": "no decision; report"},
+  {"gate": 1, "name": "learned", "conditions": {
+    "1a": "#{s : gain[s] >= gain_min_episodes} >= gain_seeds_min, i.e. at least +5 episodes (5 percentage points) in at least 2 of the 3 seeds",
+    "1b": "P[T] >= pooled_ratio_min * P[C], evaluated as sum_s t2[T][s] >= 3 * sum_s t2[C][s] (a zero control rate makes 1b hold trivially; 1a still requires the gains)"},
+   "holds": "1a and 1b"},
+  {"gate": 2, "name": "no_static_loss", "condition": "Sbar[T] - Sbar[C] >= -static_loss_max_per_episode, i.e. sum over T's 300 episodes of static(e) >= sum over C's 300 of static(e) - 150; a loss of exactly 1/2 per episode passes"},
+  {"gate": 3, "name": "first_clear_relevance", "secondary": true, "condition": "R[T][s] >= 1 in at least 1 seed, or L[T][0] + L[T][1] + L[T][2] >= 5 (of 300)", "note": "applied only after gates 1 and 2 hold; L and R measure relevance to a first clear, never a crossing or a clear"}
+ ],
+ "primary_rule": "gates 1 and 2 (after gate 0): the target-2 break rate rose by at least 5 points in at least 2 seeds and to at least 3x the pooled control rate, without losing more than 0.5 static targets per episode",
+ "outcomes": {
+  "no_decision": {"gate": 0, "response": "no decision; report the integrity problems"},
+  "not_learned": {"gate": 1, "response": "gate 1 failed: within this budget the credit did not overcome the exploration gap (near misses ~0 in M7k). Next is an exploration mechanism: a user decision", "claims": "no learned target-2 effect"},
+  "learned_with_static_loss": {"gate": 2, "response": "target 2 learned at a cost of more than 0.5 static targets per episode: not adopted; report; next step a user decision", "claims": "a target-2 gain with a static-target trade-off; not a crossing or a clear"},
+  "learned_not_early": {"gate": 3, "response": "primary rule holds but the first-clear relevance test fails: target 2 learned but not early or not together with the static targets. Next: right-side timing (the even credit, btt_reward_v3_rt) as a separately registered follow-up (user decision)", "claims": "a target-2 break-rate gain only; not a crossing, a sweep in time or a clear"},
+  "first_clear_relevant": {"gate": 3, "response": "primary rule and relevance hold. Next: the crossing stage, with the landing penalty (btt_reward_v3_l2) registered as its own contract (user decision)", "claims": "early target 2 together with the statics (L) or early sweeps (R); still not a crossing or a clear unless verified clears or left entries are reported separately"}
+ },
+ "recorded_separately": [
+  "per seed and arm: t2, p, gain, L, R, the target-2 break ticks (all, median, by the deadline) and falls after a target-2 break",
+  "T_incomplete (incomplete-run targets), Sbar and the six-right static mean",
+  "verified clears (all T evaluation labels, 2,955 episodes; the control's registered labels), native clear candidates and their verification",
+  "left-region entries, left-target breaks (per ID), falls",
+  "deterministic play: targets, t2, L, R, collapse share and whether collapsed",
+  "the target-2 learning curve (every evaluated checkpoint) and target-2 events during training (credited rows)",
+  "the approach-zone visit rate (x 2,100..3,300, y >= 1,350 while live), the closest approach to target 2 and platform contact, from exact spatial replays of every final stochastic episode of both arms (secondary, descriptive)",
+  "throughput, wall time, memory and process counts"
+ ],
+ "known_control_values": {
+  "source": "runs/m7g_k/_eval/m7g_s{0,1,2}_v1/final (registered Phase K evaluations), computed with rl/m7l_analysis.label_inputs before registration; the control check (R3) must reproduce them from the R2 re-evaluation and from the historical files",
+  "t2": {"0": 1, "1": 0, "2": 2},
+  "t2_ticks": {"0": [2907], "1": [], "2": [1134, 2033]},
+  "S": {"0": 471, "1": 475, "2": 425},
+  "S_right": {"0": 471, "1": 475, "2": 425},
+  "L": {"0": 0, "1": 0, "2": 1},
+  "R": {"0": 0, "1": 0, "2": 0},
+  "T_incomplete": {"0": "118/25", "1": "19/4", "2": "427/100"},
+  "falls": {"0": 1, "1": 1, "2": 0},
+  "native_clears": {"0": 0, "1": 0, "2": 0},
+  "left_entries": {"0": 0, "1": 0, "2": 0},
+  "left_target_episodes": {"0": 0, "1": 0, "2": 0},
+  "pooled": {"t2": 3, "S": 1371, "L": 1},
+  "implied_thresholds": {"gate_1b": "sum_s t2[T][s] >= 9", "gate_2": "sum over T's 300 episodes of static(e) >= 1221", "gate_1a": "t2[T][s] >= 6 / 5 / 7 for seeds 0 / 1 / 2, in at least 2 seeds"},
+  "deterministic_collapse_share": {"0": "1826/3600 (collapsed)", "1": "900/3600", "2": "1226/3600"}
+ },
+ "prediction_on_record":"M7k section 10: uncertain. Encounters are rare (0.77 % of training episodes, about 5-9 per run at the control's rates, more frequent early when v2 teaches avoidance); the credit changes the sign of the learning signal but cannot create visits to a region the policy does not reach",
+ "not_claims": "a target-2 gain alone is never described as a crossing, a left-side result or a clear; clears count only when verified natively"
+}

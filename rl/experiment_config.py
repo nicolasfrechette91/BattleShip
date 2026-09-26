@@ -311,6 +311,33 @@ CURRICULUM_FIELDS: Tuple[Field, ...] = (
 CURRICULUM_BY_PATH: Dict[str, Field] = {f.path: f for f in CURRICULUM_FIELDS}
 CURRICULUM_PATHS: Tuple[str, ...] = tuple(CURRICULUM_BY_PATH)
 
+# M7m: the optional [anchor_curriculum] table (docs/rl_sweep_consolidation_m7m_design.md). All or nothing, like
+# [curriculum]: a profile without it resolves exactly as before. It is the only opt-in to (a) prefix starts from the one
+# registered external anchor (rl/m7m_anchor.py) and (b) a curriculum warm start: run.mode = "resume" from a checkpoint
+# trained without any curriculum, whose only accepted compatibility difference is the read-only target diagnostic flag
+# this table adds to extra_env. tick0_probability = 1.0 is the matched control (the same machinery, no anchored start).
+ANCHOR_CURRICULUM_CONTRACT = "btt_curriculum_anchor_sweep_v1"
+ANCHOR_CURRICULUM_EXTRA_ENV: Tuple[Tuple[str, str], ...] = (("SSB64_RL_TARGET_DIAG", "1"),)
+ANCHOR_CURRICULUM_FIELDS: Tuple[Field, ...] = (
+    _F("anchor_curriculum.contract", "str", "immutable", choices=(ANCHOR_CURRICULUM_CONTRACT,),
+       doc="anchored backward curriculum: training-only prefix starts cut from one registered anchor trajectory"),
+    _F("anchor_curriculum.anchor", "str", "immutable", choices=("m7l_t2_s1_sweep_49414363",),
+       doc="the registered anchor (docs/rl_sweep_consolidation_m7m_anchor.json); start states only"),
+    _F("anchor_curriculum.tick0_probability", "float", "immutable", choices=(0.5, 1.0),
+       doc="probability that an automatic reset keeps its tick-0 start (0.5 = arm E, 1.0 = matched control K)"),
+    _F("anchor_curriculum.start_pointer", "int", "immutable", choices=(1020,), doc="first window [901, 1020]"),
+    _F("anchor_curriculum.window", "int", "immutable", choices=(120,), doc="window width and pointer step"),
+    _F("anchor_curriculum.block", "int", "immutable", choices=(10,), doc="anchored outcomes per block"),
+    _F("anchor_curriculum.block_successes", "int", "immutable", choices=(5,), doc="successes that move the pointer"),
+    _F("anchor_curriculum.deadline_consumed_tick", "int", "immutable", choices=(2699,),
+       doc="success: all seven right targets broken, the last at a consumed tick <= this"),
+    _F("anchor_curriculum.max_cut", "int", "immutable", choices=(1020,), doc="latest cut tau"),
+    _F("anchor_curriculum.observation_table_sha256", "str", "immutable",
+       doc="sha256 of the registered F1 anchor observation table (post-prefix observations checked against it)"),
+)
+ANCHOR_CURRICULUM_BY_PATH: Dict[str, Field] = {f.path: f for f in ANCHOR_CURRICULUM_FIELDS}
+ANCHOR_CURRICULUM_PATHS: Tuple[str, ...] = tuple(ANCHOR_CURRICULUM_BY_PATH)
+
 
 # -- helpers ---------------------------------------------------------------------------------------------------
 
@@ -502,6 +529,8 @@ class Experiment:
             flags.append(("SSB64_RAPHNET_DISABLE", "1"))
         flags.extend(OBSERVATION_EXTRA_ENV[self.values["contracts.observation"]])   # M7g: v2 only (v1 adds none)
         flags.extend(reward_extra_env(self.reward))                                   # M7j: v3 only (v1 / v2 add none)
+        if self.anchor_curriculum is not None:                                        # M7m: only with the table
+            flags.extend(f for f in ANCHOR_CURRICULUM_EXTRA_ENV if f not in flags)
         return tuple(flags)
 
     def policy_observation(self) -> Optional[Dict[str, Any]]:
@@ -541,11 +570,19 @@ class Experiment:
             return None
         return {p.split(".", 1)[1]: self.values[p] for p in CURRICULUM_PATHS}
 
+    @property
+    def anchor_curriculum(self) -> Optional[Dict[str, Any]]:
+        """M7m: the [anchor_curriculum] table as {key: value} (short keys), or None when the profile has none."""
+        if not any(p in self.values for p in ANCHOR_CURRICULUM_PATHS):
+            return None
+        return {p.split(".", 1)[1]: self.values[p] for p in ANCHOR_CURRICULUM_PATHS}
+
     # -- fingerprints -----------------------------------------------------------------------------------------
 
     def semantic_view(self) -> Dict[str, Any]:
         view = {p: self.values[p] for p in SEMANTIC_PATHS}
         view.update({p: self.values[p] for p in CURRICULUM_PATHS if p in self.values})   # M7h: only when present
+        view.update({p: self.values[p] for p in ANCHOR_CURRICULUM_PATHS if p in self.values})   # M7m: only when present
         view["contracts.reward_resolved"] = self.reward.to_json()
         view["task.table"] = self.task
         view["schema"] = SCHEMA_ID
@@ -554,6 +591,7 @@ class Experiment:
     def compatibility_view(self) -> Dict[str, Any]:
         view = {p: self.values[p] for p in IMMUTABLE_PATHS}
         view.update({p: self.values[p] for p in CURRICULUM_PATHS if p in self.values})   # M7h: only when present
+        view.update({p: self.values[p] for p in ANCHOR_CURRICULUM_PATHS if p in self.values})   # M7m: only when present
         view["contracts.reward_resolved"] = self.reward.to_json()
         view["environment.extra_env"] = dict(self.extra_env)
         view["schema"] = SCHEMA_ID
@@ -594,6 +632,8 @@ class Experiment:
             s["policy_observation"] = self.policy_observation()
         if self.curriculum is not None:      # M7h: a profile without a curriculum records nothing new
             s["curriculum"] = self.curriculum
+        if self.anchor_curriculum is not None:   # M7m: likewise
+            s["anchor_curriculum"] = self.anchor_curriculum
         return s
 
     def resolved_json(self) -> Dict[str, Any]:
@@ -624,7 +664,8 @@ class Experiment:
             },
             "fingerprints": {"source_sha256": self.source.sha256, "semantic_fingerprint": self.semantic_fingerprint,
                              "compatibility_fingerprint": self.compatibility_fingerprint},
-            "field_classes": {p: (FIELD_BY_PATH.get(p) or CURRICULUM_BY_PATH[p]).cls for p in self.values},
+            "field_classes": {p: (FIELD_BY_PATH.get(p) or CURRICULUM_BY_PATH.get(p) or ANCHOR_CURRICULUM_BY_PATH[p]).cls
+                              for p in self.values},
         }
         if self.policy_observation() is not None:
             r["resolved"]["policy_observation"] = self.policy_observation()
@@ -698,7 +739,7 @@ def _structural(raw: Mapping[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
         problems.append(f"schema = {_repr_value(raw.get('schema'))}: expected {SCHEMA_ID!r}")
     flat = _flatten({k: v for k, v in raw.items() if k != "schema"})
     for path, value in flat.items():
-        if path not in FIELD_BY_PATH and path not in CURRICULUM_BY_PATH:
+        if path not in FIELD_BY_PATH and path not in CURRICULUM_BY_PATH and path not in ANCHOR_CURRICULUM_BY_PATH:
             if isinstance(value, dict) and not value:
                 problems.append(f"{path}: unknown or empty table")
             else:
@@ -722,6 +763,14 @@ def _structural(raw: Mapping[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
                 values[f.path] = _check_field(f, flat[f.path], problems)
             else:
                 problems.append(f"{f.path}: missing required key (the [curriculum] table is all-or-nothing)")
+    if "anchor_curriculum" in raw and not raw["anchor_curriculum"]:
+        problems.append("anchor_curriculum: empty table (the [anchor_curriculum] table is all-or-nothing)")
+    if any(p in ANCHOR_CURRICULUM_BY_PATH for p in flat):     # M7m: the optional table, all keys required once present
+        for f in ANCHOR_CURRICULUM_FIELDS:
+            if f.path in flat:
+                values[f.path] = _check_field(f, flat[f.path], problems)
+            else:
+                problems.append(f"{f.path}: missing required key (the [anchor_curriculum] table is all-or-nothing)")
     return values, problems
 
 
@@ -824,6 +873,23 @@ def _cross_field(v: Dict[str, Any], problems: List[str]) -> Optional[RewardContr
         if g("curriculum.contract") is not None:
             problems.append(f"curriculum.contract = {_repr_value(g('curriculum.contract'))}: contracts.reward = "
                             f"{reward.contract!r} is registered for tick-0 starts only (no curriculum)")
+    # M7m: the anchor curriculum is registered for observation v1 and btt_reward_v2 only, never together with the M7h
+    # curriculum, and only as a warm start (run.mode = "resume"; the trainer accepts the source checkpoint only when
+    # it was trained without any curriculum and differs in nothing but the diagnostic flag).
+    if g("anchor_curriculum.contract") is not None:
+        if obs != POLICY_OBSERVATION_CONTRACT:
+            problems.append(f"anchor_curriculum.contract: registered for contracts.observation = "
+                            f"{POLICY_OBSERVATION_CONTRACT!r} only, not {_repr_value(obs)}")
+        if reward is not None and reward.contract != "btt_reward_v2":
+            problems.append(f"anchor_curriculum.contract: registered for contracts.reward = 'btt_reward_v2' only, "
+                            f"not {reward.contract!r}")
+        if g("curriculum.contract") is not None:
+            problems.append("anchor_curriculum.contract: never combined with the [curriculum] table")
+        if g("run.mode") != "resume":
+            problems.append("anchor_curriculum.contract: a warm start only (run.mode = \"resume\" from a checkpoint "
+                            "trained without any curriculum)")
+        if _is_int(g("environment.horizon")) and g("environment.horizon") != 3600:
+            problems.append("anchor_curriculum.contract: registered for the 3,600-tick horizon only")
     # M7c lifecycle: the two standby fields must agree (explicit, never inferred).
     sp, sc = g("environment.standby_preboot"), g("environment.standby_count")
     if isinstance(sp, bool) and _is_int(sc):
