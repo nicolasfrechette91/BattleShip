@@ -1,0 +1,188 @@
+{
+ "schema": "m7n_decision_rule_v1",
+ "milestone": "M7n",
+ "experiment": "controlled three-seed comparison of the complete btt_policy_obs_v3_entities observation package against the reproduced Phase K btt_policy_obs_v1 control",
+ "status": "proposed; frozen only when the campaign manifest pins this file's sha256",
+ "question": "Does the complete v3 observation package, taken together, let PPO learn more Mario Break the Targets from normal tick-0 starts than v1 at 3,072,000 policy transitions, everything else matched?",
+ "not_isolated": "the arms differ in the whole observation package (geometry, agent state, action classes, target motion, projectiles, fixed scaling versus running normalisation, input width); no gate attributes an effect to one component, and nothing here tests why the Phase K v2 comparison gave no benefit",
+ "arms": {
+  "v3": {
+   "observation": "btt_policy_obs_v3_entities",
+   "runs": [
+    "m7n_s0_v3",
+    "m7n_s1_v3",
+    "m7n_s2_v3"
+   ],
+   "profiles": "rl/configs/m7n/m7n_s{0,1,2}_v3.toml",
+   "initialisation": "fresh models; the input shape (606) cannot load any v1 / v2 checkpoint; no pilot checkpoint, optimizer state or statistics is reused"
+  },
+  "v1": {
+   "observation": "btt_policy_obs_v1",
+   "runs": [
+    "runs/m7g_k/m7g_s0_v1",
+    "runs/m7g_k/m7g_s1_v1",
+    "runs/m7g_k/m7g_s2_v1"
+   ],
+   "reuse_condition": "the all-three-seed reproduction check (R1 pinned checkpoint digests and rows, R2 all 600 final evaluation episodes, R3 decision inputs) PASSED on the manifest's code fingerprint and executable; a failed check is an integrity problem: the campaign stops and diagnoses, and the control is never replaced by newly trained runs by this rule"
+  }
+ },
+ "pairing": "seeds 0, 1, 2 paired by seed number; every per-seed quantity compares m7n_s{s}_v3 with m7g_s{s}_v1",
+ "matched": [
+  "btt_reward_v2",
+  "btt_s9_b8_v1 (MultiDiscrete [9, 8])",
+  "PPO of rl/configs/m7g: 3e-4, rollout 5,120 = 5 x 1,024, batch 512, 10 epochs, gamma 0.999, lambda 0.995, clip 0.2, ent_coef 0, vf_coef 0.5, max_grad_norm 0.5",
+  "N = 5 workers with one standby each (<= 10 game processes)",
+  "horizon 3,600 ticks",
+  "tick-0 starts only; no curriculum, prefix, anchor or archive",
+  "3,072,000 policy transitions per run; checkpoints every 102,400",
+  "the M7e / Phase K post-hoc evaluation: initial + 9 curve points + final; 100 stochastic + 100 deterministic at initial and final, 60 + 5 at curve points; evaluation seed 12345; frozen policy; btt_eval_metrics_v1; every native clear replayed from tick 0 on a fresh process"
+ ],
+ "unmatched_by_design": [
+  "input width 15 vs 606 and parameters 11,538 vs 87,186; the [64, 64] tanh heads are identical",
+  "v1 keeps VecNormalize running observation statistics (its contract); v3 keys are pre-scaled and not normalised (its contract)"
+ ],
+ "evaluation_basis": "the final checkpoint set of each run (3,072,000 transitions), evaluated post hoc from tick 0 with frozen parameters; the run's own initial checkpoint set (ckpt_000000000) for the learning gate",
+ "parameters": {
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "episodes_per_seed": 100,
+  "moving_target_id": 2,
+  "right_ids": [
+   0,
+   2,
+   3,
+   4,
+   5,
+   7,
+   9
+  ],
+  "static_right_ids": [
+   0,
+   3,
+   4,
+   5,
+   7,
+   9
+  ],
+  "left_ids": [
+   1,
+   6,
+   8
+  ],
+  "left_region_x_max": -2100,
+  "deadline_consumed_tick": 2699,
+  "L_static_right_min": 5,
+  "collapse_share_min": "1/2",
+  "targets_diff_min": "1/2",
+  "ceiling_seeds_min": 2,
+  "no_learning_seeds_min": 2
+ },
+ "denominators": {
+  "K": "verified clears over the 200 final episodes of a run (100 stochastic + 100 deterministic); a clear counts only when its canonical native actions, replayed from tick 0 on a fresh process, reproduce completion_time_passed AND completion_input_tick exactly; a native clear that does not reproduce is an integrity problem",
+  "T": "mean targets broken over the final stochastic episodes of a run that are not verified clears (exact Fraction; the 100 stochastic episodes of the final label, minus verified clears)",
+  "X": "1 if any of the 100 final stochastic episodes of a run entered the left region (live x < -2100, btt_eval_metrics_v1 first_left_entry) or broke target 1, 6 or 8 (M7f identity), else 0",
+  "G": "T of the run's final label minus T of the same run's initial label (ckpt_000000000, 100 stochastic episodes), v3 only",
+  "D": "T[v3][s] - T[v1][s], per seed"
+ },
+ "integrity_gate": {
+  "gate": 0,
+  "outcome": "invalid",
+  "conditions_any": [
+   "the control reproduction check is missing, failed or bound to another code fingerprint / executable / rule",
+   "a v3 training run is not verified (identity, fresh start, provenance, rows, leak-free)",
+   "an evaluation label of either arm fails its verification (episode count, frozen statistics, tick-0 starts, metrics, artifacts)",
+   "a native clear of either arm is not reproduced by its replay",
+   "manifest drift",
+   "a v1 (control) label is incomplete or changed since the manifest"
+  ],
+  "action": "stop; no decision is recorded; diagnose"
+ },
+ "incomplete": {
+  "outcome": "incomplete",
+  "conditions_any": [
+   "fewer than three verified v3 runs",
+   "a v3 final or initial label with fewer than 100 stochastic or 100 deterministic episodes (finals) / 100 stochastic (initial)",
+   "a stopped, failed or partial v3 run (preserved, never resumed for the comparison)"
+  ],
+  "action": "no decision; the arm is reported as incomplete, never as a failure or an inconclusive result"
+ },
+ "gates_in_order": [
+  {
+   "gate": 1,
+   "name": "first_clear",
+   "outcome": "success",
+   "condition": "(sum_s K[v3][s] >= 1 and sum_s K[v1][s] == 0) or (K[v3][s] > K[v1][s] for every seed)",
+   "action": "preserve every verified clear and its checkpoint permanently; v3 becomes the Track 1 observation"
+  },
+  {
+   "gate": 2,
+   "name": "ceiling_broken",
+   "outcome": "success",
+   "condition": "no gate 1; no control-clear guard; X[v3][s] == 1 in at least ceiling_seeds_min seeds and X[v1][s] == 0 in every seed",
+   "action": "v3 selected for the next milestone; the crossing episodes are replayed and documented"
+  },
+  {
+   "gate": 3,
+   "name": "better_targets",
+   "outcome": "success",
+   "condition": "no gate 1 or 2; no control-clear guard; D[s] >= targets_diff_min in every seed",
+   "action": "v3 selected for the next milestone"
+  },
+  {
+   "gate": 4,
+   "name": "worse",
+   "outcome": "failure",
+   "condition": "no gate 1-3; D[s] <= -targets_diff_min in every seed",
+   "action": "v1 stays; v3 recorded as worse at this budget; no extension"
+  },
+  {
+   "gate": 5,
+   "name": "no_learning",
+   "outcome": "failure",
+   "condition": "no gate 1-4; G[s] <= 0 in at least no_learning_seeds_min seeds",
+   "action": "v1 stays; v3 recorded as not learning from scratch at this budget; the representation is re-examined before any further v3 run"
+  },
+  {
+   "gate": 6,
+   "name": "no_benefit",
+   "outcome": "inconclusive",
+   "condition": "anything else (seed disagreement in sign, |D| below the threshold in some seed, a v1-only clear, ...)",
+   "action": "v1 stays the default; v3 stays available and documented; this rule unlocks no extension"
+  }
+ ],
+ "label_precedence": "gate 0 (integrity) is evaluated first and stops everything; then incompleteness; then gates 1-6 in order, and the FIRST gate whose condition holds decides; every later gate's condition is still evaluated and reported, never used",
+ "tie_handling": "all comparisons are inclusive on exact integers or Fractions, never rounded floats; an equal clear count in both arms (including 0 = 0) is not gate 1; K[v3][s] > K[v1][s] is strict per seed; D[s] exactly 1/2 counts for gate 3 and exactly -1/2 for gate 4; G[s] exactly 0 counts as no learning; X ties (1 = 1) are not gate 2; a v1-only verified clear engages the control-clear guard",
+ "primary_outcome": "gates 1-3 (success) are decided ONLY by normal tick-0 evaluation of frozen final checkpoints: a verified clear, a left-side entry / left-target break, or the paired target difference",
+ "improvement_over_control": "gate 1 and gate 2 compare event counts per seed against the reproduced v1 control; gate 3 / 4 use the paired difference D of mean final targets with a symmetric threshold of 1/2 target per episode in every seed (no pooling, no averaging across seeds, so one seed cannot carry the decision)",
+ "progress_toward_tick0_clear": "K is the clear itself; X is the ceiling (the three targets left of the tall wall that no policy has reached from tick 0); D is the ordinary target count. A success on gate 2 or 3 is progress, not a clear, and is reported as such",
+ "supporting_diagnostics_never_gating": {
+  "T2": "final stochastic tick-0 episodes with target 2 broken, per seed and pooled over 300 per arm (Phase K v1 control: 1, 0, 2 = 3 / 300); every tick-0 break is policy-initiated by construction, and no anchored or prefix evaluation exists in this campaign",
+  "T2_break_context": "for each target-2 break, its consumed tick and whether it fell within the M7l L definition (by the deadline with >= 5 static right targets), reported descriptively",
+  "L_R": "the M7l L and R counts (early target 2 with the statics; a seven-right sweep by the deadline), per seed",
+  "others": [
+   "deterministic play: targets and collapse share (M7e definition)",
+   "falls",
+   "first-left-entry ticks",
+   "per-checkpoint stochastic target curves of both arms",
+   "seven-right-target episodes",
+   "training episodes, falls and throughput",
+   "evaluation wall, peak processes, commit / physical minima"
+  ]
+ },
+ "budget": {
+  "v3_training": "3 x 3,072,000 policy transitions (hard maximum; no extension, no extra seed)",
+  "control": "reused after the reproduction check",
+  "evaluation": "3 x 985 episodes (740 stochastic + 245 deterministic per run) plus clear replays"
+ },
+ "decision_recording": "decided once by rl/m7n_analysis.decide on the frozen rule; recorded in runs/m7n/campaign/_matrix/analysis_n3.json and copied to docs; never re-decided",
+ "not_claims": [
+  "no claim about individual feature contributions",
+  "no claim about checkpoint transfer to other characters (Mario is the only validated action-class mapping)",
+  "the omitted ledge column is a stage-coverage limitation of this contract, not evidence that ledge information is unnecessary",
+  "a gate-2 or gate-3 success is not a clear"
+ ],
+ "control_clear_guard": "if sum_s K[v1][s] >= 1 and sum_s K[v3][s] == 0 (the control cleared from tick 0 and v3 never did), gates 2 and 3 cannot select v3; gates 4-6 are evaluated as usual (a worse or non-learning v3 is still recorded as such; otherwise the result is inconclusive and the v1 clear is reported)"
+}

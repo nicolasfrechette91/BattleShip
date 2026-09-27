@@ -86,8 +86,31 @@ void OnGamePostUpdate(IEvent *) {
 	 *
 	 * M7g: the structured-spatial snapshot follows the same rule, filled and
 	 * stamped here and handed over in the same locked call. With it off this
-	 * branch is not taken and the M7f / M1b paths below are unchanged. */
-	if (rlSpatialIsEnabled()) {
+	 * branch is not taken and the M7f / M1b paths below are unchanged.
+	 *
+	 * M7n: the entity snapshot follows the same rule again. With it off this
+	 * outer branch is not taken and the M7g / M7f / M1b paths are unchanged. */
+	if (rlEntityIsEnabled()) {
+		RLTargetDiag targets;
+		std::memset(&targets, 0, sizeof(targets));
+		const bool targetDiag = rlTargetDiagIsEnabled() != 0;
+		if (targetDiag) {
+			rlGameFillTargets(&targets);
+			targets.input_tick = obs.input_tick;
+		}
+		RLSpatialDiag spatial;
+		std::memset(&spatial, 0, sizeof(spatial));
+		const bool spatialDiag = rlSpatialIsEnabled() != 0;
+		if (spatialDiag) {
+			rlGameFillSpatial(&spatial);
+			spatial.input_tick = obs.input_tick;
+		}
+		RLEntityDiag entity;
+		std::memset(&entity, 0, sizeof(entity));
+		rlGameFillEntity(&entity);
+		entity.input_tick = obs.input_tick;
+		rlStepOnObservationDiag2(&obs, targetDiag ? &targets : nullptr, spatialDiag ? &spatial : nullptr, &entity);
+	} else if (rlSpatialIsEnabled()) {
 		RLTargetDiag targets;
 		std::memset(&targets, 0, sizeof(targets));
 		const bool targetDiag = rlTargetDiagIsEnabled() != 0;

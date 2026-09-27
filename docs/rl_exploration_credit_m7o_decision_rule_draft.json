@@ -1,0 +1,33 @@
+{
+ "schema": "m7o_decision_rule_draft",
+ "status": "DRAFT for review; not registered, not frozen; the comparison is not authorised. Becomes m7o_decision_rule_v1 only when a campaign manifest pins it before launch.",
+ "experiment": "three fresh v3 + btt_reward_v2 + btt_explore_cells_v1 runs (m7o_s{0,1,2}_x1, 3,072,000 transitions each) against the M7n v3 runs m7n_s{0,1,2}_v3 as the matched control, paired by seed",
+ "control_reuse_condition": "runs/m7o/_control/control_check.json PASS on the manifest's code fingerprint and executable (R1: fresh 102,400-transition M7n-profile runs equal the M7n runs' ckpt_000102400 digests and rows in every seed); a failed check stops the campaign; fresh control training is a separate decision",
+ "matched": ["btt_policy_obs_v3_entities", "btt_reward_v2 (frozen)", "btt_s9_b8_v1", "the Phase K PPO settings", "N = 5 + standby", "horizon 3,600", "tick-0 starts only", "3,072,000 transitions", "the M7n evaluation protocol (11 labels, 985 episodes per run)", "clear verification (native replay)", "gate-2 candidate verification (btt_qualified_crossing_v1)"],
+ "only_difference": "the [exploration] table: btt_explore_cells_v1 added to the learner reward during training; evaluation is identical (raw btt_reward_v2, no credit)",
+ "inputs_per_seed": {
+  "K[a][s]": "verified clears over the 200 final episodes (100 stochastic + 100 deterministic)",
+  "X[a][s]": "1 iff a replay-verified qualified crossing or left-target break among the 100 final stochastic episodes (btt_qualified_crossing_v1)",
+  "T[a][s]": "mean targets of the 100 final stochastic episodes that are not verified clears (null when none)",
+  "D[s]": "T[exp][s] - T[ctl][s] (null when either is null)",
+  "G[s]": "T of the experimental final minus T of its own initial label (null when either is null)",
+  "B[s]": "the experimental run's exploration credit per episode over the run (reported; never gating)"
+ },
+ "control_values_already_known": {"K[ctl]": [0, 0, 0], "X[ctl]": [0, 0, 0], "T[ctl]": ["138/25", "553/100", "559/100"]},
+ "gates_in_order": [
+  {"gate": 0, "name": "integrity", "condition": "control check missing / failed / unbound; a run not verified; an evaluation label failing verification; a native clear not reproduced; an inexact gate-2 candidate; manifest drift; a control label changed", "outcome": "invalid"},
+  {"gate": null, "name": "incomplete", "condition": "fewer than three verified experimental runs; a short final or initial label; a missing crossing verification", "outcome": "incomplete"},
+  {"gate": 1, "name": "first_clear", "condition": "(sum K[exp] >= 1 and sum K[ctl] == 0) or K[exp][s] > K[ctl][s] in every seed", "outcome": "success (discovery)"},
+  {"gate": "guard", "name": "control_clear_guard", "condition": "sum K[ctl] >= 1 and sum K[exp] == 0: gates 2 and 4 cannot select the experimental arm (K[ctl] is 0 today; kept for symmetry)"},
+  {"gate": 2, "name": "ceiling_broken", "condition": "no guard; X[exp][s] == 1 in >= 2 seeds and X[ctl][s] == 0 in every seed", "outcome": "success (discovery)"},
+  {"gate": 3, "name": "exploitation", "condition": "D defined and D[s] <= -1/2 in >= 2 seeds", "outcome": "failure (the credit displaced target collection)"},
+  {"gate": 4, "name": "better_targets", "condition": "no guard; D defined in every seed and D[s] >= +1/2 in every seed", "outcome": "success (targets), not the mechanism's purpose"},
+  {"gate": 5, "name": "no_learning", "condition": ">= 2 seeds with G defined and G[s] <= 0", "outcome": "failure (no learning)"},
+  {"gate": 6, "name": "no_benefit", "condition": "anything else", "outcome": "inconclusive"}
+ ],
+ "precedence": "gate 0, then incompleteness, then gates 1-6 in order; the first applicable gate decides; an inapplicable gate (null inputs) never decides; comparisons inclusive on exact integers / Fractions",
+ "reported_never_gating": ["credit per episode over the run per slot (must decay; a non-decaying credit is a defect report, not an outcome)", "cells discovered per slot and pooled", "early-sweep retention: R and seven-right counts", "target 2 (count and ticks)", "falls", "deterministic collapse", "unqualified left entries with their replay analysis", "training episodes, throughput, resources"],
+ "not_outcomes": ["bonus accumulation", "cells discovered", "training-time behaviour of any kind"],
+ "budget": {"experimental_transitions": 9216000, "control": "reused M7n v3 runs after R1", "evaluation_episodes": 2955, "runtime_estimate": "about 3 x (50 min training + 45 min evaluation) + census and analysis, about 5 h", "pilot_already_spent": 307200},
+ "stops": ["integrity", "provenance mismatch", "drift", "hard alert", "process leak", "resource stop", "no early stop on results", "no extension", "no extra seeds", "no re-decision"]
+}

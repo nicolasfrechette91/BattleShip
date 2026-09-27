@@ -128,6 +128,7 @@
 #include "rl/rl.h"
 #include "rl/rl_targets.h"
 #include "rl/rl_spatial.h"
+#include "rl/rl_entity.h"
 
 #include "port_log.h"
 
@@ -196,6 +197,10 @@ bool sTargetDiagEnabled = false;
 /* M7g structured-spatial diagnostic (SSB64_RL_SPATIAL=1). Written once by
  * rlTransportStart() before the worker exists. */
 bool sSpatialEnabled = false;
+
+/* M7n entity diagnostic (SSB64_RL_ENTITY=1). Written once by
+ * rlTransportStart() before the worker exists. */
+bool sEntityEnabled = false;
 
 uint64_t nowNs() {
 	return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -432,6 +437,10 @@ json handleStatus(const json &op) {
 	if (sSpatialEnabled) {
 		r["spatial_diag"] = true;
 	}
+	/* M7n: likewise, present only when the entity diagnostic is on. */
+	if (sEntityEnabled) {
+		r["entity_diag"] = true;
+	}
 	return r;
 }
 
@@ -450,8 +459,15 @@ json handleObserve(const json &op) {
 	 * same locked read; otherwise the M7f / M3 reads are unchanged. */
 	RLSpatialDiag spatial;
 	std::memset(&spatial, 0, sizeof(spatial));
+	/* M7n: with the entity diagnostic on, the entity snapshot joins the same
+	 * locked read; otherwise the M7g / M7f / M3 reads are unchanged. */
+	RLEntityDiag entity;
+	std::memset(&entity, 0, sizeof(entity));
 	const int have =
-	    sSpatialEnabled
+	    sEntityEnabled
+	        ? rlStepGetLatestObservationEntity(&observation, sTargetDiagEnabled ? &targets : nullptr,
+	                                           sSpatialEnabled ? &spatial : nullptr, &entity)
+	    : sSpatialEnabled
 	        ? rlStepGetLatestObservationSpatial(&observation, sTargetDiagEnabled ? &targets : nullptr, &spatial)
 	    : sTargetDiagEnabled ? rlStepGetLatestObservationTargets(&observation, &targets)
 	                         : rlStepGetLatestObservation(&observation);
@@ -472,6 +488,9 @@ json handleObserve(const json &op) {
 	}
 	if (sSpatialEnabled) {
 		r["spatial"] = rlSpatialDiagToJson(spatial, true); /* M7g, additive; the line table only here */
+	}
+	if (sEntityEnabled) {
+		r["entity"] = rlEntityDiagToJson(entity); /* M7n, additive */
 	}
 	return r;
 }
@@ -539,6 +558,16 @@ json handleStep(const json &req, const json &op) {
 		uint32_t spatialStep = 0;
 		if (rlStepGetLastSpatial(&spatial, &spatialStep) && spatialStep == result.step_count) {
 			r["spatial"] = rlSpatialDiagToJson(spatial, false);
+		}
+	}
+	if (sEntityEnabled) {
+		/* M7n: the entity snapshot captured with this result's observation,
+		 * under the same pairing rule. */
+		RLEntityDiag entity;
+		std::memset(&entity, 0, sizeof(entity));
+		uint32_t entityStep = 0;
+		if (rlStepGetLastEntity(&entity, &entityStep) && entityStep == result.step_count) {
+			r["entity"] = rlEntityDiagToJson(entity);
 		}
 	}
 	if (sTimingEnabled) {
@@ -759,10 +788,12 @@ extern "C" void rlTransportStart(void) {
 	sTimingEnabled = rlTimingIsEnabled() != 0; /* M4 diagnostic, opt-in; read before the worker exists */
 	sTargetDiagEnabled = rlTargetDiagIsEnabled() != 0; /* M7f diagnostic, opt-in; likewise */
 	sSpatialEnabled = rlSpatialIsEnabled() != 0;       /* M7g diagnostic, opt-in; likewise */
+	sEntityEnabled = rlEntityIsEnabled() != 0;         /* M7n diagnostic, opt-in; likewise */
 	sStarted.store(true);
-	port_log("SSB64 RL Transport: listening on 127.0.0.1:%d protocol=%u (one client, one request at a time)%s%s%s\n",
+	port_log("SSB64 RL Transport: listening on 127.0.0.1:%d protocol=%u (one client, one request at a time)%s%s%s%s\n",
 	         port, (unsigned)RL_PROTOCOL_VERSION, sTimingEnabled ? " timing=1" : "",
-	         sTargetDiagEnabled ? " target_diag=1" : "", sSpatialEnabled ? " spatial=1" : "");
+	         sTargetDiagEnabled ? " target_diag=1" : "", sSpatialEnabled ? " spatial=1" : "",
+	         sEntityEnabled ? " entity=1" : "");
 	sWorker = std::thread(workerMain);
 }
 

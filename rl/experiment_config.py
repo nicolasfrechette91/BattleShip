@@ -91,6 +91,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import m7g_obs  # noqa: E402  (M7g: v2 observation identity; NumPy/Gymnasium only, no PyTorch)
 import m7g_policy  # noqa: E402
+import m7n_obs  # noqa: E402  (M7n: v3 observation identity; NumPy/Gymnasium only, no PyTorch)
+import m7n_policy  # noqa: E402
 from btt_learning import POLICY_OBSERVATION_CONTRACT, TRACK1_CONTRACT  # noqa: E402
 from btt_rewards import (  # noqa: E402
     REWARD_CUSTOM_PREFIX,
@@ -147,11 +149,16 @@ SUPPORTED_TASKS: Dict[str, Dict[str, Any]] = {
 # MlpPolicy) and the native flags its observation needs (the read-only btt_spatial_v1 diagnostic); v1 adds nothing, so
 # every v1 profile keeps its values, extra_env and fingerprints.
 OBS_V2_SPATIAL = m7g_obs.OBS_CONTRACT
-SUPPORTED_OBSERVATION_CONTRACTS = (POLICY_OBSERVATION_CONTRACT, OBS_V2_SPATIAL)
+# M7n: btt_policy_obs_v3_entities (rl/m7n_obs.py) is selectable explicitly too; it adds SSB64_RL_SPATIAL=1 and
+# SSB64_RL_ENTITY=1 (both read-only diagnostics) and is pre-scaled, so it REQUIRES observation normalisation off.
+OBS_V3_ENTITIES = m7n_obs.OBS_CONTRACT
+SUPPORTED_OBSERVATION_CONTRACTS = (POLICY_OBSERVATION_CONTRACT, OBS_V2_SPATIAL, OBS_V3_ENTITIES)
 SUPPORTED_POLICIES = (M7_POLICY, m7g_policy.POLICY)
-OBSERVATION_POLICY: Dict[str, str] = {POLICY_OBSERVATION_CONTRACT: M7_POLICY, OBS_V2_SPATIAL: m7g_policy.POLICY}
+OBSERVATION_POLICY: Dict[str, str] = {POLICY_OBSERVATION_CONTRACT: M7_POLICY, OBS_V2_SPATIAL: m7g_policy.POLICY,
+                                      OBS_V3_ENTITIES: m7n_policy.POLICY}
 OBSERVATION_EXTRA_ENV: Dict[str, Tuple[Tuple[str, str], ...]] = {POLICY_OBSERVATION_CONTRACT: (),
-                                                                   OBS_V2_SPATIAL: m7g_obs.SPATIAL_EXTRA_ENV}
+                                                                   OBS_V2_SPATIAL: m7g_obs.SPATIAL_EXTRA_ENV,
+                                                                   OBS_V3_ENTITIES: m7n_obs.ENTITY_EXTRA_ENV}
 SUPPORTED_ACTION_CONTRACTS = (TRACK1_CONTRACT,)
 # M7j: btt_reward_v3 is opt-in (only a profile naming it uses it); it adds SSB64_RL_TARGET_DIAG=1 to the derived native
 # flags (btt_rewards.reward_extra_env), so v1 / v2 profiles keep their values, extra_env and fingerprints.
@@ -207,7 +214,8 @@ FIELDS: Tuple[Field, ...] = (
     _F("task.costume", "int", "immutable", minimum=0, maximum=7),
     _F("contracts.protocol_version", "int", "immutable", choices=(PROTOCOL_VERSION,)),
     _F("contracts.observation", "str", "immutable", choices=SUPPORTED_OBSERVATION_CONTRACTS,
-       doc="policy observation: btt_policy_obs_v1 (15 float32) or btt_policy_obs_v2_spatial (Dict, 525 values)"),
+       doc="policy observation: btt_policy_obs_v1 (15 float32), btt_policy_obs_v2_spatial (Dict, 525 values) or "
+           "btt_policy_obs_v3_entities (Dict, 606 pre-scaled values)"),
     _F("contracts.action", "str", "immutable", choices=SUPPORTED_ACTION_CONTRACTS),
     _F("contracts.reward", "str", "immutable", choices=SUPPORTED_REWARD_REQUESTS,
        doc="canonical id (values frozen) or 'custom' (id derived from the values)"),
@@ -241,7 +249,7 @@ FIELDS: Tuple[Field, ...] = (
        maximum=3600.0, exclusive_minimum=True,
        doc="M7c: bound on waiting at reset for a standby still booting; then it is cancelled and a cold fallback launch runs"),
     _F("ppo.policy", "str", "immutable", choices=SUPPORTED_POLICIES,
-       doc="MlpPolicy for btt_policy_obs_v1, MultiInputPolicy for btt_policy_obs_v2_spatial (cross-field rule)"),
+       doc="MlpPolicy for btt_policy_obs_v1, MultiInputPolicy for btt_policy_obs_v2_spatial / v3_entities (cross-field rule)"),
     _F("ppo.net_arch", "int_list", "immutable", doc="hidden layer widths shared by the pi and vf heads"),
     _F("ppo.activation", "str", "immutable", choices=ACTIVATIONS),
     _F("ppo.learning_rate", "float", "immutable", minimum=0.0, maximum=1.0, exclusive_minimum=True),
@@ -337,6 +345,20 @@ ANCHOR_CURRICULUM_FIELDS: Tuple[Field, ...] = (
 )
 ANCHOR_CURRICULUM_BY_PATH: Dict[str, Field] = {f.path: f for f in ANCHOR_CURRICULUM_FIELDS}
 ANCHOR_CURRICULUM_PATHS: Tuple[str, ...] = tuple(ANCHOR_CURRICULUM_BY_PATH)
+
+# M7o: the optional [exploration] table: btt_explore_cells_v1 (rl/btt_explore_cells.py) added to the UNCHANGED contract
+# reward. All or nothing; every value is pinned to the registered contract. Registered for contracts.observation =
+# btt_policy_obs_v3_entities (the spatial diagnostic supplies the map bounds) + btt_reward_v2, tick-0 starts only.
+EXPLORATION_CONTRACT = "btt_explore_cells_v1"
+EXPLORATION_FIELDS: Tuple[Field, ...] = (
+    _F("exploration.contract", "str", "immutable", choices=(EXPLORATION_CONTRACT,), doc="count-based cell-novelty credit"),
+    _F("exploration.beta", "float", "immutable", choices=(0.05,), doc="credit per first visit of a never-visited cell"),
+    _F("exploration.cap", "float", "immutable", choices=(1.0,), doc="banked credit per episode, at most"),
+    _F("exploration.grid_divisor", "int", "immutable", choices=(24,), doc="cell side = max(map width, height) / this"),
+    _F("exploration.decay", "str", "immutable", choices=("harmonic",), doc="w(n) = 1 / (1 + n) per worker slot"),
+)
+EXPLORATION_BY_PATH: Dict[str, Field] = {f.path: f for f in EXPLORATION_FIELDS}
+EXPLORATION_PATHS: Tuple[str, ...] = tuple(EXPLORATION_BY_PATH)
 
 
 # -- helpers ---------------------------------------------------------------------------------------------------
@@ -442,6 +464,14 @@ def _within(child: Path, parent: Path) -> bool:
 def policy_observation_identity(observation: str) -> Optional[Dict[str, Any]]:
     """M7g Phase K: what a btt_policy_obs_v2_spatial run is bound to (contract digest, network, VecNormalize keys,
     native flag). None for btt_policy_obs_v1, so no v1 record gains a key."""
+    if observation == OBS_V3_ENTITIES:   # M7n: pre-scaled keys, no VecNormalize statistics, two native flags
+        table = m7n_obs.st.load_table()
+        return {"contract": m7n_obs.OBS_CONTRACT, "schema_version": m7n_obs.OBS_SCHEMA_VERSION,
+                "contract_sha256": m7n_obs.contract_digest(), "flat_size": m7n_obs.FLAT_SIZE,
+                "key_order": list(m7n_obs.KEY_ORDER), "policy": m7n_policy.POLICY, "network_id": m7n_policy.NETWORK_ID,
+                "norm_obs_keys": [], "unnormalized_keys": list(m7n_obs.KEY_ORDER), "normalization": "fixed scaling",
+                "action_class_table": table["table_id"], "action_class_table_sha256": table["sha256"],
+                "native_flags": dict(m7n_obs.ENTITY_EXTRA_ENV)}
     if observation != OBS_V2_SPATIAL:
         return None
     return {"contract": m7g_obs.OBS_CONTRACT, "schema_version": m7g_obs.OBS_SCHEMA_VERSION,
@@ -577,12 +607,20 @@ class Experiment:
             return None
         return {p.split(".", 1)[1]: self.values[p] for p in ANCHOR_CURRICULUM_PATHS}
 
+    @property
+    def exploration(self) -> Optional[Dict[str, Any]]:
+        """M7o: the [exploration] table as {key: value} (short keys), or None when the profile has none."""
+        if not any(p in self.values for p in EXPLORATION_PATHS):
+            return None
+        return {p.split(".", 1)[1]: self.values[p] for p in EXPLORATION_PATHS}
+
     # -- fingerprints -----------------------------------------------------------------------------------------
 
     def semantic_view(self) -> Dict[str, Any]:
         view = {p: self.values[p] for p in SEMANTIC_PATHS}
         view.update({p: self.values[p] for p in CURRICULUM_PATHS if p in self.values})   # M7h: only when present
         view.update({p: self.values[p] for p in ANCHOR_CURRICULUM_PATHS if p in self.values})   # M7m: only when present
+        view.update({p: self.values[p] for p in EXPLORATION_PATHS if p in self.values})   # M7o: only when present
         view["contracts.reward_resolved"] = self.reward.to_json()
         view["task.table"] = self.task
         view["schema"] = SCHEMA_ID
@@ -592,6 +630,7 @@ class Experiment:
         view = {p: self.values[p] for p in IMMUTABLE_PATHS}
         view.update({p: self.values[p] for p in CURRICULUM_PATHS if p in self.values})   # M7h: only when present
         view.update({p: self.values[p] for p in ANCHOR_CURRICULUM_PATHS if p in self.values})   # M7m: only when present
+        view.update({p: self.values[p] for p in EXPLORATION_PATHS if p in self.values})   # M7o: only when present
         view["contracts.reward_resolved"] = self.reward.to_json()
         view["environment.extra_env"] = dict(self.extra_env)
         view["schema"] = SCHEMA_ID
@@ -634,6 +673,8 @@ class Experiment:
             s["curriculum"] = self.curriculum
         if self.anchor_curriculum is not None:   # M7m: likewise
             s["anchor_curriculum"] = self.anchor_curriculum
+        if self.exploration is not None:   # M7o: likewise
+            s["exploration"] = self.exploration
         return s
 
     def resolved_json(self) -> Dict[str, Any]:
@@ -664,7 +705,8 @@ class Experiment:
             },
             "fingerprints": {"source_sha256": self.source.sha256, "semantic_fingerprint": self.semantic_fingerprint,
                              "compatibility_fingerprint": self.compatibility_fingerprint},
-            "field_classes": {p: (FIELD_BY_PATH.get(p) or CURRICULUM_BY_PATH.get(p) or ANCHOR_CURRICULUM_BY_PATH[p]).cls
+            "field_classes": {p: (FIELD_BY_PATH.get(p) or CURRICULUM_BY_PATH.get(p) or ANCHOR_CURRICULUM_BY_PATH.get(p)
+                                  or EXPLORATION_BY_PATH[p]).cls
                               for p in self.values},
         }
         if self.policy_observation() is not None:
@@ -739,7 +781,8 @@ def _structural(raw: Mapping[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
         problems.append(f"schema = {_repr_value(raw.get('schema'))}: expected {SCHEMA_ID!r}")
     flat = _flatten({k: v for k, v in raw.items() if k != "schema"})
     for path, value in flat.items():
-        if path not in FIELD_BY_PATH and path not in CURRICULUM_BY_PATH and path not in ANCHOR_CURRICULUM_BY_PATH:
+        if path not in FIELD_BY_PATH and path not in CURRICULUM_BY_PATH and path not in ANCHOR_CURRICULUM_BY_PATH \
+                and path not in EXPLORATION_BY_PATH:
             if isinstance(value, dict) and not value:
                 problems.append(f"{path}: unknown or empty table")
             else:
@@ -771,6 +814,14 @@ def _structural(raw: Mapping[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
                 values[f.path] = _check_field(f, flat[f.path], problems)
             else:
                 problems.append(f"{f.path}: missing required key (the [anchor_curriculum] table is all-or-nothing)")
+    if "exploration" in raw and not raw["exploration"]:
+        problems.append("exploration: empty table (the [exploration] table is all-or-nothing)")
+    if any(p in EXPLORATION_BY_PATH for p in flat):     # M7o: the optional table, all keys required once present
+        for f in EXPLORATION_FIELDS:
+            if f.path in flat:
+                values[f.path] = _check_field(f, flat[f.path], problems)
+            else:
+                problems.append(f"{f.path}: missing required key (the [exploration] table is all-or-nothing)")
     return values, problems
 
 
@@ -805,6 +856,14 @@ def _cross_field(v: Dict[str, Any], problems: List[str]) -> Optional[RewardContr
     if obs == OBS_V2_SPATIAL and g("ppo.vecnormalize.normalize_observations") is False:
         problems.append(f"ppo.vecnormalize.normalize_observations = false: contracts.observation = {OBS_V2_SPATIAL!r} "
                         f"requires observation normalisation of {list(m7g_obs.NORMALIZED_KEYS)} (no fixed scaling)")
+    if obs == OBS_V3_ENTITIES and g("ppo.vecnormalize.normalize_observations") is True:
+        problems.append(f"ppo.vecnormalize.normalize_observations = true: contracts.observation = {OBS_V3_ENTITIES!r} "
+                        "is pre-scaled by fixed physical constants and must not be normalised (masked rows stay zero)")
+    if obs == OBS_V3_ENTITIES and (g("ppo.net_arch") != list(m7n_policy.NET_ARCH)
+                                   or g("ppo.activation") != m7n_policy.ACTIVATION):
+        problems.append(f"ppo.net_arch = {_repr_value(g('ppo.net_arch'))}, ppo.activation = {_repr_value(g('ppo.activation'))}: "
+                        f"contracts.observation = {OBS_V3_ENTITIES!r} is validated only with network "
+                        f"{m7n_policy.NETWORK_ID!r} (net_arch {list(m7n_policy.NET_ARCH)}, {m7n_policy.ACTIVATION})")
     if obs == OBS_V2_SPATIAL and (g("ppo.net_arch") != list(m7g_policy.NET_ARCH)
                                   or g("ppo.activation") != m7g_policy.ACTIVATION):
         problems.append(f"ppo.net_arch = {_repr_value(g('ppo.net_arch'))}, ppo.activation = {_repr_value(g('ppo.activation'))}: "
@@ -890,6 +949,21 @@ def _cross_field(v: Dict[str, Any], problems: List[str]) -> Optional[RewardContr
                             "trained without any curriculum)")
         if _is_int(g("environment.horizon")) and g("environment.horizon") != 3600:
             problems.append("anchor_curriculum.contract: registered for the 3,600-tick horizon only")
+    # M7o: the exploration credit is registered for observation v3 (map bounds from the spatial diagnostic) and
+    # btt_reward_v2, tick-0 starts only (no curriculum table), the 3,600-tick horizon, fresh runs (never resumed).
+    if g("exploration.contract") is not None:
+        if obs != OBS_V3_ENTITIES:
+            problems.append(f"exploration.contract: registered for contracts.observation = {OBS_V3_ENTITIES!r} only, "
+                            f"not {_repr_value(obs)}")
+        if reward is not None and reward.contract != "btt_reward_v2":
+            problems.append(f"exploration.contract: registered for contracts.reward = 'btt_reward_v2' only, not "
+                            f"{reward.contract!r}")
+        if g("curriculum.contract") is not None or g("anchor_curriculum.contract") is not None:
+            problems.append("exploration.contract: never combined with a curriculum table (tick-0 starts only)")
+        if g("run.mode") == "resume":
+            problems.append("exploration.contract: fresh runs only (an exploration run is never resumed or warm-started)")
+        if _is_int(g("environment.horizon")) and g("environment.horizon") != 3600:
+            problems.append("exploration.contract: registered for the 3,600-tick horizon only")
     # M7c lifecycle: the two standby fields must agree (explicit, never inferred).
     sp, sc = g("environment.standby_preboot"), g("environment.standby_count")
     if isinstance(sp, bool) and _is_int(sc):

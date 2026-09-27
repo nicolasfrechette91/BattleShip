@@ -1145,6 +1145,8 @@ class M7EpisodeTracker:
             cur["failure_terms"] += 1
         if "reward_v3_episode" in info:   # M7j: btt_reward_v3 per-episode record (absent under v1 / v2)
             cur["reward_v3"] = info["reward_v3_episode"]
+        if "explore_episode" in info:   # M7o: the exploration credit record (absent without the [exploration] table)
+            cur["explore"] = info["explore_episode"]
         cur["termination_reason"] = info.get("termination_reason")
         cur["truncation_reason"] = info.get("truncation_reason")
         cur["episode_dir"] = info.get("episode_dir") or cur["episode_dir"]
@@ -1238,6 +1240,8 @@ class M7EpisodeTracker:
         })
         if cur.get("reward_v3") is not None:   # M7j: v3 episodes only (v1 / v2 labels unchanged)
             recorder.labels["reward_v3"] = cur["reward_v3"]
+        if cur.get("explore") is not None:   # M7o: exploration runs only (every other label unchanged)
+            recorder.labels["explore"] = cur["explore"]
         preserved = recorder.preserved
         # Disposition of the M2 per-episode directory (save, result JSON, process log).
         if preserved:
@@ -1307,6 +1311,8 @@ class M7EpisodeTracker:
         }
         if cur.get("reward_v3") is not None:   # M7j: v3 episodes only (v1 / v2 rows unchanged)
             self._pending_summary["reward_v3"] = cur["reward_v3"]
+        if cur.get("explore") is not None:   # M7o: exploration runs only (every other row unchanged)
+            self._pending_summary["explore"] = cur["explore"]
 
     def pop_summary(self) -> Optional[Dict[str, Any]]:
         s, self._pending_summary = self._pending_summary, None
@@ -1535,6 +1541,9 @@ class WorkerSpec:
     standby_fault: Optional[Dict[str, Any]] = None   # test only: {"generations": [..], "squat_attempts": [..] | "all",
                                                      #            "startup_timeout_attempts": [..]}
 
+    # M7o: the [exploration] table (short keys); None = no credit (every other worker builds exactly what it built before)
+    exploration: Optional[Dict[str, Any]] = None
+
     @property
     def standby(self) -> StandbySettings:
         return StandbySettings(preboot=self.standby_preboot, count=self.standby_count, wait_timeout=self.standby_wait_timeout)
@@ -1601,6 +1610,13 @@ class _PortSquatter:
 def make_reward_wrapper(base: Any, spec: WorkerSpec, tracker: "M7EpisodeTracker") -> M7RewardWrapper:
     """M7RewardWrapper for v1 / v2 / custom contracts (unchanged); M7j's route wrapper for btt_reward_v3, which also
     requires SSB64_RL_TARGET_DIAG=1 in the worker's flags (imported lazily: no v1 / v2 worker imports it)."""
+    if getattr(spec, "exploration", None) is not None:   # M7o: the opt-in exploration credit on top of the (v2) contract
+        from m7n_obs import character_of
+        from m7o_explore_env import M7ExploreRewardWrapper
+
+        return M7ExploreRewardWrapper(base, spec.reward_contract, tracker, settings=dict(spec.exploration),
+                                      extra_env=dict(spec.extra_env), character=character_of(spec.experiment),
+                                      worker_dir=Path(spec.worker_dir), rank=spec.rank)
     if not is_route_contract(spec.reward_contract):
         return M7RewardWrapper(base, spec.reward_contract, tracker)
     from m7j_reward_env import M7RouteRewardWrapper

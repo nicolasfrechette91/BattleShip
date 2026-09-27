@@ -71,6 +71,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import experiment_config as ec  # noqa: E402
 import m7g_obs as mo  # noqa: E402
 import m7g_policy as mp  # noqa: E402
+import m7n_obs as mn  # noqa: E402
+import m7n_policy as mnp  # noqa: E402
 from battleship_env import DEFAULT_EXECUTABLE  # noqa: E402
 from btt_learning import POLICY_OBSERVATION_CONTRACT, POLICY_OBSERVATION_SIZE, TRACK1_CONTRACT  # noqa: E402
 from btt_rewards import REWARD_V1, RewardContract  # noqa: E402
@@ -327,6 +329,8 @@ class M7Config:
     # M7m: the [anchor_curriculum] table (None = none: nothing of M7m is constructed and no record gains a key). Only a
     # warm start: resume_from a checkpoint trained without any curriculum (see _source_checkpoint).
     anchor_curriculum: Optional[Dict[str, Any]] = None
+    # M7o: the [exploration] table (None = no credit: nothing of M7o is constructed and no record gains a key)
+    exploration: Optional[Dict[str, Any]] = None
     # M7c standby lifecycle (rl/m7_standby.py); defaults = M7a/M7b behaviour
     standby_preboot: bool = False
     standby_count: int = 0
@@ -364,6 +368,10 @@ class M7Config:
     def observation_v2(self) -> bool:
         return self.observation == mo.OBS_CONTRACT
 
+    @property
+    def observation_v3(self) -> bool:
+        return self.observation == mn.OBS_CONTRACT
+
     def compatibility_view(self) -> Dict[str, Any]:
         """The resume-compatibility view of this configuration (experiment_config.COMPAT_KEYS)."""
         return {
@@ -400,6 +408,8 @@ class M7Config:
             **({f"curriculum.{k}": v for k, v in self.curriculum.items()} if self.curriculum else {}),
             # M7m: likewise, only with an anchor curriculum
             **({f"anchor_curriculum.{k}": v for k, v in self.anchor_curriculum.items()} if self.anchor_curriculum else {}),
+            # M7o: likewise, only with an exploration table
+            **({f"exploration.{k}": v for k, v in self.exploration.items()} if self.exploration else {}),
         }
 
     @property
@@ -436,6 +446,11 @@ class M7Config:
         if self.observation_v2 and (self.net_arch != tuple(mp.NET_ARCH) or self.activation != mp.ACTIVATION):
             raise ValueError(f"observation {self.observation!r} is validated only with {mp.NETWORK_ID} "
                              f"(net_arch {list(mp.NET_ARCH)}, {mp.ACTIVATION}), not {list(self.net_arch)} {self.activation}")
+        if self.observation_v3 and self.norm_obs:
+            raise ValueError(f"observation {self.observation!r} is pre-scaled and requires norm_obs = False")
+        if self.observation_v3 and (self.net_arch != tuple(mnp.NET_ARCH) or self.activation != mnp.ACTIVATION):
+            raise ValueError(f"observation {self.observation!r} is validated only with {mnp.NETWORK_ID} "
+                             f"(net_arch {list(mnp.NET_ARCH)}, {mnp.ACTIVATION}), not {list(self.net_arch)} {self.activation}")
         if self.experiment is not None:
             view, mine = self.experiment.compatibility_view(), self.compatibility_view()
             diffs = ec.compare_compatibility(view, mine)
@@ -460,7 +475,7 @@ class M7Config:
             import m7h_curriculum as mc
 
             mc.check_registered(self.curriculum)
-            if self.observation_v2:
+            if self.observation_v2 or self.observation_v3:
                 raise ValueError("the M7h curriculum is registered for btt_policy_obs_v1 only")
             if self.resume_from is not None:
                 raise ValueError("a curriculum run is never resumed (a partial run is restarted)")
@@ -468,7 +483,7 @@ class M7Config:
             import m7m_anchor as ma
 
             ma.check_table(self.anchor_curriculum)
-            if self.observation_v2 or self.curriculum is not None or self.reward.contract != "btt_reward_v2":
+            if self.observation_v2 or self.observation_v3 or self.curriculum is not None or self.reward.contract != "btt_reward_v2":
                 raise ValueError("the M7m anchor curriculum is registered for btt_policy_obs_v1 + btt_reward_v2 only, "
                                  "without the M7h curriculum")
             if self.resume_from is None:
@@ -477,6 +492,19 @@ class M7Config:
             missing = [f"{k}={v}" for k, v in ec.ANCHOR_CURRICULUM_EXTRA_ENV if dict(self.extra_env).get(k) != v]
             if missing:
                 raise ValueError(f"the M7m anchor curriculum needs the native flags {missing} in extra_env")
+        if self.exploration is not None:   # M7o
+            import btt_explore_cells as xp
+
+            xp.check_settings(self.exploration)
+            if not self.observation_v3 or self.reward.contract != "btt_reward_v2" or self.curriculum is not None \
+                    or self.anchor_curriculum is not None:
+                raise ValueError("the M7o exploration credit is registered for btt_policy_obs_v3_entities + btt_reward_v2 "
+                                 "only, without any curriculum")
+            if self.resume_from is not None:
+                raise ValueError("an exploration run is never resumed or warm-started")
+            missing = [f"{k}={v}" for k, v in xp.REQUIRED_EXTRA_ENV if dict(self.extra_env).get(k) != v]
+            if missing:
+                raise ValueError(f"the M7o exploration credit needs the native flags {missing} in extra_env")
 
     def to_json(self) -> Dict[str, Any]:
         d = {k: v for k, v in asdict(self).items() if k != "experiment"}
@@ -484,6 +512,8 @@ class M7Config:
             d.pop("curriculum", None)       # M7h: a run without a curriculum records exactly what it did before
         if d.get("anchor_curriculum") is None:
             d.pop("anchor_curriculum", None)    # M7m: likewise
+        if d.get("exploration") is None:
+            d.pop("exploration", None)    # M7o: likewise
         d["runs_dir"] = portable_path(self.runs_dir)
         d["executable"] = portable_path(self.executable)
         d["resume_from"] = portable_path(self.resume_from) if self.resume_from else None
@@ -552,6 +582,7 @@ def config_from_experiment(exp: "ec.Experiment", *, run_id: Optional[str] = None
         allow_lifecycle_change=bool(v["resume.allow_lifecycle_change"]),
         observation=str(v["contracts.observation"]), policy=str(v["ppo.policy"]),
         curriculum=exp.curriculum, anchor_curriculum=exp.anchor_curriculum,
+        exploration=exp.exploration,   # M7o: None without the table
     )
 
 
@@ -562,6 +593,11 @@ def run_contracts(config: M7Config) -> Dict[str, Any]:
     """Every contract a checkpoint of this configuration depends on (compared on resume and evaluation)."""
     if config.observation_v2:
         return mo.m7g_contracts(config.horizon, config.reward)
+    if config.observation_v3:   # M7n
+        c = mn.m7n_contracts(config.horizon, config.reward, mn.character_of(config.experiment_summary()))
+        if config.exploration is not None:   # M7o: the credit is part of what a checkpoint was trained under
+            c.update({"exploration_contract": config.exploration["contract"], "exploration_settings": dict(config.exploration)})
+        return c
     return m7_contracts(config.horizon, config.reward)
 
 
@@ -577,6 +613,8 @@ def worker_factory(config: M7Config, spec: WorkerSpec) -> Any:
         from m7h_worker import CurriculumWorkerFactory
 
         return CurriculumWorkerFactory(spec, config.curriculum)
+    if config.observation_v3:   # M7n: the M7 stack + EntityObsV3Wrapper
+        return mn.M7nWorkerFactory(spec)
     return mo.M7gWorkerFactory(spec) if config.observation_v2 else WorkerFactory(spec)
 
 
@@ -607,12 +645,14 @@ def annotate_model(config: M7Config, model: "M7PPO") -> None:
     observation contract (a v1 model.zip gains nothing)."""
     model.m7_reward_contract = config.reward.to_json()
     model.m7_experiment = config.experiment_summary()
-    if config.observation_v2:
+    if config.observation_v2 or config.observation_v3:
         model.m7_policy_observation = config.observation
 
 
 def policy_network_identity(config: M7Config, model: PPO) -> Optional[Dict[str, Any]]:
     """The measured network and observation identity of a v2 model (None for v1: no v1 record gains a key)."""
+    if config.observation_v3:   # M7n
+        return dict(mnp.describe(model), observation=ec.policy_observation_identity(config.observation))
     if not config.observation_v2:
         return None
     return dict(mp.describe(model), observation=ec.policy_observation_identity(config.observation))
@@ -844,6 +884,7 @@ class M7Run:
                 squat_first_attempt=("post_launch" if c.squat_first_attempt_rank == rank else None),
                 standby_preboot=c.standby_preboot, standby_count=c.standby_count,
                 standby_wait_timeout=c.standby_wait_timeout,
+                exploration=c.exploration,   # M7o: None without the table
                 standby_fault=c.standby_fault if c.standby_fault_rank == rank else None))
         return specs
 
@@ -949,7 +990,9 @@ class M7Run:
         and a copy of the statistics. A checkpoint saved at this point would hold exactly these parameters."""
         m, vn = self.model, self.vecnorm
         self._phase = "collect"
-        self._boundary_obs_rms = copy.deepcopy(vn.obs_rms)
+        # M7n v3: VecNormalize(norm_obs=False) keeps no observation statistics (no obs_rms attribute; the wrapper
+        # would otherwise forward the lookup to the vector env), so the boundary copy is None for such a run.
+        self._boundary_obs_rms = copy.deepcopy(vars(vn).get("obs_rms"))
         self.update_boundary = {"rollouts_completed": len(self.rollouts), "num_timesteps": int(m.num_timesteps),
                                 "n_updates": int(m._n_updates), "policy_digest": policy_parameter_digest(m),
                                 "obs_rms_digest": obs_rms_digest(vn), **obs_rms_record(vn), "utc": utc_now()}
@@ -988,13 +1031,29 @@ class M7Run:
                      "include the partial rollout. Use a periodic ckpt_* set as a completed-update checkpoint."),
         }
 
+    def _explore_table_files(self) -> List[Tuple[int, Path]]:
+        """M7o: the per-slot novelty tables the workers have written so far (atomic files; copied into every set)."""
+        if self.config.exploration is None:
+            return []
+        out = []
+        for rank in range(self.config.n_envs):
+            p = self.layout.workers / f"w{rank:02d}" / "explore_table.json"
+            if p.is_file():
+                out.append((rank, p))
+        return out
+
     def _set_extra_writer(self, *, boundary: bool = False) -> Optional[Callable[[Path], Dict[str, str]]]:
         cur = self.curriculum_env
-        if cur is None and not boundary:
+        tables = self._explore_table_files()
+        if cur is None and not boundary and not tables:
             return None
 
         def write(directory: Path) -> Dict[str, str]:
             out = cur.write_state(directory) if cur is not None else {}
+            for rank, src in tables:     # M7o: the per-slot novelty tables as of this set (provenance, never loaded from here)
+                name = f"explore_table_w{rank:02d}.json"
+                shutil.copyfile(src, directory / name)
+                out[name] = sha256_file(directory / name)
             if boundary and self._boundary_obs_rms is not None:
                 with open(directory / BOUNDARY_OBS_RMS_FILE, "wb") as fp:
                     pickle.dump(self._boundary_obs_rms, fp)
@@ -1269,7 +1328,7 @@ class M7Run:
             annotate_model(c, self.model)
             self.forward = ForwardTimer(self.model.policy)
             self.run_meta["ppo"] = resolved_ppo_params(self.model, c.policy)
-            if c.observation_v2:
+            if c.observation_v2 or c.observation_v3:
                 self.run_meta["policy_network"] = policy_network_identity(c, self.model)
             write_json(self.layout.run_json, self.run_meta)
             if source is None and c.initial_checkpoint:
@@ -1435,6 +1494,10 @@ class M7Run:
                                  "values; state = btt_policy_obs_v1) -> VecNormalize(norm_obs=True, norm_obs_keys=%s, "
                                  "clip_obs=%g, norm_reward=False) -> MultiInputPolicy" % (list(mo.NORMALIZED_KEYS), c.clip_obs))
             if c.observation_v2 else
+            ("raw native observation + btt_spatial_v1 + btt_entity_v1 -> btt_policy_obs_v3_entities (Dict, %d fixed-scaled "
+             "values; masked rows zero) -> VecNormalize(norm_obs=False, norm_reward=False) -> MultiInputPolicy"
+             % mn.FLAT_SIZE)
+            if c.observation_v3 else
             "raw native M1b observation -> btt_policy_obs_v1 (15 float32, unchanged) -> "
             "VecNormalize(norm_obs=True, clip_obs=%g, norm_reward=False) -> policy" % c.clip_obs,
             "timesteps": {"requested_additional": c.total_timesteps, "start": self.start_timesteps,

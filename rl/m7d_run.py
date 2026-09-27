@@ -287,6 +287,15 @@ def validate_episode_row(row: Mapping[str, Any], contract: Any, horizon: int) ->
         if len(ticks) != t or any(not isinstance(k, int) for k in ticks) or list(ticks) != sorted(ticks) \
                 or (ticks and not (prefix_len <= ticks[0] and ticks[-1] <= prefix_len + steps - 1)):
             p.append(f"{tag}: target_break_ticks {ticks} inconsistent with {t} targets / {steps} steps")
+    xr = row.get("explore")      # M7o: the exploration credit record (absent without the [exploration] table)
+    if xr is not None:
+        from btt_explore_cells import CAP
+
+        b = float(xr.get("bonus", -1.0))
+        if not (0.0 <= b <= CAP + 1e-9) or abs(float(xr.get("banked_ground", 0.0)) + float(xr.get("banked_air", 0.0)) - b) > 1e-5:
+            p.append(f"{tag}: explore record bonus {b} ground {xr.get('banked_ground')} air {xr.get('banked_air')}")
+        if xr.get("learner_return") is not None and abs(float(xr["learner_return"]) - (float(row.get("return")) + b)) > 1e-5:
+            p.append(f"{tag}: learner_return {xr.get('learner_return')} != return {row.get('return')} + bonus {b}")
     if row.get("startup_mode") not in STARTUP_MODES:
         p.append(f"{tag}: startup_mode {row.get('startup_mode')!r}")
     return p
@@ -361,6 +370,13 @@ def inspect_vecnormalize(path: Path) -> Dict[str, Any]:
 
     with open(path, "rb") as fp:
         vn = pickle.load(fp)
+    if vars(vn).get("obs_rms") is None:   # instance dict: SB3's wrapper __getattr__ recurses on an unpickled VecNormalize
+        # M7n: btt_policy_obs_v3_entities is pre-scaled; norm_obs=False keeps no observation statistics at all.
+        return {"norm_obs": bool(vn.norm_obs), "norm_reward": bool(vn.norm_reward), "clip_obs": float(vn.clip_obs),
+                "obs_rms_count": 0.0, "obs_rms_finite": True, "obs_rms_counts": {}, "norm_obs_keys": [],
+                "ret_rms_count": float(vn.ret_rms.count),
+                "note": "no observation statistics (fixed scaling); SB3 updates ret_rms whenever training=True even "
+                        "with norm_reward=False; it is never applied"}
     if isinstance(vn.obs_rms, dict):
         # M7g Phase K: a Dict observation (btt_policy_obs_v2_spatial) keeps one statistic per normalised key.
         stats = {k: (np.asarray(v.mean, dtype=np.float64), np.asarray(v.var, dtype=np.float64), float(v.count))
@@ -465,7 +481,8 @@ def verify_training_run(run_dir: Path, exp: Any, *, fresh: bool = True, expected
                  "semantic_fingerprint": (meta.get("experiment") or {}).get("semantic_fingerprint"),
                  "base_seed": (meta.get("seeds") or {}).get("base_seed"), "lifecycle": meta.get("lifecycle")}
         sets[name] = entry
-        if vn["norm_reward"] or not vn["norm_obs"] or vn["clip_obs"] != float(v["ppo.vecnormalize.clip_obs"]) \
+        expect_norm_obs = bool(v["ppo.vecnormalize.normalize_observations"])   # M7n v3: False (pre-scaled)
+        if vn["norm_reward"] or vn["norm_obs"] != expect_norm_obs or vn["clip_obs"] != float(v["ppo.vecnormalize.clip_obs"]) \
                 or not vn["obs_rms_finite"]:
             problems.append(f"checkpoint {name}: VecNormalize {vn}")
         if (meta.get("vecnormalize") or {}).get("norm_reward") is not False:

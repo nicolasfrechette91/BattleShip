@@ -1,0 +1,83 @@
+{
+ "schema": "m7n_launch_approval_v1",
+ "milestone": "M7n",
+ "campaign": "observation_v3_entities_v1",
+ "approved": true,
+ "approved_by": "the user (repository owner), in the Claude Code session of 2026-09-26",
+ "approved_utc": "2026-09-26T22:12:36+00:00",
+ "recorded_by": "the assistant, at the user's instruction: 'Record my approval through the supported authorization mechanism.'",
+ "authorization_text": "I authorize the bounded M7n campaign after the following narrow decision-rule corrections and final verification. No further approval is needed between those corrections, preflight and training.",
+ "conditions_required_before_launch": [
+  "1. Gate 2's crossing criterion: a replay-verified qualified wall crossing with a valid left-side landing (existing classifier) OR a replay-verified left-target break, in at least two v3 seeds; the same criterion applied to every control seed; the control-clear guard preserved; the exact landing / classifier criteria and verification procedure registered before launch",
+  "2. Gate 1's explanation corrected: one native-verified v3 clear with no control clears may legitimately determine success; the single-seed statement applies to the other gates",
+  "3. Empty target-mean denominators: T undefined (not zero) when every stochastic episode is a verified clear; the representation of undefined T, D, G and the inapplicable gates specified; clear-first precedence without exceptions or fabricated numbers",
+  "synthetic cases for off-stage left entry, qualified landing, left-target break, single-seed first clear and all-clear labels; the previous rule version preserved; the corrections documented",
+  "the corrected rule, analysis code and final manifest frozen; the control verification repeated for the changed fingerprint; Gate 2's control inputs verified to use the corrected criterion; no silent control retraining or substitution",
+  "the approval recorded through the supported mechanism, handled consistently by manifest binding and drift checks; no check bypassed to launch"
+ ],
+ "applies_to": {
+  "rule_path": "docs/rl_observation_v3_m7n_decision_rule_v2.json",
+  "rule_schema": "m7n_decision_rule_v2",
+  "rule_sha256": "bd00ff0abc68c8434cd75878a6214bcb4ddf9619049fa9795baf71d9c68b5733",
+  "supersedes_rule_sha256": "9f5c0fd9eeb33e971148e6774e1d12140dc3318141c164a2829631d629001574",
+  "observation_contract": "btt_policy_obs_v3_entities",
+  "observation_contract_sha256": "4ddc2933a41410ecf2009b464a706fc0e6e6de4fbad300608d04bd1d1f7b3297",
+  "executable_sha256": "748dbad98e9a5c32fa802f0dadb87ad56888376170981179860c96fb3cc19e00",
+  "matrix": [
+   "m7n_s0_v3",
+   "m7n_s1_v3",
+   "m7n_s2_v3"
+  ],
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "reward": "btt_reward_v2",
+  "actions": "btt_s9_b8_v1 (Track 1)",
+  "starts": "normal tick-0 starts only",
+  "ppo": "the registered Phase K settings (rl/configs/m7g), unchanged",
+  "transitions_per_seed": 3072000,
+  "initialisation": "fresh models; no pilot weights or optimizer state",
+  "evaluation_episodes": 2955,
+  "control": "the reproduced historical Phase K v1 control",
+  "verification": "native verification of clear candidates; replay verification of gate-2 candidates (both arms)",
+  "decision": "one final application of the frozen decision rule after the registered three-seed matrix"
+ },
+ "stop_policy": [
+  "a failed gate",
+  "manifest drift",
+  "a monitor hard alert",
+  "a provenance mismatch",
+  "a process leak",
+  "partial evidence preserved; no automatic relaunch after such a stop"
+ ],
+ "not_authorized": [
+  "performance-based early stopping",
+  "extra seeds",
+  "budget extensions",
+  "observation, reward or curriculum changes",
+  "training videos",
+  "commits, pushes, branches or PRs",
+  "any relaunch after a stop",
+  "any use of the pilot's weights, optimizer or normalisation state",
+  "native RNG seed inspection, logging, validation, control, comparison or hashes"
+ ],
+ "preserved": [
+  "frozen M7l / M7m evidence",
+  "standing native timing, reset, non-PORT and RNG restrictions",
+  "the superseded rule v1 (byte-identical) and the pre-launch manifest copy docs/rl_observation_v3_m7n_manifest_prelaunch_rule_v1.json"
+ ],
+ "report_required": [
+  "the final decision with paired per-seed results",
+  "verified clears",
+  "qualified crossings",
+  "left-target breaks",
+  "target counts",
+  "target-2 / L / R diagnostics",
+  "falls",
+  "deterministic collapse",
+  "runtime and resource usage",
+  "training behaviour distinguished from normal tick-0 evaluation"
+ ]
+}

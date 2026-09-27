@@ -1,0 +1,66 @@
+{
+ "schema": "m7n_pilot_registration_v1",
+ "utc": "2026-09-26T15:26:40+00:00",
+ "cap_transitions": 40960,
+ "rollouts": 8,
+ "expected_n_updates": 80,
+ "checkpoints": [
+  "ckpt_000000000",
+  "ckpt_000020480",
+  "final"
+ ],
+ "smoke_episodes": {
+  "deterministic": 5,
+  "stochastic": 5
+ },
+ "evaluation_seed": 12345,
+ "max_game_processes": 10,
+ "launch_gate": {
+  "commit_gib": 10.0,
+  "physical_gib": 4.0
+ },
+ "checks": [
+  "P1_exit_clean",
+  "P2_accounting",
+  "P3_fresh_initial",
+  "P4_rows_valid",
+  "P5_updates_happened",
+  "P6_contracts",
+  "P7_resources",
+  "P8_evaluation_smoke"
+ ],
+ "never_used_for": [
+  "tuning the representation",
+  "the reward",
+  "the budget",
+  "decision thresholds",
+  "campaign warm starts"
+ ],
+ "identity": {
+  "profile": "rl/configs/m7n/pilot/m7n_pilot_s0.toml",
+  "profile_sha256": "7b303f29be3f7e12f1fa408e5f79ccf36ecb36b4d61dd17e82f4ad40b6a1312b",
+  "semantic_fingerprint": "3be219c3ea9bf5d8d74d94d209d32058727878ca653269a1fa9b77d2aa06742d",
+  "compatibility_fingerprint": "c087ca9f69dd7185ce8e228f52d8cfae46a5b618f0e855eb99c63b1df7dcaf06",
+  "run_name": "m7n_pilot_s0",
+  "total_transitions": 40960,
+  "base_seed": 0,
+  "observation": "btt_policy_obs_v3_entities",
+  "observation_digest": "4ddc2933a41410ecf2009b464a706fc0e6e6de4fbad300608d04bd1d1f7b3297",
+  "action_class_table_sha256": "97db115242c58c2a18b70c03adcdf4f2556728e501fe87858f9f7b1c83229ea4",
+  "reward": "btt_reward_v2",
+  "native_flags": {
+   "SSB64_RL_NO_RENDER": "1",
+   "SSB64_RAPHNET_DISABLE": "1",
+   "SSB64_RL_SPATIAL": "1",
+   "SSB64_RL_ENTITY": "1"
+  },
+  "executable_sha256": "748dbad98e9a5c32fa802f0dadb87ad56888376170981179860c96fb3cc19e00",
+  "code": {
+   "sha256": "47412284489f0bee805630114668912e6a9ae9b14fa1c3261941f3d2238f2b87",
+   "files": 111
+  },
+  "expected_initial_policy_digest": "c43eb58bc4296ce7497bdfac183dd2dbe15b05a0ae149809e0193d64fdd050ec",
+  "expected_initial_obs_rms_digest": "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5",
+  "revisions": null
+ }
+}

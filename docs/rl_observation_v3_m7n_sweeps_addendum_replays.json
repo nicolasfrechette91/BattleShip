@@ -1,0 +1,200 @@
+{
+ "schema": "m7n_sweeps_addendum_replays_v1",
+ "utc": "2026-09-27T04:47:21+00:00",
+ "purpose": "post-sweep behaviour of the seven-right-target sweep episodes of the final stochastic tick-0 evaluations; diagnostic only, never gating, never a re-decision of n3",
+ "criterion": "exact replay (m7n_crossing exactness: digest, consumed ticks, all actions, break table, first left entry, target count) with the read-only diagnostics of the arm's evaluation flags; trajectory from native observations only",
+ "no_training": true,
+ "no_new_evaluation": true,
+ "analysis_n3_sha256": "13cfd2518c41ff3130678dab8f50a7f323ff4cfb166af643f76093151375727a",
+ "executable_sha256": "748dbad98e9a5c32fa802f0dadb87ad56888376170981179860c96fb3cc19e00",
+ "episodes": [
+  {
+   "arm": "v3",
+   "seed": 1,
+   "run": "m7n_s1_v3",
+   "episode_id": "episode_20260927T032209Z_907d762b",
+   "order": 0,
+   "artifact_dir": "runs/m7n/campaign/_eval/m7n_s1_v3/final/stochastic/workers/w01/artifacts/episode_20260927T032209Z_907d762b",
+   "native_action_digest": "dcb8dfea8a658af10b8ed6b23430ad5a8ed2e5b7edc8c8af8c9284500de19af2",
+   "breaks": [
+    [
+     0,
+     73
+    ],
+    [
+     4,
+     74
+    ],
+    [
+     5,
+     85
+    ],
+    [
+     9,
+     414
+    ],
+    [
+     7,
+     708
+    ],
+    [
+     3,
+     1229
+    ],
+    [
+     2,
+     1678
+    ]
+   ],
+   "sweep_tick": 1678,
+   "flags": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_ENTITY": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   }
+  },
+  {
+   "arm": "v3",
+   "seed": 1,
+   "run": "m7n_s1_v3",
+   "episode_id": "episode_20260927T032502Z_8857b614",
+   "order": 52,
+   "artifact_dir": "runs/m7n/campaign/_eval/m7n_s1_v3/final/stochastic/workers/w02/artifacts/episode_20260927T032502Z_8857b614",
+   "native_action_digest": "3da5b5b0d11fb6bef87a20f404b20373b01517677ff0081428be8fe4648c2a5a",
+   "breaks": [
+    [
+     0,
+     34
+    ],
+    [
+     4,
+     150
+    ],
+    [
+     9,
+     185
+    ],
+    [
+     5,
+     338
+    ],
+    [
+     3,
+     1026
+    ],
+    [
+     2,
+     1171
+    ],
+    [
+     7,
+     3392
+    ]
+   ],
+   "sweep_tick": 3392,
+   "flags": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_ENTITY": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   }
+  },
+  {
+   "arm": "v3",
+   "seed": 1,
+   "run": "m7n_s1_v3",
+   "episode_id": "episode_20260927T032723Z_b3c4696a",
+   "order": 94,
+   "artifact_dir": "runs/m7n/campaign/_eval/m7n_s1_v3/final/stochastic/workers/w01/artifacts/episode_20260927T032723Z_b3c4696a",
+   "native_action_digest": "a0f3c608bd7cda11e2fd3839998ea5ae2713652e7db1af599ff637e53004703b",
+   "breaks": [
+    [
+     9,
+     229
+    ],
+    [
+     0,
+     446
+    ],
+    [
+     3,
+     697
+    ],
+    [
+     5,
+     1569
+    ],
+    [
+     7,
+     1578
+    ],
+    [
+     4,
+     1753
+    ],
+    [
+     2,
+     3011
+    ]
+   ],
+   "sweep_tick": 3011,
+   "flags": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_ENTITY": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   }
+  },
+  {
+   "arm": "v3",
+   "seed": 2,
+   "run": "m7n_s2_v3",
+   "episode_id": "episode_20260927T042929Z_e404fde0",
+   "order": 94,
+   "artifact_dir": "runs/m7n/campaign/_eval/m7n_s2_v3/final/stochastic/workers/w04/artifacts/episode_20260927T042929Z_e404fde0",
+   "native_action_digest": "54a9d6f7785b570776a9b940dbce8943cb72f642ffebd015253f8dfeaf84b658",
+   "breaks": [
+    [
+     0,
+     205
+    ],
+    [
+     4,
+     390
+    ],
+    [
+     5,
+     681
+    ],
+    [
+     7,
+     698
+    ],
+    [
+     9,
+     892
+    ],
+    [
+     3,
+     1358
+    ],
+    [
+     2,
+     1692
+    ]
+   ],
+   "sweep_tick": 1692,
+   "flags": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_ENTITY": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   }
+  }
+ ]
+}

@@ -1,0 +1,70 @@
+{
+ "contract": "btt_explore_cells_v1",
+ "settings": {
+  "contract": "btt_explore_cells_v1",
+  "beta": 0.05,
+  "cap": 1.0,
+  "grid_divisor": 24,
+  "decay": "harmonic"
+ },
+ "required_extra_env": {
+  "SSB64_RL_SPATIAL": "1"
+ },
+ "grid": {
+  "origin": "world (0, 0)",
+  "cell": "(floor(x / s), floor(y / s))",
+  "size_rule": "s = max(width, height) / grid_divisor from the spatial diagnostic map_bounds [top, bottom, right, left] of the tick-0 observe reply",
+  "out_of_bounds": "no clipping; outer cells are ordinary cells"
+ },
+ "eligible": {
+  "live": "fighter_valid 1 and btt_active 1",
+  "class_not_in": [
+   "damage",
+   "dead",
+   "appear_entry",
+   "other",
+   "unmapped"
+  ],
+  "ineligible_step": "marks nothing, banks nothing, keeps pending credit pending"
+ },
+ "first_visit": "first eligible step of the episode in the cell; the tick-0 reset observation marks its cell visited without credit",
+ "amount": "beta * w(n), n = earlier episodes of this worker slot that visited the cell; w(n) = 1 / (1 + n); computed at the visit",
+ "grounded": "ground_air_state 0: banked on the visiting step",
+ "airborne": "pending; banked in visit order on the next eligible grounded step (a landing on any floor); voided at native failure, at the horizon and at any episode end before such a landing",
+ "cap": "banked credit per episode <= cap; the excess of a credit is dropped (recorded as capped); pending amounts keep their computed value until banking",
+ "permanence": "banked credit is never undone; a fall after a landing keeps the landing's credit (no claw-back rule)",
+ "counts": "at every episode end n += 1 for every visited cell, whether banked, voided or capped",
+ "learner": "the banked amount joins the contract reward of the same step (grounded: the visiting step; airborne: the landing step); no retroactive attribution",
+ "tables": "one per worker slot (rank); persists across game-process restarts and standby promotions; written after every episode to <worker_dir>/explore_table.json and reloaded on resume of the same run; empty in a fresh run; never imported across runs",
+ "episode_state": "visited set and pending list cleared at reset; never checkpointed",
+ "logging": {
+  "step": [
+   "banked",
+   "banked_ground",
+   "banked_air",
+   "pending_added",
+   "voided",
+   "capped",
+   "new_cell",
+   "eligible",
+   "landing"
+  ],
+  "episode": [
+   "bonus",
+   "banked_ground",
+   "banked_air",
+   "voided",
+   "capped",
+   "cap_hit",
+   "cells_visited",
+   "cells_credited",
+   "landings",
+   "steps",
+   "eligible_steps",
+   "ended",
+   "table_episodes_before",
+   "events(<= 64)"
+  ]
+ },
+ "not_observed": "the policy observation contract is unchanged; the visited set and tables are reward state only"
+}

@@ -839,6 +839,118 @@ int rlStepGetLastSpatial(RLSpatialDiag *out, uint32_t *step_count);
  * exist, 0 otherwise (outputs untouched). */
 int rlStepGetLatestObservationSpatial(RLObservation *obs, RLTargetDiag *targets, RLSpatialDiag *spatial);
 
+/* -- M7n: opt-in entity diagnostic (btt_entity_v1) -------------------------- */
+
+/*
+ *   SSB64_RL_ENTITY=1         report the agent's action-state progress and
+ *                             the live projectiles: a top-level "entity"
+ *                             object in the observe and step responses
+ *                             (paired with the reply's observation exactly
+ *                             like the M7f "targets" and M7g "spatial"
+ *                             objects) and "entity_diag": true in status.
+ *                             Requires SSB64_RL_BTT=1 and effective
+ *                             interactive stepping; otherwise it is ignored
+ *                             with a log line. Unset: every reply, log line
+ *                             and result file is byte-identical to a build
+ *                             without it.
+ *
+ * CONTENTS, all read from the running game after the update that produced the
+ * paired observation:
+ *   - the player fighter's action-state progress and flags that RLObservation
+ *     (schema 1, frozen) does not carry: FTStruct::status_total_tics (tics
+ *     spent in the current status; reset to 0 by every status change),
+ *     hitlag_tics, attr->jumps_max and the is_attack_active / is_cliff_hold /
+ *     is_shield / is_fastfall / is_hitstun bits;
+ *   - every weapon GObj on the weapon link (gGCCommonLinks[nGCCommonLinkIDWeapon],
+ *     projectiles of any fighter): kind, whether the player fighter owns it,
+ *     facing, ground/air, remaining lifetime, hitbox state and the root DObj
+ *     translate and WPStruct::physics.vel_air, each under a PORT-only per-
+ *     process spawn serial so a consumer can follow one projectile across
+ *     updates (the GObj pool is shared and reused, so the pointer itself is
+ *     never exposed and never a stable identity).
+ *
+ * Strictly read-only towards the game: the fill walks the object link, reads
+ * typed fields, calls nothing that advances or blocks, and writes only *out
+ * plus its own PORT-only serial table. Nothing here is part of RLObservation
+ * (schema 1), the step result, policy observation v1 / v2 or any reward. See
+ * docs/rl_observation_v3_m7n_implementation.md.
+ */
+#define RL_ENTITY_SCHEMA 1u
+
+#define RL_ENTITY_MAX_WEAPONS 8u /* weapons reported per capture (Mario never exceeds 4 live fireballs) */
+
+/* RLEntityDiag.anomaly_flags. None occurs on Mario's stage; each means the
+ * snapshot is incomplete and must be investigated. */
+#define RL_ENTITY_ANOMALY_WEAPON_OVERFLOW (1u << 0) /* more live weapons than RL_ENTITY_MAX_WEAPONS */
+#define RL_ENTITY_ANOMALY_BAD_WEAPON (1u << 1)      /* a weapon GObj without its WPStruct or DObj */
+#define RL_ENTITY_ANOMALY_TRACK_OVERFLOW (1u << 2)  /* the serial table is full: serial 0 assigned */
+
+typedef struct RLEntityFighter
+{
+	uint32_t valid;             /* 1 = the fields below are real (same guards as rlGameFillObservation) */
+	uint32_t status_total_tics; /* FTStruct::status_total_tics */
+	uint32_t hitlag_tics;       /* FTStruct::hitlag_tics */
+	int32_t jumps_max;          /* FTStruct::attr->jumps_max (character constant) */
+	uint32_t attack_active;     /* is_attack_active */
+	uint32_t cliff_hold;        /* is_cliff_hold */
+	uint32_t shield_active;     /* is_shield */
+	uint32_t fastfall;          /* is_fastfall */
+	uint32_t hitstun;           /* is_hitstun */
+
+} RLEntityFighter;
+
+typedef struct RLEntityWeapon
+{
+	uint32_t serial;      /* PORT-only per-process spawn serial (1-based; 0 = table overflow) */
+	int32_t kind;         /* WPStruct::kind (nWPKind*) */
+	uint32_t owned;       /* 1 = owner_gobj is the player fighter */
+	int32_t lr;           /* WPStruct::lr */
+	uint32_t ga;          /* WPStruct::ga: 0 ground, 1 air */
+	int32_t lifetime;     /* WPStruct::lifetime (remaining frames) */
+	int32_t attack_state; /* WPStruct::attack_coll.attack_state (0 = hitbox disabled) */
+	float x;              /* root DObj translate */
+	float y;
+	float vel_x; /* WPStruct::physics.vel_air */
+	float vel_y;
+
+} RLEntityWeapon;
+
+typedef struct RLEntityDiag
+{
+	uint32_t entity_schema; /* RL_ENTITY_SCHEMA */
+	uint32_t input_tick;    /* port stamp at the capture; equals the paired observation's input_tick */
+
+	uint32_t scene_active;  /* 1 = BTT scene current and battle state present (the btt_active guard) */
+	uint32_t live;          /* 1 = scene active and the object links populated (0 on the teardown update) */
+	uint32_t anomaly_flags; /* RL_ENTITY_ANOMALY_* */
+
+	RLEntityFighter fighter;
+
+	uint32_t weapon_total; /* live weapon GObjs on the link (may exceed weapon_count) */
+	uint32_t weapon_count; /* weapons stored below */
+	RLEntityWeapon weapons[RL_ENTITY_MAX_WEAPONS];
+
+} RLEntityDiag;
+
+/* 1 when SSB64_RL_ENTITY=1 was kept (SSB64_RL_BTT=1 and effective stepping). */
+int rlEntityIsEnabled(void);
+
+/* Fill *out from the running game (sc1pbonusstage.c, PORT only). Read-only
+ * towards the game; never writes the port-owned stamp (input_tick). Handles
+ * out == NULL; the caller zero-initialises *out. */
+void rlGameFillEntity(RLEntityDiag *out);
+
+/* Copy the entity snapshot paired with the most recently collected step into
+ * *out. Same contract as rlStepGetLastTargets. */
+int rlStepGetLastEntity(RLEntityDiag *out, uint32_t *step_count);
+
+/* rlStepGetLatestObservation plus the snapshots captured at the same
+ * post-update, under one lock. targets and spatial may be NULL (not
+ * requested); entity must not be. Returns 1 when the observation and every
+ * requested snapshot exist, 0 otherwise (outputs untouched). */
+int rlStepGetLatestObservationEntity(RLObservation *obs, RLTargetDiag *targets, RLSpatialDiag *spatial,
+                                     RLEntityDiag *entity);
+
 /* -- Internal seams inside port/rl ----------------------------------------- */
 
 void rlStepRegister(void);                             /* from rlRuntimeRegister() */
@@ -847,6 +959,9 @@ void rlStepOnObservation(const RLObservation *obs);    /* from the M1b capture, 
 void rlStepOnObservationTargets(const RLObservation *obs, const RLTargetDiag *targets);
 /* M7g: same, plus the spatial snapshot of the same capture (each NULL when its diagnostic is off). */
 void rlStepOnObservationDiag(const RLObservation *obs, const RLTargetDiag *targets, const RLSpatialDiag *spatial);
+/* M7n: same, plus the entity snapshot of the same capture (each NULL when its diagnostic is off). */
+void rlStepOnObservationDiag2(const RLObservation *obs, const RLTargetDiag *targets, const RLSpatialDiag *spatial,
+                              const RLEntityDiag *entity);
 int rlStepExitOnEnd(void);                             /* SSB64_RL_EXIT_ON_END deferred to M1c */
 
 #ifdef __cplusplus

@@ -31,6 +31,7 @@ struct RLConfig {
 	bool raphnetDisable = false; /* M6 follow-up: SSB64_RAPHNET_DISABLE=1 effective (native adapter bypassed) */
 	bool targetDiag = false;     /* M7f target-identity diagnostic (SSB64_RL_TARGET_DIAG=1), read-only */
 	bool spatial = false;        /* M7g structured-spatial diagnostic (SSB64_RL_SPATIAL=1), read-only */
+	bool entity = false;         /* M7n entity diagnostic (SSB64_RL_ENTITY=1), read-only */
 	std::string resultPath;
 };
 
@@ -129,6 +130,10 @@ extern "C" void rlConfigInit(void) {
 	 * interactive stepping, like the M4 timing stamps. */
 	const bool spatialEnv = envIsOne("SSB64_RL_SPATIAL");
 	sConfig.spatial = spatialEnv && sConfig.step;
+	/* M7n entity diagnostic: same rule as the spatial one (observe / step
+	 * replies only, so it needs effective interactive stepping). */
+	const bool entityEnv = envIsOne("SSB64_RL_ENTITY");
+	sConfig.entity = entityEnv && sConfig.step;
 	if (const char *resultPath = std::getenv("SSB64_RL_RESULT_PATH")) {
 		sConfig.resultPath = resultPath;
 	}
@@ -192,6 +197,16 @@ extern "C" void rlConfigInit(void) {
 		port_log("SSB64 RL Spatial: structured-spatial diagnostic enabled schema=%u (read-only; no behaviour change)\n",
 		         (unsigned)RL_SPATIAL_SCHEMA);
 	}
+	if (entityEnv && !sConfig.step) {
+		port_log("SSB64 RL Entity: SSB64_RL_ENTITY=1 ignored: interactive stepping is not effective\n");
+	} else if (sConfig.entity) {
+		port_log("SSB64 RL Entity: entity diagnostic enabled schema=%u (read-only; no behaviour change)\n",
+		         (unsigned)RL_ENTITY_SCHEMA);
+	}
+}
+
+extern "C" int rlEntityIsEnabled(void) {
+	return sConfig.entity ? 1 : 0;
 }
 
 extern "C" int rlTargetDiagIsEnabled(void) {

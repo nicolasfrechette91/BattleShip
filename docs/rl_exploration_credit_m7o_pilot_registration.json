@@ -1,0 +1,149 @@
+{
+ "schema": "m7o_pilot_registration_v1",
+ "utc": "2026-09-27T15:49:21+00:00",
+ "purpose": "go / no-go for the M7o comparison; the pilot's model, optimizer state and tables are never reused",
+ "cap_transitions": 307200,
+ "expected_n_updates": 600,
+ "checkpoints": [
+  "ckpt_000000000",
+  "ckpt_000102400",
+  "ckpt_000204800",
+  "final"
+ ],
+ "evaluation": {
+  "stochastic": 60,
+  "deterministic": 5
+ },
+ "max_processes": 10,
+ "regression_band": 0.5,
+ "decay_ratio_max": 0.3,
+ "checks": [
+  "P1  trainer exit 0 under the M7h guard, no stop, no leftover game process",
+  "P2  accounting: sb3_num_timesteps == 307,200, n_updates == 600, the four checkpoint sets, VecNormalize statistics-free",
+  "P3  ckpt_000000000 == the fresh construction of the profile (policy + VecNormalize digests) == m7n_s0_v3's initial set",
+  "P4  every training row validates (btt_reward_v2 closed form on `return`; the explore record consistent; m7d validators)",
+  "P5  parameters changed and finite",
+  "P6  contracts: v3 observation digest, action-class table, both diagnostic flags, exploration_contract recorded",
+  "P7  resources: <= 10 game processes, no hard alert",
+  "P8  exploration accounting: every episode bonus <= 1.0 and >= 0; ground + air == bonus; learner_return == return + bonus;",
+  "P9  decay: mean bonus of the last 25 % of episodes per slot < 30 % of the first 25 % (pooled over slots); at least one",
+  "P10 evaluation of the final set from tick 0 (60 + 5, metrics on) verifies (tick-0 starts, counts, metrics, no leak)",
+  "R   regression diagnostic, stop-only: the 60 stochastic episodes' mean targets must not be below the M7n seed-0"
+ ],
+ "on_failure": "no-go: stop and report; no extension, no retune, no second pilot seed",
+ "on_inconclusive_regression": "passes on the engineering checks; the diagnostic is reported with its sampling uncertainty",
+ "identity": {
+  "profile": "rl/configs/m7o/pilot/m7o_pilot_s0.toml",
+  "profile_sha256": "c27a6ff5656e47a4740522d90c78104fed6330241b3c935fd7fc989ec73b795e",
+  "semantic_fingerprint": "50e9950efe298ce4977914c3bedb73e8392bf038bac44ed12f3ea9cef43da326",
+  "compatibility_fingerprint": "a7fefeb5df17c233e3979e396d09e445b1fb2d251c588326556565c5b382b228",
+  "run_name": "m7o_pilot_s0",
+  "total_transitions": 307200,
+  "base_seed": 0,
+  "observation": "btt_policy_obs_v3_entities",
+  "observation_digest": "4ddc2933a41410ecf2009b464a706fc0e6e6de4fbad300608d04bd1d1f7b3297",
+  "action_class_table_sha256": "97db115242c58c2a18b70c03adcdf4f2556728e501fe87858f9f7b1c83229ea4",
+  "reward": "btt_reward_v2",
+  "exploration": {
+   "contract": "btt_explore_cells_v1",
+   "beta": 0.05,
+   "cap": 1.0,
+   "grid_divisor": 24,
+   "decay": "harmonic"
+  },
+  "exploration_contract": {
+   "contract": "btt_explore_cells_v1",
+   "settings": {
+    "contract": "btt_explore_cells_v1",
+    "beta": 0.05,
+    "cap": 1.0,
+    "grid_divisor": 24,
+    "decay": "harmonic"
+   },
+   "required_extra_env": {
+    "SSB64_RL_SPATIAL": "1"
+   },
+   "grid": {
+    "origin": "world (0, 0)",
+    "cell": "(floor(x / s), floor(y / s))",
+    "size_rule": "s = max(width, height) / grid_divisor from the spatial diagnostic map_bounds [top, bottom, right, left] of the tick-0 observe reply",
+    "out_of_bounds": "no clipping; outer cells are ordinary cells"
+   },
+   "eligible": {
+    "live": "fighter_valid 1 and btt_active 1",
+    "class_not_in": [
+     "damage",
+     "dead",
+     "appear_entry",
+     "other",
+     "unmapped"
+    ],
+    "ineligible_step": "marks nothing, banks nothing, keeps pending credit pending"
+   },
+   "first_visit": "first eligible step of the episode in the cell; the tick-0 reset observation marks its cell visited without credit",
+   "amount": "beta * w(n), n = earlier episodes of this worker slot that visited the cell; w(n) = 1 / (1 + n); computed at the visit",
+   "grounded": "ground_air_state 0: banked on the visiting step",
+   "airborne": "pending; banked in visit order on the next eligible grounded step (a landing on any floor); voided at native failure, at the horizon and at any episode end before such a landing",
+   "cap": "banked credit per episode <= cap; the excess of a credit is dropped (recorded as capped); pending amounts keep their computed value until banking",
+   "permanence": "banked credit is never undone; a fall after a landing keeps the landing's credit (no claw-back rule)",
+   "counts": "at every episode end n += 1 for every visited cell, whether banked, voided or capped",
+   "learner": "the banked amount joins the contract reward of the same step (grounded: the visiting step; airborne: the landing step); no retroactive attribution",
+   "tables": "one per worker slot (rank); persists across game-process restarts and standby promotions; written after every episode to <worker_dir>/explore_table.json and reloaded on resume of the same run; empty in a fresh run; never imported across runs",
+   "episode_state": "visited set and pending list cleared at reset; never checkpointed",
+   "logging": {
+    "step": [
+     "banked",
+     "banked_ground",
+     "banked_air",
+     "pending_added",
+     "voided",
+     "capped",
+     "new_cell",
+     "eligible",
+     "landing"
+    ],
+    "episode": [
+     "bonus",
+     "banked_ground",
+     "banked_air",
+     "voided",
+     "capped",
+     "cap_hit",
+     "cells_visited",
+     "cells_credited",
+     "landings",
+     "steps",
+     "eligible_steps",
+     "ended",
+     "table_episodes_before",
+     "events(<= 64)"
+    ]
+   },
+   "not_observed": "the policy observation contract is unchanged; the visited set and tables are reward state only"
+  },
+  "native_flags": {
+   "SSB64_RL_NO_RENDER": "1",
+   "SSB64_RAPHNET_DISABLE": "1",
+   "SSB64_RL_SPATIAL": "1",
+   "SSB64_RL_ENTITY": "1"
+  },
+  "executable_sha256": "748dbad98e9a5c32fa802f0dadb87ad56888376170981179860c96fb3cc19e00",
+  "code": {
+   "sha256": "19045ae40972d1fdcdb94b4cc5a343c21822f0dfa490d88fd495f262b7a1b924",
+   "files": 123
+  },
+  "expected_initial_policy_digest": "c43eb58bc4296ce7497bdfac183dd2dbe15b05a0ae149809e0193d64fdd050ec",
+  "expected_initial_obs_rms_digest": "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5",
+  "m7n_s0_initial_digests": [
+   "c43eb58bc4296ce7497bdfac183dd2dbe15b05a0ae149809e0193d64fdd050ec",
+   "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+  ],
+  "m7n_s0_curve_307200": {
+   "path": "runs/m7n/campaign/_eval/m7n_s0_v3/curve_t000307200/stochastic/evaluation.json",
+   "sha256": "5f39c64743aeecb627ccd44771aaeac6f5f52db024fd6947b0ff9298c6f556eb",
+   "episodes": 60,
+   "mean_targets": 3.5667
+  },
+  "revisions": null
+ }
+}

@@ -1,0 +1,86 @@
+{
+ "schema": "m7o_decision_rule_v1",
+ "milestone": "M7o",
+ "status": "frozen when the campaign manifest pins this file's sha256; applied once by rl/m7o_analysis.decide; never re-decided",
+ "experiment": "three fresh runs of btt_policy_obs_v3_entities + btt_reward_v2 + btt_explore_cells_v1 (m7o_s{0,1,2}_x1, 3,072,000 policy transitions each, tick-0 starts only) against the M7n v3 runs m7n_s{0,1,2}_v3 (btt_policy_obs_v3_entities + btt_reward_v2, same profiles without the [exploration] table) as the matched control, paired by seed",
+ "question": "Does the separately logged exploration credit, added to an unchanged btt_reward_v2 during training only, let PPO discover a crossing (a native-verified clear, a replay-verified qualified crossing or a replay-verified left-target break) from normal tick-0 starts at the same budget, without displacing target collection?",
+ "arms": {
+  "exp": {"runs": ["m7o_s0_x1", "m7o_s1_x1", "m7o_s2_x1"], "profiles": "rl/configs/m7o/m7o_s{0,1,2}_x1.toml",
+          "initialisation": "fresh model and optimizer state (the profile's construction; ckpt_000000000 must equal the fresh construction AND the M7n run's initial set of the same seed), empty exploration tables; nothing imported from either pilot attempt or any other run"},
+  "ctl": {"runs": ["m7n_s0_v3", "m7n_s1_v3", "m7n_s2_v3"], "location": "runs/m7n/campaign",
+          "reuse_condition": "runs/m7o/_control/control_check.json PASS (R1: fresh 102,400-transition runs of the M7n profiles equal the M7n runs' ckpt_000102400 digests and episode rows in every seed) AND runs/m7o/_control/control_verify.json PASS (the M7n final and initial evaluation records verified, their tick-0 checks re-run, their clear and crossing candidate sets re-enumerated, every rule input recomputed and equal to the recorded M7n analysis) on the manifest's code fingerprint and executable; a failed check stops the campaign; replacement controls are never trained by this rule"}
+ },
+ "matched": ["btt_policy_obs_v3_entities (digest pinned)", "btt_reward_v2 (frozen values; the experimental arm's rows keep the v2 return and log the credit separately)", "btt_s9_b8_v1 (MultiDiscrete [9, 8])", "PPO of rl/configs/m7g: 3e-4, rollout 5,120 = 5 x 1,024, batch 512, 10 epochs, gamma 0.999, lambda 0.995, clip 0.2, ent_coef 0, vf_coef 0.5, max_grad_norm 0.5", "N = 5 workers with one standby each (<= 10 game processes)", "horizon 3,600", "tick-0 starts only; no curriculum, prefix, anchor or archive", "3,072,000 policy transitions per run; checkpoints every 102,400", "the M7n evaluation protocol: initial + 9 curve points + final; 100 stochastic + 100 deterministic at initial and final, 60 + 5 at curve points; evaluation seed 12345; frozen parameters; btt_eval_metrics_v1; evaluation workers carry no exploration wrapper and no credit; every native clear replayed from tick 0 on a fresh process; every gate-2 candidate replayed and analysed by btt_qualified_crossing_v1"],
+ "only_difference": "the [exploration] table of the experimental profiles (btt_explore_cells_v1, beta 0.05, cap 1.0, grid_divisor 24, harmonic decay), i.e. the learner reward during training; compatibility views differ only in the exploration keys",
+ "parameters": {
+  "seeds": [0, 1, 2],
+  "episodes_per_seed": 100,
+  "moving_target_id": 2,
+  "right_ids": [0, 2, 3, 4, 5, 7, 9],
+  "static_right_ids": [0, 3, 4, 5, 7, 9],
+  "left_ids": [1, 6, 8],
+  "left_region_x_max": -2100,
+  "deadline_consumed_tick": 2699,
+  "L_static_right_min": 5,
+  "collapse_share_min": "1/2",
+  "targets_diff_min": "1/2",
+  "ceiling_seeds_min": 2,
+  "regression_seeds_min": 2,
+  "no_learning_seeds_min": 2
+ },
+ "populations_and_denominators": {
+  "final label": "the final checkpoint set (3,072,000 transitions) of a run, evaluated post hoc from tick 0: 100 stochastic + 100 deterministic episodes",
+  "initial label": "the run's own ckpt_000000000, 100 stochastic episodes (used for G of the experimental arm only)",
+  "K[a][s]": "native-verified clears over the 200 final episodes of the run (100 stochastic + 100 deterministic)",
+  "X[a][s]": "1 iff at least one of the 100 final STOCHASTIC episodes has a replay-verified qualified crossing or a replay-verified left-target break (crossing_verification); the deterministic play is diagnostic",
+  "T[a][s]": "mean targets broken (exact Fraction) over the final stochastic episodes that are not verified clears; UNDEFINED (null) when that set is empty, never 0",
+  "D[s]": "T[exp][s] - T[ctl][s]; undefined when either is undefined",
+  "G[s]": "T of exp's final label minus T of exp's initial label; undefined when either is undefined",
+  "diagnostics (never gating)": "L (target 2 by tick <= 2699 with >= 5 static right targets), R (all seven right targets by 2699), target-2 breaks and ticks, falls, seven-right episodes, deterministic collapse share (M7e definition), unqualified left entries, per-checkpoint curves; exploration credit per training episode and per slot, cells discovered, cap hits, voided and capped amounts, table sizes at each checkpoint set"
+ },
+ "native_verified_clear": "an episode counts as a clear only when its canonical native actions, replayed from tick 0 on a fresh process, reproduce completion_time_passed AND completion_input_tick exactly (rl/m7g_k_run.verify_clears_in); a native clear that does not reproduce is an integrity problem",
+ "qualified_crossing_or_left_target_break": {
+  "criterion": "btt_qualified_crossing_v1 (rl/m7n_crossing.py): candidates = final stochastic episodes with a btt_eval_metrics_v1 first_left_entry or a left target in broken_ids; each replayed exactly from tick 0 (digest, consumed ticks, all actions, break table, first-left-entry tick); qualified crossing = over_wall entry (btt_reward_v3.classify_entry) AND btt_crossing_evidence_v1 path over_ledge AND a grounded takeoff AND a landing on a decoded left-side floor line inside the same left visit (not the failure step); left-target break = target 1, 6 or 8 in the exact replay's break table; a raw left entry or an off-stage fall is never a crossing; an inexact candidate is an integrity problem",
+  "arms": "the same procedure and code path on the experimental finals and on the control finals (the control's documents already exist from M7n and are re-verified by control_verify; a control candidate that qualifies sets X[ctl][s] = 1)"
+ },
+ "integrity_gate": {
+  "gate": 0, "outcome": "invalid",
+  "conditions_any": ["the control reproduction check (R1) or the control record verification is missing, failed or bound to another code fingerprint / executable / rule", "an experimental run is not verified (identity, fresh start equal to the fresh construction and to the M7n initial set of its seed, empty tables at start, provenance, rows, leak-free)", "an evaluation label of either arm fails its verification (episode count, frozen parameters, tick-0 starts, metrics, artifacts, no exploration record in evaluation rows)", "a native clear of either arm not reproduced by its replay", "a gate-2 candidate of either arm whose replay is not exact, or a crossing document whose candidate set differs from the label's rows", "an experimental run's exploration tables changed during evaluation (table sha256 after evaluation != after training)", "manifest drift", "a control label or a control checkpoint changed since the manifest"],
+  "action": "stop; no decision is recorded; diagnose"
+ },
+ "incomplete": {
+  "outcome": "incomplete",
+  "conditions_any": ["fewer than three verified experimental runs", "an experimental final label without 100 + 100 episodes or an initial label without 100 stochastic", "a missing crossing verification of an experimental final", "a stopped, failed or partial experimental run (preserved, never resumed)"],
+  "action": "no decision; reported as incomplete, never as failure or inconclusive"
+ },
+ "gates_in_order": [
+  {"gate": 1, "name": "first_clear", "outcome": "success_discovery",
+   "condition": "(sum_s K[exp][s] >= 1 and sum_s K[ctl][s] == 0) or (K[exp][s] > K[ctl][s] for every seed)",
+   "action": "every verified clear and its checkpoint preserved; the credit is retained as a training mechanism for the next milestone"},
+  {"gate": "guard", "name": "control_clear_guard",
+   "condition": "sum_s K[ctl][s] >= 1 and sum_s K[exp][s] == 0: gates 2 and 4 cannot select the experimental arm (K[ctl] is 0 today; the guard is kept for symmetry)"},
+  {"gate": 2, "name": "ceiling_broken", "outcome": "success_discovery",
+   "condition": "no guard; X[exp][s] == 1 in at least ceiling_seeds_min (2) seeds and X[ctl][s] == 0 in every seed",
+   "action": "the credit is retained; the qualified crossings / left-target breaks are already replayed and their traces, routes and landings documented"},
+  {"gate": 3, "name": "target_regression", "outcome": "failure_regression",
+   "condition": "D defined in at least regression_seeds_min seeds and D[s] <= -targets_diff_min (-1/2) in at least regression_seeds_min (2) seeds",
+   "action": "the credit displaced target collection; not retained at this scale"},
+  {"gate": 4, "name": "targets_up_no_discovery", "outcome": "inconclusive_targets_up",
+   "condition": "no guard; D defined in every seed and D[s] >= +targets_diff_min in every seed",
+   "action": "target collection improved without a discovery event; this is not the mechanism's purpose and unlocks nothing by itself"},
+  {"gate": 5, "name": "no_learning", "outcome": "failure_no_learning",
+   "condition": "at least no_learning_seeds_min seeds with G defined and G[s] <= 0 in at least no_learning_seeds_min (2) seeds",
+   "action": "the experimental arm did not learn from scratch at this budget"},
+  {"gate": 6, "name": "no_discovery_no_regression", "outcome": "inconclusive",
+   "condition": "anything else: neither a discovery event (gates 1-2) nor the regression threshold (gate 3) nor the improvement threshold (gate 4) nor no-learning (gate 5)",
+   "action": "no claim; the credit's effect on discovery is unmeasured at this budget"}
+ ],
+ "precedence": "gate 0 first; then incompleteness; then gates 1-6 in order and the FIRST applicable gate whose condition holds decides. Discovery (gates 1-2) takes precedence over target regression (gate 3): when a discovery gate holds AND gate 3's condition also holds, the outcome is the discovery outcome with the flag target_regression = true and the label suffix '_with_target_regression'; every gate's condition is evaluated and reported whatever decides. An inapplicable gate (undefined inputs) never decides and evaluation continues.",
+ "ties_and_boundaries": "all comparisons are inclusive on exact integers or Fractions, never rounded floats; equal clear counts (including 0 = 0) are not gate 1; the per-seed clear comparison is strict; X ties (1 = 1) are not gate 2; D exactly -1/2 counts for gate 3 and exactly +1/2 for gate 4; G exactly 0 counts as no learning; an undefined D or G is neither above nor below any threshold (that seed does not count toward the gate; gate 4 needs D defined in every seed; gates 3 and 5 need their minimum number of defined seeds)",
+ "undefined_quantities": {"representation": "JSON null; never a substituted number", "T": "undefined when every stochastic episode of the label is a verified clear", "D and G": "undefined when an operand is", "gate_1_2": "depend on K and X only; always applicable", "consequence": "an all-clear experimental label with no control clear is gate 1 by K alone; an all-clear tie is inconclusive"},
+ "not_evidence_of_success": ["exploration credit accumulated, its decay, cells discovered or any training-time behaviour", "the pilot's +0.30 mean-target difference over 60 episodes (a stop-only regression diagnostic inside its band)", "target improvement without a discovery event (gate 4)"],
+ "reported_always": ["paired per-seed K, X, T, D, G with denominators", "qualified crossings and left-target breaks with replay evidence", "native-verified clears", "L and R per seed and pooled", "target 2 and its ticks", "falls", "deterministic collapse", "unqualified left entries", "exploration credit: per-episode distribution per slot over the run, first / last quarter means, cap hits, voided, capped, table sizes per checkpoint set", "training episodes, throughput, wall, commit, processes", "evaluation wall, leaks", "the control check and control verification identities"],
+ "budget": {"exp_training": "3 x 3,072,000 policy transitions (hard maximum; no extension, no extra seed)", "control": "reused after R1 + record verification", "evaluation": "3 x 985 = 2,955 episodes plus clear and crossing replays", "pilots_already_spent": "attempt 1: 56,320; attempt 2: 307,200 (never reused)"},
+ "stops": ["a failed gate", "manifest drift", "a monitor hard alert", "a provenance mismatch", "a resource stop", "a process leak", "no early stop on results", "no automatic fix or relaunch of a stopped campaign", "no extension", "no extra seeds", "no re-decision"],
+ "decision_recording": "decided once by rl/m7o_analysis.decide on this frozen rule; recorded in runs/m7o/campaign/_matrix/analysis_n3.json; never re-decided"
+}

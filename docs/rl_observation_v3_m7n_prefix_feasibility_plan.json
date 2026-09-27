@@ -1,0 +1,735 @@
+{
+ "schema": "m7n_prefix_feasibility_plan_v1",
+ "utc": "2026-09-27T05:46:17+00:00",
+ "registered_before_any_check": true,
+ "harness": "rl/tools/m7n_prefix_feasibility.py foothold",
+ "sources_doc": "docs/rl_observation_v3_m7n_prefix_sources.json",
+ "cut_semantics": "rows 0..cut-1 replayed after the non-consuming tick-0 reset; policy's first action at input tick cut; horizon counted from the reset; prefix earns nothing; v3 observation built from every prefix reply",
+ "checkpoints": {
+  "1": {
+   "checkpoint": "runs/m7n/campaign/m7n_s1_v3/final",
+   "run_id": "m7n_s1_v3",
+   "num_timesteps": 3072000,
+   "files_sha256": {
+    "checkpoint.json": "2df2735ad023aea0bff687a8702f60a3fa1ca9c10c03288aef26aa3f48257e8f",
+    "model.zip": "0af46b8a9fb5927374dcc88b85d12e5ad871869dda682f8feb6ce01f77112c33",
+    "vecnormalize.pkl": "3192805eb9274ba8a190113419a73fe255a8736c566b84e870b9b75f9041c8e4"
+   },
+   "policy_parameter_digest": "5ba7793f19598434f6586b15134af96d901d5e34e3b75789acdfc4046f6f9259",
+   "obs_rms_digest": "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+  },
+  "2": {
+   "checkpoint": "runs/m7n/campaign/m7n_s2_v3/final",
+   "run_id": "m7n_s2_v3",
+   "num_timesteps": 3072000,
+   "files_sha256": {
+    "checkpoint.json": "91cecc11f4054da3d0f3fbabc36f7a4bda6335f96e01b1ef8dbb7380d35b8616",
+    "model.zip": "68ced00be23c18fa68317f977583a89dc795789e9abff178c329e7a1f3dfea06",
+    "vecnormalize.pkl": "8b3b7fe21123a5cf5ba2cbf20511b0d4c4acf244f9536ad16887486efae6c95c"
+   },
+   "policy_parameter_digest": "763b164b774717074911f807f0d2f86a1123312c663a32156c90e50b3a8b9bdd",
+   "obs_rms_digest": "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+  }
+ },
+ "sampling": "stochastic policy (deterministic=False), per-episode seed = sha256('m7n_prefix|<short>|<cut>|<k>')[:8]",
+ "episodes_per_cut": 25,
+ "cuts": [
+  {
+   "short": "907d762b",
+   "seed": 1,
+   "cut": 1679,
+   "remaining_horizon": 1921,
+   "prefix_digest": "a7aa834d3ed4f3c124801d132cc78eceef8d7f4eabe07338c5a5e6f45b3e9124",
+   "expected_observation": {
+    "observation_schema": 1,
+    "host_frame": 1743,
+    "input_tick": 1679,
+    "time_passed": 1678,
+    "game_status": 1,
+    "btt_active": 1,
+    "targets_remaining": 3,
+    "fighter_valid": 1,
+    "position_x": 3144.595458984375,
+    "position_y": 2119.283203125,
+    "air_velocity_x": -13.331474304199219,
+    "air_velocity_y": 65.38087463378906,
+    "ground_velocity_x": 0.0,
+    "facing_direction": -1,
+    "ground_air_state": 1,
+    "fighter_status_id": 226,
+    "jumps_used": 2
+   },
+   "expected_mask": 701,
+   "state": {
+    "cut": 1679,
+    "consumed_through": 1678,
+    "remaining_horizon": 1921,
+    "x": 3144.6,
+    "y": 2119.3,
+    "air_velocity": [
+     -13.33,
+     65.38
+    ],
+    "ground_velocity_x": 0.0,
+    "facing": -1,
+    "grounded": false,
+    "surface": null,
+    "jumps_used": 2,
+    "jumps_max": 2,
+    "status_id": 226,
+    "action_class": "special_hi",
+    "status_tics": 17,
+    "attack_active": 1,
+    "hitstun": 0,
+    "shield": 0,
+    "floor_line": 1,
+    "floor_dist": -2569.3,
+    "carry": [
+     0.0,
+     0.0
+    ],
+    "platform": {
+     "y": 2133.6,
+     "vy": -17.327
+    },
+    "on_platform": false,
+    "targets_remaining": 3,
+    "targets_live_mask": 322,
+    "own_projectiles": [
+     {
+      "kind": 0,
+      "lifetime": 90,
+      "x": 4998.8,
+      "y": -387.4,
+      "vx": 30.54,
+      "vy": -45.74
+     }
+    ],
+    "time_passed": 1678,
+    "v3_stale": false
+   }
+  },
+  {
+   "short": "907d762b",
+   "seed": 1,
+   "cut": 1880,
+   "remaining_horizon": 1720,
+   "prefix_digest": "b2e1cb90214a29e666b88cc025d803c21121d61c4b6b7f414a7557d69e3fc02d",
+   "expected_observation": {
+    "observation_schema": 1,
+    "host_frame": 1944,
+    "input_tick": 1880,
+    "time_passed": 1879,
+    "game_status": 1,
+    "btt_active": 1,
+    "targets_remaining": 3,
+    "fighter_valid": 1,
+    "position_x": 2140.0,
+    "position_y": -450.0,
+    "air_velocity_x": 0.0,
+    "air_velocity_y": 0.0,
+    "ground_velocity_x": 0.0,
+    "facing_direction": -1,
+    "ground_air_state": 0,
+    "fighter_status_id": 223,
+    "jumps_used": 0
+   },
+   "expected_mask": 701,
+   "state": {
+    "cut": 1880,
+    "consumed_through": 1879,
+    "remaining_horizon": 1720,
+    "x": 2140.0,
+    "y": -450.0,
+    "air_velocity": [
+     0.0,
+     0.0
+    ],
+    "ground_velocity_x": 0.0,
+    "facing": -1,
+    "grounded": true,
+    "surface": "L1",
+    "jumps_used": 0,
+    "jumps_max": 2,
+    "status_id": 223,
+    "action_class": "special_n",
+    "status_tics": 25,
+    "attack_active": 0,
+    "hitstun": 0,
+    "shield": 0,
+    "floor_line": 1,
+    "floor_dist": 0.0,
+    "carry": [
+     0.0,
+     0.0
+    ],
+    "platform": {
+     "y": 3281.3,
+     "vy": 4.271
+    },
+    "on_platform": false,
+    "targets_remaining": 3,
+    "targets_live_mask": 322,
+    "own_projectiles": [
+     {
+      "kind": 0,
+      "lifetime": 69,
+      "x": -717.0,
+      "y": -2340.8,
+      "vx": -18.8,
+      "vy": 38.0
+     },
+     {
+      "kind": 0,
+      "lifetime": 129,
+      "x": 1409.8,
+      "y": -358.9,
+      "vx": -49.81,
+      "vy": -17.56
+     }
+    ],
+    "time_passed": 1879,
+    "v3_stale": false
+   }
+  },
+  {
+   "short": "907d762b",
+   "seed": 1,
+   "cut": 2160,
+   "remaining_horizon": 1440,
+   "prefix_digest": "909a73839a75306d38b8855fd81fad73c733966752ce2f848f6fe7b790ebe3b3",
+   "expected_observation": {
+    "observation_schema": 1,
+    "host_frame": 2224,
+    "input_tick": 2160,
+    "time_passed": 2159,
+    "game_status": 1,
+    "btt_active": 1,
+    "targets_remaining": 3,
+    "fighter_valid": 1,
+    "position_x": -596.8008422851562,
+    "position_y": -2550.0,
+    "air_velocity_x": 0.0,
+    "air_velocity_y": -0.0,
+    "ground_velocity_x": 0.0,
+    "facing_direction": 1,
+    "ground_air_state": 0,
+    "fighter_status_id": 223,
+    "jumps_used": 0
+   },
+   "expected_mask": 701,
+   "state": {
+    "cut": 2160,
+    "consumed_through": 2159,
+    "remaining_horizon": 1440,
+    "x": -596.8,
+    "y": -2550.0,
+    "air_velocity": [
+     0.0,
+     -0.0
+    ],
+    "ground_velocity_x": 0.0,
+    "facing": 1,
+    "grounded": true,
+    "surface": "L4",
+    "jumps_used": 0,
+    "jumps_max": 2,
+    "status_id": 223,
+    "action_class": "special_n",
+    "status_tics": 18,
+    "attack_active": 0,
+    "hitstun": 0,
+    "shield": 0,
+    "floor_line": 4,
+    "floor_dist": 0.0,
+    "carry": [
+     0.0,
+     0.0
+    ],
+    "platform": {
+     "y": 3124.2,
+     "vy": 11.375
+    },
+    "on_platform": false,
+    "targets_remaining": 3,
+    "targets_live_mask": 322,
+    "own_projectiles": [
+     {
+      "kind": 0,
+      "lifetime": 118,
+      "x": 616.7,
+      "y": -2425.5,
+      "vx": 41.45,
+      "vy": 16.82
+     }
+    ],
+    "time_passed": 2159,
+    "v3_stale": false
+   }
+  },
+  {
+   "short": "907d762b",
+   "seed": 1,
+   "cut": 2440,
+   "remaining_horizon": 1160,
+   "prefix_digest": "1c8f233281667a8c88826e938e158c0673650c639ee7e38193673a8998b7430a",
+   "expected_observation": {
+    "observation_schema": 1,
+    "host_frame": 2504,
+    "input_tick": 2440,
+    "time_passed": 2439,
+    "game_status": 1,
+    "btt_active": 1,
+    "targets_remaining": 3,
+    "fighter_valid": 1,
+    "position_x": 1844.5667724609375,
+    "position_y": -1444.9000244140625,
+    "air_velocity_x": 0.0,
+    "air_velocity_y": 55.099998474121094,
+    "ground_velocity_x": 0.0,
+    "facing_direction": 1,
+    "ground_air_state": 1,
+    "fighter_status_id": 22,
+    "jumps_used": 1
+   },
+   "expected_mask": 701,
+   "state": {
+    "cut": 2440,
+    "consumed_through": 2439,
+    "remaining_horizon": 1160,
+    "x": 1844.6,
+    "y": -1444.9,
+    "air_velocity": [
+     0.0,
+     55.1
+    ],
+    "ground_velocity_x": 0.0,
+    "facing": 1,
+    "grounded": false,
+    "surface": null,
+    "jumps_used": 1,
+    "jumps_max": 2,
+    "status_id": 22,
+    "action_class": "airborne",
+    "status_tics": 0,
+    "attack_active": 0,
+    "hitstun": 0,
+    "shield": 0,
+    "floor_line": 2,
+    "floor_dist": -55.1,
+    "carry": [
+     0.0,
+     0.0
+    ],
+    "platform": {
+     "y": 2849.3,
+     "vy": 15.919
+    },
+    "on_platform": false,
+    "targets_remaining": 3,
+    "targets_live_mask": 322,
+    "own_projectiles": [
+     {
+      "kind": 0,
+      "lifetime": 62,
+      "x": 5131.6,
+      "y": -1917.9,
+      "vx": 27.83,
+      "vy": -47.44
+     }
+    ],
+    "time_passed": 2439,
+    "v3_stale": false
+   }
+  },
+  {
+   "short": "e404fde0",
+   "seed": 2,
+   "cut": 1693,
+   "remaining_horizon": 1907,
+   "prefix_digest": "318900e8716ea7a36eb6a78160a8324672317ecf3a09c4a1fe408fce092b75ad",
+   "expected_observation": {
+    "observation_schema": 1,
+    "host_frame": 1757,
+    "input_tick": 1693,
+    "time_passed": 1692,
+    "game_status": 1,
+    "btt_active": 1,
+    "targets_remaining": 3,
+    "fighter_valid": 1,
+    "position_x": 2599.688232421875,
+    "position_y": 1874.18408203125,
+    "air_velocity_x": 13.331474304199219,
+    "air_velocity_y": 65.38087463378906,
+    "ground_velocity_x": 0.0,
+    "facing_direction": 1,
+    "ground_air_state": 1,
+    "fighter_status_id": 226,
+    "jumps_used": 2
+   },
+   "expected_mask": 701,
+   "state": {
+    "cut": 1693,
+    "consumed_through": 1692,
+    "remaining_horizon": 1907,
+    "x": 2599.7,
+    "y": 1874.2,
+    "air_velocity": [
+     13.33,
+     65.38
+    ],
+    "ground_velocity_x": 0.0,
+    "facing": 1,
+    "grounded": false,
+    "surface": null,
+    "jumps_used": 2,
+    "jumps_max": 2,
+    "status_id": 226,
+    "action_class": "special_hi",
+    "status_tics": 17,
+    "attack_active": 1,
+    "hitstun": 0,
+    "shield": 0,
+    "floor_line": 1,
+    "floor_dist": -2324.2,
+    "carry": [
+     0.0,
+     0.0
+    ],
+    "platform": {
+     "y": 1904.0,
+     "vy": -15.401
+    },
+    "on_platform": false,
+    "targets_remaining": 3,
+    "targets_live_mask": 322,
+    "own_projectiles": [
+     {
+      "kind": 0,
+      "lifetime": 76,
+      "x": 5054.5,
+      "y": -2256.0,
+      "vx": 23.46,
+      "vy": -49.74
+     }
+    ],
+    "time_passed": 1692,
+    "v3_stale": false
+   }
+  },
+  {
+   "short": "e404fde0",
+   "seed": 2,
+   "cut": 1893,
+   "remaining_horizon": 1707,
+   "prefix_digest": "5dd5a3336583af76795e823033cf8b4bfd765940082016709bb1fa7d917a6e05",
+   "expected_observation": {
+    "observation_schema": 1,
+    "host_frame": 1957,
+    "input_tick": 1893,
+    "time_passed": 1892,
+    "game_status": 1,
+    "btt_active": 1,
+    "targets_remaining": 3,
+    "fighter_valid": 1,
+    "position_x": 2890.29150390625,
+    "position_y": 3596.228271484375,
+    "air_velocity_x": 0.0,
+    "air_velocity_y": -0.0,
+    "ground_velocity_x": 0.0,
+    "facing_direction": 1,
+    "ground_air_state": 0,
+    "fighter_status_id": 154,
+    "jumps_used": 0
+   },
+   "expected_mask": 701,
+   "state": {
+    "cut": 1893,
+    "consumed_through": 1892,
+    "remaining_horizon": 1707,
+    "x": 2890.3,
+    "y": 3596.2,
+    "air_velocity": [
+     0.0,
+     -0.0
+    ],
+    "ground_velocity_x": 0.0,
+    "facing": 1,
+    "grounded": true,
+    "surface": "moving_platform",
+    "jumps_used": 0,
+    "jumps_max": 2,
+    "status_id": 154,
+    "action_class": "shield",
+    "status_tics": 3,
+    "attack_active": 0,
+    "hitstun": 0,
+    "shield": 1,
+    "floor_line": 19,
+    "floor_dist": 0.0,
+    "carry": [
+     0.0,
+     -1.64
+    ],
+    "platform": {
+     "y": 3296.2,
+     "vy": -1.64
+    },
+    "on_platform": true,
+    "targets_remaining": 3,
+    "targets_live_mask": 322,
+    "own_projectiles": [],
+    "time_passed": 1892,
+    "v3_stale": false
+   }
+  },
+  {
+   "short": "e404fde0",
+   "seed": 2,
+   "cut": 2493,
+   "remaining_horizon": 1107,
+   "prefix_digest": "3a45500bcb51e8c00f4867daf24adf6502d58e2835eaf998243211110cafaf4e",
+   "expected_observation": {
+    "observation_schema": 1,
+    "host_frame": 2557,
+    "input_tick": 2493,
+    "time_passed": 2492,
+    "game_status": 1,
+    "btt_active": 1,
+    "targets_remaining": 3,
+    "fighter_valid": 1,
+    "position_x": 2522.85205078125,
+    "position_y": 3596.228271484375,
+    "air_velocity_x": 0.0,
+    "air_velocity_y": -0.0,
+    "ground_velocity_x": 0.0,
+    "facing_direction": 1,
+    "ground_air_state": 0,
+    "fighter_status_id": 189,
+    "jumps_used": 0
+   },
+   "expected_mask": 701,
+   "state": {
+    "cut": 2493,
+    "consumed_through": 2492,
+    "remaining_horizon": 1107,
+    "x": 2522.9,
+    "y": 3596.2,
+    "air_velocity": [
+     0.0,
+     -0.0
+    ],
+    "ground_velocity_x": 0.0,
+    "facing": 1,
+    "grounded": true,
+    "surface": "moving_platform",
+    "jumps_used": 0,
+    "jumps_max": 2,
+    "status_id": 189,
+    "action_class": "idle_ground",
+    "status_tics": 55,
+    "attack_active": 0,
+    "hitstun": 0,
+    "shield": 0,
+    "floor_line": 19,
+    "floor_dist": 0.0,
+    "carry": [
+     0.0,
+     -1.64
+    ],
+    "platform": {
+     "y": 3296.2,
+     "vy": -1.64
+    },
+    "on_platform": true,
+    "targets_remaining": 3,
+    "targets_live_mask": 322,
+    "own_projectiles": [],
+    "time_passed": 2492,
+    "v3_stale": false
+   }
+  },
+  {
+   "short": "e404fde0",
+   "seed": 2,
+   "cut": 2693,
+   "remaining_horizon": 907,
+   "prefix_digest": "003f7026d915c53b85ab651d198a4fca895e41c567cb22db8a5a4a875fe71a1c",
+   "expected_observation": {
+    "observation_schema": 1,
+    "host_frame": 2757,
+    "input_tick": 2693,
+    "time_passed": 2692,
+    "game_status": 1,
+    "btt_active": 1,
+    "targets_remaining": 3,
+    "fighter_valid": 1,
+    "position_x": -244.6253662109375,
+    "position_y": 3913.60009765625,
+    "air_velocity_x": -22.703174591064453,
+    "air_velocity_y": -2.6991565227508545,
+    "ground_velocity_x": 0.0,
+    "facing_direction": -1,
+    "ground_air_state": 1,
+    "fighter_status_id": 226,
+    "jumps_used": 2
+   },
+   "expected_mask": 701,
+   "state": {
+    "cut": 2693,
+    "consumed_through": 2692,
+    "remaining_horizon": 907,
+    "x": -244.6,
+    "y": 3913.6,
+    "air_velocity": [
+     -22.7,
+     -2.7
+    ],
+    "ground_velocity_x": 0.0,
+    "facing": -1,
+    "grounded": false,
+    "surface": null,
+    "jumps_used": 2,
+    "jumps_max": 2,
+    "status_id": 226,
+    "action_class": "special_hi",
+    "status_tics": 23,
+    "attack_active": 0,
+    "hitstun": 0,
+    "shield": 0,
+    "floor_line": 4,
+    "floor_dist": -6463.6,
+    "carry": [
+     0.0,
+     0.0
+    ],
+    "platform": {
+     "y": 2031.9,
+     "vy": 16.521
+    },
+    "on_platform": false,
+    "targets_remaining": 3,
+    "targets_live_mask": 322,
+    "own_projectiles": [
+     {
+      "kind": 0,
+      "lifetime": 84,
+      "x": -530.5,
+      "y": 1258.5,
+      "vx": -27.35,
+      "vy": -47.72
+     }
+    ],
+    "time_passed": 2692,
+    "v3_stale": false
+   }
+  },
+  {
+   "short": "e404fde0",
+   "seed": 2,
+   "cut": 2813,
+   "remaining_horizon": 787,
+   "prefix_digest": "fe180a13afe1583ef7fdeb64c8c569653b5ab77814a7c5285304f3c3bdc00212",
+   "expected_observation": {
+    "observation_schema": 1,
+    "host_frame": 2877,
+    "input_tick": 2813,
+    "time_passed": 2812,
+    "game_status": 1,
+    "btt_active": 1,
+    "targets_remaining": 3,
+    "fighter_valid": 1,
+    "position_x": -99.16357421875,
+    "position_y": -2550.0,
+    "air_velocity_x": 0.0,
+    "air_velocity_y": 0.0,
+    "ground_velocity_x": 0.0,
+    "facing_direction": -1,
+    "ground_air_state": 0,
+    "fighter_status_id": 59,
+    "jumps_used": 0
+   },
+   "expected_mask": 701,
+   "state": {
+    "cut": 2813,
+    "consumed_through": 2812,
+    "remaining_horizon": 787,
+    "x": -99.2,
+    "y": -2550.0,
+    "air_velocity": [
+     0.0,
+     0.0
+    ],
+    "ground_velocity_x": 0.0,
+    "facing": -1,
+    "grounded": true,
+    "surface": "L4",
+    "jumps_used": 0,
+    "jumps_max": 2,
+    "status_id": 59,
+    "action_class": "landing",
+    "status_tics": 18,
+    "attack_active": 0,
+    "hitstun": 0,
+    "shield": 0,
+    "floor_line": 4,
+    "floor_dist": 0.0,
+    "carry": [
+     0.0,
+     0.0
+    ],
+    "platform": {
+     "y": 3176.5,
+     "vy": -9.512
+    },
+    "on_platform": false,
+    "targets_remaining": 3,
+    "targets_live_mask": 322,
+    "own_projectiles": [],
+    "time_passed": 2812,
+    "v3_stale": false
+   }
+  }
+ ],
+ "total_episodes": 225,
+ "geometry": {
+  "left_x": -2100.0,
+  "ledge_right_x": -1200.0,
+  "wall_top_y": 3000.0,
+  "wall_face_x": -1800.0
+ },
+ "rule": {
+  "stages_after_the_cut": {
+   "S1_approach": "a live step with x <= -1200 at any height (past the ledge's right end; the sources never did)",
+   "S2_over_ledge": "a live step with y >= 3000 and x <= -1200 (above the wall top, over the ledge span); policy_initiated iff the last grounded step before it has consumed tick >= cut, else inherited",
+   "S3_over_wall_entry": "an over_wall entry (btt_reward_v3.classify_entry) at consumed tick >= cut; policy_initiated iff the crossing evidence's grounded takeoff has consumed tick >= cut",
+   "S4_qualified_crossing": "btt_qualified_crossing_v1 (m7n_crossing.analyse_trace): over_wall entry + over_ledge path + grounded takeoff + landing on a decoded left floor in the same visit",
+   "S5_left_target_break": "target 1, 6 or 8 broken at consumed tick >= cut",
+   "also_recorded": [
+    "fall tick",
+    "horizon survival",
+    "first grounded step after the cut",
+    "min x / max y after the cut",
+    "reward v2 return of the policy phase (rebased at the cut)",
+    "unqualified entries"
+   ]
+  },
+  "outcomes": {
+   "FOOTHOLD (GO)": "at some cut, policy-initiated S2 in >= 3 of 25 continuations AND S1 in >= 5 of 25; OR >= 1 S4 with a policy-initiated takeoff at any cut",
+   "NO FOOTHOLD (STOP)": "pooled S1 <= 2 of 225 AND S2 (policy-initiated or inherited) = 0",
+   "INCONCLUSIVE": "anything else (approaches without passage; passages only inherited from an airborne cut; ...)"
+  },
+  "never": [
+   "a raw left entry or an off-stage fall counted as a crossing",
+   "an inherited passage counted as initiation",
+   "a threshold changed after seeing results"
+  ]
+ },
+ "stop_on": [
+  "a failed launch gate",
+  "an integrity or provenance mismatch",
+  "a process leak"
+ ],
+ "no_training": true,
+ "no_new_tick0_evaluation": true
+}

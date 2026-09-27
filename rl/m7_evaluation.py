@@ -57,6 +57,7 @@ from stable_baselines3.common.vec_env import VecNormalize
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import m7g_obs as mo  # noqa: E402
+import m7n_obs as mn  # noqa: E402
 from btt_learning import (  # noqa: E402
     POLICY_OBSERVATION_CONTRACT,
     TARGETS_TOTAL,
@@ -287,8 +288,11 @@ def policy_parameter_digest(model: Any) -> str:
 def obs_rms_digest(vecnorm: VecNormalize) -> str:
     """sha256 of the observation statistics. v1 (one RunningMeanStd): mean, var, count, exactly as M7a-M7f. A Dict
     observation (M7g v2; obs_rms is a dict over the normalised keys): key name + mean, var, count per key, sorted."""
-    rms = vecnorm.obs_rms
+    rms = vars(vecnorm).get("obs_rms")   # M7n v3: norm_obs=False keeps no statistics; instance dict, never getattr
     h = hashlib.sha256()
+    if rms is None:
+        h.update(b"no observation statistics (norm_obs=False)")
+        return h.hexdigest()
     for key, stats in (sorted(rms.items()) if isinstance(rms, dict) else ((None, rms),)):
         if key is not None:
             h.update(key.encode("ascii"))
@@ -301,7 +305,9 @@ def obs_rms_digest(vecnorm: VecNormalize) -> str:
 def obs_rms_record(vecnorm: VecNormalize) -> Dict[str, Any]:
     """The statistics facts of checkpoint.json: v1 {obs_rms_count} as before; a Dict observation adds the per-key
     counts and the normalised keys (the binary keys have no statistics)."""
-    rms = vecnorm.obs_rms
+    rms = vars(vecnorm).get("obs_rms")
+    if rms is None:   # M7n v3: pre-scaled observation, norm_obs=False
+        return {"obs_rms_count": 0.0, "obs_rms_counts": {}, "norm_obs_keys": []}
     if not isinstance(rms, dict):
         return {"obs_rms_count": float(rms.count)}
     counts = {k: float(v.count) for k, v in sorted(rms.items())}
@@ -315,6 +321,8 @@ def obs_rms_record(vecnorm: VecNormalize) -> Dict[str, Any]:
 def observation_space_of(observation: str) -> Any:
     if observation == mo.OBS_CONTRACT:
         return mo.make_observation_space()
+    if observation == mn.OBS_CONTRACT:
+        return mn.make_observation_space()
     if observation == POLICY_OBSERVATION_CONTRACT:
         return make_policy_observation_space()
     raise CheckpointError(f"unknown policy observation contract {observation!r}")
@@ -323,8 +331,12 @@ def observation_space_of(observation: str) -> Any:
 def checkpoint_observation_contract(meta: Mapping[str, Any]) -> str:
     """The policy observation a checkpoint set was trained on (never reinterpreted)."""
     obs = (meta.get("contracts") or {}).get("policy_observation_contract")
-    if obs not in (POLICY_OBSERVATION_CONTRACT, mo.OBS_CONTRACT):
+    if obs not in (POLICY_OBSERVATION_CONTRACT, mo.OBS_CONTRACT, mn.OBS_CONTRACT):
         raise CheckpointError(f"checkpoint.json records policy observation {obs!r}: not a supported contract")
+    if obs == mn.OBS_CONTRACT and meta["contracts"].get("policy_observation_contract_sha256") != mn.contract_digest():
+        raise CheckpointError(f"checkpoint.json records {mn.OBS_CONTRACT} digest "
+                              f"{meta['contracts'].get('policy_observation_contract_sha256')!r}, this code builds "
+                              f"{mn.contract_digest()!r}")
     if obs == mo.OBS_CONTRACT and meta["contracts"].get("policy_observation_contract_sha256") != mo.contract_digest():
         raise CheckpointError(f"checkpoint.json records {mo.OBS_CONTRACT} digest "
                               f"{meta['contracts'].get('policy_observation_contract_sha256')!r}, this code builds "
@@ -337,7 +349,7 @@ def check_model_identity(model: Any, observation: str) -> None:
     expected = observation_space_of(observation)
     if model.observation_space != expected:
         raise CheckpointError(f"model observation space {model.observation_space} is not {observation}'s {expected}")
-    policy_class = "MultiInputActorCriticPolicy" if observation == mo.OBS_CONTRACT else "ActorCriticPolicy"
+    policy_class = "MultiInputActorCriticPolicy" if observation in (mo.OBS_CONTRACT, mn.OBS_CONTRACT) else "ActorCriticPolicy"
     if type(model.policy).__name__ != policy_class:
         raise CheckpointError(f"model policy {type(model.policy).__name__} is not {policy_class} ({observation})")
     recorded = getattr(model, "m7_policy_observation", None)
@@ -347,7 +359,14 @@ def check_model_identity(model: Any, observation: str) -> None:
 
 def check_vecnormalize_identity(vecnorm: VecNormalize, observation: str) -> None:
     """Statistics must belong to `observation`: one Box RunningMeanStd for v1, exactly the continuous keys for v2."""
-    rms = vecnorm.obs_rms
+    rms = vars(vecnorm).get("obs_rms")
+    if observation == mn.OBS_CONTRACT:   # M7n: pre-scaled, no statistics
+        if vecnorm.norm_obs or rms is not None or vecnorm.norm_reward:
+            raise CheckpointError(f"VecNormalize is not {observation}'s: norm_obs {vecnorm.norm_obs}, statistics "
+                                  f"{type(rms).__name__}, norm_reward {vecnorm.norm_reward} (expected none / False)")
+        return
+    if rms is None:
+        raise CheckpointError(f"VecNormalize carries no observation statistics: not {observation}'s")
     if observation == mo.OBS_CONTRACT:
         keys = list(vecnorm.norm_obs_keys or [])
         if not isinstance(rms, dict) or keys != list(mo.NORMALIZED_KEYS) or sorted(rms) != sorted(mo.NORMALIZED_KEYS):
@@ -441,6 +460,7 @@ def _prepare_workers(root: Path, n: int, role: str, run_id: str, settings: Evalu
                           standby_wait_timeout=settings.standby_wait_timeout)
         # M7g: the v2 stack refuses a spec without SSB64_RL_SPATIAL=1 (every standby generation boots with it too)
         factory: Any = (mo.M7gWorkerFactory(spec) if settings.observation_contract == mo.OBS_CONTRACT
+                        else mn.M7nWorkerFactory(spec) if settings.observation_contract == mn.OBS_CONTRACT   # M7n
                         else WorkerFactory(spec))
         if settings.eval_metrics:   # M7g Phase K: btt_eval_metrics_v1 recorder inside the worker (evaluation only)
             from m7g_eval_metrics import EvalMetricsWorkerFactory
@@ -595,7 +615,8 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
         raise CheckpointError(f"evaluation observation {settings.observation} differs from the checkpoint's "
                               f"{observation}; a checkpoint is always evaluated under its own observation contract")
     flags = dict(settings.extra_env)
-    flags.update(dict(mo.SPATIAL_EXTRA_ENV) if observation == mo.OBS_CONTRACT else {})
+    flags.update(dict(mo.SPATIAL_EXTRA_ENV) if observation == mo.OBS_CONTRACT else
+                 dict(mn.ENTITY_EXTRA_ENV) if observation == mn.OBS_CONTRACT else {})   # M7n: both flags
     settings = replace(settings, observation=observation, extra_env=tuple(flags.items()))
     t0 = time.perf_counter()
     model = M7PPO.load(str(ckpt / MODEL_FILE), device="cpu")
@@ -631,7 +652,13 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
                                       f"keys {list(mo.NORMALIZED_KEYS)}) -> MultiInputPolicy")
         result["policy_observation_contract"] = observation
         result["policy_network"] = meta.get("policy_network")
-    if observation == mo.OBS_CONTRACT or settings.records_flags:
+    if observation == mn.OBS_CONTRACT:   # M7n: v3 only
+        result["observation_note"] = ("raw native observations + btt_spatial_v1 + btt_entity_v1 -> "
+                                      f"btt_policy_obs_v3_entities (Dict, {mn.FLAT_SIZE} fixed-scaled values; masked "
+                                      "rows zero; no statistics) -> MultiInputPolicy")
+        result["policy_observation_contract"] = observation
+        result["policy_network"] = meta.get("policy_network")
+    if observation in (mo.OBS_CONTRACT, mn.OBS_CONTRACT) or settings.records_flags:
         result["extra_env"] = dict(settings.effective_extra_env())
     if settings.eval_metrics:
         result["policy_observation_contract"] = observation
