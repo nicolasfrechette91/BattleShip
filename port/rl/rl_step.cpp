@@ -130,6 +130,17 @@ RLEntityDiag sEntityLast;
 uint32_t sEntityLastStep = 0;
 bool sHasEntityLast = false;
 
+/* --- M7q input-state diagnostic (SSB64_RL_INPUT=1), protected by sMutex,
+ * latched exactly like the M7f / M7g / M7n copies above. Never read by a
+ * transition. */
+RLInputDiag sLatestInput;
+bool sHasLatestInput = false;
+RLInputDiag sResultInput;
+bool sHasResultInput = false;
+RLInputDiag sInputLast;
+uint32_t sInputLastStep = 0;
+bool sHasInputLast = false;
+
 /* --- main-thread-only, written once by rlStepRegister() before any other
  *     thread that uses this module can exist ----------------------------- */
 std::atomic<bool> sRegistered{false};
@@ -237,6 +248,12 @@ int pollLocked(RLStepResult *out) {
 			sEntityLast = sResultEntity;
 			sEntityLastStep = out->step_count;
 			sHasEntityLast = true;
+		}
+		if (sHasResultInput) {
+			/* M7q: the input-state snapshot of the same capture as this result. */
+			sInputLast = sResultInput;
+			sInputLastStep = out->step_count;
+			sHasInputLast = true;
 		}
 		if (next != RL_STEP_WAITING_FOR_ACTION) {
 			port_log("SSB64 RL Step: result collected step=%u consumed_tick=%u input_tick=%u "
@@ -475,6 +492,46 @@ extern "C" int rlStepGetLastEntity(RLEntityDiag *out, uint32_t *step_count) {
 	return 1;
 }
 
+/* M7q: the non-consuming read with the input-state snapshot (and, when
+ * requested, the target, spatial and entity snapshots) handed in with that
+ * observation, under one lock. */
+extern "C" int rlStepGetLatestObservationInput(RLObservation *obs, RLTargetDiag *targets, RLSpatialDiag *spatial,
+                                               RLEntityDiag *entity, RLInputDiag *input) {
+	if (obs == nullptr || input == nullptr) {
+		return 0;
+	}
+	std::lock_guard<std::mutex> lock(sMutex);
+	if (!sHasLatest || !sHasLatestInput || (targets != nullptr && !sHasLatestTargets) ||
+	    (spatial != nullptr && !sHasLatestSpatial) || (entity != nullptr && !sHasLatestEntity)) {
+		return 0;
+	}
+	*obs = sLatest;
+	*input = sLatestInput;
+	if (targets != nullptr) {
+		*targets = sLatestTargets;
+	}
+	if (spatial != nullptr) {
+		*spatial = sLatestSpatial;
+	}
+	if (entity != nullptr) {
+		*entity = sLatestEntity;
+	}
+	return 1;
+}
+
+extern "C" int rlStepGetLastInput(RLInputDiag *out, uint32_t *step_count) {
+	if (out == nullptr || step_count == nullptr) {
+		return 0;
+	}
+	std::lock_guard<std::mutex> lock(sMutex);
+	if (!sHasInputLast) {
+		return 0;
+	}
+	*out = sInputLast;
+	*step_count = sInputLastStep;
+	return 1;
+}
+
 /* -- Decomp-facing (game coroutine) ---------------------------------------- */
 
 extern "C" int rlStepControllerRead(uint32_t tick, uint16_t *buttons, int8_t *stick_x, int8_t *stick_y) {
@@ -547,12 +604,26 @@ extern "C" void rlStepOnObservationDiag(const RLObservation *obs, const RLTarget
 
 extern "C" void rlStepOnObservationDiag2(const RLObservation *obs, const RLTargetDiag *targets,
                                          const RLSpatialDiag *spatial, const RLEntityDiag *entity) {
+	/* M7q: the pre-M7q entry point; no input-state snapshot travels with it. */
+	rlStepOnObservationDiag3(obs, targets, spatial, entity, nullptr);
+}
+
+extern "C" void rlStepOnObservationDiag3(const RLObservation *obs, const RLTargetDiag *targets,
+                                         const RLSpatialDiag *spatial, const RLEntityDiag *entity,
+                                         const RLInputDiag *input) {
 	if (!sRegistered.load() || obs == nullptr) {
 		return;
 	}
 	std::lock_guard<std::mutex> lock(sMutex);
 	sLatest = *obs;
 	sHasLatest = true;
+	if (input != nullptr) {
+		/* M7q: travels with the observation it was captured with. */
+		sLatestInput = *input;
+		sHasLatestInput = true;
+	} else {
+		sHasLatestInput = false;
+	}
 	if (entity != nullptr) {
 		/* M7n: travels with the observation it was captured with. */
 		sLatestEntity = *entity;
@@ -607,6 +678,10 @@ extern "C" void rlStepOnObservationDiag2(const RLObservation *obs, const RLTarge
 		sHasResultEntity = (entity != nullptr);
 		if (entity != nullptr) {
 			sResultEntity = *entity; /* M7n: likewise */
+		}
+		sHasResultInput = (input != nullptr);
+		if (input != nullptr) {
+			sResultInput = *input; /* M7q: likewise */
 		}
 		sState = RL_STEP_OBSERVATION_READY;
 		if (sTimingEnabled) {

@@ -74,6 +74,8 @@ import m7g_policy as mp  # noqa: E402
 import m7n_obs as mn  # noqa: E402
 import m7n_policy as mnp  # noqa: E402
 import m7p_obs_geo4 as mgeo  # noqa: E402  (M7p: opt-in geometry-scaled v3 variant; v3 unchanged)
+import m7q_obs as mq  # noqa: E402  (M7q: opt-in v4 observation = v3 + native input state; v3 unchanged)
+import m7q_policy as mqp  # noqa: E402
 from battleship_env import DEFAULT_EXECUTABLE  # noqa: E402
 from btt_learning import POLICY_OBSERVATION_CONTRACT, POLICY_OBSERVATION_SIZE, TRACK1_CONTRACT  # noqa: E402
 from btt_rewards import REWARD_V1, RewardContract  # noqa: E402
@@ -377,6 +379,10 @@ class M7Config:
     def observation_geo4(self) -> bool:   # M7p: opt-in diagnostic contract (v3 with the segment_geometry block / 4)
         return self.observation == mgeo.OBS_CONTRACT
 
+    @property
+    def observation_v4(self) -> bool:   # M7q: opt-in v4 (v3 + native input state; three read-only native flags)
+        return self.observation == mq.OBS_CONTRACT
+
     def compatibility_view(self) -> Dict[str, Any]:
         """The resume-compatibility view of this configuration (experiment_config.COMPAT_KEYS)."""
         return {
@@ -461,6 +467,15 @@ class M7Config:
         if self.observation_geo4 and (self.net_arch != tuple(mnp.NET_ARCH) or self.activation != mnp.ACTIVATION):
             raise ValueError(f"observation {self.observation!r} is registered only with {mnp.NETWORK_ID} "
                              f"(net_arch {list(mnp.NET_ARCH)}, {mnp.ACTIVATION}), not {list(self.net_arch)} {self.activation}")
+        if self.observation_v4 and self.norm_obs:   # M7q: pre-scaled like v3
+            raise ValueError(f"observation {self.observation!r} is pre-scaled and requires norm_obs = False")
+        if self.observation_v4 and (self.net_arch != tuple(mqp.NET_ARCH) or self.activation != mqp.ACTIVATION):
+            raise ValueError(f"observation {self.observation!r} is registered only with {mqp.NETWORK_ID} "
+                             f"(net_arch {list(mqp.NET_ARCH)}, {mqp.ACTIVATION}), not {list(self.net_arch)} {self.activation}")
+        if self.observation_v4:
+            missing = [f"{k}={v}" for k, v in mq.ENTITY_EXTRA_ENV if dict(self.extra_env).get(k) != v]
+            if missing:
+                raise ValueError(f"observation {self.observation!r} needs the native flags {missing} in extra_env")
         if self.experiment is not None:
             view, mine = self.experiment.compatibility_view(), self.compatibility_view()
             diffs = ec.compare_compatibility(view, mine)
@@ -485,7 +500,7 @@ class M7Config:
             import m7h_curriculum as mc
 
             mc.check_registered(self.curriculum)
-            if self.observation_v2 or self.observation_v3:
+            if self.observation_v2 or self.observation_v3 or self.observation_v4:
                 raise ValueError("the M7h curriculum is registered for btt_policy_obs_v1 only")
             if self.resume_from is not None:
                 raise ValueError("a curriculum run is never resumed (a partial run is restarted)")
@@ -493,7 +508,8 @@ class M7Config:
             import m7m_anchor as ma
 
             ma.check_table(self.anchor_curriculum)
-            if self.observation_v2 or self.observation_v3 or self.curriculum is not None or self.reward.contract != "btt_reward_v2":
+            if self.observation_v2 or self.observation_v3 or self.observation_v4 or self.curriculum is not None \
+                    or self.reward.contract != "btt_reward_v2":
                 raise ValueError("the M7m anchor curriculum is registered for btt_policy_obs_v1 + btt_reward_v2 only, "
                                  "without the M7h curriculum")
             if self.resume_from is None:
@@ -610,6 +626,8 @@ def run_contracts(config: M7Config) -> Dict[str, Any]:
         return c
     if config.observation_geo4:   # M7p
         return mgeo.m7p_contracts(config.horizon, config.reward, mn.character_of(config.experiment_summary()))
+    if config.observation_v4:   # M7q
+        return mq.m7q_contracts(config.horizon, config.reward, mn.character_of(config.experiment_summary()))
     return m7_contracts(config.horizon, config.reward)
 
 
@@ -629,6 +647,8 @@ def worker_factory(config: M7Config, spec: WorkerSpec) -> Any:
         return mn.M7nWorkerFactory(spec)
     if config.observation_geo4:   # M7p: the M7 stack + EntityObsGeo4Wrapper
         return mgeo.M7pWorkerFactory(spec)
+    if config.observation_v4:   # M7q: the M7 stack + EntityObsV4Wrapper
+        return mq.M7qWorkerFactory(spec)
     return mo.M7gWorkerFactory(spec) if config.observation_v2 else WorkerFactory(spec)
 
 
@@ -659,12 +679,14 @@ def annotate_model(config: M7Config, model: "M7PPO") -> None:
     observation contract (a v1 model.zip gains nothing)."""
     model.m7_reward_contract = config.reward.to_json()
     model.m7_experiment = config.experiment_summary()
-    if config.observation_v2 or config.observation_v3 or config.observation_geo4:
+    if config.observation_v2 or config.observation_v3 or config.observation_geo4 or config.observation_v4:
         model.m7_policy_observation = config.observation
 
 
 def policy_network_identity(config: M7Config, model: PPO) -> Optional[Dict[str, Any]]:
     """The measured network and observation identity of a v2 model (None for v1: no v1 record gains a key)."""
+    if config.observation_v4:   # M7q (v4 network id, same shape family)
+        return dict(mqp.describe(model), observation=ec.policy_observation_identity(config.observation))
     if config.observation_v3 or config.observation_geo4:   # M7n / M7p (same network identity)
         return dict(mnp.describe(model), observation=ec.policy_observation_identity(config.observation))
     if not config.observation_v2:
@@ -1342,7 +1364,7 @@ class M7Run:
             annotate_model(c, self.model)
             self.forward = ForwardTimer(self.model.policy)
             self.run_meta["ppo"] = resolved_ppo_params(self.model, c.policy)
-            if c.observation_v2 or c.observation_v3 or c.observation_geo4:
+            if c.observation_v2 or c.observation_v3 or c.observation_geo4 or c.observation_v4:
                 self.run_meta["policy_network"] = policy_network_identity(c, self.model)
             write_json(self.layout.run_json, self.run_meta)
             if source is None and c.initial_checkpoint:
@@ -1516,6 +1538,10 @@ class M7Run:
              "values; segment_geometry / 4 relative to v3; masked rows zero) -> VecNormalize(norm_obs=False, "
              "norm_reward=False) -> MultiInputPolicy" % mgeo.FLAT_SIZE)
             if c.observation_geo4 else
+            ("raw native observation + btt_spatial_v1 + btt_entity_v1 + btt_input_state_v1 -> btt_policy_obs_v4_input "
+             "(Dict, %d fixed-scaled values; v3 blocks + native input state; masked rows zero) -> VecNormalize("
+             "norm_obs=False, norm_reward=False) -> MultiInputPolicy" % mq.FLAT_SIZE)
+            if c.observation_v4 else
             "raw native M1b observation -> btt_policy_obs_v1 (15 float32, unchanged) -> "
             "VecNormalize(norm_obs=True, clip_obs=%g, norm_reward=False) -> policy" % c.clip_obs,
             "timesteps": {"requested_additional": c.total_timesteps, "start": self.start_timesteps,

@@ -32,6 +32,7 @@ struct RLConfig {
 	bool targetDiag = false;     /* M7f target-identity diagnostic (SSB64_RL_TARGET_DIAG=1), read-only */
 	bool spatial = false;        /* M7g structured-spatial diagnostic (SSB64_RL_SPATIAL=1), read-only */
 	bool entity = false;         /* M7n entity diagnostic (SSB64_RL_ENTITY=1), read-only */
+	bool input = false;          /* M7q input-state diagnostic (SSB64_RL_INPUT=1), read-only */
 	std::string resultPath;
 };
 
@@ -134,6 +135,11 @@ extern "C" void rlConfigInit(void) {
 	 * replies only, so it needs effective interactive stepping). */
 	const bool entityEnv = envIsOne("SSB64_RL_ENTITY");
 	sConfig.entity = entityEnv && sConfig.step;
+	/* M7q input-state diagnostic: same rule again (observe / step replies
+	 * only, so it needs effective interactive stepping). Independent of the
+	 * entity diagnostic: either may be on without the other. */
+	const bool inputEnv = envIsOne("SSB64_RL_INPUT");
+	sConfig.input = inputEnv && sConfig.step;
 	if (const char *resultPath = std::getenv("SSB64_RL_RESULT_PATH")) {
 		sConfig.resultPath = resultPath;
 	}
@@ -203,10 +209,20 @@ extern "C" void rlConfigInit(void) {
 		port_log("SSB64 RL Entity: entity diagnostic enabled schema=%u (read-only; no behaviour change)\n",
 		         (unsigned)RL_ENTITY_SCHEMA);
 	}
+	if (inputEnv && !sConfig.step) {
+		port_log("SSB64 RL Input: SSB64_RL_INPUT=1 ignored: interactive stepping is not effective\n");
+	} else if (sConfig.input) {
+		port_log("SSB64 RL Input: input-state diagnostic enabled schema=%u (read-only; no behaviour change)\n",
+		         (unsigned)RL_INPUT_SCHEMA);
+	}
 }
 
 extern "C" int rlEntityIsEnabled(void) {
 	return sConfig.entity ? 1 : 0;
+}
+
+extern "C" int rlInputIsEnabled(void) {
+	return sConfig.input ? 1 : 0;
 }
 
 extern "C" int rlTargetDiagIsEnabled(void) {

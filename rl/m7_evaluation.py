@@ -59,6 +59,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import m7g_obs as mo  # noqa: E402
 import m7n_obs as mn  # noqa: E402
 import m7p_obs_geo4 as mgeo  # noqa: E402  (M7p: opt-in geometry-scaled v3 variant)
+import m7q_obs as mq  # noqa: E402  (M7q: opt-in v4 observation = v3 + native input state)
 from btt_learning import (  # noqa: E402
     POLICY_OBSERVATION_CONTRACT,
     TARGETS_TOTAL,
@@ -326,6 +327,8 @@ def observation_space_of(observation: str) -> Any:
         return mn.make_observation_space()
     if observation == mgeo.OBS_CONTRACT:   # M7p: same shapes as v3, different scaling and digest
         return mgeo.make_observation_space()
+    if observation == mq.OBS_CONTRACT:   # M7q: v4 (action_class 23, agent 45)
+        return mq.make_observation_space()
     if observation == POLICY_OBSERVATION_CONTRACT:
         return make_policy_observation_space()
     raise CheckpointError(f"unknown policy observation contract {observation!r}")
@@ -334,8 +337,12 @@ def observation_space_of(observation: str) -> Any:
 def checkpoint_observation_contract(meta: Mapping[str, Any]) -> str:
     """The policy observation a checkpoint set was trained on (never reinterpreted)."""
     obs = (meta.get("contracts") or {}).get("policy_observation_contract")
-    if obs not in (POLICY_OBSERVATION_CONTRACT, mo.OBS_CONTRACT, mn.OBS_CONTRACT, mgeo.OBS_CONTRACT):
+    if obs not in (POLICY_OBSERVATION_CONTRACT, mo.OBS_CONTRACT, mn.OBS_CONTRACT, mgeo.OBS_CONTRACT, mq.OBS_CONTRACT):
         raise CheckpointError(f"checkpoint.json records policy observation {obs!r}: not a supported contract")
+    if obs == mq.OBS_CONTRACT and meta["contracts"].get("policy_observation_contract_sha256") != mq.contract_digest():
+        raise CheckpointError(f"checkpoint.json records {mq.OBS_CONTRACT} digest "
+                              f"{meta['contracts'].get('policy_observation_contract_sha256')!r}, this code builds "
+                              f"{mq.contract_digest()!r}")
     if obs == mn.OBS_CONTRACT and meta["contracts"].get("policy_observation_contract_sha256") != mn.contract_digest():
         raise CheckpointError(f"checkpoint.json records {mn.OBS_CONTRACT} digest "
                               f"{meta['contracts'].get('policy_observation_contract_sha256')!r}, this code builds "
@@ -356,7 +363,8 @@ def check_model_identity(model: Any, observation: str) -> None:
     expected = observation_space_of(observation)
     if model.observation_space != expected:
         raise CheckpointError(f"model observation space {model.observation_space} is not {observation}'s {expected}")
-    policy_class = ("MultiInputActorCriticPolicy" if observation in (mo.OBS_CONTRACT, mn.OBS_CONTRACT, mgeo.OBS_CONTRACT)
+    policy_class = ("MultiInputActorCriticPolicy"
+                    if observation in (mo.OBS_CONTRACT, mn.OBS_CONTRACT, mgeo.OBS_CONTRACT, mq.OBS_CONTRACT)
                     else "ActorCriticPolicy")
     if type(model.policy).__name__ != policy_class:
         raise CheckpointError(f"model policy {type(model.policy).__name__} is not {policy_class} ({observation})")
@@ -368,7 +376,7 @@ def check_model_identity(model: Any, observation: str) -> None:
 def check_vecnormalize_identity(vecnorm: VecNormalize, observation: str) -> None:
     """Statistics must belong to `observation`: one Box RunningMeanStd for v1, exactly the continuous keys for v2."""
     rms = vars(vecnorm).get("obs_rms")
-    if observation in (mn.OBS_CONTRACT, mgeo.OBS_CONTRACT):   # M7n / M7p: pre-scaled, no statistics
+    if observation in (mn.OBS_CONTRACT, mgeo.OBS_CONTRACT, mq.OBS_CONTRACT):   # M7n / M7p / M7q: pre-scaled, no statistics
         if vecnorm.norm_obs or rms is not None or vecnorm.norm_reward:
             raise CheckpointError(f"VecNormalize is not {observation}'s: norm_obs {vecnorm.norm_obs}, statistics "
                                   f"{type(rms).__name__}, norm_reward {vecnorm.norm_reward} (expected none / False)")
@@ -470,6 +478,7 @@ def _prepare_workers(root: Path, n: int, role: str, run_id: str, settings: Evalu
         factory: Any = (mo.M7gWorkerFactory(spec) if settings.observation_contract == mo.OBS_CONTRACT
                         else mn.M7nWorkerFactory(spec) if settings.observation_contract == mn.OBS_CONTRACT   # M7n
                         else mgeo.M7pWorkerFactory(spec) if settings.observation_contract == mgeo.OBS_CONTRACT   # M7p
+                        else mq.M7qWorkerFactory(spec) if settings.observation_contract == mq.OBS_CONTRACT   # M7q
                         else WorkerFactory(spec))
         if settings.eval_metrics:   # M7g Phase K: btt_eval_metrics_v1 recorder inside the worker (evaluation only)
             from m7g_eval_metrics import EvalMetricsWorkerFactory
@@ -625,7 +634,8 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
                               f"{observation}; a checkpoint is always evaluated under its own observation contract")
     flags = dict(settings.extra_env)
     flags.update(dict(mo.SPATIAL_EXTRA_ENV) if observation == mo.OBS_CONTRACT else
-                 dict(mn.ENTITY_EXTRA_ENV) if observation in (mn.OBS_CONTRACT, mgeo.OBS_CONTRACT) else {})   # M7n / M7p: both flags
+                 dict(mn.ENTITY_EXTRA_ENV) if observation in (mn.OBS_CONTRACT, mgeo.OBS_CONTRACT) else   # M7n / M7p: both flags
+                 dict(mq.ENTITY_EXTRA_ENV) if observation == mq.OBS_CONTRACT else {})   # M7q: the three flags
     settings = replace(settings, observation=observation, extra_env=tuple(flags.items()))
     t0 = time.perf_counter()
     model = M7PPO.load(str(ckpt / MODEL_FILE), device="cpu")
@@ -673,7 +683,13 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
                                       "rows zero; no statistics) -> MultiInputPolicy")
         result["policy_observation_contract"] = observation
         result["policy_network"] = meta.get("policy_network")
-    if observation in (mo.OBS_CONTRACT, mn.OBS_CONTRACT, mgeo.OBS_CONTRACT) or settings.records_flags:
+    if observation == mq.OBS_CONTRACT:   # M7q
+        result["observation_note"] = ("raw native observations + btt_spatial_v1 + btt_entity_v1 + btt_input_state_v1 -> "
+                                      f"btt_policy_obs_v4_input (Dict, {mq.FLAT_SIZE} fixed-scaled values; v3 blocks + native "
+                                      "input state; masked rows zero; no statistics) -> MultiInputPolicy")
+        result["policy_observation_contract"] = observation
+        result["policy_network"] = meta.get("policy_network")
+    if observation in (mo.OBS_CONTRACT, mn.OBS_CONTRACT, mgeo.OBS_CONTRACT, mq.OBS_CONTRACT) or settings.records_flags:
         result["extra_env"] = dict(settings.effective_extra_env())
     if settings.eval_metrics:
         result["policy_observation_contract"] = observation

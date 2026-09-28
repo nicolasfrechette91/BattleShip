@@ -89,8 +89,41 @@ void OnGamePostUpdate(IEvent *) {
 	 * branch is not taken and the M7f / M1b paths below are unchanged.
 	 *
 	 * M7n: the entity snapshot follows the same rule again. With it off this
-	 * outer branch is not taken and the M7g / M7f / M1b paths are unchanged. */
-	if (rlEntityIsEnabled()) {
+	 * outer branch is not taken and the M7g / M7f / M1b paths are unchanged.
+	 *
+	 * M7q: the input-state snapshot follows the same rule once more, in a new
+	 * outermost branch that fills whichever of the other three diagnostics
+	 * are on. With it off the branch is not taken and every earlier path is
+	 * unchanged. */
+	if (rlInputIsEnabled()) {
+		RLTargetDiag targets;
+		std::memset(&targets, 0, sizeof(targets));
+		const bool targetDiag = rlTargetDiagIsEnabled() != 0;
+		if (targetDiag) {
+			rlGameFillTargets(&targets);
+			targets.input_tick = obs.input_tick;
+		}
+		RLSpatialDiag spatial;
+		std::memset(&spatial, 0, sizeof(spatial));
+		const bool spatialDiag = rlSpatialIsEnabled() != 0;
+		if (spatialDiag) {
+			rlGameFillSpatial(&spatial);
+			spatial.input_tick = obs.input_tick;
+		}
+		RLEntityDiag entity;
+		std::memset(&entity, 0, sizeof(entity));
+		const bool entityDiag = rlEntityIsEnabled() != 0;
+		if (entityDiag) {
+			rlGameFillEntity(&entity);
+			entity.input_tick = obs.input_tick;
+		}
+		RLInputDiag input;
+		std::memset(&input, 0, sizeof(input));
+		rlGameFillInput(&input);
+		input.input_tick = obs.input_tick;
+		rlStepOnObservationDiag3(&obs, targetDiag ? &targets : nullptr, spatialDiag ? &spatial : nullptr,
+		                         entityDiag ? &entity : nullptr, &input);
+	} else if (rlEntityIsEnabled()) {
 		RLTargetDiag targets;
 		std::memset(&targets, 0, sizeof(targets));
 		const bool targetDiag = rlTargetDiagIsEnabled() != 0;

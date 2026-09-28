@@ -129,6 +129,7 @@
 #include "rl/rl_targets.h"
 #include "rl/rl_spatial.h"
 #include "rl/rl_entity.h"
+#include "rl/rl_input.h"
 
 #include "port_log.h"
 
@@ -201,6 +202,10 @@ bool sSpatialEnabled = false;
 /* M7n entity diagnostic (SSB64_RL_ENTITY=1). Written once by
  * rlTransportStart() before the worker exists. */
 bool sEntityEnabled = false;
+
+/* M7q input-state diagnostic (SSB64_RL_INPUT=1). Written once by
+ * rlTransportStart() before the worker exists. */
+bool sInputEnabled = false;
 
 uint64_t nowNs() {
 	return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -441,6 +446,10 @@ json handleStatus(const json &op) {
 	if (sEntityEnabled) {
 		r["entity_diag"] = true;
 	}
+	/* M7q: likewise, present only when the input-state diagnostic is on. */
+	if (sInputEnabled) {
+		r["input_diag"] = true;
+	}
 	return r;
 }
 
@@ -463,8 +472,17 @@ json handleObserve(const json &op) {
 	 * locked read; otherwise the M7g / M7f / M3 reads are unchanged. */
 	RLEntityDiag entity;
 	std::memset(&entity, 0, sizeof(entity));
+	/* M7q: with the input-state diagnostic on, the input snapshot joins the
+	 * same locked read (with whichever other diagnostics are on); otherwise
+	 * the M7n / M7g / M7f / M3 reads are unchanged. */
+	RLInputDiag input;
+	std::memset(&input, 0, sizeof(input));
 	const int have =
-	    sEntityEnabled
+	    sInputEnabled
+	        ? rlStepGetLatestObservationInput(&observation, sTargetDiagEnabled ? &targets : nullptr,
+	                                          sSpatialEnabled ? &spatial : nullptr,
+	                                          sEntityEnabled ? &entity : nullptr, &input)
+	    : sEntityEnabled
 	        ? rlStepGetLatestObservationEntity(&observation, sTargetDiagEnabled ? &targets : nullptr,
 	                                           sSpatialEnabled ? &spatial : nullptr, &entity)
 	    : sSpatialEnabled
@@ -491,6 +509,9 @@ json handleObserve(const json &op) {
 	}
 	if (sEntityEnabled) {
 		r["entity"] = rlEntityDiagToJson(entity); /* M7n, additive */
+	}
+	if (sInputEnabled) {
+		r["input"] = rlInputDiagToJson(input); /* M7q, additive */
 	}
 	return r;
 }
@@ -568,6 +589,16 @@ json handleStep(const json &req, const json &op) {
 		uint32_t entityStep = 0;
 		if (rlStepGetLastEntity(&entity, &entityStep) && entityStep == result.step_count) {
 			r["entity"] = rlEntityDiagToJson(entity);
+		}
+	}
+	if (sInputEnabled) {
+		/* M7q: the input-state snapshot captured with this result's
+		 * observation, under the same pairing rule. */
+		RLInputDiag input;
+		std::memset(&input, 0, sizeof(input));
+		uint32_t inputStep = 0;
+		if (rlStepGetLastInput(&input, &inputStep) && inputStep == result.step_count) {
+			r["input"] = rlInputDiagToJson(input);
 		}
 	}
 	if (sTimingEnabled) {
@@ -789,11 +820,12 @@ extern "C" void rlTransportStart(void) {
 	sTargetDiagEnabled = rlTargetDiagIsEnabled() != 0; /* M7f diagnostic, opt-in; likewise */
 	sSpatialEnabled = rlSpatialIsEnabled() != 0;       /* M7g diagnostic, opt-in; likewise */
 	sEntityEnabled = rlEntityIsEnabled() != 0;         /* M7n diagnostic, opt-in; likewise */
+	sInputEnabled = rlInputIsEnabled() != 0;           /* M7q diagnostic, opt-in; likewise */
 	sStarted.store(true);
-	port_log("SSB64 RL Transport: listening on 127.0.0.1:%d protocol=%u (one client, one request at a time)%s%s%s%s\n",
+	port_log("SSB64 RL Transport: listening on 127.0.0.1:%d protocol=%u (one client, one request at a time)%s%s%s%s%s\n",
 	         port, (unsigned)RL_PROTOCOL_VERSION, sTimingEnabled ? " timing=1" : "",
 	         sTargetDiagEnabled ? " target_diag=1" : "", sSpatialEnabled ? " spatial=1" : "",
-	         sEntityEnabled ? " entity=1" : "");
+	         sEntityEnabled ? " entity=1" : "", sInputEnabled ? " input=1" : "");
 	sWorker = std::thread(workerMain);
 }
 

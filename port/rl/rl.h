@@ -951,6 +951,84 @@ int rlStepGetLastEntity(RLEntityDiag *out, uint32_t *step_count);
 int rlStepGetLatestObservationEntity(RLObservation *obs, RLTargetDiag *targets, RLSpatialDiag *spatial,
                                      RLEntityDiag *entity);
 
+/* -- M7q: opt-in input-state diagnostic (btt_input_state_v1) ---------------- */
+
+/*
+ *   SSB64_RL_INPUT=1          report the player fighter's latched controller
+ *                             state, tap counters, Z timer, animation
+ *                             progress / speed and motion flag 1: a top-level
+ *                             "input" object in the observe and step
+ *                             responses (paired with the reply's observation
+ *                             exactly like the M7f / M7g / M7n objects) and
+ *                             "input_diag": true in status. Requires
+ *                             SSB64_RL_BTT=1 and effective interactive
+ *                             stepping; otherwise it is ignored with a log
+ *                             line. Unset: every reply, log line and result
+ *                             file is byte-identical to a build without it.
+ *
+ * CONTENTS, all read from the running game after the update that produced the
+ * paired observation (so they describe the state AFTER the action that update
+ * consumed was applied): FTStruct::input.pl (stick_range, button_hold after
+ * the game's own R -> A+Z fold, button_tap, button_release), tap_stick_x/y and
+ * hold_stick_x/y, tics_since_last_z, the fighter GObj's anim_frame, its DObj
+ * anim_speed and motion_vars.flags.flag1. Full native values, never capped or
+ * scaled here; the meaning of flag1 depends on the status (documented in
+ * docs/rl_observation_v4_proposal_2026-09-28.md).
+ *
+ * Strictly read-only towards the game and separate from btt_entity_v1, whose
+ * object and reference captures stay byte-identical. Nothing here is part of
+ * RLObservation (schema 1), the step result, policy observation v1 / v2 / v3
+ * or any reward.
+ */
+#define RL_INPUT_SCHEMA 1u
+
+typedef struct RLInputDiag
+{
+	uint32_t input_schema; /* RL_INPUT_SCHEMA */
+	uint32_t input_tick;   /* port stamp at the capture; equals the paired observation's input_tick */
+
+	uint32_t scene_active; /* 1 = BTT scene current and battle state present (the btt_active guard) */
+	uint32_t live;         /* 1 = scene active and the object links populated (0 on the teardown update) */
+	uint32_t valid;        /* 1 = the fields below are real (same guards as rlGameFillObservation) */
+
+	int32_t stick_x;        /* FTStruct::input.pl.stick_range (s8, after the game's clamp) */
+	int32_t stick_y;
+	uint32_t button_hold;    /* FTStruct::input.pl.button_hold (u16, after the R -> A+Z fold) */
+	uint32_t button_tap;     /* FTStruct::input.pl.button_tap (u16, this update's press edges) */
+	uint32_t button_release; /* FTStruct::input.pl.button_release (u16, this update's release edges) */
+
+	uint32_t tap_stick_x;  /* FTStruct::tap_stick_x (u8) */
+	uint32_t tap_stick_y;  /* FTStruct::tap_stick_y (u8) */
+	uint32_t hold_stick_x; /* FTStruct::hold_stick_x (u8) */
+	uint32_t hold_stick_y; /* FTStruct::hold_stick_y (u8) */
+
+	int32_t tics_since_last_z; /* FTStruct::tics_since_last_z (s32, saturating at 65536) */
+
+	float anim_frame;      /* GObj::anim_frame of the fighter (animation frames elapsed; <= 0 at the end sentinel) */
+	float anim_speed;      /* DObj::anim_speed of the fighter root (playback rate) */
+	uint32_t motion_flag1; /* FTStruct::motion_vars.flags.flag1 (status-dependent meaning) */
+
+} RLInputDiag;
+
+/* 1 when SSB64_RL_INPUT=1 was kept (SSB64_RL_BTT=1 and effective stepping). */
+int rlInputIsEnabled(void);
+
+/* Fill *out from the running game (sc1pbonusstage.c, PORT only). Read-only
+ * towards the game; never writes the port-owned stamp (input_tick). Handles
+ * out == NULL; the caller zero-initialises *out. */
+void rlGameFillInput(RLInputDiag *out);
+
+/* Copy the input snapshot paired with the most recently collected step into
+ * *out. Same contract as rlStepGetLastTargets. */
+int rlStepGetLastInput(RLInputDiag *out, uint32_t *step_count);
+
+/* rlStepGetLatestObservation plus the snapshots captured at the same
+ * post-update, under one lock. targets, spatial and entity may be NULL (not
+ * requested); input must not be. Returns 1 when the observation and every
+ * requested snapshot exist, 0 otherwise (outputs untouched). */
+int rlStepGetLatestObservationInput(RLObservation *obs, RLTargetDiag *targets, RLSpatialDiag *spatial,
+                                    RLEntityDiag *entity, RLInputDiag *input);
+
 /* -- Internal seams inside port/rl ----------------------------------------- */
 
 void rlStepRegister(void);                             /* from rlRuntimeRegister() */
@@ -962,6 +1040,9 @@ void rlStepOnObservationDiag(const RLObservation *obs, const RLTargetDiag *targe
 /* M7n: same, plus the entity snapshot of the same capture (each NULL when its diagnostic is off). */
 void rlStepOnObservationDiag2(const RLObservation *obs, const RLTargetDiag *targets, const RLSpatialDiag *spatial,
                               const RLEntityDiag *entity);
+/* M7q: same, plus the input-state snapshot of the same capture (each NULL when its diagnostic is off). */
+void rlStepOnObservationDiag3(const RLObservation *obs, const RLTargetDiag *targets, const RLSpatialDiag *spatial,
+                              const RLEntityDiag *entity, const RLInputDiag *input);
 int rlStepExitOnEnd(void);                             /* SSB64_RL_EXIT_ON_END deferred to M1c */
 
 #ifdef __cplusplus

@@ -1,0 +1,352 @@
+{
+ "contract": {
+  "contract": "btt_policy_obs_v4_input",
+  "schema_version": 1,
+  "space": "gymnasium.spaces.Dict",
+  "key_order": [
+   "action_class",
+   "agent",
+   "projectiles",
+   "segment_geometry",
+   "segment_kind",
+   "targets"
+  ],
+  "keys": {
+   "action_class": {
+    "shape": [
+     23
+    ],
+    "dtype": "float32",
+    "bounds": [
+     0.0,
+     1.0
+    ],
+    "fields": [
+     "idle_ground",
+     "dash_run",
+     "jump_squat",
+     "airborne",
+     "helpless",
+     "air_lock",
+     "landing_free",
+     "landing_lag",
+     "crouch_pass",
+     "shield",
+     "roll",
+     "damage",
+     "cliff",
+     "attack_ground",
+     "attack_air",
+     "special_n",
+     "special_hi",
+     "special_lw",
+     "item",
+     "appear_entry",
+     "dead",
+     "other",
+     "unmapped"
+    ],
+    "values": "one-hot",
+    "table": "btt_action_class_table_v2",
+    "table_sha256": "070d6b8f00d1ef9e19aa07e081e2dda40aa5a2523de50d81c9c03e78597d9b73",
+    "unmapped_class": "unmapped",
+    "rule_changes": {
+     "FallSpecial": [
+      "airborne",
+      "helpless"
+     ],
+     "StopCeil": [
+      "airborne",
+      "air_lock"
+     ],
+     "LandingLight": [
+      "landing",
+      "landing_free"
+     ],
+     "LandingHeavy": [
+      "landing",
+      "landing_free"
+     ],
+     "LandingAir*": [
+      "landing",
+      "landing_lag"
+     ],
+     "LandingFallSpecial": [
+      "landing",
+      "landing_lag"
+     ]
+    },
+    "character_dependent": {
+     "59": {
+      "class": "landing_lag",
+      "reason": "ftCommonFallSpecialSetStatus(..., is_allow_interrupt) is a per-character argument; Mario passes FALSE (uninterruptible), other characters unverified"
+     }
+    }
+   },
+   "agent": {
+    "shape": [
+     45
+    ],
+    "dtype": "float32",
+    "bounds": [
+     "-inf",
+     "inf"
+    ],
+    "fields": [
+     "pos_x",
+     "pos_y",
+     "disp_x",
+     "disp_y",
+     "air_vel_x",
+     "air_vel_y",
+     "ground_vel_x",
+     "carry_x",
+     "carry_y",
+     "facing",
+     "grounded",
+     "contact_floor",
+     "contact_ceil",
+     "contact_lwall",
+     "contact_rwall",
+     "floor_dist",
+     "jumps_left",
+     "status_id",
+     "status_tics",
+     "hitlag",
+     "attack_active",
+     "cliff_hold",
+     "shield_active",
+     "fastfall",
+     "time",
+     "targets_left",
+     "diamond_top",
+     "diamond_width",
+     "stick_x",
+     "stick_y",
+     "hold_A",
+     "hold_B",
+     "hold_Z",
+     "hold_L",
+     "hold_R",
+     "hold_Cup",
+     "hold_Cleft",
+     "tap_x",
+     "tap_y",
+     "z_age",
+     "z_out",
+     "anim_frame",
+     "anim_speed",
+     "aerial_lag_armed",
+     "contact_edge"
+    ],
+    "units": {
+     "pos_*, floor_dist, diamond_*": "native units / 2000",
+     "disp_*, *_vel_*, carry_*": "native units per tick / 50",
+     "facing": "-1, 0, 1",
+     "grounded, contact_*, attack_active, cliff_hold, shield_active, fastfall": "0 / 1",
+     "jumps_left": "(jumps_max - jumps_used) / jumps_max",
+     "status_id": "raw id / 256",
+     "status_tics": "min(status_total_tics, 240) / 60",
+     "hitlag": "min(hitlag_tics, 60) / 60",
+     "time": "time_passed / 3600",
+     "targets_left": "targets_remaining / 10",
+     "stick_x, stick_y": "native stick_range / 80 (after the game's clamp)",
+     "hold_A, hold_B, hold_Z, hold_L, hold_R, hold_Cup, hold_Cleft": "bits of native button_hold after the R -> A+Z fold (0 / 1); never a scalar word",
+     "tap_x, tap_y": "native tap counter: 1 -> 1.0, 2 -> 0.75, 3 -> 0.5, 4..253 -> 0.25, 254 -> 0 (outside the band or forced stale); 0 -> 0 and counted as an anomaly (impossible per source)",
+     "z_age": "min(tics_since_last_z, 10) / 10 (ages 0..10 distinct)",
+     "z_out": "1 iff tics_since_last_z > 10 (outside the Z-cancel window, incl. the 65536 reset)",
+     "anim_frame": "clip(GObj anim_frame, 0, 240) / 60 (animation frames; frozen in hitlag)",
+     "anim_speed": "clip(DObj anim_speed, 0, 2) / 2",
+     "aerial_lag_armed": "1 iff motion_flag1 != 0 and the status id is an aerial attack (nFTCommonStatusAttackAir*); 0 in every other status by definition",
+     "contact_edge": "spatial mask_curr & 0x8000 (MAP_FLAG_FLOOREDGE) (0 / 1)"
+    }
+   },
+   "projectiles": {
+    "shape": [
+     4,
+     7
+    ],
+    "dtype": "float32",
+    "bounds": [
+     "-inf",
+     "inf"
+    ],
+    "fields": [
+     "present",
+     "dx",
+     "dy",
+     "vx",
+     "vy",
+     "hitbox_active",
+     "life"
+    ],
+    "rows": "sticky slots; a weapon keeps its slot for its life; a new spawn takes the lowest free slot in ascending spawn serial; with no free slot it is dropped and counted (info v3_projectile_overflow)",
+    "ownership": "the agent's own weapons only (owner == the player fighter)",
+    "velocity": "native WPStruct vel_air (no estimate): unaffected by creation / destruction",
+    "life": "min(lifetime, 140) / 140",
+    "mask_column": 0
+   },
+   "segment_geometry": {
+    "shape": [
+     32,
+     8
+    ],
+    "dtype": "float32",
+    "bounds": [
+     "-inf",
+     "inf"
+    ],
+    "fields": [
+     "a_dx",
+     "a_dy",
+     "b_dx",
+     "b_dy",
+     "near_dx",
+     "near_dy",
+     "vel_x",
+     "vel_y"
+    ],
+    "units": "native units (TopN-relative) / 2000; velocity / 50"
+   },
+   "segment_kind": {
+    "shape": [
+     32,
+     7
+    ],
+    "dtype": "float32",
+    "bounds": [
+     0.0,
+     1.0
+    ],
+    "fields": [
+     "present",
+     "floor",
+     "ceiling",
+     "wall_facing_pos_x",
+     "wall_facing_neg_x",
+     "one_way",
+     "moving"
+    ],
+    "values": "binary 0/1",
+    "mask_column": 0
+   },
+   "targets": {
+    "shape": [
+     10,
+     5
+    ],
+    "dtype": "float32",
+    "bounds": [
+     "-inf",
+     "inf"
+    ],
+    "fields": [
+     "dx",
+     "dy",
+     "vx",
+     "vy",
+     "live"
+    ],
+    "rows": "M7f stable target IDs 0..9",
+    "units": "dx, dy: native units / 2000; vx, vy: (position - previous reply's position) / 50, 0 at reset, on a row's first live reply and on a stale reply",
+    "mask_column": 4
+   }
+  },
+  "flat_size": 626,
+  "scaling": {
+   "length": 2000.0,
+   "velocity": 50.0,
+   "time": 3600.0,
+   "progress": 60.0,
+   "running_normalization": false,
+   "clipping": null,
+   "stick": 80.0,
+   "anim_speed_cap": 2.0,
+   "anim_frame_cap": 240.0,
+   "z_window": 10,
+   "tap_levels": {
+    "1": 1.0,
+    "2": 0.75,
+    "3": 0.5
+   },
+   "tap_stale": 0.25
+  },
+  "masks": {
+   "rule": "a row whose validity column is 0 is all zeros at the network input (no normalisation can move it)",
+   "columns": {
+    "segment_kind": 0,
+    "targets": 4,
+    "projectiles": 0
+   }
+  },
+  "segments": {
+   "slots": 32,
+   "order": "native collision line id, then vertex-pair index",
+   "padding": "slots >= count: every geometry and kind value 0",
+   "accepts": "any table with <= 32 segments (the pinned Mario table is a task validation, not a contract term)",
+   "mario_reference": "TopN (position_x, position_y) of the paired observation",
+   "world_vertex_rule": "float32 stored vertex + float32 group translate when the group is translated (mpCollisionGetVertexPositionID)"
+  },
+  "stale_rule": "native live = 0 or fighter invalid (the terminal reply of a fall): the last complete observation is repeated and info['v4_stale'] is true",
+  "displacement_rule": "agent disp_* = TopN change since the previous reply / velocity scale; 0 at reset",
+  "character": {
+   "default": "mario",
+   "validated_tables": [
+    "mario"
+   ],
+   "rule": "status ids are looked up in the task character's own table; ids outside it map to 'unmapped' and are counted (info v4_unmapped_status_ids)",
+   "character_dependent": {
+    "59": {
+     "class": "landing_lag",
+     "reason": "ftCommonFallSpecialSetStatus(..., is_allow_interrupt) is a per-character argument; Mario passes FALSE (uninterruptible), other characters unverified"
+    }
+   }
+  },
+  "native_sources": {
+   "observation": "btt_m1b schema 1",
+   "spatial": {
+    "diagnostic": "btt_spatial_v1",
+    "env": "SSB64_RL_SPATIAL=1"
+   },
+   "entity": {
+    "diagnostic": "btt_entity_v1",
+    "env": "SSB64_RL_ENTITY=1"
+   },
+   "input": {
+    "diagnostic": "btt_input_state_v1",
+    "env": "SSB64_RL_INPUT=1"
+   }
+  },
+  "information_class": "structured global state (more than one camera frame shows)",
+  "excluded": [
+   "optimal path",
+   "preferred crossing",
+   "target order",
+   "TAS action",
+   "'go left' indicator",
+   "gateway / region labels",
+   "distance along a handcrafted route",
+   "future platform positions",
+   "platform phase or period",
+   "future game state",
+   "reward shaping",
+   "action mask",
+   "ledge fields (none on this stage)",
+   "tornado fields"
+  ],
+  "compatibility": "fresh models only; a btt_policy_obs_v1, v2_spatial, v3_entities or v3_geo4 checkpoint is refused; v3 stays available, byte-identical and the selected default",
+  "derived_from": {
+   "contract": "btt_policy_obs_v3_entities",
+   "contract_sha256": "4ddc2933a41410ecf2009b464a706fc0e6e6de4fbad300608d04bd1d1f7b3297",
+   "unchanged_keys": [
+    "projectiles",
+    "segment_geometry",
+    "segment_kind",
+    "targets"
+   ],
+   "agent_prefix": "indices 0-27 bit-identical to btt_policy_obs_v3_entities"
+  },
+  "input_rule": "every appended value is native state captured after the game applied the action (never the agent's own action history); full values stay in the diagnostic, only these bounded encodings enter the policy block; motion_flag1 is interpreted only in aerial-attack statuses"
+ },
+ "contract_sha256": "c3d461dee0997730575a485c740523b66bc1ebc0578b9e4e127a8a5774882623"
+}
