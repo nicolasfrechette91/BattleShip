@@ -1,0 +1,109 @@
+{
+ "schema": "m7p_geo4_diag_decision_v1",
+ "utc": "2026-09-28T02:19:43+00:00",
+ "registration_sha256": "1b68561adeca63915b5d74f6ec0728d2e4b50f62b1f14135cf18a31b763186fc",
+ "analysis_sha256": "003e67dc85fb05d8493f3616facf23776d8101a5707795825e03cd8c02796633",
+ "decision": {
+  "outcome": "diagnostic_pass",
+  "engineering_ok": true,
+  "gameplay_regression": false,
+  "optimization_regression": false,
+  "discrimination_checks": {
+   "break_dV": true,
+   "break_kl": true,
+   "upb_progress_kl": true,
+   "upb_progress_above_control_pairs": true,
+   "agent_ablation_kl": true,
+   "targets_ablation_kl": true
+  },
+  "saturation_reduced": {
+   "actor": true,
+   "critic": true
+  },
+  "criteria": {
+   "regression_band_targets": 0.5,
+   "saturation_reduction_actor": 0.15,
+   "saturation_reduction_critic": 0.1,
+   "discrimination_retention_ratio": 0.5,
+   "optimization_last_updates": 20,
+   "clip_fraction_max": 0.2,
+   "explained_variance_min": 0.5,
+   "approx_kl_max": 0.03
+  },
+  "paired_at_307200": {
+   "actor_sat95": [
+    0.533878908433097,
+    0.14576424022707887
+   ],
+   "critic_sat95": [
+    0.4331940134423626,
+    0.2358130864488043
+   ],
+   "actor_mean_deriv": [
+    0.26570298551095717,
+    0.5181765734493954
+   ],
+   "critic_mean_deriv": [
+    0.326103524103444,
+    0.47466466771928595
+   ],
+   "break_dV": [
+    0.7324391603469849,
+    0.6966039091348648
+   ],
+   "break_kl": [
+    0.0012105368494183082,
+    0.004841839811077834
+   ],
+   "upb_progress_kl": [
+    0.034235279157551535,
+    0.08958413329980233
+   ],
+   "upb_control_kl": [
+    0.022630235938798794,
+    0.06428927315038033
+   ],
+   "agent_ablation_kl": [
+    0.006126249275727867,
+    0.029921385839789573
+   ],
+   "targets_ablation_kl": [
+    0.004709923649732057,
+    0.025394486831757088
+   ],
+   "regression_check": {
+    "diag_mean_targets_60": 3.8833,
+    "control_curve_307200_mean": 3.5667,
+    "difference": 0.3166,
+    "band": 0.5,
+    "diag_sd": 0.555,
+    "standard_error_of_difference_approx": 0.101,
+    "falls": 3,
+    "clears": 0,
+    "deterministic_targets": [
+     0
+    ],
+    "left_entries": 0,
+    "targets_histogram": {
+     "0": 0,
+     "1": 0,
+     "2": 0,
+     "3": 13,
+     "4": 41,
+     "5": 6,
+     "6": 0,
+     "7": 0,
+     "8": 0,
+     "9": 0,
+     "10": 0
+    },
+    "gameplay_regression": false,
+    "note": "stop-only regression check with sampling uncertainty; never a benefit claim"
+   }
+  },
+  "meaning": {
+   "diagnostic_pass": "the rescale lowered saturation without losing the tested discrimination or destabilising optimisation at 307,200 transitions in ONE seed; not evidence of better gameplay, crossings or clears; a larger comparison becomes eligible as a separate decision",
+   "other": "no larger comparison is justified by this diagnostic"
+  }
+ }
+}

@@ -1,0 +1,436 @@
+{
+ "schema": "m7p_geo4_diag_registration_v1",
+ "utc": "2026-09-28T02:06:28+00:00",
+ "purpose": "one bounded diagnostic of a single geometry-scaling change; never a campaign; the run's model is never reused",
+ "only_change": {
+  "key": "segment_geometry",
+  "length_columns": [
+   "a_dx",
+   "a_dy",
+   "b_dx",
+   "b_dy",
+   "near_dx",
+   "near_dy"
+  ],
+  "length_scale": "2000 -> 8000",
+  "velocity_columns": [
+   "vel_x",
+   "vel_y"
+  ],
+  "velocity_scale": "50 -> 200",
+  "factor": 4.0,
+  "unchanged": "segment_kind flags (present / floor / ceiling / walls / one-way / moving), agent (positions, floor_dist, diamond / 2,000; velocities / 50), targets, projectiles, action_class, masking, key order, shapes, stale and displacement rules, native flags, network, PPO, reward v2, Track 1"
+ },
+ "cap_transitions": 307200,
+ "expected_n_updates": 600,
+ "checkpoints": [
+  "ckpt_000000000",
+  "ckpt_000102400",
+  "ckpt_000204800",
+  "final"
+ ],
+ "control_checkpoints": {
+  "ckpt_000000000": "checkpoints/ckpt_000000000",
+  "ckpt_000102400": "checkpoints/ckpt_000102400",
+  "ckpt_000204800": "checkpoints/ckpt_000204800",
+  "final": "checkpoints/ckpt_000307200"
+ },
+ "evaluation": {
+  "stochastic": 60,
+  "deterministic": 5
+ },
+ "max_processes": 10,
+ "criteria": {
+  "regression_band_targets": 0.5,
+  "saturation_reduction_actor": 0.15,
+  "saturation_reduction_critic": 0.1,
+  "discrimination_retention_ratio": 0.5,
+  "optimization_last_updates": 20,
+  "clip_fraction_max": 0.2,
+  "explained_variance_min": 0.5,
+  "approx_kl_max": 0.03
+ },
+ "plan": {
+  "sample": "33,997 states rebuilt from the registered raw-reply sources (population A: the two M7n final-episode traces, policy play; population B: eight action-hold-probe k = 1 episodes, random play), under EACH arm's own contract",
+  "checkpoints": "0, 102,400, 204,800 and 307,200 transitions of both arms (control = M7n s0 checkpoints)",
+  "1_saturation": "actor and critic layer 1 (and 2): sat95 (abs tanh > 0.95), sat99, mean derivative 1 - h^2, share of units saturated in > 90 % of states, of which stuck at one sign, two-sided, effectively constant (std < 0.05); reported for the whole sample and separately for populations A and B",
+  "2_sensitivity": "recorded physically valid pairs, identical indices in both arms: (a) target events = the 43 consecutive-tick pairs across a target break vs 3,000 sampled consecutive no-break pairs (median abs dV, median KL, hidden distances); (b) action progress = up-B early (tics 5-10) vs late (20-30) pairs within 150 units (587) vs early-vs-early controls (800), and jump-squat tic 0 vs 2 at the same place (140) vs tic 0 vs 0 (174); (c) block ablation KL (agent block zeroed; targets block zeroed; zero = the contracts' own absent value)",
+  "3_optimization": "per-update SB3 train/* statistics of the 60 updates (approx_kl, clip_fraction, value_loss, explained_variance, entropy) for both arms; gradient measurement available for both = first-layer weight-row change per 102,400-transition interval from the saved checkpoints; UNAVAILABLE for both = true gradient norms and per-parameter update sizes (SB3 does not log them; the historical control cannot be re-instrumented)",
+  "4_regression": "60 stochastic tick-0 episodes of the final set at evaluation seed 12345 with btt_eval_metrics_v1 vs the M7n s0 60-episode curve label at 307,200 (3.5667 targets); stop-only band 0.5 targets; falls, clears, left entries and 5 deterministic episodes reported",
+  "5_outcomes": {
+   "engineering_failure": "any E check fails (exit, accounting, fresh construction, rows, parameters, contracts, resources, evaluation integrity): stop and report; nothing relaunched",
+   "regression": "gameplay: 60-episode mean targets < control - 0.5; or optimization: over the last 20 updates mean clip_fraction > 0.20 or mean explained_variance < 0.50 or mean approx_kl > 0.03 or any non-finite loss",
+   "discrimination_lost": "no regression, but at 307,200 any of: break-pair median abs dV, break-pair median KL, up-B progress median KL, agent-block ablation KL, targets-block ablation KL falls below 0.5 x the control's value, or up-B progress KL is not above the up-B control-pair KL",
+   "diagnostic_pass": "no regression, discrimination preserved, AND saturation reduced: actor L1 sat95 <= control - 0.15 AND critic L1 sat95 <= control - 0.10 on the whole sample at 307,200",
+   "inconclusive": "no regression and discrimination preserved but saturation not reduced by the registered margins"
+  },
+  "never": [
+   "a pass read as improved crossing or clear performance",
+   "a second seed, a rescaled factor, a longer budget or a relaunch decided from these results",
+   "scaled observations fed to the control network"
+  ]
+ },
+ "identity": {
+  "profile": "rl/configs/m7p/m7p_geo4_s0.toml",
+  "profile_sha256": "4459aa0c9a7b106c94e809fd2d46e2d687b1bfda039710e83a739ad42cae15e1",
+  "semantic_fingerprint": "7099ea724c04a960e7e2ead4525b887362bb7b571ca4e1314b35c92819a6cd75",
+  "compatibility_fingerprint": "e352e290b96be05c06248624b30551aa98e69176cdae058c50995da1be1a3e5f",
+  "run_name": "m7p_geo4_s0",
+  "compatibility_differences_vs_m7n_s0_v3": [
+   "contracts.observation"
+  ],
+  "total_transitions": 307200,
+  "base_seed": 0,
+  "observation": "btt_policy_obs_v3_geo4",
+  "observation_digest": "2b984528671e99f5d2ca9a94c33c93e555017edabdae7e332a4e4bdba30ba8a2",
+  "observation_contract": {
+   "contract": "btt_policy_obs_v3_geo4",
+   "schema_version": 1,
+   "space": "gymnasium.spaces.Dict",
+   "key_order": [
+    "action_class",
+    "agent",
+    "projectiles",
+    "segment_geometry",
+    "segment_kind",
+    "targets"
+   ],
+   "keys": {
+    "action_class": {
+     "shape": [
+      20
+     ],
+     "dtype": "float32",
+     "bounds": [
+      0.0,
+      1.0
+     ],
+     "fields": [
+      "idle_ground",
+      "dash_run",
+      "jump_squat",
+      "airborne",
+      "landing",
+      "crouch_pass",
+      "shield",
+      "roll",
+      "damage",
+      "cliff",
+      "attack_ground",
+      "attack_air",
+      "special_n",
+      "special_hi",
+      "special_lw",
+      "item",
+      "appear_entry",
+      "dead",
+      "other",
+      "unmapped"
+     ],
+     "values": "one-hot",
+     "table": "btt_action_class_table_v1",
+     "table_sha256": "97db115242c58c2a18b70c03adcdf4f2556728e501fe87858f9f7b1c83229ea4",
+     "unmapped_class": "unmapped"
+    },
+    "agent": {
+     "shape": [
+      28
+     ],
+     "dtype": "float32",
+     "bounds": [
+      "-inf",
+      "inf"
+     ],
+     "fields": [
+      "pos_x",
+      "pos_y",
+      "disp_x",
+      "disp_y",
+      "air_vel_x",
+      "air_vel_y",
+      "ground_vel_x",
+      "carry_x",
+      "carry_y",
+      "facing",
+      "grounded",
+      "contact_floor",
+      "contact_ceil",
+      "contact_lwall",
+      "contact_rwall",
+      "floor_dist",
+      "jumps_left",
+      "status_id",
+      "status_tics",
+      "hitlag",
+      "attack_active",
+      "cliff_hold",
+      "shield_active",
+      "fastfall",
+      "time",
+      "targets_left",
+      "diamond_top",
+      "diamond_width"
+     ],
+     "units": {
+      "pos_*, floor_dist, diamond_*": "native units / 2000",
+      "disp_*, *_vel_*, carry_*": "native units per tick / 50",
+      "facing": "-1, 0, 1",
+      "grounded, contact_*, attack_active, cliff_hold, shield_active, fastfall": "0 / 1",
+      "jumps_left": "(jumps_max - jumps_used) / jumps_max",
+      "status_id": "raw id / 256",
+      "status_tics": "min(status_total_tics, 240) / 60",
+      "hitlag": "min(hitlag_tics, 60) / 60",
+      "time": "time_passed / 3600",
+      "targets_left": "targets_remaining / 10"
+     }
+    },
+    "projectiles": {
+     "shape": [
+      4,
+      7
+     ],
+     "dtype": "float32",
+     "bounds": [
+      "-inf",
+      "inf"
+     ],
+     "fields": [
+      "present",
+      "dx",
+      "dy",
+      "vx",
+      "vy",
+      "hitbox_active",
+      "life"
+     ],
+     "rows": "sticky slots; a weapon keeps its slot for its life; a new spawn takes the lowest free slot in ascending spawn serial; with no free slot it is dropped and counted (info v3_projectile_overflow)",
+     "ownership": "the agent's own weapons only (owner == the player fighter)",
+     "velocity": "native WPStruct vel_air (no estimate): unaffected by creation / destruction",
+     "life": "min(lifetime, 140) / 140",
+     "mask_column": 0
+    },
+    "segment_geometry": {
+     "shape": [
+      32,
+      8
+     ],
+     "dtype": "float32",
+     "bounds": [
+      "-inf",
+      "inf"
+     ],
+     "fields": [
+      "a_dx",
+      "a_dy",
+      "b_dx",
+      "b_dy",
+      "near_dx",
+      "near_dy",
+      "vel_x",
+      "vel_y"
+     ],
+     "units": "native units (TopN-relative) / 8000; velocity / 200"
+    },
+    "segment_kind": {
+     "shape": [
+      32,
+      7
+     ],
+     "dtype": "float32",
+     "bounds": [
+      0.0,
+      1.0
+     ],
+     "fields": [
+      "present",
+      "floor",
+      "ceiling",
+      "wall_facing_pos_x",
+      "wall_facing_neg_x",
+      "one_way",
+      "moving"
+     ],
+     "values": "binary 0/1",
+     "mask_column": 0
+    },
+    "targets": {
+     "shape": [
+      10,
+      5
+     ],
+     "dtype": "float32",
+     "bounds": [
+      "-inf",
+      "inf"
+     ],
+     "fields": [
+      "dx",
+      "dy",
+      "vx",
+      "vy",
+      "live"
+     ],
+     "rows": "M7f stable target IDs 0..9",
+     "units": "dx, dy: native units / 2000; vx, vy: (position - previous reply's position) / 50, 0 at reset, on a row's first live reply and on a stale reply",
+     "mask_column": 4
+    }
+   },
+   "flat_size": 606,
+   "scaling": {
+    "length": 2000.0,
+    "velocity": 50.0,
+    "time": 3600.0,
+    "progress": 60.0,
+    "running_normalization": false,
+    "clipping": null,
+    "segment_geometry": {
+     "length": 8000.0,
+     "velocity": 200.0
+    }
+   },
+   "masks": {
+    "rule": "a row whose validity column is 0 is all zeros at the network input (no normalisation can move it)",
+    "columns": {
+     "segment_kind": 0,
+     "targets": 4,
+     "projectiles": 0
+    }
+   },
+   "segments": {
+    "slots": 32,
+    "order": "native collision line id, then vertex-pair index",
+    "padding": "slots >= count: every geometry and kind value 0",
+    "accepts": "any table with <= 32 segments (the pinned Mario table is a task validation, not a contract term)",
+    "mario_reference": "TopN (position_x, position_y) of the paired observation",
+    "world_vertex_rule": "float32 stored vertex + float32 group translate when the group is translated (mpCollisionGetVertexPositionID)"
+   },
+   "stale_rule": "native live = 0 or fighter invalid (the terminal reply of a fall): the last complete observation is repeated and info['v3_stale'] is true",
+   "displacement_rule": "agent disp_* = TopN change since the previous reply / velocity scale; 0 at reset",
+   "character": {
+    "default": "mario",
+    "validated_tables": [
+     "mario"
+    ],
+    "rule": "status ids are looked up in the task character's own table; ids outside it map to 'unmapped' and are counted (info v3_unmapped_status_ids)"
+   },
+   "native_sources": {
+    "observation": "btt_m1b schema 1",
+    "spatial": {
+     "diagnostic": "btt_spatial_v1",
+     "env": "SSB64_RL_SPATIAL=1"
+    },
+    "entity": {
+     "diagnostic": "btt_entity_v1",
+     "env": "SSB64_RL_ENTITY=1"
+    }
+   },
+   "information_class": "structured global state (more than one camera frame shows)",
+   "excluded": [
+    "optimal path",
+    "preferred crossing",
+    "target order",
+    "TAS action",
+    "'go left' indicator",
+    "gateway / region labels",
+    "distance along a handcrafted route",
+    "future platform positions",
+    "platform phase or period",
+    "future game state",
+    "reward shaping"
+   ],
+   "compatibility": "fresh models only; a btt_policy_obs_v1, v2_spatial or v3_entities checkpoint is refused; v3 stays available, byte-identical and the selected default",
+   "derived_from": {
+    "contract": "btt_policy_obs_v3_entities",
+    "contract_sha256": "4ddc2933a41410ecf2009b464a706fc0e6e6de4fbad300608d04bd1d1f7b3297",
+    "only_change": "segment_geometry: length columns ['a_dx', 'a_dy', 'b_dx', 'b_dy', 'near_dx', 'near_dy'] / 8000 (v3 / 2000); velocity columns ['vel_x', 'vel_y'] / 200 (v3 / 50); factor 4",
+    "unchanged_keys": [
+     "action_class",
+     "agent",
+     "projectiles",
+     "segment_kind",
+     "targets"
+    ]
+   }
+  },
+  "v3_digest": "4ddc2933a41410ecf2009b464a706fc0e6e6de4fbad300608d04bd1d1f7b3297",
+  "action_class_table_sha256": "97db115242c58c2a18b70c03adcdf4f2556728e501fe87858f9f7b1c83229ea4",
+  "reward": "btt_reward_v2",
+  "native_flags": {
+   "SSB64_RL_NO_RENDER": "1",
+   "SSB64_RAPHNET_DISABLE": "1",
+   "SSB64_RL_SPATIAL": "1",
+   "SSB64_RL_ENTITY": "1"
+  },
+  "executable_sha256": "748dbad98e9a5c32fa802f0dadb87ad56888376170981179860c96fb3cc19e00",
+  "code": {
+   "sha256": "4608b14392b025033c61926a6198cb0ea531e30b52ad9406136c85a1e25d4fd3",
+   "files": 130,
+   "m7o_control_check_fingerprint": "f62bbef2537768a139f2c1da5977ccff0500a802fdc198113fcb2aa58deaa4b6"
+  },
+  "expected_initial_policy_digest": "c43eb58bc4296ce7497bdfac183dd2dbe15b05a0ae149809e0193d64fdd050ec",
+  "expected_initial_obs_rms_digest": "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5",
+  "control": {
+   "run": "runs/m7n/campaign/m7n_s0_v3",
+   "initial_digests": [
+    "c43eb58bc4296ce7497bdfac183dd2dbe15b05a0ae149809e0193d64fdd050ec",
+    "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+   ],
+   "ckpt_000307200_digests": [
+    "6cbc186af12a68c699a3cec1fc637528adca7ae378451a57b2ff69bfa7b15ecb",
+    "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+   ],
+   "rollouts_sha256": "bf07560c11838ef27fd08dff9b1b4cf5b8166231b7f10b776ddef81b3eff6827",
+   "curve_307200": {
+    "path": "runs/m7n/campaign/_eval/m7n_s0_v3/curve_t000307200/stochastic/evaluation.json",
+    "sha256": "5f39c64743aeecb627ccd44771aaeac6f5f52db024fd6947b0ff9298c6f556eb",
+    "episodes": 60,
+    "mean_targets": 3.5667
+   },
+   "control_check_profile": "rl/configs/m7o/r1/m7o_r1_s0.toml"
+  },
+  "sample_sources": [
+   {
+    "path": "runs/m7n/feasibility/prefix/traces/907d762b.json.gz",
+    "sha256": "4e46bf0b0b288fd2ab098dda5d9107c3c12a9e7c6fa56959dec32bacdf06de9e"
+   },
+   {
+    "path": "runs/m7n/feasibility/prefix/traces/e404fde0.json.gz",
+    "sha256": "327d072ac2d7a51ba739aeb9040f827172506720e37d4607550e7425884b97e7"
+   },
+   {
+    "path": "runs/probes/action_hold/episodes/k01/ep000.json.gz",
+    "sha256": "4f69d06cc37a20a3de2bbcf11417a9b09f8d8d9cac2202b894309ffc658ec06e"
+   },
+   {
+    "path": "runs/probes/action_hold/episodes/k01/ep001.json.gz",
+    "sha256": "6f936402b4f75377b2da63fe0bdd8a5d184644189f0d0aa16af8917aaf731e32"
+   },
+   {
+    "path": "runs/probes/action_hold/episodes/k01/ep002.json.gz",
+    "sha256": "f462a2a15e7ba3b91bdf2f46998d96da4cb4b6b5e49f622e3b4981e90b410158"
+   },
+   {
+    "path": "runs/probes/action_hold/episodes/k01/ep003.json.gz",
+    "sha256": "1e30ad0b018badf69fa6d6d75d72b2f28efb321bcc53bcc0fad6ede5cd0432ec"
+   },
+   {
+    "path": "runs/probes/action_hold/episodes/k01/ep004.json.gz",
+    "sha256": "59aa4a191c75c6cc8f85aa897c5f8a039277b52c0af18a9539e3ef52bc638da3"
+   },
+   {
+    "path": "runs/probes/action_hold/episodes/k01/ep005.json.gz",
+    "sha256": "d5d7bd42f879aa5aeb42d5493f1dcce6c8783ef823e6b4f101ac1b0bf281b71a"
+   },
+   {
+    "path": "runs/probes/action_hold/episodes/k01/ep006.json.gz",
+    "sha256": "a91917463f3c0fa21876a23c1dd24b525b135eb9a26593d3e6c100f1521419a7"
+   },
+   {
+    "path": "runs/probes/action_hold/episodes/k01/ep007.json.gz",
+    "sha256": "2910287cbd90f81f5abcc4e1f44155c97277c38f74d875a29bcb3065c8695b08"
+   }
+  ]
+ },
+ "control_reuse_rule": "the M7n s0 profile must reproduce bit-exactly for 102,400 transitions on this code and executable (control-check); a mismatch stops the diagnostic; no replacement control is trained",
+ "on_failure": "stop and report; the attempt is preserved; no automatic fix and relaunch"
+}

@@ -1,0 +1,2531 @@
+{
+ "schema": "action_hold_probe_registration_v1",
+ "utc": "2026-09-28T00:20:45+00:00",
+ "question": "Can uniformly random Track 1 actions, each held for k native ticks, reach the region the Mario BTT crossing needs from a normal tick-0 start, where per-tick random actions (k = 1) do not?",
+ "status_of_the_hypothesis": "action persistence is a HYPOTHESIS about the zero first-event rate of the trained policies (docs/rl_learning_setup_review_2026-09-27.md, section 4); this probe tests random reachability only",
+ "no_training": true,
+ "no_policy": true,
+ "no_production_contract_change": true,
+ "conditions": {
+  "hold_lengths": [
+   1,
+   4,
+   8,
+   16
+  ],
+  "episodes_per_k": 100,
+  "horizon_ticks": 3600,
+  "start": "normal tick-0 reset of a fresh process (non-consuming observe, input_tick 0, 10 targets), no prefix"
+ },
+ "sampling": {
+  "space": "the 72 Track 1 combinations of btt_s9_b8_v1 (9 stick states x 8 button states)",
+  "rule": "at each decision boundary a = numpy.random.default_rng(seed).integers(0, 72); stick = a // 8, button = a % 8; the native triple is btt_learning TRACK1_STICK_TABLE[stick], TRACK1_BUTTON_TABLE[button]",
+  "seed": "sha256('action_hold|<k>|<i>')[:8] as an integer, one generator per episode; Python-side only, never reaches the game"
+ },
+ "hold_semantics": {
+  "hold": "the same native triple is submitted for up to k consecutive ticks",
+  "stop": "immediately on a native EpisodeEnded result or a btt_native_failure_v1 detection (no further ticks)",
+  "clip": "the last hold is min(k, 3600 - t) so no tick beyond the horizon is submitted",
+  "recording": "every native tick is one `step` request; consumed_tick must equal t and the reply's input_tick t + 1; every reply is kept (raw, gz) and the canonical native rows (buttons, stick_x, stick_y, consumed_tick) give the M7 native_action_digest; no hidden steps, no ignored termination, no altered button edges"
+ },
+ "stages": {
+  "cut": "0: every stage counts from the tick-0 reset; there is no prefix and no policy",
+  "S1_approach": "a live post-update observation (fighter_valid 1, btt_active 1) with position_x <= -1200 (past the ledge's right end, at any height)",
+  "S2_over_ledge": "a live observation with position_y >= 3000 and position_x <= -1200 (at or above the wall top, over the ledge span); evidence of reachability only",
+  "S3_over_wall_entry": "an `over_wall` entry of btt_reward_v3.classify_entry (the pair of consecutive live observations crossing x = -2100 with interpolated crossing height >= wall top - tolerance); a raw entry, not a crossing",
+  "S4_qualified_crossing": "btt_qualified_crossing_v1 (rl/m7n_crossing.analyse_trace): over_wall entry + over-ledge path + grounded takeoff + landing on a decoded left floor in the same visit",
+  "S5_left_target_break": "target 1, 6 or 8 broken (btt_target_identity_v1 break records)",
+  "elevated_step": "a live observation with position_y >= 2400 (two 800-unit cells above the main floor at y -2550)",
+  "also_recorded": [
+   "end (clear / fall / horizon)",
+   "targets broken and per-target break ticks",
+   "min live x, max live y",
+   "reward v2 return",
+   "decisions and realised hold lengths",
+   "native action digest",
+   "raw replies (gz)"
+  ]
+ },
+ "rule": {
+  "threshold_per_k": "S2 in >= 3 of 100 episodes OR S3 in >= 1 episode(s)",
+  "if_some_k_gt_1_meets_it": "temporally correlated random actions can reach the relevant region under this probe (exploration reachability); NOT a qualified crossing, NOT a learned success, NOT evidence that PPO will learn a crossing",
+  "if_none_meets_it": "no foothold under the tested hold lengths; Track 1 crossing controllability is already established by the validated fixtures and is not what this probe tests",
+  "k_1_meets_it": "reported as such (per-tick random reachability); the comparison of interest is k > 1 against k = 1",
+  "verification": "every episode meeting the threshold is replayed exactly (fresh process, same native rows) and its trajectory re-staged; an episode whose replay is not exact or whose replay does not reproduce the stage is reported and does not count",
+  "applied": "once, by `summarize`, written to docs/rl_action_hold_probe_decision.json (write-once)",
+  "never": [
+   "a threshold changed after seeing results",
+   "a raw over-wall entry or S2 called a crossing",
+   "fixture or TAS inputs used to construct or seed the probe",
+   "an extension or extra condition added after the run"
+  ]
+ },
+ "metrics_per_condition": [
+  "episodes",
+  "end reasons (clear / fall / horizon)",
+  "targets broken (mean, histogram)",
+  "falls",
+  "max live y (max, median), min live x (min)",
+  "elevated-step episodes and steps",
+  "S1 approach episodes",
+  "S2 over-ledge episodes",
+  "S3 raw over-wall entries",
+  "S4 qualified crossings",
+  "S5 left-target breaks",
+  "mean reward v2 return",
+  "decisions per episode, realised hold lengths",
+  "wall time"
+ ],
+ "historical_k1_baseline": {
+  "record": "runs/m7g_k/_eval/random_baseline (100 episodes, uniform per-tick Track 1, seed 12345, 5 workers)",
+  "reused": false,
+  "why_not": [
+   "its extra_env lacks SSB64_RL_SPATIAL / SSB64_RL_ENTITY (only NO_RENDER, RAPHNET_DISABLE, TARGET_DIAG)",
+   "no raw replies preserved (actions.jsonl + metadata + btt_eval_metrics_v1 only)",
+   "no height recorded, so S2 / elevated steps cannot be computed from it",
+   "its sampling used SB3's evaluation RNG, not the registered per-episode generators"
+  ],
+  "use": "reported alongside as descriptive context only (3.23 targets, 30 falls, min live x -1650, 0 left entries)"
+ },
+ "executable": {
+  "path": "build-us/Release/BattleShip.exe",
+  "sha256": "748dbad98e9a5c32fa802f0dadb87ad56888376170981179860c96fb3cc19e00",
+  "size": 23625728
+ },
+ "flags": {
+  "SSB64_RL_NO_RENDER": "1",
+  "SSB64_RAPHNET_DISABLE": "1",
+  "SSB64_RL_SPATIAL": "1",
+  "SSB64_RL_ENTITY": "1",
+  "SSB64_RL_TARGET_DIAG": "1"
+ },
+ "code": {
+  "tool": "rl/tools/action_hold_probe.py",
+  "sha256": "8203cb739617c38768af3103455a334dd68f0c863897221ba5f597490e0c182d",
+  "reused": {
+   "rl/tools/m7n_prefix_feasibility.py": "f9c91c017c90ed2190ac4a3617b8981acb5dd7fe42c4e1437b5f02f26563efae",
+   "rl/m7n_crossing.py": "c0d46afb912a727b9f75b96de2021956923de03df82f39ebb4d4d88405e823f0",
+   "rl/m7g_fixture.py": "880e641e22609ae7aa3da7b339fecae5eee69bc5c6e9cf4237413f0db6e1770b",
+   "rl/m7f_trace.py": "99399e16718a9e5a5f4d4eb3ce6c4b00bb62e6f9483522b03946b52180cb9190",
+   "rl/btt_reward_v3.py": "04589be48921a9e4bda6a6c1f13f1a35f26bd89ccb50d544a959adf878cdeaa4"
+  }
+ },
+ "exclusions": [
+  "the two validated crossing fixtures and the 7.43 TAS are not read, replayed or used to construct the probe",
+  "no native RNG inspection, logging, control or hashing",
+  "no PPO, no policy, no reward change, no network change"
+ ],
+ "stop_conditions": [
+  "any episode raising (integrity, transport, consumed-tick or recording-contract violation): the pool is cancelled and the run exits 1",
+  "a BattleShip process already running before launch",
+  "the M7h launch gate refusing",
+  "a leftover BattleShip process after the run"
+ ],
+ "resources": {
+  "workers": 3,
+  "expected_game_processes": "<= 3",
+  "output_root": "runs/probes/action_hold"
+ },
+ "episodes": [
+  {
+   "k": 1,
+   "i": 0,
+   "seed": 1915766556,
+   "index": 8001
+  },
+  {
+   "k": 1,
+   "i": 1,
+   "seed": 1426747120,
+   "index": 8002
+  },
+  {
+   "k": 1,
+   "i": 2,
+   "seed": 380938948,
+   "index": 8003
+  },
+  {
+   "k": 1,
+   "i": 3,
+   "seed": 1218623039,
+   "index": 8004
+  },
+  {
+   "k": 1,
+   "i": 4,
+   "seed": 297586413,
+   "index": 8005
+  },
+  {
+   "k": 1,
+   "i": 5,
+   "seed": 2917312491,
+   "index": 8006
+  },
+  {
+   "k": 1,
+   "i": 6,
+   "seed": 1641087953,
+   "index": 8007
+  },
+  {
+   "k": 1,
+   "i": 7,
+   "seed": 1215481460,
+   "index": 8008
+  },
+  {
+   "k": 1,
+   "i": 8,
+   "seed": 3494540804,
+   "index": 8009
+  },
+  {
+   "k": 1,
+   "i": 9,
+   "seed": 1528003315,
+   "index": 8010
+  },
+  {
+   "k": 1,
+   "i": 10,
+   "seed": 755622956,
+   "index": 8011
+  },
+  {
+   "k": 1,
+   "i": 11,
+   "seed": 8910838,
+   "index": 8012
+  },
+  {
+   "k": 1,
+   "i": 12,
+   "seed": 2676906724,
+   "index": 8013
+  },
+  {
+   "k": 1,
+   "i": 13,
+   "seed": 2064945778,
+   "index": 8014
+  },
+  {
+   "k": 1,
+   "i": 14,
+   "seed": 4021657745,
+   "index": 8015
+  },
+  {
+   "k": 1,
+   "i": 15,
+   "seed": 1555898137,
+   "index": 8016
+  },
+  {
+   "k": 1,
+   "i": 16,
+   "seed": 2754996136,
+   "index": 8017
+  },
+  {
+   "k": 1,
+   "i": 17,
+   "seed": 3600509936,
+   "index": 8018
+  },
+  {
+   "k": 1,
+   "i": 18,
+   "seed": 399354051,
+   "index": 8019
+  },
+  {
+   "k": 1,
+   "i": 19,
+   "seed": 2447578930,
+   "index": 8020
+  },
+  {
+   "k": 1,
+   "i": 20,
+   "seed": 2969684737,
+   "index": 8021
+  },
+  {
+   "k": 1,
+   "i": 21,
+   "seed": 684049663,
+   "index": 8022
+  },
+  {
+   "k": 1,
+   "i": 22,
+   "seed": 3535272590,
+   "index": 8023
+  },
+  {
+   "k": 1,
+   "i": 23,
+   "seed": 1272781654,
+   "index": 8024
+  },
+  {
+   "k": 1,
+   "i": 24,
+   "seed": 2351615675,
+   "index": 8025
+  },
+  {
+   "k": 1,
+   "i": 25,
+   "seed": 3306205079,
+   "index": 8026
+  },
+  {
+   "k": 1,
+   "i": 26,
+   "seed": 1569685486,
+   "index": 8027
+  },
+  {
+   "k": 1,
+   "i": 27,
+   "seed": 3077620666,
+   "index": 8028
+  },
+  {
+   "k": 1,
+   "i": 28,
+   "seed": 3472774173,
+   "index": 8029
+  },
+  {
+   "k": 1,
+   "i": 29,
+   "seed": 2116953511,
+   "index": 8030
+  },
+  {
+   "k": 1,
+   "i": 30,
+   "seed": 1016389139,
+   "index": 8031
+  },
+  {
+   "k": 1,
+   "i": 31,
+   "seed": 2731133134,
+   "index": 8032
+  },
+  {
+   "k": 1,
+   "i": 32,
+   "seed": 371257306,
+   "index": 8033
+  },
+  {
+   "k": 1,
+   "i": 33,
+   "seed": 495574070,
+   "index": 8034
+  },
+  {
+   "k": 1,
+   "i": 34,
+   "seed": 343022643,
+   "index": 8035
+  },
+  {
+   "k": 1,
+   "i": 35,
+   "seed": 3549392467,
+   "index": 8036
+  },
+  {
+   "k": 1,
+   "i": 36,
+   "seed": 3443534241,
+   "index": 8037
+  },
+  {
+   "k": 1,
+   "i": 37,
+   "seed": 3781507437,
+   "index": 8038
+  },
+  {
+   "k": 1,
+   "i": 38,
+   "seed": 262179328,
+   "index": 8039
+  },
+  {
+   "k": 1,
+   "i": 39,
+   "seed": 703094427,
+   "index": 8040
+  },
+  {
+   "k": 1,
+   "i": 40,
+   "seed": 2736239643,
+   "index": 8041
+  },
+  {
+   "k": 1,
+   "i": 41,
+   "seed": 2396736437,
+   "index": 8042
+  },
+  {
+   "k": 1,
+   "i": 42,
+   "seed": 1609413390,
+   "index": 8043
+  },
+  {
+   "k": 1,
+   "i": 43,
+   "seed": 2819017,
+   "index": 8044
+  },
+  {
+   "k": 1,
+   "i": 44,
+   "seed": 3729029997,
+   "index": 8045
+  },
+  {
+   "k": 1,
+   "i": 45,
+   "seed": 2538681835,
+   "index": 8046
+  },
+  {
+   "k": 1,
+   "i": 46,
+   "seed": 1824955661,
+   "index": 8047
+  },
+  {
+   "k": 1,
+   "i": 47,
+   "seed": 2865876264,
+   "index": 8048
+  },
+  {
+   "k": 1,
+   "i": 48,
+   "seed": 1237644456,
+   "index": 8049
+  },
+  {
+   "k": 1,
+   "i": 49,
+   "seed": 3255791673,
+   "index": 8050
+  },
+  {
+   "k": 1,
+   "i": 50,
+   "seed": 1414999255,
+   "index": 8051
+  },
+  {
+   "k": 1,
+   "i": 51,
+   "seed": 2360853265,
+   "index": 8052
+  },
+  {
+   "k": 1,
+   "i": 52,
+   "seed": 3335428474,
+   "index": 8053
+  },
+  {
+   "k": 1,
+   "i": 53,
+   "seed": 792442858,
+   "index": 8054
+  },
+  {
+   "k": 1,
+   "i": 54,
+   "seed": 3070983574,
+   "index": 8055
+  },
+  {
+   "k": 1,
+   "i": 55,
+   "seed": 2831443142,
+   "index": 8056
+  },
+  {
+   "k": 1,
+   "i": 56,
+   "seed": 1111778763,
+   "index": 8057
+  },
+  {
+   "k": 1,
+   "i": 57,
+   "seed": 991218241,
+   "index": 8058
+  },
+  {
+   "k": 1,
+   "i": 58,
+   "seed": 365951537,
+   "index": 8059
+  },
+  {
+   "k": 1,
+   "i": 59,
+   "seed": 732939047,
+   "index": 8060
+  },
+  {
+   "k": 1,
+   "i": 60,
+   "seed": 1978349697,
+   "index": 8061
+  },
+  {
+   "k": 1,
+   "i": 61,
+   "seed": 2802905243,
+   "index": 8062
+  },
+  {
+   "k": 1,
+   "i": 62,
+   "seed": 3249354616,
+   "index": 8063
+  },
+  {
+   "k": 1,
+   "i": 63,
+   "seed": 1311744344,
+   "index": 8064
+  },
+  {
+   "k": 1,
+   "i": 64,
+   "seed": 384463301,
+   "index": 8065
+  },
+  {
+   "k": 1,
+   "i": 65,
+   "seed": 141358630,
+   "index": 8066
+  },
+  {
+   "k": 1,
+   "i": 66,
+   "seed": 711922317,
+   "index": 8067
+  },
+  {
+   "k": 1,
+   "i": 67,
+   "seed": 906020770,
+   "index": 8068
+  },
+  {
+   "k": 1,
+   "i": 68,
+   "seed": 425526240,
+   "index": 8069
+  },
+  {
+   "k": 1,
+   "i": 69,
+   "seed": 1512682586,
+   "index": 8070
+  },
+  {
+   "k": 1,
+   "i": 70,
+   "seed": 2402303342,
+   "index": 8071
+  },
+  {
+   "k": 1,
+   "i": 71,
+   "seed": 3819013769,
+   "index": 8072
+  },
+  {
+   "k": 1,
+   "i": 72,
+   "seed": 616376883,
+   "index": 8073
+  },
+  {
+   "k": 1,
+   "i": 73,
+   "seed": 2648795742,
+   "index": 8074
+  },
+  {
+   "k": 1,
+   "i": 74,
+   "seed": 2395591803,
+   "index": 8075
+  },
+  {
+   "k": 1,
+   "i": 75,
+   "seed": 3991300958,
+   "index": 8076
+  },
+  {
+   "k": 1,
+   "i": 76,
+   "seed": 2516809773,
+   "index": 8077
+  },
+  {
+   "k": 1,
+   "i": 77,
+   "seed": 449143259,
+   "index": 8078
+  },
+  {
+   "k": 1,
+   "i": 78,
+   "seed": 683895241,
+   "index": 8079
+  },
+  {
+   "k": 1,
+   "i": 79,
+   "seed": 1099398133,
+   "index": 8080
+  },
+  {
+   "k": 1,
+   "i": 80,
+   "seed": 1858073899,
+   "index": 8081
+  },
+  {
+   "k": 1,
+   "i": 81,
+   "seed": 45031526,
+   "index": 8082
+  },
+  {
+   "k": 1,
+   "i": 82,
+   "seed": 2521635792,
+   "index": 8083
+  },
+  {
+   "k": 1,
+   "i": 83,
+   "seed": 2871539303,
+   "index": 8084
+  },
+  {
+   "k": 1,
+   "i": 84,
+   "seed": 919574093,
+   "index": 8085
+  },
+  {
+   "k": 1,
+   "i": 85,
+   "seed": 2300155848,
+   "index": 8086
+  },
+  {
+   "k": 1,
+   "i": 86,
+   "seed": 141453331,
+   "index": 8087
+  },
+  {
+   "k": 1,
+   "i": 87,
+   "seed": 3629003127,
+   "index": 8088
+  },
+  {
+   "k": 1,
+   "i": 88,
+   "seed": 3349577498,
+   "index": 8089
+  },
+  {
+   "k": 1,
+   "i": 89,
+   "seed": 1655778665,
+   "index": 8090
+  },
+  {
+   "k": 1,
+   "i": 90,
+   "seed": 1129958588,
+   "index": 8091
+  },
+  {
+   "k": 1,
+   "i": 91,
+   "seed": 2598710614,
+   "index": 8092
+  },
+  {
+   "k": 1,
+   "i": 92,
+   "seed": 2896713027,
+   "index": 8093
+  },
+  {
+   "k": 1,
+   "i": 93,
+   "seed": 3919513825,
+   "index": 8094
+  },
+  {
+   "k": 1,
+   "i": 94,
+   "seed": 2457864051,
+   "index": 8095
+  },
+  {
+   "k": 1,
+   "i": 95,
+   "seed": 2008192748,
+   "index": 8096
+  },
+  {
+   "k": 1,
+   "i": 96,
+   "seed": 265412976,
+   "index": 8097
+  },
+  {
+   "k": 1,
+   "i": 97,
+   "seed": 1090382813,
+   "index": 8098
+  },
+  {
+   "k": 1,
+   "i": 98,
+   "seed": 20186515,
+   "index": 8099
+  },
+  {
+   "k": 1,
+   "i": 99,
+   "seed": 2652108742,
+   "index": 8100
+  },
+  {
+   "k": 4,
+   "i": 0,
+   "seed": 2468735004,
+   "index": 8101
+  },
+  {
+   "k": 4,
+   "i": 1,
+   "seed": 1525634273,
+   "index": 8102
+  },
+  {
+   "k": 4,
+   "i": 2,
+   "seed": 1505079169,
+   "index": 8103
+  },
+  {
+   "k": 4,
+   "i": 3,
+   "seed": 509766140,
+   "index": 8104
+  },
+  {
+   "k": 4,
+   "i": 4,
+   "seed": 2318865130,
+   "index": 8105
+  },
+  {
+   "k": 4,
+   "i": 5,
+   "seed": 3023203527,
+   "index": 8106
+  },
+  {
+   "k": 4,
+   "i": 6,
+   "seed": 2745921512,
+   "index": 8107
+  },
+  {
+   "k": 4,
+   "i": 7,
+   "seed": 4022171955,
+   "index": 8108
+  },
+  {
+   "k": 4,
+   "i": 8,
+   "seed": 3485524757,
+   "index": 8109
+  },
+  {
+   "k": 4,
+   "i": 9,
+   "seed": 3425361502,
+   "index": 8110
+  },
+  {
+   "k": 4,
+   "i": 10,
+   "seed": 3787598981,
+   "index": 8111
+  },
+  {
+   "k": 4,
+   "i": 11,
+   "seed": 4247325734,
+   "index": 8112
+  },
+  {
+   "k": 4,
+   "i": 12,
+   "seed": 4127461771,
+   "index": 8113
+  },
+  {
+   "k": 4,
+   "i": 13,
+   "seed": 4255323096,
+   "index": 8114
+  },
+  {
+   "k": 4,
+   "i": 14,
+   "seed": 4047335202,
+   "index": 8115
+  },
+  {
+   "k": 4,
+   "i": 15,
+   "seed": 3093575935,
+   "index": 8116
+  },
+  {
+   "k": 4,
+   "i": 16,
+   "seed": 2457791319,
+   "index": 8117
+  },
+  {
+   "k": 4,
+   "i": 17,
+   "seed": 3460642835,
+   "index": 8118
+  },
+  {
+   "k": 4,
+   "i": 18,
+   "seed": 93813772,
+   "index": 8119
+  },
+  {
+   "k": 4,
+   "i": 19,
+   "seed": 3503415168,
+   "index": 8120
+  },
+  {
+   "k": 4,
+   "i": 20,
+   "seed": 2636751454,
+   "index": 8121
+  },
+  {
+   "k": 4,
+   "i": 21,
+   "seed": 3613996861,
+   "index": 8122
+  },
+  {
+   "k": 4,
+   "i": 22,
+   "seed": 2095423698,
+   "index": 8123
+  },
+  {
+   "k": 4,
+   "i": 23,
+   "seed": 1996097055,
+   "index": 8124
+  },
+  {
+   "k": 4,
+   "i": 24,
+   "seed": 499623992,
+   "index": 8125
+  },
+  {
+   "k": 4,
+   "i": 25,
+   "seed": 3255216699,
+   "index": 8126
+  },
+  {
+   "k": 4,
+   "i": 26,
+   "seed": 1070800436,
+   "index": 8127
+  },
+  {
+   "k": 4,
+   "i": 27,
+   "seed": 704799472,
+   "index": 8128
+  },
+  {
+   "k": 4,
+   "i": 28,
+   "seed": 1673615302,
+   "index": 8129
+  },
+  {
+   "k": 4,
+   "i": 29,
+   "seed": 2119871609,
+   "index": 8130
+  },
+  {
+   "k": 4,
+   "i": 30,
+   "seed": 3487153144,
+   "index": 8131
+  },
+  {
+   "k": 4,
+   "i": 31,
+   "seed": 1459012754,
+   "index": 8132
+  },
+  {
+   "k": 4,
+   "i": 32,
+   "seed": 4086942772,
+   "index": 8133
+  },
+  {
+   "k": 4,
+   "i": 33,
+   "seed": 3515782605,
+   "index": 8134
+  },
+  {
+   "k": 4,
+   "i": 34,
+   "seed": 2495019592,
+   "index": 8135
+  },
+  {
+   "k": 4,
+   "i": 35,
+   "seed": 607293409,
+   "index": 8136
+  },
+  {
+   "k": 4,
+   "i": 36,
+   "seed": 4093650323,
+   "index": 8137
+  },
+  {
+   "k": 4,
+   "i": 37,
+   "seed": 1158086908,
+   "index": 8138
+  },
+  {
+   "k": 4,
+   "i": 38,
+   "seed": 16232403,
+   "index": 8139
+  },
+  {
+   "k": 4,
+   "i": 39,
+   "seed": 567502630,
+   "index": 8140
+  },
+  {
+   "k": 4,
+   "i": 40,
+   "seed": 2105365892,
+   "index": 8141
+  },
+  {
+   "k": 4,
+   "i": 41,
+   "seed": 2127670804,
+   "index": 8142
+  },
+  {
+   "k": 4,
+   "i": 42,
+   "seed": 2879779181,
+   "index": 8143
+  },
+  {
+   "k": 4,
+   "i": 43,
+   "seed": 183154585,
+   "index": 8144
+  },
+  {
+   "k": 4,
+   "i": 44,
+   "seed": 1874144010,
+   "index": 8145
+  },
+  {
+   "k": 4,
+   "i": 45,
+   "seed": 2290785157,
+   "index": 8146
+  },
+  {
+   "k": 4,
+   "i": 46,
+   "seed": 1135362047,
+   "index": 8147
+  },
+  {
+   "k": 4,
+   "i": 47,
+   "seed": 3791661351,
+   "index": 8148
+  },
+  {
+   "k": 4,
+   "i": 48,
+   "seed": 1266292199,
+   "index": 8149
+  },
+  {
+   "k": 4,
+   "i": 49,
+   "seed": 2790039323,
+   "index": 8150
+  },
+  {
+   "k": 4,
+   "i": 50,
+   "seed": 1351966006,
+   "index": 8151
+  },
+  {
+   "k": 4,
+   "i": 51,
+   "seed": 2559710860,
+   "index": 8152
+  },
+  {
+   "k": 4,
+   "i": 52,
+   "seed": 507355537,
+   "index": 8153
+  },
+  {
+   "k": 4,
+   "i": 53,
+   "seed": 641617027,
+   "index": 8154
+  },
+  {
+   "k": 4,
+   "i": 54,
+   "seed": 4254314078,
+   "index": 8155
+  },
+  {
+   "k": 4,
+   "i": 55,
+   "seed": 3686424278,
+   "index": 8156
+  },
+  {
+   "k": 4,
+   "i": 56,
+   "seed": 3371994081,
+   "index": 8157
+  },
+  {
+   "k": 4,
+   "i": 57,
+   "seed": 3544915751,
+   "index": 8158
+  },
+  {
+   "k": 4,
+   "i": 58,
+   "seed": 2795967709,
+   "index": 8159
+  },
+  {
+   "k": 4,
+   "i": 59,
+   "seed": 2956053588,
+   "index": 8160
+  },
+  {
+   "k": 4,
+   "i": 60,
+   "seed": 591819317,
+   "index": 8161
+  },
+  {
+   "k": 4,
+   "i": 61,
+   "seed": 2893297559,
+   "index": 8162
+  },
+  {
+   "k": 4,
+   "i": 62,
+   "seed": 3056926254,
+   "index": 8163
+  },
+  {
+   "k": 4,
+   "i": 63,
+   "seed": 3876489241,
+   "index": 8164
+  },
+  {
+   "k": 4,
+   "i": 64,
+   "seed": 829187579,
+   "index": 8165
+  },
+  {
+   "k": 4,
+   "i": 65,
+   "seed": 103770441,
+   "index": 8166
+  },
+  {
+   "k": 4,
+   "i": 66,
+   "seed": 1895077026,
+   "index": 8167
+  },
+  {
+   "k": 4,
+   "i": 67,
+   "seed": 1914175755,
+   "index": 8168
+  },
+  {
+   "k": 4,
+   "i": 68,
+   "seed": 2011049497,
+   "index": 8169
+  },
+  {
+   "k": 4,
+   "i": 69,
+   "seed": 2083879320,
+   "index": 8170
+  },
+  {
+   "k": 4,
+   "i": 70,
+   "seed": 357192512,
+   "index": 8171
+  },
+  {
+   "k": 4,
+   "i": 71,
+   "seed": 3064351731,
+   "index": 8172
+  },
+  {
+   "k": 4,
+   "i": 72,
+   "seed": 1377358439,
+   "index": 8173
+  },
+  {
+   "k": 4,
+   "i": 73,
+   "seed": 3784713990,
+   "index": 8174
+  },
+  {
+   "k": 4,
+   "i": 74,
+   "seed": 328280911,
+   "index": 8175
+  },
+  {
+   "k": 4,
+   "i": 75,
+   "seed": 3383910584,
+   "index": 8176
+  },
+  {
+   "k": 4,
+   "i": 76,
+   "seed": 3981670591,
+   "index": 8177
+  },
+  {
+   "k": 4,
+   "i": 77,
+   "seed": 2045077320,
+   "index": 8178
+  },
+  {
+   "k": 4,
+   "i": 78,
+   "seed": 3300056041,
+   "index": 8179
+  },
+  {
+   "k": 4,
+   "i": 79,
+   "seed": 2055694779,
+   "index": 8180
+  },
+  {
+   "k": 4,
+   "i": 80,
+   "seed": 4116026243,
+   "index": 8181
+  },
+  {
+   "k": 4,
+   "i": 81,
+   "seed": 1006699623,
+   "index": 8182
+  },
+  {
+   "k": 4,
+   "i": 82,
+   "seed": 2039314237,
+   "index": 8183
+  },
+  {
+   "k": 4,
+   "i": 83,
+   "seed": 2783295045,
+   "index": 8184
+  },
+  {
+   "k": 4,
+   "i": 84,
+   "seed": 2716480224,
+   "index": 8185
+  },
+  {
+   "k": 4,
+   "i": 85,
+   "seed": 1698764064,
+   "index": 8186
+  },
+  {
+   "k": 4,
+   "i": 86,
+   "seed": 1820550801,
+   "index": 8187
+  },
+  {
+   "k": 4,
+   "i": 87,
+   "seed": 2012298779,
+   "index": 8188
+  },
+  {
+   "k": 4,
+   "i": 88,
+   "seed": 2701570967,
+   "index": 8189
+  },
+  {
+   "k": 4,
+   "i": 89,
+   "seed": 3598410188,
+   "index": 8190
+  },
+  {
+   "k": 4,
+   "i": 90,
+   "seed": 2693772728,
+   "index": 8191
+  },
+  {
+   "k": 4,
+   "i": 91,
+   "seed": 560838634,
+   "index": 8192
+  },
+  {
+   "k": 4,
+   "i": 92,
+   "seed": 2416907878,
+   "index": 8193
+  },
+  {
+   "k": 4,
+   "i": 93,
+   "seed": 1023978091,
+   "index": 8194
+  },
+  {
+   "k": 4,
+   "i": 94,
+   "seed": 2735421424,
+   "index": 8195
+  },
+  {
+   "k": 4,
+   "i": 95,
+   "seed": 2994471742,
+   "index": 8196
+  },
+  {
+   "k": 4,
+   "i": 96,
+   "seed": 2790971375,
+   "index": 8197
+  },
+  {
+   "k": 4,
+   "i": 97,
+   "seed": 1980843113,
+   "index": 8198
+  },
+  {
+   "k": 4,
+   "i": 98,
+   "seed": 3643372440,
+   "index": 8199
+  },
+  {
+   "k": 4,
+   "i": 99,
+   "seed": 4174391267,
+   "index": 8200
+  },
+  {
+   "k": 8,
+   "i": 0,
+   "seed": 3534306597,
+   "index": 8201
+  },
+  {
+   "k": 8,
+   "i": 1,
+   "seed": 1693359775,
+   "index": 8202
+  },
+  {
+   "k": 8,
+   "i": 2,
+   "seed": 2469858388,
+   "index": 8203
+  },
+  {
+   "k": 8,
+   "i": 3,
+   "seed": 2050114273,
+   "index": 8204
+  },
+  {
+   "k": 8,
+   "i": 4,
+   "seed": 4287531671,
+   "index": 8205
+  },
+  {
+   "k": 8,
+   "i": 5,
+   "seed": 514400500,
+   "index": 8206
+  },
+  {
+   "k": 8,
+   "i": 6,
+   "seed": 2063785220,
+   "index": 8207
+  },
+  {
+   "k": 8,
+   "i": 7,
+   "seed": 1550301249,
+   "index": 8208
+  },
+  {
+   "k": 8,
+   "i": 8,
+   "seed": 535327069,
+   "index": 8209
+  },
+  {
+   "k": 8,
+   "i": 9,
+   "seed": 832709034,
+   "index": 8210
+  },
+  {
+   "k": 8,
+   "i": 10,
+   "seed": 1126458577,
+   "index": 8211
+  },
+  {
+   "k": 8,
+   "i": 11,
+   "seed": 1005229993,
+   "index": 8212
+  },
+  {
+   "k": 8,
+   "i": 12,
+   "seed": 2363296032,
+   "index": 8213
+  },
+  {
+   "k": 8,
+   "i": 13,
+   "seed": 1877716780,
+   "index": 8214
+  },
+  {
+   "k": 8,
+   "i": 14,
+   "seed": 270998478,
+   "index": 8215
+  },
+  {
+   "k": 8,
+   "i": 15,
+   "seed": 3403571863,
+   "index": 8216
+  },
+  {
+   "k": 8,
+   "i": 16,
+   "seed": 2472570142,
+   "index": 8217
+  },
+  {
+   "k": 8,
+   "i": 17,
+   "seed": 4067495487,
+   "index": 8218
+  },
+  {
+   "k": 8,
+   "i": 18,
+   "seed": 3263869301,
+   "index": 8219
+  },
+  {
+   "k": 8,
+   "i": 19,
+   "seed": 937119955,
+   "index": 8220
+  },
+  {
+   "k": 8,
+   "i": 20,
+   "seed": 35915614,
+   "index": 8221
+  },
+  {
+   "k": 8,
+   "i": 21,
+   "seed": 1005414220,
+   "index": 8222
+  },
+  {
+   "k": 8,
+   "i": 22,
+   "seed": 1136759574,
+   "index": 8223
+  },
+  {
+   "k": 8,
+   "i": 23,
+   "seed": 623387842,
+   "index": 8224
+  },
+  {
+   "k": 8,
+   "i": 24,
+   "seed": 1880854107,
+   "index": 8225
+  },
+  {
+   "k": 8,
+   "i": 25,
+   "seed": 3151668540,
+   "index": 8226
+  },
+  {
+   "k": 8,
+   "i": 26,
+   "seed": 3196917632,
+   "index": 8227
+  },
+  {
+   "k": 8,
+   "i": 27,
+   "seed": 3351293561,
+   "index": 8228
+  },
+  {
+   "k": 8,
+   "i": 28,
+   "seed": 4236287607,
+   "index": 8229
+  },
+  {
+   "k": 8,
+   "i": 29,
+   "seed": 2038619558,
+   "index": 8230
+  },
+  {
+   "k": 8,
+   "i": 30,
+   "seed": 2719040268,
+   "index": 8231
+  },
+  {
+   "k": 8,
+   "i": 31,
+   "seed": 3212846730,
+   "index": 8232
+  },
+  {
+   "k": 8,
+   "i": 32,
+   "seed": 129349791,
+   "index": 8233
+  },
+  {
+   "k": 8,
+   "i": 33,
+   "seed": 3300989461,
+   "index": 8234
+  },
+  {
+   "k": 8,
+   "i": 34,
+   "seed": 356909227,
+   "index": 8235
+  },
+  {
+   "k": 8,
+   "i": 35,
+   "seed": 2113331334,
+   "index": 8236
+  },
+  {
+   "k": 8,
+   "i": 36,
+   "seed": 3102528847,
+   "index": 8237
+  },
+  {
+   "k": 8,
+   "i": 37,
+   "seed": 71963829,
+   "index": 8238
+  },
+  {
+   "k": 8,
+   "i": 38,
+   "seed": 2652543355,
+   "index": 8239
+  },
+  {
+   "k": 8,
+   "i": 39,
+   "seed": 463113825,
+   "index": 8240
+  },
+  {
+   "k": 8,
+   "i": 40,
+   "seed": 2807228780,
+   "index": 8241
+  },
+  {
+   "k": 8,
+   "i": 41,
+   "seed": 3493409315,
+   "index": 8242
+  },
+  {
+   "k": 8,
+   "i": 42,
+   "seed": 2013460660,
+   "index": 8243
+  },
+  {
+   "k": 8,
+   "i": 43,
+   "seed": 1022098063,
+   "index": 8244
+  },
+  {
+   "k": 8,
+   "i": 44,
+   "seed": 1498515735,
+   "index": 8245
+  },
+  {
+   "k": 8,
+   "i": 45,
+   "seed": 268222667,
+   "index": 8246
+  },
+  {
+   "k": 8,
+   "i": 46,
+   "seed": 935242886,
+   "index": 8247
+  },
+  {
+   "k": 8,
+   "i": 47,
+   "seed": 361027651,
+   "index": 8248
+  },
+  {
+   "k": 8,
+   "i": 48,
+   "seed": 611773337,
+   "index": 8249
+  },
+  {
+   "k": 8,
+   "i": 49,
+   "seed": 188402463,
+   "index": 8250
+  },
+  {
+   "k": 8,
+   "i": 50,
+   "seed": 3726857141,
+   "index": 8251
+  },
+  {
+   "k": 8,
+   "i": 51,
+   "seed": 4279688615,
+   "index": 8252
+  },
+  {
+   "k": 8,
+   "i": 52,
+   "seed": 1373345758,
+   "index": 8253
+  },
+  {
+   "k": 8,
+   "i": 53,
+   "seed": 3162968990,
+   "index": 8254
+  },
+  {
+   "k": 8,
+   "i": 54,
+   "seed": 3875564886,
+   "index": 8255
+  },
+  {
+   "k": 8,
+   "i": 55,
+   "seed": 3454033973,
+   "index": 8256
+  },
+  {
+   "k": 8,
+   "i": 56,
+   "seed": 1058280104,
+   "index": 8257
+  },
+  {
+   "k": 8,
+   "i": 57,
+   "seed": 1471229012,
+   "index": 8258
+  },
+  {
+   "k": 8,
+   "i": 58,
+   "seed": 787757580,
+   "index": 8259
+  },
+  {
+   "k": 8,
+   "i": 59,
+   "seed": 2613193387,
+   "index": 8260
+  },
+  {
+   "k": 8,
+   "i": 60,
+   "seed": 3183615483,
+   "index": 8261
+  },
+  {
+   "k": 8,
+   "i": 61,
+   "seed": 3400972616,
+   "index": 8262
+  },
+  {
+   "k": 8,
+   "i": 62,
+   "seed": 2137177734,
+   "index": 8263
+  },
+  {
+   "k": 8,
+   "i": 63,
+   "seed": 1720222550,
+   "index": 8264
+  },
+  {
+   "k": 8,
+   "i": 64,
+   "seed": 1873348573,
+   "index": 8265
+  },
+  {
+   "k": 8,
+   "i": 65,
+   "seed": 189154541,
+   "index": 8266
+  },
+  {
+   "k": 8,
+   "i": 66,
+   "seed": 3269099599,
+   "index": 8267
+  },
+  {
+   "k": 8,
+   "i": 67,
+   "seed": 1061262998,
+   "index": 8268
+  },
+  {
+   "k": 8,
+   "i": 68,
+   "seed": 1599397542,
+   "index": 8269
+  },
+  {
+   "k": 8,
+   "i": 69,
+   "seed": 2844145534,
+   "index": 8270
+  },
+  {
+   "k": 8,
+   "i": 70,
+   "seed": 889693831,
+   "index": 8271
+  },
+  {
+   "k": 8,
+   "i": 71,
+   "seed": 3894285335,
+   "index": 8272
+  },
+  {
+   "k": 8,
+   "i": 72,
+   "seed": 367206712,
+   "index": 8273
+  },
+  {
+   "k": 8,
+   "i": 73,
+   "seed": 2418670679,
+   "index": 8274
+  },
+  {
+   "k": 8,
+   "i": 74,
+   "seed": 816115726,
+   "index": 8275
+  },
+  {
+   "k": 8,
+   "i": 75,
+   "seed": 2850437726,
+   "index": 8276
+  },
+  {
+   "k": 8,
+   "i": 76,
+   "seed": 454001007,
+   "index": 8277
+  },
+  {
+   "k": 8,
+   "i": 77,
+   "seed": 1951965262,
+   "index": 8278
+  },
+  {
+   "k": 8,
+   "i": 78,
+   "seed": 169768889,
+   "index": 8279
+  },
+  {
+   "k": 8,
+   "i": 79,
+   "seed": 730915453,
+   "index": 8280
+  },
+  {
+   "k": 8,
+   "i": 80,
+   "seed": 2007658172,
+   "index": 8281
+  },
+  {
+   "k": 8,
+   "i": 81,
+   "seed": 3894333854,
+   "index": 8282
+  },
+  {
+   "k": 8,
+   "i": 82,
+   "seed": 3699578946,
+   "index": 8283
+  },
+  {
+   "k": 8,
+   "i": 83,
+   "seed": 1965729705,
+   "index": 8284
+  },
+  {
+   "k": 8,
+   "i": 84,
+   "seed": 2583471571,
+   "index": 8285
+  },
+  {
+   "k": 8,
+   "i": 85,
+   "seed": 3781362933,
+   "index": 8286
+  },
+  {
+   "k": 8,
+   "i": 86,
+   "seed": 1336300164,
+   "index": 8287
+  },
+  {
+   "k": 8,
+   "i": 87,
+   "seed": 533047822,
+   "index": 8288
+  },
+  {
+   "k": 8,
+   "i": 88,
+   "seed": 473660395,
+   "index": 8289
+  },
+  {
+   "k": 8,
+   "i": 89,
+   "seed": 4252358,
+   "index": 8290
+  },
+  {
+   "k": 8,
+   "i": 90,
+   "seed": 1349964869,
+   "index": 8291
+  },
+  {
+   "k": 8,
+   "i": 91,
+   "seed": 2066706,
+   "index": 8292
+  },
+  {
+   "k": 8,
+   "i": 92,
+   "seed": 3308056319,
+   "index": 8293
+  },
+  {
+   "k": 8,
+   "i": 93,
+   "seed": 988454879,
+   "index": 8294
+  },
+  {
+   "k": 8,
+   "i": 94,
+   "seed": 2068469515,
+   "index": 8295
+  },
+  {
+   "k": 8,
+   "i": 95,
+   "seed": 4254003466,
+   "index": 8296
+  },
+  {
+   "k": 8,
+   "i": 96,
+   "seed": 3926946680,
+   "index": 8297
+  },
+  {
+   "k": 8,
+   "i": 97,
+   "seed": 3831618412,
+   "index": 8298
+  },
+  {
+   "k": 8,
+   "i": 98,
+   "seed": 2802243003,
+   "index": 8299
+  },
+  {
+   "k": 8,
+   "i": 99,
+   "seed": 800940972,
+   "index": 8300
+  },
+  {
+   "k": 16,
+   "i": 0,
+   "seed": 4215284024,
+   "index": 8301
+  },
+  {
+   "k": 16,
+   "i": 1,
+   "seed": 2547096698,
+   "index": 8302
+  },
+  {
+   "k": 16,
+   "i": 2,
+   "seed": 476900261,
+   "index": 8303
+  },
+  {
+   "k": 16,
+   "i": 3,
+   "seed": 1071361518,
+   "index": 8304
+  },
+  {
+   "k": 16,
+   "i": 4,
+   "seed": 2258654775,
+   "index": 8305
+  },
+  {
+   "k": 16,
+   "i": 5,
+   "seed": 1154567956,
+   "index": 8306
+  },
+  {
+   "k": 16,
+   "i": 6,
+   "seed": 3123715762,
+   "index": 8307
+  },
+  {
+   "k": 16,
+   "i": 7,
+   "seed": 2653256210,
+   "index": 8308
+  },
+  {
+   "k": 16,
+   "i": 8,
+   "seed": 3104123959,
+   "index": 8309
+  },
+  {
+   "k": 16,
+   "i": 9,
+   "seed": 3914897356,
+   "index": 8310
+  },
+  {
+   "k": 16,
+   "i": 10,
+   "seed": 2135626047,
+   "index": 8311
+  },
+  {
+   "k": 16,
+   "i": 11,
+   "seed": 821774241,
+   "index": 8312
+  },
+  {
+   "k": 16,
+   "i": 12,
+   "seed": 506412555,
+   "index": 8313
+  },
+  {
+   "k": 16,
+   "i": 13,
+   "seed": 3182523184,
+   "index": 8314
+  },
+  {
+   "k": 16,
+   "i": 14,
+   "seed": 934181416,
+   "index": 8315
+  },
+  {
+   "k": 16,
+   "i": 15,
+   "seed": 3200144377,
+   "index": 8316
+  },
+  {
+   "k": 16,
+   "i": 16,
+   "seed": 703463312,
+   "index": 8317
+  },
+  {
+   "k": 16,
+   "i": 17,
+   "seed": 2375165210,
+   "index": 8318
+  },
+  {
+   "k": 16,
+   "i": 18,
+   "seed": 2477339157,
+   "index": 8319
+  },
+  {
+   "k": 16,
+   "i": 19,
+   "seed": 689130630,
+   "index": 8320
+  },
+  {
+   "k": 16,
+   "i": 20,
+   "seed": 824697969,
+   "index": 8321
+  },
+  {
+   "k": 16,
+   "i": 21,
+   "seed": 1755179065,
+   "index": 8322
+  },
+  {
+   "k": 16,
+   "i": 22,
+   "seed": 510684161,
+   "index": 8323
+  },
+  {
+   "k": 16,
+   "i": 23,
+   "seed": 1746432343,
+   "index": 8324
+  },
+  {
+   "k": 16,
+   "i": 24,
+   "seed": 46789108,
+   "index": 8325
+  },
+  {
+   "k": 16,
+   "i": 25,
+   "seed": 2918377931,
+   "index": 8326
+  },
+  {
+   "k": 16,
+   "i": 26,
+   "seed": 3982310921,
+   "index": 8327
+  },
+  {
+   "k": 16,
+   "i": 27,
+   "seed": 414996360,
+   "index": 8328
+  },
+  {
+   "k": 16,
+   "i": 28,
+   "seed": 2525180984,
+   "index": 8329
+  },
+  {
+   "k": 16,
+   "i": 29,
+   "seed": 1485437500,
+   "index": 8330
+  },
+  {
+   "k": 16,
+   "i": 30,
+   "seed": 2479998194,
+   "index": 8331
+  },
+  {
+   "k": 16,
+   "i": 31,
+   "seed": 2372407176,
+   "index": 8332
+  },
+  {
+   "k": 16,
+   "i": 32,
+   "seed": 3620026326,
+   "index": 8333
+  },
+  {
+   "k": 16,
+   "i": 33,
+   "seed": 769914336,
+   "index": 8334
+  },
+  {
+   "k": 16,
+   "i": 34,
+   "seed": 1040922019,
+   "index": 8335
+  },
+  {
+   "k": 16,
+   "i": 35,
+   "seed": 2736429089,
+   "index": 8336
+  },
+  {
+   "k": 16,
+   "i": 36,
+   "seed": 489898008,
+   "index": 8337
+  },
+  {
+   "k": 16,
+   "i": 37,
+   "seed": 361054727,
+   "index": 8338
+  },
+  {
+   "k": 16,
+   "i": 38,
+   "seed": 3013675278,
+   "index": 8339
+  },
+  {
+   "k": 16,
+   "i": 39,
+   "seed": 4131934704,
+   "index": 8340
+  },
+  {
+   "k": 16,
+   "i": 40,
+   "seed": 544542376,
+   "index": 8341
+  },
+  {
+   "k": 16,
+   "i": 41,
+   "seed": 3012253655,
+   "index": 8342
+  },
+  {
+   "k": 16,
+   "i": 42,
+   "seed": 3855606979,
+   "index": 8343
+  },
+  {
+   "k": 16,
+   "i": 43,
+   "seed": 3929589773,
+   "index": 8344
+  },
+  {
+   "k": 16,
+   "i": 44,
+   "seed": 2137856453,
+   "index": 8345
+  },
+  {
+   "k": 16,
+   "i": 45,
+   "seed": 4150954758,
+   "index": 8346
+  },
+  {
+   "k": 16,
+   "i": 46,
+   "seed": 1109726595,
+   "index": 8347
+  },
+  {
+   "k": 16,
+   "i": 47,
+   "seed": 1753054647,
+   "index": 8348
+  },
+  {
+   "k": 16,
+   "i": 48,
+   "seed": 3627179521,
+   "index": 8349
+  },
+  {
+   "k": 16,
+   "i": 49,
+   "seed": 352870336,
+   "index": 8350
+  },
+  {
+   "k": 16,
+   "i": 50,
+   "seed": 1874066646,
+   "index": 8351
+  },
+  {
+   "k": 16,
+   "i": 51,
+   "seed": 2229870947,
+   "index": 8352
+  },
+  {
+   "k": 16,
+   "i": 52,
+   "seed": 3497439608,
+   "index": 8353
+  },
+  {
+   "k": 16,
+   "i": 53,
+   "seed": 1029354032,
+   "index": 8354
+  },
+  {
+   "k": 16,
+   "i": 54,
+   "seed": 68869441,
+   "index": 8355
+  },
+  {
+   "k": 16,
+   "i": 55,
+   "seed": 3222359765,
+   "index": 8356
+  },
+  {
+   "k": 16,
+   "i": 56,
+   "seed": 861386651,
+   "index": 8357
+  },
+  {
+   "k": 16,
+   "i": 57,
+   "seed": 2247684292,
+   "index": 8358
+  },
+  {
+   "k": 16,
+   "i": 58,
+   "seed": 412184452,
+   "index": 8359
+  },
+  {
+   "k": 16,
+   "i": 59,
+   "seed": 3817505205,
+   "index": 8360
+  },
+  {
+   "k": 16,
+   "i": 60,
+   "seed": 4156825266,
+   "index": 8361
+  },
+  {
+   "k": 16,
+   "i": 61,
+   "seed": 2480346778,
+   "index": 8362
+  },
+  {
+   "k": 16,
+   "i": 62,
+   "seed": 2641104751,
+   "index": 8363
+  },
+  {
+   "k": 16,
+   "i": 63,
+   "seed": 3875028736,
+   "index": 8364
+  },
+  {
+   "k": 16,
+   "i": 64,
+   "seed": 1070354951,
+   "index": 8365
+  },
+  {
+   "k": 16,
+   "i": 65,
+   "seed": 2403439982,
+   "index": 8366
+  },
+  {
+   "k": 16,
+   "i": 66,
+   "seed": 604693324,
+   "index": 8367
+  },
+  {
+   "k": 16,
+   "i": 67,
+   "seed": 113419569,
+   "index": 8368
+  },
+  {
+   "k": 16,
+   "i": 68,
+   "seed": 1832126187,
+   "index": 8369
+  },
+  {
+   "k": 16,
+   "i": 69,
+   "seed": 1529684275,
+   "index": 8370
+  },
+  {
+   "k": 16,
+   "i": 70,
+   "seed": 3216196001,
+   "index": 8371
+  },
+  {
+   "k": 16,
+   "i": 71,
+   "seed": 402309962,
+   "index": 8372
+  },
+  {
+   "k": 16,
+   "i": 72,
+   "seed": 3629169648,
+   "index": 8373
+  },
+  {
+   "k": 16,
+   "i": 73,
+   "seed": 463651112,
+   "index": 8374
+  },
+  {
+   "k": 16,
+   "i": 74,
+   "seed": 4236653180,
+   "index": 8375
+  },
+  {
+   "k": 16,
+   "i": 75,
+   "seed": 1832652515,
+   "index": 8376
+  },
+  {
+   "k": 16,
+   "i": 76,
+   "seed": 1534228740,
+   "index": 8377
+  },
+  {
+   "k": 16,
+   "i": 77,
+   "seed": 2096861040,
+   "index": 8378
+  },
+  {
+   "k": 16,
+   "i": 78,
+   "seed": 2564847290,
+   "index": 8379
+  },
+  {
+   "k": 16,
+   "i": 79,
+   "seed": 350137625,
+   "index": 8380
+  },
+  {
+   "k": 16,
+   "i": 80,
+   "seed": 3642825644,
+   "index": 8381
+  },
+  {
+   "k": 16,
+   "i": 81,
+   "seed": 2599467221,
+   "index": 8382
+  },
+  {
+   "k": 16,
+   "i": 82,
+   "seed": 2252340761,
+   "index": 8383
+  },
+  {
+   "k": 16,
+   "i": 83,
+   "seed": 3634099561,
+   "index": 8384
+  },
+  {
+   "k": 16,
+   "i": 84,
+   "seed": 3321344532,
+   "index": 8385
+  },
+  {
+   "k": 16,
+   "i": 85,
+   "seed": 2879587785,
+   "index": 8386
+  },
+  {
+   "k": 16,
+   "i": 86,
+   "seed": 4238055838,
+   "index": 8387
+  },
+  {
+   "k": 16,
+   "i": 87,
+   "seed": 3378766999,
+   "index": 8388
+  },
+  {
+   "k": 16,
+   "i": 88,
+   "seed": 2093658297,
+   "index": 8389
+  },
+  {
+   "k": 16,
+   "i": 89,
+   "seed": 578596039,
+   "index": 8390
+  },
+  {
+   "k": 16,
+   "i": 90,
+   "seed": 2958216134,
+   "index": 8391
+  },
+  {
+   "k": 16,
+   "i": 91,
+   "seed": 144201162,
+   "index": 8392
+  },
+  {
+   "k": 16,
+   "i": 92,
+   "seed": 3856669522,
+   "index": 8393
+  },
+  {
+   "k": 16,
+   "i": 93,
+   "seed": 294581271,
+   "index": 8394
+  },
+  {
+   "k": 16,
+   "i": 94,
+   "seed": 224504256,
+   "index": 8395
+  },
+  {
+   "k": 16,
+   "i": 95,
+   "seed": 1451381385,
+   "index": 8396
+  },
+  {
+   "k": 16,
+   "i": 96,
+   "seed": 2561848816,
+   "index": 8397
+  },
+  {
+   "k": 16,
+   "i": 97,
+   "seed": 2718086830,
+   "index": 8398
+  },
+  {
+   "k": 16,
+   "i": 98,
+   "seed": 1744613528,
+   "index": 8399
+  },
+  {
+   "k": 16,
+   "i": 99,
+   "seed": 2985277334,
+   "index": 8400
+  }
+ ]
+}

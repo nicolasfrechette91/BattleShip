@@ -1,0 +1,330 @@
+{
+ "contract": "m7p_counterfactual_probe_v1",
+ "utc": "2026-09-28T13:51:50+00:00",
+ "label": "scripted counterfactual probe (diagnostic); not a learned crossing, evaluation success, demonstration, curriculum prefix or training start",
+ "causal_question": "in the two failed angled flights where the native fighter had one actionable tick before\nthe tick the policy used for its second jump, does issuing the second jump one tick earlier (the earliest the native\nrules allow with the rest of the recorded sequence unchanged) raise the up-B start height and produce a valid L0\nlanding, (a) with the up-B input tick unchanged, which lengthens the jump-to-up-B interval by one tick, or (b) with the\nup-B press also moved one tick earlier, which keeps the interval? The 3-7 tick gap observed against the two landings\ncannot be realised by an isolated edit in any of the four failures (the jump already came at the first actionable tick\nafter a ~45-tick aerial fireball / late aerial attack), and the other two failures have no actionable tick before their\njump at all; that limitation is reported, no other manoeuvre is substituted.",
+ "native_rules": {
+  "aerial_jump": "ftCommonJumpAerial*: interrupt checked from Fall / Jump / JumpAerial / FallSpecial / DamageFall; fires when stick_range.y >= FTCOMMON_JUMPAERIAL_STICK_RANGE_MIN (53) is HELD (or a C button is held); not checked from SpecialAirN or aerial attacks",
+  "aerial_up_b": "ftcommonspecialair.c: button_tap & B (fresh press) and stick_range.y >= FTCOMMON_SPECIALHI_STICK_RANGE_MIN (40)",
+  "input_semantics": "one native tick per submitted controller state; edges are computed natively from consecutive states, so a button kept from the previous tick is a hold, not a tap"
+ },
+ "limitation": "the registered 'earlier timings derived from the observed gap' (3-7 ticks) cannot be realised by an isolated edit: in all four failures the second jump already occurred at the first tick the native fighter could jump after its aerial fireball / attack; reaching dt 40-44 would require removing 17-20 B presses (no fireball) and would re-time the jump by the residual stick sequence, i.e. a different manoeuvre, which is not done. 78b3dea2 and f5806b84 have no actionable tick before their jump (SpecialAirN ends at dt 46, jump at 47): no valid isolated edit exists, no variant is run for them. The maximum isolated shift is one tick, in 2394f859 (Fall at dt 46) and d3a8d7b1 (Fall at dt 49).",
+ "preservation": "stick x is never changed (only stick y 0 -> 80 at the one Fall tick, so the horizontal input is kept); buttons at the jump tick are unchanged (B is a hold there, not a tap, so no up-B is triggered); variants (b) release B one tick before the moved press and replace the L trigger of the following tick by B, giving one fresh B tap one tick earlier; every other tick of the source sequence is submitted unchanged to its end (fall / horizon)",
+ "cap": {
+  "variants": 4,
+  "controls": 2,
+  "adaptive_search": false,
+  "additional_attempts": false
+ },
+ "expectation_before_running": "from the fixed angled up-B rise (+1361.3 from the press) and the observed fall rate at the press (about -30 per tick): variants (a) start the up-B about one falling tick lower and gain roughly nothing; variants (b) start about 30 higher (2394f859 apex ~3020, above the top; d3a8d7b1 apex ~2980, below); whether an apex above 3000 yields a landing also depends on x clearance and contact, which is what the probe measures",
+ "measurements": [
+  "native second jump: JumpAerialF/B onset tick and jumps_used transition",
+  "up-B onset tick and fighter y (and launch tick)",
+  "apex tick, x, y",
+  "contact sequence: ticks with x clamped at -1050.0 and right-wall id 12; floor id changes",
+  "first tick with y >= 3000 over the ledge span",
+  "valid L0 landing: grounded with native floor line 0 and classify_ground L0",
+  "first divergence tick from the source trace; subsequent outcome (landing surface / fall / horizon)"
+ ],
+ "checkpoint_not_used": "no policy is evaluated; the checkpoint is not loaded",
+ "executable_sha256": "748dbad98e9a5c32fa802f0dadb87ad56888376170981179860c96fb3cc19e00",
+ "flags": {
+  "SSB64_RL_NO_RENDER": "1",
+  "SSB64_RAPHNET_DISABLE": "1",
+  "SSB64_RL_SPATIAL": "1",
+  "SSB64_RL_ENTITY": "1",
+  "SSB64_RL_TARGET_DIAG": "1"
+ },
+ "census_registration_sha256": "c0529b35dd14852fb510a8dbc2d4abbffcc7c20785694db5dcaee2796b768bf3",
+ "sources": {
+  "2394f859": {
+   "episode_id": "episode_20260928T072326Z_2394f859",
+   "artifact_dir": "runs/m7p/campaign/_eval/m7p_geo4_s1/final/stochastic/workers/w03/artifacts/episode_20260928T072326Z_2394f859",
+   "native_action_digest": "90e044f14df5618b7455b1979c7a29564cf88988122563fd8dc5f5748914210b",
+   "artifact_actions_sha256": "562e6bea42fd100fa234ee49c98bb65641d3e46bf05768c5fd8320e5f649d4db",
+   "length": 3600,
+   "takeoff_tick": 3093,
+   "census_trace": {
+    "path": "runs/m7p/addendum/walltop_census/replays/059_2394f859/trace.json.gz",
+    "sha256": "30aed72b3c283ec82aab3d71d452269fe43e8278aa447f0b97f06d8a758fb280"
+   },
+   "lock": {
+    "move": "SpecialAirN (aerial fireball), B at dt 1",
+    "lock_last_dt": 45,
+    "actionable_dt": 46,
+    "jump_dt": 47,
+    "up_b_dt": 97
+   },
+   "source_inputs_at_edit_ticks": {
+    "46": {
+     "buttons": 16384,
+     "stick_x": -80,
+     "stick_y": 0,
+     "consumed_tick": 3139
+    },
+    "47": {
+     "buttons": 16384,
+     "stick_x": -80,
+     "stick_y": 80,
+     "consumed_tick": 3140
+    },
+    "95": {
+     "buttons": 16384,
+     "stick_x": -80,
+     "stick_y": 80,
+     "consumed_tick": 3188
+    },
+    "96": {
+     "buttons": 32,
+     "stick_x": -80,
+     "stick_y": 80,
+     "consumed_tick": 3189
+    },
+    "97": {
+     "buttons": 16384,
+     "stick_x": -80,
+     "stick_y": 80,
+     "consumed_tick": 3190
+    }
+   }
+  },
+  "78b3dea2": {
+   "episode_id": "episode_20260928T072505Z_78b3dea2",
+   "artifact_dir": "runs/m7p/campaign/_eval/m7p_geo4_s1/final/stochastic/workers/w03/artifacts/episode_20260928T072505Z_78b3dea2",
+   "native_action_digest": "c1bd19e0a4e87941aab18e4535903e55bae42b7f298ec6affdde53696fe3b372",
+   "artifact_actions_sha256": "1203b13095c6ac4168e6b232c87c920fe3380190003fbda10c26a963845d0c95",
+   "length": 3600,
+   "takeoff_tick": 1206,
+   "census_trace": {
+    "path": "runs/m7p/addendum/walltop_census/replays/089_78b3dea2/trace.json.gz",
+    "sha256": "26c9efa00981782c5f99035388ab40e85fd43da0ade3d95c0d5641058a2cbe27"
+   },
+   "lock": {
+    "move": "SpecialAirN (aerial fireball), B at dt 2",
+    "lock_last_dt": 46,
+    "actionable_dt": null,
+    "jump_dt": 47,
+    "up_b_dt": 100
+   },
+   "source_inputs_at_edit_ticks": {
+    "47": {
+     "buttons": 16384,
+     "stick_x": 0,
+     "stick_y": 80,
+     "consumed_tick": 1253
+    },
+    "100": {
+     "buttons": 16384,
+     "stick_x": 0,
+     "stick_y": 80,
+     "consumed_tick": 1306
+    }
+   }
+  },
+  "d3a8d7b1": {
+   "episode_id": "episode_20260928T072521Z_d3a8d7b1",
+   "artifact_dir": "runs/m7p/campaign/_eval/m7p_geo4_s1/final/stochastic/workers/w01/artifacts/episode_20260928T072521Z_d3a8d7b1",
+   "native_action_digest": "fda12be53fca64abed41907aad67ec153518ebe809f86c6da1e743f0f6f86c80",
+   "artifact_actions_sha256": "6f7ff5d355ca884b283052fc8265d751319ce4e21fd3abdd770c5015e5469ca8",
+   "length": 3600,
+   "takeoff_tick": 1887,
+   "census_trace": {
+    "path": "runs/m7p/addendum/walltop_census/replays/093_d3a8d7b1/trace.json.gz",
+    "sha256": "08e3fbbb33483ac80575fd64c16462c414ac5de51d019a0d335551dba4916cd8"
+   },
+   "lock": {
+    "move": "AttackAirB (aerial attack), A at dt 10",
+    "lock_last_dt": 48,
+    "actionable_dt": 49,
+    "jump_dt": 50,
+    "up_b_dt": 91
+   },
+   "source_inputs_at_edit_ticks": {
+    "49": {
+     "buttons": 16384,
+     "stick_x": 80,
+     "stick_y": 0,
+     "consumed_tick": 1936
+    },
+    "50": {
+     "buttons": 32,
+     "stick_x": -80,
+     "stick_y": 80,
+     "consumed_tick": 1937
+    },
+    "89": {
+     "buttons": 16384,
+     "stick_x": 0,
+     "stick_y": 80,
+     "consumed_tick": 1976
+    },
+    "90": {
+     "buttons": 32,
+     "stick_x": 0,
+     "stick_y": 80,
+     "consumed_tick": 1977
+    },
+    "91": {
+     "buttons": 16384,
+     "stick_x": 0,
+     "stick_y": 80,
+     "consumed_tick": 1978
+    }
+   }
+  },
+  "f5806b84": {
+   "episode_id": "episode_20260928T072219Z_f5806b84",
+   "artifact_dir": "runs/m7p/campaign/_eval/m7p_geo4_s1/final/stochastic/workers/w04/artifacts/episode_20260928T072219Z_f5806b84",
+   "native_action_digest": "93138367d935403d6ed9bb2d8891bde061da7f1492276e8ccdd00cea08ea9f62",
+   "artifact_actions_sha256": "7f777974595c531da40bb24304babbf5bb9e94678a674d0185d220d4e64c78d0",
+   "length": 3600,
+   "takeoff_tick": 3094,
+   "census_trace": {
+    "path": "runs/m7p/addendum/walltop_census/replays/035_f5806b84/trace.json.gz",
+    "sha256": "4c01a337d055ccbdd917dbd2689fe87c2c5f4fb95c0a999d7e9de9abe0dab323"
+   },
+   "lock": {
+    "move": "SpecialAirN (aerial fireball), B at dt 2",
+    "lock_last_dt": 46,
+    "actionable_dt": null,
+    "jump_dt": 47,
+    "up_b_dt": 93
+   },
+   "source_inputs_at_edit_ticks": {
+    "47": {
+     "buttons": 32,
+     "stick_x": 0,
+     "stick_y": 80,
+     "consumed_tick": 3141
+    },
+    "93": {
+     "buttons": 16384,
+     "stick_x": 0,
+     "stick_y": 80,
+     "consumed_tick": 3187
+    }
+   }
+  }
+ },
+ "controls": [
+  "2394f859",
+  "d3a8d7b1"
+ ],
+ "variants": [
+  {
+   "id": "V1",
+   "source": "2394f859",
+   "kind": "jump -1, up-B tick unchanged (interval 50 -> 51)",
+   "edits": [
+    {
+     "dt": 46,
+     "tick": 3139,
+     "field": "stick_y",
+     "from": 0,
+     "to": 80
+    }
+   ],
+   "ticks_changed": [
+    3139
+   ],
+   "ticks_unchanged": 3599,
+   "label": "scripted counterfactual probe (diagnostic); not a learned crossing, evaluation success, demonstration, curriculum prefix or training start"
+  },
+  {
+   "id": "V2",
+   "source": "2394f859",
+   "kind": "jump -1, up-B -1 (interval 50 kept)",
+   "edits": [
+    {
+     "dt": 46,
+     "tick": 3139,
+     "field": "stick_y",
+     "from": 0,
+     "to": 80
+    },
+    {
+     "dt": 95,
+     "tick": 3188,
+     "field": "buttons",
+     "from": 16384,
+     "to": 0
+    },
+    {
+     "dt": 96,
+     "tick": 3189,
+     "field": "buttons",
+     "from": 32,
+     "to": 16384
+    }
+   ],
+   "ticks_changed": [
+    3139,
+    3188,
+    3189
+   ],
+   "ticks_unchanged": 3597,
+   "label": "scripted counterfactual probe (diagnostic); not a learned crossing, evaluation success, demonstration, curriculum prefix or training start"
+  },
+  {
+   "id": "V3",
+   "source": "d3a8d7b1",
+   "kind": "jump -1, up-B tick unchanged (interval 41 -> 42)",
+   "edits": [
+    {
+     "dt": 49,
+     "tick": 1936,
+     "field": "stick_y",
+     "from": 0,
+     "to": 80
+    }
+   ],
+   "ticks_changed": [
+    1936
+   ],
+   "ticks_unchanged": 3599,
+   "label": "scripted counterfactual probe (diagnostic); not a learned crossing, evaluation success, demonstration, curriculum prefix or training start"
+  },
+  {
+   "id": "V4",
+   "source": "d3a8d7b1",
+   "kind": "jump -1, up-B -1 (interval 41 kept)",
+   "edits": [
+    {
+     "dt": 49,
+     "tick": 1936,
+     "field": "stick_y",
+     "from": 0,
+     "to": 80
+    },
+    {
+     "dt": 89,
+     "tick": 1976,
+     "field": "buttons",
+     "from": 16384,
+     "to": 0
+    },
+    {
+     "dt": 90,
+     "tick": 1977,
+     "field": "buttons",
+     "from": 32,
+     "to": 16384
+    }
+   ],
+   "ticks_changed": [
+    1936,
+    1976,
+    1977
+   ],
+   "ticks_unchanged": 3597,
+   "label": "scripted counterfactual probe (diagnostic); not a learned crossing, evaluation success, demonstration, curriculum prefix or training start"
+  }
+ ],
+ "exclusions": [
+  "no policy evaluation",
+  "no training",
+  "no reward / observation change",
+  "fixtures and TAS not read",
+  "no native RNG inspection"
+ ]
+}

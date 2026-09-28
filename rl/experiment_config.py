@@ -93,6 +93,7 @@ import m7g_obs  # noqa: E402  (M7g: v2 observation identity; NumPy/Gymnasium onl
 import m7g_policy  # noqa: E402
 import m7n_obs  # noqa: E402  (M7n: v3 observation identity; NumPy/Gymnasium only, no PyTorch)
 import m7n_policy  # noqa: E402
+import m7p_obs_geo4  # noqa: E402  (M7p: opt-in geometry-scaled v3 variant; NumPy/Gymnasium only)
 from btt_learning import POLICY_OBSERVATION_CONTRACT, TRACK1_CONTRACT  # noqa: E402
 from btt_rewards import (  # noqa: E402
     REWARD_CUSTOM_PREFIX,
@@ -152,13 +153,17 @@ OBS_V2_SPATIAL = m7g_obs.OBS_CONTRACT
 # M7n: btt_policy_obs_v3_entities (rl/m7n_obs.py) is selectable explicitly too; it adds SSB64_RL_SPATIAL=1 and
 # SSB64_RL_ENTITY=1 (both read-only diagnostics) and is pre-scaled, so it REQUIRES observation normalisation off.
 OBS_V3_ENTITIES = m7n_obs.OBS_CONTRACT
-SUPPORTED_OBSERVATION_CONTRACTS = (POLICY_OBSERVATION_CONTRACT, OBS_V2_SPATIAL, OBS_V3_ENTITIES)
+# M7p: btt_policy_obs_v3_geo4 (rl/m7p_obs_geo4.py) = v3 with only the segment_geometry block scaled by 1/4; opt-in
+# diagnostic contract (same flags, same network, norm_obs off); v3 stays the selected default.
+OBS_V3_GEO4 = m7p_obs_geo4.OBS_CONTRACT
+SUPPORTED_OBSERVATION_CONTRACTS = (POLICY_OBSERVATION_CONTRACT, OBS_V2_SPATIAL, OBS_V3_ENTITIES, OBS_V3_GEO4)
 SUPPORTED_POLICIES = (M7_POLICY, m7g_policy.POLICY)
 OBSERVATION_POLICY: Dict[str, str] = {POLICY_OBSERVATION_CONTRACT: M7_POLICY, OBS_V2_SPATIAL: m7g_policy.POLICY,
-                                      OBS_V3_ENTITIES: m7n_policy.POLICY}
+                                      OBS_V3_ENTITIES: m7n_policy.POLICY, OBS_V3_GEO4: m7n_policy.POLICY}
 OBSERVATION_EXTRA_ENV: Dict[str, Tuple[Tuple[str, str], ...]] = {POLICY_OBSERVATION_CONTRACT: (),
                                                                    OBS_V2_SPATIAL: m7g_obs.SPATIAL_EXTRA_ENV,
-                                                                   OBS_V3_ENTITIES: m7n_obs.ENTITY_EXTRA_ENV}
+                                                                   OBS_V3_ENTITIES: m7n_obs.ENTITY_EXTRA_ENV,
+                                                                   OBS_V3_GEO4: m7p_obs_geo4.ENTITY_EXTRA_ENV}
 SUPPORTED_ACTION_CONTRACTS = (TRACK1_CONTRACT,)
 # M7j: btt_reward_v3 is opt-in (only a profile naming it uses it); it adds SSB64_RL_TARGET_DIAG=1 to the derived native
 # flags (btt_rewards.reward_extra_env), so v1 / v2 profiles keep their values, extra_env and fingerprints.
@@ -214,8 +219,9 @@ FIELDS: Tuple[Field, ...] = (
     _F("task.costume", "int", "immutable", minimum=0, maximum=7),
     _F("contracts.protocol_version", "int", "immutable", choices=(PROTOCOL_VERSION,)),
     _F("contracts.observation", "str", "immutable", choices=SUPPORTED_OBSERVATION_CONTRACTS,
-       doc="policy observation: btt_policy_obs_v1 (15 float32), btt_policy_obs_v2_spatial (Dict, 525 values) or "
-           "btt_policy_obs_v3_entities (Dict, 606 pre-scaled values)"),
+       doc="policy observation: btt_policy_obs_v1 (15 float32), btt_policy_obs_v2_spatial (Dict, 525 values), "
+           "btt_policy_obs_v3_entities (Dict, 606 pre-scaled values) or the opt-in diagnostic btt_policy_obs_v3_geo4 "
+           "(v3 with segment_geometry / 4)"),
     _F("contracts.action", "str", "immutable", choices=SUPPORTED_ACTION_CONTRACTS),
     _F("contracts.reward", "str", "immutable", choices=SUPPORTED_REWARD_REQUESTS,
        doc="canonical id (values frozen) or 'custom' (id derived from the values)"),
@@ -464,6 +470,16 @@ def _within(child: Path, parent: Path) -> bool:
 def policy_observation_identity(observation: str) -> Optional[Dict[str, Any]]:
     """M7g Phase K: what a btt_policy_obs_v2_spatial run is bound to (contract digest, network, VecNormalize keys,
     native flag). None for btt_policy_obs_v1, so no v1 record gains a key."""
+    if observation == OBS_V3_GEO4:   # M7p: v3 identity with the geo4 contract id / digest and the scaling note
+        table = m7n_obs.st.load_table()
+        return {"contract": m7p_obs_geo4.OBS_CONTRACT, "schema_version": m7p_obs_geo4.OBS_SCHEMA_VERSION,
+                "contract_sha256": m7p_obs_geo4.contract_digest(), "flat_size": m7p_obs_geo4.FLAT_SIZE,
+                "key_order": list(m7p_obs_geo4.KEY_ORDER), "policy": m7n_policy.POLICY, "network_id": m7n_policy.NETWORK_ID,
+                "norm_obs_keys": [], "unnormalized_keys": list(m7p_obs_geo4.KEY_ORDER),
+                "normalization": "fixed scaling; segment_geometry / 4 relative to btt_policy_obs_v3_entities",
+                "derived_from": m7n_obs.OBS_CONTRACT, "derived_from_sha256": m7n_obs.contract_digest(),
+                "action_class_table": table["table_id"], "action_class_table_sha256": table["sha256"],
+                "native_flags": dict(m7p_obs_geo4.ENTITY_EXTRA_ENV)}
     if observation == OBS_V3_ENTITIES:   # M7n: pre-scaled keys, no VecNormalize statistics, two native flags
         table = m7n_obs.st.load_table()
         return {"contract": m7n_obs.OBS_CONTRACT, "schema_version": m7n_obs.OBS_SCHEMA_VERSION,
@@ -856,13 +872,13 @@ def _cross_field(v: Dict[str, Any], problems: List[str]) -> Optional[RewardContr
     if obs == OBS_V2_SPATIAL and g("ppo.vecnormalize.normalize_observations") is False:
         problems.append(f"ppo.vecnormalize.normalize_observations = false: contracts.observation = {OBS_V2_SPATIAL!r} "
                         f"requires observation normalisation of {list(m7g_obs.NORMALIZED_KEYS)} (no fixed scaling)")
-    if obs == OBS_V3_ENTITIES and g("ppo.vecnormalize.normalize_observations") is True:
-        problems.append(f"ppo.vecnormalize.normalize_observations = true: contracts.observation = {OBS_V3_ENTITIES!r} "
+    if obs in (OBS_V3_ENTITIES, OBS_V3_GEO4) and g("ppo.vecnormalize.normalize_observations") is True:
+        problems.append(f"ppo.vecnormalize.normalize_observations = true: contracts.observation = {obs!r} "
                         "is pre-scaled by fixed physical constants and must not be normalised (masked rows stay zero)")
-    if obs == OBS_V3_ENTITIES and (g("ppo.net_arch") != list(m7n_policy.NET_ARCH)
-                                   or g("ppo.activation") != m7n_policy.ACTIVATION):
+    if obs in (OBS_V3_ENTITIES, OBS_V3_GEO4) and (g("ppo.net_arch") != list(m7n_policy.NET_ARCH)
+                                                 or g("ppo.activation") != m7n_policy.ACTIVATION):
         problems.append(f"ppo.net_arch = {_repr_value(g('ppo.net_arch'))}, ppo.activation = {_repr_value(g('ppo.activation'))}: "
-                        f"contracts.observation = {OBS_V3_ENTITIES!r} is validated only with network "
+                        f"contracts.observation = {obs!r} is validated only with network "
                         f"{m7n_policy.NETWORK_ID!r} (net_arch {list(m7n_policy.NET_ARCH)}, {m7n_policy.ACTIVATION})")
     if obs == OBS_V2_SPATIAL and (g("ppo.net_arch") != list(m7g_policy.NET_ARCH)
                                   or g("ppo.activation") != m7g_policy.ACTIVATION):

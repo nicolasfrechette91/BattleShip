@@ -1,0 +1,1991 @@
+{
+ "schema": "battleship_m7p_campaign_manifest_v1",
+ "milestone": "M7p",
+ "campaign": "geometry_scale_geo4_v1",
+ "created_utc": "2026-09-28T02:55:50+00:00",
+ "authority": {
+  "diagnostic": "docs/rl_geometry_scale_diag_2026-09-28.md",
+  "investigation": "docs/rl_v3_saturation_investigation_2026-09-28.md",
+  "approval": "APPROVED 2026-09-28 by the user (repository owner), in the Claude Code session: one bounded three-seed comparison of btt_policy_obs_v3_geo4 against the matched M7n v3 controls, after final registration and verification (frozen manifest, profiles and rule; all-three-seed control compatibility on the final code; the M7n 10/11 unit result resolved; the offline sample and measurement procedure pinned). No further approval between preparation, passing preflight and launch. Stop after the registered three-seed decision. Original v3 stays selected until the registered comparison decides otherwise.",
+  "approval_record": "the user's message of 2026-09-28 (quoted in docs/rl_geometry_scale_m7p_handoff.md); no separate approval file"
+ },
+ "question": "Does scaling only the segment_geometry block of the v3 observation by 1/4 (btt_policy_obs_v3_geo4) let PPO learn more Mario Break the Targets from normal tick-0 starts than v3 at the same budget: a native-verified clear, a replay-verified qualified crossing or left-target break, or more targets per episode in every seed?",
+ "only_difference": "contracts.observation: btt_policy_obs_v3_geo4 instead of btt_policy_obs_v3_entities (segment_geometry length columns / 8,000 instead of / 2,000 and velocity columns / 200 instead of / 50; every other key, flag, the network, PPO, reward v2, Track 1, the lifecycle and the budget identical); compatibility views differ only in contracts.observation",
+ "arms": {
+  "exp": "m7p_geo4_s{0,1,2}: fresh models, btt_policy_obs_v3_geo4 + btt_reward_v2",
+  "ctl": "runs/m7n/campaign/m7n_s{0,1,2}_v3 (the M7n v3 runs), reused only while the R1 reproduction and the record verification pass"
+ },
+ "order": [
+  "m7p_geo4_s0",
+  "m7p_geo4_s1",
+  "m7p_geo4_s2"
+ ],
+ "sequencing": "strictly sequential, one run at a time, s0, s1, s2; the launch gate before each",
+ "registered_settings": {
+  "observation": {
+   "exp": "btt_policy_obs_v3_geo4",
+   "ctl": "btt_policy_obs_v3_entities",
+   "only_difference": "segment_geometry block scaled by 1/4 (lengths / 8,000, velocities / 200); every other key, flag and rule identical; each checkpoint evaluated under its own contract"
+  },
+  "reward": {
+   "both_arms": "btt_reward_v2 (frozen values); no exploration credit, no curriculum"
+  },
+  "launch_gate": {
+   "available_commit_gib_min": 10.0,
+   "available_physical_gib_min": 4.0,
+   "free_disk_gib_min": 10.0,
+   "system_cpu_pct_max": 40.0,
+   "when": "before every training launch",
+   "readings": "a failed reading is re-measured after 60 s, at most 5 readings"
+  },
+  "in_run_memory_policy": {
+   "warn_gib": 4.0,
+   "stop_gib": 3.0,
+   "emergency_gib": 1.0,
+   "probe_interval_s": 2.0,
+   "escalate_after_s": 30.0,
+   "kill_grace_s": 240.0,
+   "watches": "available system commit only"
+  },
+  "monitor": "m7d Monitor: hard alerts stop the run (a row violating its btt_reward_v2 closed form, more than 10 game processes or listeners in two samples, a changed user config, low disk)",
+  "budget": {
+   "policy_transitions_per_run": 3072000,
+   "hard_maximum": true,
+   "runs": 3
+  },
+  "stop_conditions": [
+   "a failed launch gate",
+   "a monitor hard alert",
+   "the in-run memory policy",
+   "a provenance mismatch",
+   "a process leak",
+   "a training verification failure",
+   "a manifest drift",
+   "a failed control check or record verification"
+  ],
+  "after_a_stop": "the campaign stops and reports; a stopped run is moved to _partial and preserved; nothing is fixed or relaunched by this driver",
+  "evaluation": "post hoc, frozen parameters, tick-0 starts only (the M7n protocol), btt_eval_metrics_v1, the checkpoint's own observation contract, clear verification, crossing verification (btt_qualified_crossing_v1), census",
+  "measurement": "offline supporting diagnostics after evaluation (measurement_plan); read only; never gating",
+  "training_inputs": "tick-0 episodes of the run itself only; never fixtures, TAS, traces, recordings, the diagnostic checkpoint, other runs",
+  "initialisation": "fresh models only: ckpt_000000000 must equal the fresh construction AND the M7n run's initial set of the seed; nothing loaded from the geo4 diagnostic",
+  "never": "native RNG state is never inspected, logged, validated, controlled, compared or hashed"
+ },
+ "observation": {
+  "experimental": {
+   "contract": "btt_policy_obs_v3_geo4",
+   "contract_sha256": "2b984528671e99f5d2ca9a94c33c93e555017edabdae7e332a4e4bdba30ba8a2",
+   "flat_size": 606,
+   "only_change": {
+    "key": "segment_geometry",
+    "length_columns": [
+     "a_dx",
+     "a_dy",
+     "b_dx",
+     "b_dy",
+     "near_dx",
+     "near_dy"
+    ],
+    "length_scale": [
+     2000.0,
+     8000.0
+    ],
+    "velocity_columns": [
+     "vel_x",
+     "vel_y"
+    ],
+    "velocity_scale": [
+     50.0,
+     200.0
+    ],
+    "factor": 4.0
+   },
+   "derived_from": "btt_policy_obs_v3_entities",
+   "derived_from_sha256": "4ddc2933a41410ecf2009b464a706fc0e6e6de4fbad300608d04bd1d1f7b3297"
+  },
+  "control": {
+   "contract": "btt_policy_obs_v3_entities",
+   "contract_sha256": "4ddc2933a41410ecf2009b464a706fc0e6e6de4fbad300608d04bd1d1f7b3297",
+   "flat_size": 606
+  },
+  "network_id": "btt_policy_net_v3_multiinput_mlp64",
+  "policy": "MultiInputPolicy",
+  "action_class_table_sha256": "97db115242c58c2a18b70c03adcdf4f2556728e501fe87858f9f7b1c83229ea4",
+  "native_flags": {
+   "SSB64_RL_SPATIAL": "1",
+   "SSB64_RL_ENTITY": "1"
+  },
+  "selected_default": "btt_policy_obs_v3_entities"
+ },
+ "diagnostic": {
+  "registration": {
+   "path": "docs/rl_geometry_scale_diag_registration.json",
+   "sha256": "1b68561adeca63915b5d74f6ec0728d2e4b50f62b1f14135cf18a31b763186fc"
+  },
+  "decision": {
+   "path": "docs/rl_geometry_scale_diag_decision.json",
+   "sha256": "b2b71863fae5bdebe3cd8c7bc384c0ec2422d802219665a14c4df9384c033252"
+  },
+  "report_doc": {
+   "path": "docs/rl_geometry_scale_diag_2026-09-28.md",
+   "sha256": "4e09160b7a68a1057407641ef5cd238c5370ec56f608907dc9402fdac92a3f53"
+  },
+  "investigation_doc": {
+   "path": "docs/rl_v3_saturation_investigation_2026-09-28.md",
+   "sha256": "0c14073fdcf850242ea8e514d73c4c6949f222f98287627e92700ef5ab92eddf"
+  },
+  "run_report": {
+   "path": "runs/m7p/diag/diag_report.json",
+   "sha256": "d864af5c0f8731e299826240333a4dafd079fa50e97b53fb133cf988b2172104"
+  },
+  "analysis": {
+   "path": "runs/m7p/diag/analysis.json",
+   "sha256": "003e67dc85fb05d8493f3616facf23776d8101a5707795825e03cd8c02796633"
+  },
+  "outcome": "diagnostic_pass",
+  "never_reused": "no campaign run loads the diagnostic's checkpoint, optimizer state or statistics; every run starts from the fresh construction"
+ },
+ "measurement_plan": {
+  "purpose": "supporting diagnostics only; never gating; never used to select checkpoints or alter training",
+  "sample": {
+   "sources": [
+    {
+     "path": "runs/m7n/feasibility/prefix/traces/907d762b.json.gz",
+     "sha256": "4e46bf0b0b288fd2ab098dda5d9107c3c12a9e7c6fa56959dec32bacdf06de9e"
+    },
+    {
+     "path": "runs/m7n/feasibility/prefix/traces/e404fde0.json.gz",
+     "sha256": "327d072ac2d7a51ba739aeb9040f827172506720e37d4607550e7425884b97e7"
+    },
+    {
+     "path": "runs/probes/action_hold/episodes/k01/ep000.json.gz",
+     "sha256": "4f69d06cc37a20a3de2bbcf11417a9b09f8d8d9cac2202b894309ffc658ec06e"
+    },
+    {
+     "path": "runs/probes/action_hold/episodes/k01/ep001.json.gz",
+     "sha256": "6f936402b4f75377b2da63fe0bdd8a5d184644189f0d0aa16af8917aaf731e32"
+    },
+    {
+     "path": "runs/probes/action_hold/episodes/k01/ep002.json.gz",
+     "sha256": "f462a2a15e7ba3b91bdf2f46998d96da4cb4b6b5e49f622e3b4981e90b410158"
+    },
+    {
+     "path": "runs/probes/action_hold/episodes/k01/ep003.json.gz",
+     "sha256": "1e30ad0b018badf69fa6d6d75d72b2f28efb321bcc53bcc0fad6ede5cd0432ec"
+    },
+    {
+     "path": "runs/probes/action_hold/episodes/k01/ep004.json.gz",
+     "sha256": "59aa4a191c75c6cc8f85aa897c5f8a039277b52c0af18a9539e3ef52bc638da3"
+    },
+    {
+     "path": "runs/probes/action_hold/episodes/k01/ep005.json.gz",
+     "sha256": "d5d7bd42f879aa5aeb42d5493f1dcce6c8783ef823e6b4f101ac1b0bf281b71a"
+    },
+    {
+     "path": "runs/probes/action_hold/episodes/k01/ep006.json.gz",
+     "sha256": "a91917463f3c0fa21876a23c1dd24b525b135eb9a26593d3e6c100f1521419a7"
+    },
+    {
+     "path": "runs/probes/action_hold/episodes/k01/ep007.json.gz",
+     "sha256": "2910287cbd90f81f5abcc4e1f44155c97277c38f74d875a29bcb3065c8695b08"
+    }
+   ],
+   "states": 33997,
+   "population_A": "the two M7n final-episode traces (policy play; 6,578 states)",
+   "population_B": "eight action-hold-probe k = 1 episodes (random play; 27,419 states)",
+   "rebuild": "exact 606-value inputs rebuilt from the raw replies under EACH arm's own contract (v3 for the control, geo4 for the experimental arm); nothing scaled is fed to the other arm's network"
+  },
+  "checkpoints": {
+   "labels": [
+    "initial",
+    "curve_t000307200",
+    "curve_t000614400",
+    "curve_t000921600",
+    "curve_t001228800",
+    "curve_t001536000",
+    "curve_t001843200",
+    "curve_t002150400",
+    "curve_t002457600",
+    "curve_t002764800",
+    "final"
+   ],
+   "num_timesteps": [
+    0,
+    307200,
+    614400,
+    921600,
+    1228800,
+    1536000,
+    1843200,
+    2150400,
+    2457600,
+    2764800,
+    3072000
+   ],
+   "arms": "both"
+  },
+  "measurements": [
+   "actor and critic layer 1: sat95 (abs tanh > 0.95), sat99, mean derivative 1 - h^2, units saturated in > 90 % of states, of which stuck at one sign, two-sided, effectively constant (std < 0.05); on the whole sample and separately on populations A and B; layer 2 sat95",
+   "recorded pairs (identical indices in both arms): target break pairs (43) vs consecutive no-break controls (3,000): median abs dV, median KL, hidden distances; up-B early-vs-late (587) vs early-vs-early controls (800); jump-squat tic 0 vs 2 (140) vs tic 0 vs 0 (174)",
+   "block ablation KL: agent, targets, segment_geometry zeroed",
+   "policy entropy on the sample; first-layer weight norms; per-interval weight-row change"
+  ],
+  "procedure": "rl/m7p_measure.py (the functions of rl/m7p_geo4_diag.py) after training and evaluation are verified; read only",
+  "reading": "a persisting saturation reduction with retained margins is reported as such; it is not a success and selects nothing",
+  "sample_sha256": "6dd9dbed8f0207925a7eda9c88729063d9f20a418567a23605b03fc3665ea954"
+ },
+ "reward_contract": {
+  "canonical_sha256": "814c79f70238e5bfe65352cba9357b9f02d2d9a5646efd6d4f00d088bc47d24e",
+  "json": {
+   "contract": "btt_reward_v2",
+   "target_broken": 1.0,
+   "per_step": -0.001,
+   "clear_bonus": 10.0,
+   "failure_penalty": -5.0
+  }
+ },
+ "executable": {
+  "path": "build-us/Release/BattleShip.exe",
+  "sha256": "748dbad98e9a5c32fa802f0dadb87ad56888376170981179860c96fb3cc19e00",
+  "size": 23625728
+ },
+ "revisions": {
+  "head": "88f6e7926a5d7a27ffce948d615638f0c726e7d5",
+  "dirty": true,
+  "submodules": {
+   "decomp": "3834e227a0fc38f6d6aa19d95432283b0c0e583f",
+   "libultraship": "805f195041573230cf0402171337b22ffd558759",
+   "torch": "3aa9c9739af95659f19adc73afeb12df93957fc3"
+  },
+  "submodules_differ_from_index": []
+ },
+ "code": {
+  "files": 114,
+  "sha256": "c61d947bb7b6782a286be0d394335c60b3d9a2219797ab216b3bdf0ca8ca9700",
+  "per_file": {
+   "rl/battleship_client.py": "0d119f0297480821791017a2e5caac0e360cfd7f08bb50f74650386d90f07253",
+   "rl/battleship_env.py": "11397c73322f90f4505d675a2a878aef36835e8309a1eedf0e749fb24b85ae42",
+   "rl/battleship_process.py": "ac3cc658aec825cc128c1030c3cd0ab48645e2711eca065c67698ccb8ad8e705",
+   "rl/btt_explore_cells.py": "6d2e15385cf1441a0f97bc030bfc878b3ce15cdae213563d9a78fb9983e4fb92",
+   "rl/btt_learning.py": "4f23ecd086639d6750f0e96e1fa085316cc0cff44dcc60bee913cf6c17b6a8b6",
+   "rl/btt_parallel.py": "e34187b3c19b6bf806cc8e31fd85018acb6a2e83ca3c93922c93887d52b64f75",
+   "rl/btt_reward_t2.py": "9a4419ed6b23cb377576878a5c3441eab2c90ace64b13b98f86ceed7930e27b5",
+   "rl/btt_reward_v3.py": "04589be48921a9e4bda6a6c1f13f1a35f26bd89ccb50d544a959adf878cdeaa4",
+   "rl/btt_rewards.py": "15bd68fd664a871c9dbdb7285882ab0219b353899573f777813207afe05dae4e",
+   "rl/btti_replay.py": "8cb086ddc17db2dc1d019826ce60fe57f93227374842ee0713ee3e33755e666b",
+   "rl/eval_m7.py": "16c6be093ce2f0fe816d2fa9f64b64b3dc3dc208e2b469ffdf95cedc3adabfa4",
+   "rl/experiment_config.py": "4f29d74250a26c730d30f30c9f4c01a86c33e56af7c3d40e60800cc2a3045f73",
+   "rl/m1e_replay_regression.py": "1e648d74316b9e1d2e9fb71634823d868df061f9f85968bbb6ea0f65053e261a",
+   "rl/m2_restart_regression.py": "6712660dc1f8ecf4da87a1e02735e649faaee05184a3edd25bd62a7825e7a674",
+   "rl/m6_equivalence_regression.py": "822d5fd4bc0b35be1c8de35e7ecede62832d7f30de9b41a60e55127374a252f6",
+   "rl/m6_raphnet_bypass_regression.py": "3464433d146bcb6ce29d47666f88949fa3f978b5ee112c91d7bd96461613a963",
+   "rl/m7_evaluation.py": "599617a832bfc71bc07485d4f4dc1b463d5d28d43aef70dc7ff5d797858d6bed",
+   "rl/m7_report.py": "1c3800ee23491f3f689a3eeb2d30fa38fbaa873ffcf5676735a050ff3bc915c2",
+   "rl/m7_runtime.py": "3dc56722c924065356e6134174d5e2c4724c0f495ee8c4e0eed027dfd2d9c452",
+   "rl/m7_standby.py": "6318a595ef774d9f7bfbd79782f11cc0eea9e716eb08f424a208aa6d9e1e3eb3",
+   "rl/m7_trainer.py": "add7bd3580f314e46c8a19d5bbc8b0dc8adeeb0edd6679329fb0ac3ef8894b42",
+   "rl/m7_vec_env.py": "f067a3fd6085b9d78f27dea0b72cbd76fe7b797f132a14e548515d9d76e62f86",
+   "rl/m7c_compare.py": "22034568393a802d08f3caa7107cf6a76c3c398833b97550f54ebf24389a6890",
+   "rl/m7d_analysis.py": "faa0451628e714286ba7a31192fae9c2d1284c34b6d212415329e580812698c4",
+   "rl/m7d_matrix.py": "8ec9b4f9665d2f7c806ca73f322bfe403ec992951db4ea0d409e0f197b3e98bf",
+   "rl/m7d_run.py": "f9b660969bdc8761f815abd75271413ab91f88b094ba0a24f84293906321daa5",
+   "rl/m7e_analysis.py": "5546e15168e5a79a70897af6d42ef3d13c857621fed90e0a5a6d62acb65919b1",
+   "rl/m7e_idle_analysis.py": "46d502681b87689b769d435ad345bc100fc75fcf0294ceb09f9a91a6efd2de79",
+   "rl/m7e_matrix.py": "07fe6e7602ab1572eff354f8abf6cf8e66a45fc8b27f27fdd976487e4abe42f7",
+   "rl/m7e_run.py": "ea021d97ee463bae73c3fd1d5e64fe05ab003ee67adb372cef3479e38f75e39a",
+   "rl/m7f_analysis.py": "afdd14d3cfc344a62c6bbd53113b5e50718c048208b453c9386d52de93be8a77",
+   "rl/m7f_manifest.py": "d5c1e935f48a9880c0113378bcdaf8d6ad88a165785e77b8a57ff6e0e5047e6f",
+   "rl/m7f_nonport_view.py": "a859195a1a61e349d930d4bceded4b328fb2803bd246629a4e35bd9a41b78e91",
+   "rl/m7f_regressions.py": "bca01125d6a86677c00c13bc2917ff37b3368ffe6b9a06cf4ef77030b304f236",
+   "rl/m7f_replay.py": "f3a28dc2c4fa1c30d1337030acc8589f856eecb83e88e53a8efe3a3950a6d20c",
+   "rl/m7f_targets.py": "3fc8f9dfbdb4c68bc482821a2fdba368a547252a54e194afc7ab08075ad13d98",
+   "rl/m7f_trace.py": "99399e16718a9e5a5f4d4eb3ce6c4b00bb62e6f9483522b03946b52180cb9190",
+   "rl/m7f_validate.py": "8af405a27084a410a3f0af6db81d36ecc1cb3a38cd83292906162fb229f78b34",
+   "rl/m7g_capture.py": "619c28baa7f9cbb1efb246b923fc023c28023666d6df9f0b261787451004ee6b",
+   "rl/m7g_crossing.py": "d1325e9364bd7f5a8da93c42ab669dcc19a9f00eb0890563bf7421817b561ca8",
+   "rl/m7g_equivalence.py": "e4ebfaddfe7be1e12f7e183dc28ac05459d3d71e3c0e0083b9d34652a72b8bb8",
+   "rl/m7g_eval_metrics.py": "6033b1021968e772955f2146bf5d43e95b3576e5ba06e8f3fa1aba63296ebd21",
+   "rl/m7g_fixture.py": "880e641e22609ae7aa3da7b339fecae5eee69bc5c6e9cf4237413f0db6e1770b",
+   "rl/m7g_k_analysis.py": "5a79a0d18b1a709e9943242dee1886da80adbaaace377846063e47f3adc03f7c",
+   "rl/m7g_k_matrix.py": "3d2c01cf4af10ab47de5d5f527166f01d413937e9e2dbb8fe7764562dfe8055b",
+   "rl/m7g_k_run.py": "4c8afb6ecf29d2b6130a3bebb2f70e0f9648d8a7044c65112cf1180274de4bb2",
+   "rl/m7g_obs.py": "b65b9e16763f7e2f71168f01aba5312ad80f077b08e54ad39c0d09cc08728d14",
+   "rl/m7g_policy.py": "2b3042ea9ed455d95a2fbbe8d38d29117ec58dab785d962c97f1262dc092c8ef",
+   "rl/m7g_representations.py": "21953779658197e43be56e2aa5fc825185840cfea72593e9722ed2eb6cefce4e",
+   "rl/m7g_spatial.py": "d95269b65648942594c2f9b598629c76dafb1fd839f08babc2621085f0e0b17c",
+   "rl/m7h_analysis.py": "b44132bab4bbc6055fb523d387ea6c1adb1c4c515aa16abd48f5d92b6fbe1fd3",
+   "rl/m7h_campaign.py": "ca08ccfaf786ce1a76000871081c517edc174d84adc30f3d03e62fb64fcee218",
+   "rl/m7h_curriculum.py": "12428c0cc6044ae501b5d288d129259d1ea64eb0b5e26586be43376b4fb0ea8e",
+   "rl/m7h_guard.py": "0d581b987670d7ed91748e6ec9954353a84052790f8f11e2cbb580b36eb766da",
+   "rl/m7h_matrix.py": "89163c1bf2d16240b14283d1f4860ebca508812ebb4ea1cd7643c5acfeddc558",
+   "rl/m7h_run.py": "b2f2e4d3e4ff237cf561ce99feb69d502f5252e5022b2bdd8c3acfc755a66d70",
+   "rl/m7h_vec.py": "711c4c160f65ac0829af2877bd90e571bbe88df3b9a03af1736ddd980aa49331",
+   "rl/m7h_verify.py": "355dde584bd0a0f2a04799f37bc4cdcbe0a4b7cdd191e0d7e484c1183380a049",
+   "rl/m7h_worker.py": "f0212ac95bf8850c4d2f2505837f2a2d14178761ee238a58f0400dcb440b1446",
+   "rl/m7j_offline.py": "c3673d0048a31bf7aee6ebd9e310606aa0d261b525af58fae1df369728aedf70",
+   "rl/m7j_reward_env.py": "b49cd6cfd203514f674aadb38969addd95ebb183d19e72e9cfdd69fc9b848240",
+   "rl/m7j_run.py": "b56baa5b5ae3669169ff589f25d9727321fcb7afb369c573d77bf08c9c1ee62c",
+   "rl/m7k_rewards.py": "e2a35eafd1b123ee995b2234af67433cc8f8c3f5bd52977df61c0577da1812c9",
+   "rl/m7k_run.py": "a3f001c89bbc58b0c4b866c5516d6f88cb63a64ccd1937adc81b7d45fc86034d",
+   "rl/m7k_target2.py": "b954e5990d6c02ad8d5f067cddadb847caf785726b98d4e666c7fd12923369d3",
+   "rl/m7k_teardown_probe.py": "d7a511d18267abcc9bf61279c7487fe2cbc4c51682957b013835d183e4fbfb1e",
+   "rl/m7l_analysis.py": "841cd21544c47274837d2f303ec345df9518cd5be5696a334b94099e0d504fbc",
+   "rl/m7l_campaign.py": "a481e1435222f1aedbe06c2bace4455c34afeb8a8d8e3cf6b889c5306fb6cc48",
+   "rl/m7l_matrix.py": "de8339b39b4f21de51f34c1efb72ac5564c86d9dbaeac698d57c8fae6683a882",
+   "rl/m7l_route_rows.py": "c3b08bbebef2a67159f544afd3199a3726df10c421b18e968bf10f8874314b4b",
+   "rl/m7m_analysis.py": "7ff3c72b47e2e1607585eb3ff389244fe9906aae26563e3529df1f025b2139ff",
+   "rl/m7m_anchor.py": "550dd2b5df0e56a76b048168e22e231044cd1034b4a446449cedc828c9b470f0",
+   "rl/m7m_campaign.py": "46a594e7a0b97e6fa69a7c39db87a85423c3e283f9469ffbbf15fbd47c36dd9e",
+   "rl/m7m_feasibility.py": "ac5dd6042a58c2aadfeaa6520bbd879457262d0d4e9f987372dacc05b41a2927",
+   "rl/m7m_matrix.py": "498c4d582a99d5b3ae9b130847e8e4f5f4a6ccd5e46eaff71873e6111cb4e7fd",
+   "rl/m7m_vec.py": "40693883e320ea5d98bed241abbb509ee102dae8446c93e278cc8e51b4f700a0",
+   "rl/m7m_worker.py": "901fd21de490dfa06d12c4643f92ed942f0e614a36fe4417652bfae1489f14cd",
+   "rl/m7n_analysis.py": "93d4431de31c7a332e1763de4ec0763ec5942df8368c8ef0d95e841f2328bafa",
+   "rl/m7n_campaign.py": "e5abafd3e429ce1194260640757e6b5bc2b1ef01563165f8f569cfe5121caa65",
+   "rl/m7n_control_check.py": "027dafa839a13fc1285ee5caa8bfae7771b264976a8b998053c6e4fa942bc3ed",
+   "rl/m7n_crossing.py": "c0d46afb912a727b9f75b96de2021956923de03df82f39ebb4d4d88405e823f0",
+   "rl/m7n_entity.py": "21121f4656262c363802d33e7e6112883fe0976fb33aaf0f22c5371fab0d6d53",
+   "rl/m7n_equivalence.py": "9500d1b96a01c63418ec55f19d38cb12cdc749e26b7300f2bda0536154b58f9c",
+   "rl/m7n_matrix.py": "8714ed850d76b07bc63d47e6c1b09c4925aade610f1bacfef890a32be746d468",
+   "rl/m7n_obs.py": "00f671ee0416134d696a8f080ab1a494a662a7e22f4a21f5f65f21c2906d135b",
+   "rl/m7n_pilot.py": "def61ed2f92cce29dd0eefc49f3658650ea1579c8521fdc6d8494cc225327a0b",
+   "rl/m7n_policy.py": "66c750508f1dcf7b36c4776a05c78dcced62db93fb9b25fb103ad13c514eca96",
+   "rl/m7n_status_table.py": "9aaa29ac19910ac174971e37fae630a8eee19548216f586e521940e94d7cdeff",
+   "rl/m7o_analysis.py": "e5b95c17571b7c14662c75947dcbb74cb21582665c774f528fa031f036e446ec",
+   "rl/m7o_campaign.py": "fd01aac424cccec17324f9da8e12923b2a47bff8553ffd2d3bda4ba30e7aa0b6",
+   "rl/m7o_control_check.py": "1f79492bb1324628e8fe439478f91ada6f88ccff6ab00e57b512dd02ebd34f3f",
+   "rl/m7o_control_verify.py": "3052302d2a21fd55270b0fb6209acabba01c773f74ab61266503d029e36ac6bb",
+   "rl/m7o_explore_env.py": "c6a92e0aab6c94de25b2f12b6421568b745c4467e9840adc447b41addacb9b22",
+   "rl/m7o_matrix.py": "ca2074c49925c9c15b191a1d031b39763dfc41f6f792a64de11605bbf2f40f22",
+   "rl/m7o_pilot.py": "bcfb074cafdb89fee3f357649f689aea0fa974903ede0c43f8d37f5326d97f99",
+   "rl/m7p_analysis.py": "caddaa7384e48a986750c977daefd00e00033eff3889c9f41410a28e956ef63c",
+   "rl/m7p_campaign.py": "620744809a90fdea624f2bda05d568e3ee5a6581892a6d4f29d8c71bd1852a83",
+   "rl/m7p_control_check.py": "c3321c6fb29ad8f8887c554e736aae2c0bc12e14a5bad1a5317e9a51368545eb",
+   "rl/m7p_control_verify.py": "e42f077ce874f77851a9704e6b68d98a469ee9b94f17c2c7c0e1ef0388cdc4bb",
+   "rl/m7p_geo4_diag.py": "619d600c396f3edf825193e1c307409ddc65e6ef0a990d5bdec96b0a46b3411e",
+   "rl/m7p_matrix.py": "d7ddb95b76d0353ccbaeb9980bfb5b6fdec2a6f1ca5841a29a50c4c4fd25a440",
+   "rl/m7p_measure.py": "8e4614242c68fb3b9ec608167e0ee07db6525b39239f11f4643ed856437831f0",
+   "rl/m7p_obs_geo4.py": "ccb48b7b7f5b8858b79099c67056bbf806853d4ccafa48a54eae72a98cf30a78",
+   "rl/run_artifacts.py": "bcab944115d893bf6c447ad285d25f94a73111e2df1b273fdd5efbd1453cac5c",
+   "rl/train_m5.py": "69c9306677723017ee0fdc4015b216eb69aecb539489bb3d9aa73450f54b00e4",
+   "rl/train_m7.py": "501ef378452ba210bc158f2492d57c72ceaa80648e26baa46c61222e26bf03ea",
+   "rl/data/m7n_action_classes_v1.json": "ce1a2b4023a1427adbada7562bf7b72d3a64076b6f6ca389a81ee17811ec5efe",
+   "rl/configs/m7p/m7p_geo4_s0.toml": "e0bcb21ff984f99ed18db3a3086350fb5c55b30619f521be6e65c8683164de73",
+   "rl/configs/m7p/m7p_geo4_s1.toml": "2e66f5d79daa74fc81661ae704990e36dc1a6855c46355e9415acab2c0f52269",
+   "rl/configs/m7p/m7p_geo4_s2.toml": "a29d5ee88dafd80702875a2c4bfd9e407e41afea10d789bb7e228b98fcaae9fb",
+   "rl/configs/m7n/m7n_s0_v3.toml": "7570cd736c7c89c81ff4f1da3e84208da8ad3eec7bdcdb2614b969d29e810dcb",
+   "rl/configs/m7n/m7n_s1_v3.toml": "5423cf347e5ff34e6e68636b1f5943d5cce9ea01d0f57989254306913b34dfde",
+   "rl/configs/m7n/m7n_s2_v3.toml": "c167054a7dac341ea6733da80f585437d824a4849b658456d0c635c5579ab7f1",
+   "docs/rl_geometry_scale_m7p_decision_rule.json": "b6c58d8245dc1dc9cb2848833707de573d79b19d280972565a82e2de3e0c574e"
+  },
+  "control_check_sha256": "5e73a04c07224134e74c2b06c57f1cb7e04973002ec94a7cd9215c75aed0b962",
+  "control_check_files": 138
+ },
+ "decision_rule": {
+  "path": "docs/rl_geometry_scale_m7p_decision_rule.json",
+  "sha256": "b6c58d8245dc1dc9cb2848833707de573d79b19d280972565a82e2de3e0c574e",
+  "schema": "m7p_decision_rule_v1"
+ },
+ "runs": {
+  "m7p_geo4_s0": {
+   "seed": 0,
+   "arm": "exp",
+   "order": 1,
+   "config": "rl/configs/m7p/m7p_geo4_s0.toml",
+   "source_sha256": "e0bcb21ff984f99ed18db3a3086350fb5c55b30619f521be6e65c8683164de73",
+   "semantic_fingerprint": "d1e5feaabc67ce5dfefb42a771a6596ee97bd6fc064bbfa1acc551aa5eb75601",
+   "compatibility_fingerprint": "e352e290b96be05c06248624b30551aa98e69176cdae058c50995da1be1a3e5f",
+   "reward": {
+    "contract": "btt_reward_v2",
+    "target_broken": 1.0,
+    "per_step": -0.001,
+    "clear_bonus": 10.0,
+    "failure_penalty": -5.0
+   },
+   "observation": "btt_policy_obs_v3_geo4",
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_ENTITY": "1"
+   },
+   "run_dir": "runs/m7p/campaign/m7p_geo4_s0",
+   "eval_dir": "runs/m7p/campaign/_eval/m7p_geo4_s0",
+   "control": "m7n_s0_v3",
+   "checks": {
+    "name": true,
+    "seed": true,
+    "mode_train_fresh": true,
+    "observation_geo4": true,
+    "action_class_table": true,
+    "policy": true,
+    "native_flags": true,
+    "no_exploration": true,
+    "task": true,
+    "action_contract": true,
+    "reward_v2": true,
+    "no_normalisation": true,
+    "process_count_5_standby": true,
+    "horizon": true,
+    "budget": true,
+    "rollout_geometry": true,
+    "ppo": true,
+    "network": true,
+    "no_in_process_evaluation": true,
+    "checkpoint_cadence": true,
+    "no_curriculum": true,
+    "run_dir": true,
+    "no_fixture_or_tas_path": true
+   },
+   "m7n_proof": {
+    "base": "rl/configs/m7n/m7n_s0_v3.toml",
+    "compatibility_key_differences": [
+     "contracts.observation"
+    ],
+    "expected_compatibility_key_differences": [
+     "contracts.observation"
+    ],
+    "value_differences": [
+     "contracts.observation",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "expected_value_differences": [
+     "contracts.observation",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "same_reward": true,
+    "ok": true
+   },
+   "expected_initial_policy_digest": "c43eb58bc4296ce7497bdfac183dd2dbe15b05a0ae149809e0193d64fdd050ec",
+   "expected_initial_obs_rms_digest": "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+  },
+  "m7p_geo4_s1": {
+   "seed": 1,
+   "arm": "exp",
+   "order": 2,
+   "config": "rl/configs/m7p/m7p_geo4_s1.toml",
+   "source_sha256": "2e66f5d79daa74fc81661ae704990e36dc1a6855c46355e9415acab2c0f52269",
+   "semantic_fingerprint": "8f7504f3adb3cfcb2752d330281809a4629f5395ac4a6c575258408adb271130",
+   "compatibility_fingerprint": "e352e290b96be05c06248624b30551aa98e69176cdae058c50995da1be1a3e5f",
+   "reward": {
+    "contract": "btt_reward_v2",
+    "target_broken": 1.0,
+    "per_step": -0.001,
+    "clear_bonus": 10.0,
+    "failure_penalty": -5.0
+   },
+   "observation": "btt_policy_obs_v3_geo4",
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_ENTITY": "1"
+   },
+   "run_dir": "runs/m7p/campaign/m7p_geo4_s1",
+   "eval_dir": "runs/m7p/campaign/_eval/m7p_geo4_s1",
+   "control": "m7n_s1_v3",
+   "checks": {
+    "name": true,
+    "seed": true,
+    "mode_train_fresh": true,
+    "observation_geo4": true,
+    "action_class_table": true,
+    "policy": true,
+    "native_flags": true,
+    "no_exploration": true,
+    "task": true,
+    "action_contract": true,
+    "reward_v2": true,
+    "no_normalisation": true,
+    "process_count_5_standby": true,
+    "horizon": true,
+    "budget": true,
+    "rollout_geometry": true,
+    "ppo": true,
+    "network": true,
+    "no_in_process_evaluation": true,
+    "checkpoint_cadence": true,
+    "no_curriculum": true,
+    "run_dir": true,
+    "no_fixture_or_tas_path": true
+   },
+   "m7n_proof": {
+    "base": "rl/configs/m7n/m7n_s1_v3.toml",
+    "compatibility_key_differences": [
+     "contracts.observation"
+    ],
+    "expected_compatibility_key_differences": [
+     "contracts.observation"
+    ],
+    "value_differences": [
+     "contracts.observation",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "expected_value_differences": [
+     "contracts.observation",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "same_reward": true,
+    "ok": true
+   },
+   "expected_initial_policy_digest": "3418fcaa3d0beb037df796046182a991bea57c0cad8bd0281859a8353582d08a",
+   "expected_initial_obs_rms_digest": "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+  },
+  "m7p_geo4_s2": {
+   "seed": 2,
+   "arm": "exp",
+   "order": 3,
+   "config": "rl/configs/m7p/m7p_geo4_s2.toml",
+   "source_sha256": "a29d5ee88dafd80702875a2c4bfd9e407e41afea10d789bb7e228b98fcaae9fb",
+   "semantic_fingerprint": "d5000b26134ad8532268d4113e7287eb2de07253d9b53de6e24bb897f0da9d96",
+   "compatibility_fingerprint": "e352e290b96be05c06248624b30551aa98e69176cdae058c50995da1be1a3e5f",
+   "reward": {
+    "contract": "btt_reward_v2",
+    "target_broken": 1.0,
+    "per_step": -0.001,
+    "clear_bonus": 10.0,
+    "failure_penalty": -5.0
+   },
+   "observation": "btt_policy_obs_v3_geo4",
+   "extra_env": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_ENTITY": "1"
+   },
+   "run_dir": "runs/m7p/campaign/m7p_geo4_s2",
+   "eval_dir": "runs/m7p/campaign/_eval/m7p_geo4_s2",
+   "control": "m7n_s2_v3",
+   "checks": {
+    "name": true,
+    "seed": true,
+    "mode_train_fresh": true,
+    "observation_geo4": true,
+    "action_class_table": true,
+    "policy": true,
+    "native_flags": true,
+    "no_exploration": true,
+    "task": true,
+    "action_contract": true,
+    "reward_v2": true,
+    "no_normalisation": true,
+    "process_count_5_standby": true,
+    "horizon": true,
+    "budget": true,
+    "rollout_geometry": true,
+    "ppo": true,
+    "network": true,
+    "no_in_process_evaluation": true,
+    "checkpoint_cadence": true,
+    "no_curriculum": true,
+    "run_dir": true,
+    "no_fixture_or_tas_path": true
+   },
+   "m7n_proof": {
+    "base": "rl/configs/m7n/m7n_s2_v3.toml",
+    "compatibility_key_differences": [
+     "contracts.observation"
+    ],
+    "expected_compatibility_key_differences": [
+     "contracts.observation"
+    ],
+    "value_differences": [
+     "contracts.observation",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "expected_value_differences": [
+     "contracts.observation",
+     "run.name",
+     "run.notes",
+     "run.output_root"
+    ],
+    "same_reward": true,
+    "ok": true
+   },
+   "expected_initial_policy_digest": "4c969c0e12bc4950773030a44e75f6840583dd6e88001e97da642d780d7a56f3",
+   "expected_initial_obs_rms_digest": "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+  }
+ },
+ "control": {
+  "seeds": {
+   "0": {
+    "run": "m7n_s0_v3",
+    "run_dir": "runs/m7n/campaign/m7n_s0_v3",
+    "eval_dir": "runs/m7n/campaign/_eval/m7n_s0_v3",
+    "final_checkpoint_json_sha256": "dc3d3bedfc1330f4462c0f175527be0d162201aa039ea211bb008a6890df5a64",
+    "rows_sha256": "43a29d67b4e7df21169f27761935d7a08aac052972969fa08ef94d1d7f28e0db",
+    "rollouts_sha256": "bf07560c11838ef27fd08dff9b1b4cf5b8166231b7f10b776ddef81b3eff6827",
+    "crossing_doc_sha256": "c11e11d81ce47358edaef3ad40f4c6b86855a3d8175dda7e742c098ac36e6440",
+    "final_digests": [
+     "94e0783377bf2667c85626d3c814f43128195ab37a99abf5d4dc501849693f17",
+     "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+    ],
+    "initial_digests": [
+     "c43eb58bc4296ce7497bdfac183dd2dbe15b05a0ae149809e0193d64fdd050ec",
+     "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+    ],
+    "curve_checkpoint_digests": {
+     "ckpt_000307200": [
+      "6cbc186af12a68c699a3cec1fc637528adca7ae378451a57b2ff69bfa7b15ecb",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_000614400": [
+      "8fac9d976bf0bdb5fd870abc8665538775b09bd55d4d5a2209af13241d0af7fe",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_000921600": [
+      "ab39f4bfd728b9a0b513bc89e6abeb78fac12ac59510614ef87b3404e6c98ffa",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_001228800": [
+      "154b45b9a6ceb327ce4f9894cf215883f51e9de36451198bbe559a03eafdd8ba",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_001536000": [
+      "3f33852795f226c238a3aac0919e1dcc1411b1ad83d00ecb563e647bec41067a",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_001843200": [
+      "7a98b4a12cc1c30dbffa1b803573b4ca3443c34c53046cccec28a02bec3fd437",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_002150400": [
+      "83d8c722e71972b1c75f7c1d3d4009ee97f40fb80f03c26b81a391002b2ed594",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_002457600": [
+      "8b16bd29dd43fdba3f72f026355aefc0b5d866ef7bfd1a071197b802886133c8",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_002764800": [
+      "baa6861db9b3ed909af6dfd605ed6f5e1e4b324808d05ebe471e6f00e8214b49",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ]
+    },
+    "evaluation_sha256": {
+     "final/stochastic": "f12a477e8a3a0a7bcf1e976da64ef5a6a81c6dbf97bf957352ad6f07ca967297",
+     "final/deterministic": "c344c175940525c37145cf6acb4432617039e67d94b3d424f2a60b121244ceed",
+     "initial/stochastic": "7729a50f640ffbd3e5a42d2311bd2aeda58b77d89f73b996f8e4a142e7d16ef8",
+     "initial/deterministic": "1fd692055e8f87f29c4fcc09d966c9aa740770186fbd7c5f2453c2c804a44cc6",
+     "curve_t000307200/stochastic": "5f39c64743aeecb627ccd44771aaeac6f5f52db024fd6947b0ff9298c6f556eb",
+     "curve_t000307200/deterministic": "106dd92f9f9e74512c1f5ac4a5fc01141d7f2cd73159286bfffd2cfa2237679b",
+     "curve_t000614400/stochastic": "6a703a2bc1e1ce96b818a2d2e69382ae5105108d9ed784bf47041e6a0fe9016b",
+     "curve_t000614400/deterministic": "60c71d56c9a3700f8890540a8fff738326f41c6eec2a24884cb4cbc39d6436d5",
+     "curve_t000921600/stochastic": "dcf9f64675e54885e80c2777c8bedf61c432b5cea35e111ddc40a8ee6cb7c48c",
+     "curve_t000921600/deterministic": "929b3d4f3200e872a91bbdffa6daaaffb462c5727487608c4f480ed11a8fefd4",
+     "curve_t001228800/stochastic": "c896ca3dfd4667f5e8bb0ea08ae6b3609797dd191692a23f56b8f1e094185407",
+     "curve_t001228800/deterministic": "4feccbd922a64653f3c082dd06c789cdb66d5856d2a2d677720f8aff4d1c7fdb",
+     "curve_t001536000/stochastic": "c6ab0363c9b54779f79f79ac272110e5ebd668fc99d5fd397d22fba6d8b4bd50",
+     "curve_t001536000/deterministic": "9f61452d1fa878705506ccfd30bb1d18a7d75e6beb6ff76ebd1fd5b44ce6c500",
+     "curve_t001843200/stochastic": "ceb0fa6460739fce225c1301e084639d29622895118a842a7c9d650669e317b5",
+     "curve_t001843200/deterministic": "81c15fd58b8697e914183f31558df4c079e82671a68a370b94b8077ea18b3222",
+     "curve_t002150400/stochastic": "7512ee80d3648cef3e44663875625fab7fa018fd9c67477e655d6cacfcad2e60",
+     "curve_t002150400/deterministic": "81af8d0eeb44260f5f3b55963a24e0b1ba8c4a2a5adae0c647954fe3e2b7a8f3",
+     "curve_t002457600/stochastic": "5f0f99ec969af87f54607907460108727180b0c2fa07b9e128bef6ebc00f9780",
+     "curve_t002457600/deterministic": "bd46add5f1a17a104a849e839a0abf723b682f970bc0a0a90032288cf6ea057c",
+     "curve_t002764800/stochastic": "d984581502b6071998d437f4b99d352a1642093dba2179ca494cf4433ca12aa1",
+     "curve_t002764800/deterministic": "3de63ee8a59cf636884ce9ae23cbd829f99eeea52d4785365e14283b747f9cc1"
+    },
+    "m7n_inputs": {
+     "final": {
+      "n": 100,
+      "t2": 0,
+      "S": 552,
+      "S_right": 552,
+      "L": 0,
+      "R": 0,
+      "T": "138/25",
+      "falls": 0,
+      "native_clears": 0,
+      "verified_clears": 0,
+      "stochastic_verified_clears": 0,
+      "left_entries": 0,
+      "left_target_episodes": 0,
+      "left_target_breaks": {
+       "1": 0,
+       "6": 0,
+       "8": 0
+      },
+      "seven_right": 0,
+      "t2_ticks": [],
+      "t2_falls": 0
+     },
+     "initial": {
+      "n": 100,
+      "t2": 4,
+      "S": 326,
+      "S_right": 326,
+      "L": 0,
+      "R": 0,
+      "T": "33/10",
+      "falls": 26,
+      "native_clears": 0,
+      "verified_clears": 0,
+      "stochastic_verified_clears": 0,
+      "left_entries": 0,
+      "left_target_episodes": 0,
+      "left_target_breaks": {
+       "1": 0,
+       "6": 0,
+       "8": 0
+      },
+      "seven_right": 0,
+      "t2_ticks": [
+       897,
+       1745,
+       2658,
+       2935
+      ],
+      "t2_falls": 3
+     },
+     "X": 0
+    },
+    "problems": [],
+    "ok": true
+   },
+   "1": {
+    "run": "m7n_s1_v3",
+    "run_dir": "runs/m7n/campaign/m7n_s1_v3",
+    "eval_dir": "runs/m7n/campaign/_eval/m7n_s1_v3",
+    "final_checkpoint_json_sha256": "2df2735ad023aea0bff687a8702f60a3fa1ca9c10c03288aef26aa3f48257e8f",
+    "rows_sha256": "bdb7fac5e610f6602b7c2398c60e43fe491583e50204a1710d3aa9f82ff9aeb7",
+    "rollouts_sha256": "7b08a07b4cb5451fc73fd267d3739ab28c9fcb0f34fe32a68c310d57ed469d0f",
+    "crossing_doc_sha256": "8f6422c27dfcf986133320484c3e545f07b7042ae32d80ae76bd9ac62153552d",
+    "final_digests": [
+     "5ba7793f19598434f6586b15134af96d901d5e34e3b75789acdfc4046f6f9259",
+     "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+    ],
+    "initial_digests": [
+     "3418fcaa3d0beb037df796046182a991bea57c0cad8bd0281859a8353582d08a",
+     "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+    ],
+    "curve_checkpoint_digests": {
+     "ckpt_000307200": [
+      "33f9f8b17594994c235089f4ffef267650141ea0f7fefdc72427670f68d21c12",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_000614400": [
+      "11821c0ed5cf29dd2611209648ebf300656e1c661b32544f0f7be826920a44fc",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_000921600": [
+      "3cb8a501104656d8602ef6d078bc751302b1e9f0e8b7aa629ab02ee9503c78d2",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_001228800": [
+      "cc7df11beba953976f0f2664733fb20e87bcebda61505759a61e849fa14757b6",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_001536000": [
+      "ffb4f0549b934031f59fc315e12a115f42f8a308b751a5b8c822cbf4fe0aecff",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_001843200": [
+      "7eb9df2d655b07c1db1c0d775d679744b2ac079ac849a4d0f3d98be6166f0cb1",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_002150400": [
+      "6691b3717482407dfee6cba40df2eccd769bb912f3ecbf2be99dd6749cf3823b",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_002457600": [
+      "5493fcbccc851fae63a396a4eee5b66922a99521e561fb8d4a01c5a5dd70e1b2",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_002764800": [
+      "4e02653f098b6651cb004099887ff7d8db55e141eacdbe8156b2b31b7a80a0c3",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ]
+    },
+    "evaluation_sha256": {
+     "final/stochastic": "5eb2bb2a78a7a433ce69edd83995d6a44d59e421ed72ed9288ae49e3db2fa76f",
+     "final/deterministic": "1cad2e19e749db887c78ae88527ff245500ff3d9826184ccf14bee9d90b231f0",
+     "initial/stochastic": "e40c9cb76009acb91233636936738e692f35b14d9bef6785db833a927dca6d0b",
+     "initial/deterministic": "b87c9e454f95a71412ec719e05fb990d2d52744fbb869e3d865f741ed29575f7",
+     "curve_t000307200/stochastic": "9330d470cc27d71d883ba27b1a88b883c42a02cbd298d09fe6a15e2f817c4750",
+     "curve_t000307200/deterministic": "d3595534c456354503248c2e2bafd241a7a8a6baaf7e7874391f05177059b887",
+     "curve_t000614400/stochastic": "ae9f0e309e32519ea7974e7c37726276b5c93e3960f87344193d8a834a1280c0",
+     "curve_t000614400/deterministic": "fceaef700c7bdc282a64a4cfd98f956e7efd50910aa19bcb80ce97d52d61b165",
+     "curve_t000921600/stochastic": "1c5f6f1dde654b3a37cd79de6a2cc7cb2af45102656c49a79ea7049188373b1e",
+     "curve_t000921600/deterministic": "5c3ad3cccc191ba69437379d5cb26a548af6ac7d04e3efe39704758af7e9d96a",
+     "curve_t001228800/stochastic": "cc150c4658bb1eaa57286b1541266ad11a96e84aef3ebcfef3b529c2b7f147f5",
+     "curve_t001228800/deterministic": "6f2676afec6404d2345fa4a5277c04464156839956cc07d575f4f03776dda612",
+     "curve_t001536000/stochastic": "e969511fcf1f3a2080eedde2f275e5f6342a30a5b6291556fc54e9695966ac76",
+     "curve_t001536000/deterministic": "d8893a93fab71f2612c859e42853ed109936c508fd5340f8f122f5420c2bfcd7",
+     "curve_t001843200/stochastic": "3238b8d60ab38d4382c67d7dc2806883bb4cec328f35f8d81e903b29ebc35983",
+     "curve_t001843200/deterministic": "a26125c1119ddb08a3e4d982d021cf0c70708e095514e9a13b2bdd817c5abdec",
+     "curve_t002150400/stochastic": "95d8ecacfc0f9ed6eea5860be7a81c4159b95bd2ec489b8bd04ead447fe7dff4",
+     "curve_t002150400/deterministic": "3056a0af60112c257c9908f102cf890f1609ff236964fec62466a640f06c1cd9",
+     "curve_t002457600/stochastic": "fb9e13d74ca7c2db0a9445974116132a9627e9c245d918dd635751637609651d",
+     "curve_t002457600/deterministic": "5ec537ac2c5b1a660e5320d0958524461791d9b062434a33caf53fe7591090df",
+     "curve_t002764800/stochastic": "8b8c75ca500b19409e3a207d40bdfcac5cf6d7a6054ab2c87e14565c1dd12c50",
+     "curve_t002764800/deterministic": "de5d0019f391838c90024b6d7342acd94755eab80970c3f6381d38e4ffb8a2ea"
+    },
+    "m7n_inputs": {
+     "final": {
+      "n": 100,
+      "t2": 7,
+      "S": 546,
+      "S_right": 546,
+      "L": 4,
+      "R": 1,
+      "T": "553/100",
+      "falls": 13,
+      "native_clears": 0,
+      "verified_clears": 0,
+      "stochastic_verified_clears": 0,
+      "left_entries": 0,
+      "left_target_episodes": 0,
+      "left_target_breaks": {
+       "1": 0,
+       "6": 0,
+       "8": 0
+      },
+      "seven_right": 3,
+      "t2_ticks": [
+       815,
+       1171,
+       1678,
+       1816,
+       2307,
+       2631,
+       3011
+      ],
+      "t2_falls": 2
+     },
+     "initial": {
+      "n": 100,
+      "t2": 3,
+      "S": 330,
+      "S_right": 330,
+      "L": 0,
+      "R": 0,
+      "T": "333/100",
+      "falls": 34,
+      "native_clears": 0,
+      "verified_clears": 0,
+      "stochastic_verified_clears": 0,
+      "left_entries": 0,
+      "left_target_episodes": 0,
+      "left_target_breaks": {
+       "1": 0,
+       "6": 0,
+       "8": 0
+      },
+      "seven_right": 0,
+      "t2_ticks": [
+       542,
+       2922,
+       2933
+      ],
+      "t2_falls": 3
+     },
+     "X": 0
+    },
+    "problems": [],
+    "ok": true
+   },
+   "2": {
+    "run": "m7n_s2_v3",
+    "run_dir": "runs/m7n/campaign/m7n_s2_v3",
+    "eval_dir": "runs/m7n/campaign/_eval/m7n_s2_v3",
+    "final_checkpoint_json_sha256": "91cecc11f4054da3d0f3fbabc36f7a4bda6335f96e01b1ef8dbb7380d35b8616",
+    "rows_sha256": "d62a23843094c3ef864f7f0619469fc67ee1653b2f9f9ffe15605b22768be3a5",
+    "rollouts_sha256": "6e3d40883c92ae83d9aee4a785ec61e1d050c431a6990f0e609003d260baf220",
+    "crossing_doc_sha256": "e7550ec3a712a0b6a2185d65f3e275028c8cbd6bb12298cec23ea79c35d98638",
+    "final_digests": [
+     "763b164b774717074911f807f0d2f86a1123312c663a32156c90e50b3a8b9bdd",
+     "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+    ],
+    "initial_digests": [
+     "4c969c0e12bc4950773030a44e75f6840583dd6e88001e97da642d780d7a56f3",
+     "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+    ],
+    "curve_checkpoint_digests": {
+     "ckpt_000307200": [
+      "f7791f1c596dea5c629307aff32b2f8ec1cc578fc8e3ee77dfb6600e955b118b",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_000614400": [
+      "aeb828a5a7b7579a7d5908d30a8a63bbfbf664a2c601ce7c344573fb890f39a5",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_000921600": [
+      "67999d3bb8750f47e212d772706ac04ce46c38c516b97f35d116974202671a24",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_001228800": [
+      "fd6d1ab25aee301736f276d671285bccc1ee7289ff7a91e883793d884c429342",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_001536000": [
+      "9466867a8dbe0e885846cd82c65be85f9313a7b8d0aa9240863cd099356aeeb6",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_001843200": [
+      "533e5aa0208ac9c26b846be1a438e94f8f7a3697c2442c04269f8d3e34886e53",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_002150400": [
+      "0eec121280437866fa4e833f314c0925d2390d1c159bf2bc581ddde49db6ef23",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_002457600": [
+      "ade27cfd4bf0c4df1a42df5b46381d43de5783ffbb26a9827ed10728590f0de9",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ],
+     "ckpt_002764800": [
+      "b0968199eff0db0b1ecc6b4d8f31c49e00895dd82eae148dc46135b93fdc44a7",
+      "bca6216bcca5582b9d4057aee70357d71a519f15ba391b7188eccadf933c67d5"
+     ]
+    },
+    "evaluation_sha256": {
+     "final/stochastic": "4603b2d30bada0dc70ddc386df2bbbb1b69e912cc814c6763545173321f77600",
+     "final/deterministic": "c26e124328507bab3545053b23928f161fa053c47c7cce7a658564620db67800",
+     "initial/stochastic": "c56e374c148f2faa1dd1f8edce0a1562b7c4032a047ca990e30d5613bb7b494c",
+     "initial/deterministic": "7c0d0c5d6d6c31e78da4c7add9197ba51ca68450ba61b5784c59067c14fdc427",
+     "curve_t000307200/stochastic": "71d9e6353dc6a5a35503f9828b2a2def931f55837d6f5db32fb636cf9a5b9543",
+     "curve_t000307200/deterministic": "ca9468c4480a61cf6f3150a502eadb7b892fe9547facfac5b75452e181835c5f",
+     "curve_t000614400/stochastic": "dd9e3519c176313fd08fcefe0a3caacc0943217c91336ad3dfe10f334f486bcf",
+     "curve_t000614400/deterministic": "b819535ab3abd504db1aac5c404fb153e14f0c948bc807baaff41d90ad465ab3",
+     "curve_t000921600/stochastic": "51f1d4f88451808af7d9b77a139f4ba83fa2c33fab767d0c3ce2ea5e392a59fc",
+     "curve_t000921600/deterministic": "96bfdfec497f84b5ce1178f6fe089a2a5fb245e1d4465b6eed3a6af99a0b9f2a",
+     "curve_t001228800/stochastic": "8670ab4b397de1406237763e0c6dd44ae1477647d795a7ecb1c52fae5303549f",
+     "curve_t001228800/deterministic": "b5acbbd117896f25aa3f9736801030b8bcf47b0ae726b9a1ee49bfd0a36675d8",
+     "curve_t001536000/stochastic": "e90214e9c14e6cefcf0fbdce48750de0b0f63641042259f28f44d143e3cdbde4",
+     "curve_t001536000/deterministic": "b2ae07a79616fd69b90c0ae6d3882985c858cefb6454c2dc3b9259312fdb27b5",
+     "curve_t001843200/stochastic": "3ed5dc1af6179eac7852655bf9f737bfd7e31e8deb7f43a270b9ad5027c9b9f4",
+     "curve_t001843200/deterministic": "19a00435f1e5a1e7239349d127b772358e28c74ddd899a587d12f4ab4eec1b6d",
+     "curve_t002150400/stochastic": "936a2558159d2c1ed4ff4524bb9383473bb9d9d80ee552348efc09c0925ef68e",
+     "curve_t002150400/deterministic": "0b8a9f93750bb9370e9354b10c03fa4237f5894e5e0d1a0e1548217e6c0cf4d8",
+     "curve_t002457600/stochastic": "d54b09d472aed55221c3d3a90d2b61a3791cac6a13d7020d407e87d48f6e0869",
+     "curve_t002457600/deterministic": "69dd1e9e0235a846e2bd64a4ccec3e926626b36f807cebc0aada4eebf8633ebc",
+     "curve_t002764800/stochastic": "5c05429a1fc83b5bd75a7756fdcfd4c00dcea06f9a883d87d9a499c2423daa4e",
+     "curve_t002764800/deterministic": "700abd0a7421bdfa6349f4d627f5735a238b6188a5e14ad2c53a4133fd069a7d"
+    },
+    "m7n_inputs": {
+     "final": {
+      "n": 100,
+      "t2": 1,
+      "S": 558,
+      "S_right": 558,
+      "L": 1,
+      "R": 1,
+      "T": "559/100",
+      "falls": 1,
+      "native_clears": 0,
+      "verified_clears": 0,
+      "stochastic_verified_clears": 0,
+      "left_entries": 0,
+      "left_target_episodes": 0,
+      "left_target_breaks": {
+       "1": 0,
+       "6": 0,
+       "8": 0
+      },
+      "seven_right": 1,
+      "t2_ticks": [
+       1692
+      ],
+      "t2_falls": 0
+     },
+     "initial": {
+      "n": 100,
+      "t2": 4,
+      "S": 323,
+      "S_right": 323,
+      "L": 0,
+      "R": 0,
+      "T": "327/100",
+      "falls": 29,
+      "native_clears": 0,
+      "verified_clears": 0,
+      "stochastic_verified_clears": 0,
+      "left_entries": 0,
+      "left_target_episodes": 0,
+      "left_target_breaks": {
+       "1": 0,
+       "6": 0,
+       "8": 0
+      },
+      "seven_right": 0,
+      "t2_ticks": [
+       1444,
+       1737,
+       2658,
+       2935
+      ],
+      "t2_falls": 3
+     },
+     "X": 0
+    },
+    "problems": [],
+    "ok": true
+   }
+  },
+  "status": {
+   "check_record": null,
+   "check_sha256": null,
+   "check_ok": false,
+   "check_code_sha256": null,
+   "check_executable_sha256": null,
+   "verify_record": null,
+   "verify_sha256": null,
+   "verify_ok": false,
+   "verify_rule_sha256": null,
+   "bound_to_this_manifest": false,
+   "required": "a PASSED R1 record on code.control_check_sha256 and executable.sha256 AND a PASSED record verification on this rule; otherwise train is blocked; replacement controls are never trained by this driver"
+  },
+  "procedure": "rl/m7p_control_check.py (R1: 3 x 102,400 fresh M7n-profile runs vs the M7n ckpt_000102400 digests and rows) + rl/m7p_control_verify.py (identity, evaluation verifiers, clear / crossing candidates, rule inputs vs the M7n analysis); rerun whenever the control-check fingerprint, the executable or the rule changes"
+ },
+ "evaluation_protocol": {
+  "plan": {
+   "m7p_geo4_s0": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "initial",
+     "checkpoint": "m7p_geo4_s0/checkpoints/ckpt_000000000",
+     "num_timesteps": 0,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "curve_t000307200",
+     "checkpoint": "m7p_geo4_s0/checkpoints/ckpt_000307200",
+     "num_timesteps": 307200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "curve_t000614400",
+     "checkpoint": "m7p_geo4_s0/checkpoints/ckpt_000614400",
+     "num_timesteps": 614400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "curve_t000921600",
+     "checkpoint": "m7p_geo4_s0/checkpoints/ckpt_000921600",
+     "num_timesteps": 921600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "curve_t001228800",
+     "checkpoint": "m7p_geo4_s0/checkpoints/ckpt_001228800",
+     "num_timesteps": 1228800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "curve_t001536000",
+     "checkpoint": "m7p_geo4_s0/checkpoints/ckpt_001536000",
+     "num_timesteps": 1536000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "curve_t001843200",
+     "checkpoint": "m7p_geo4_s0/checkpoints/ckpt_001843200",
+     "num_timesteps": 1843200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "curve_t002150400",
+     "checkpoint": "m7p_geo4_s0/checkpoints/ckpt_002150400",
+     "num_timesteps": 2150400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "curve_t002457600",
+     "checkpoint": "m7p_geo4_s0/checkpoints/ckpt_002457600",
+     "num_timesteps": 2457600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "curve_t002764800",
+     "checkpoint": "m7p_geo4_s0/checkpoints/ckpt_002764800",
+     "num_timesteps": 2764800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s0",
+     "arm": "exp",
+     "label": "final",
+     "checkpoint": "m7p_geo4_s0/final",
+     "num_timesteps": 3072000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ],
+   "m7p_geo4_s1": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "initial",
+     "checkpoint": "m7p_geo4_s1/checkpoints/ckpt_000000000",
+     "num_timesteps": 0,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "curve_t000307200",
+     "checkpoint": "m7p_geo4_s1/checkpoints/ckpt_000307200",
+     "num_timesteps": 307200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "curve_t000614400",
+     "checkpoint": "m7p_geo4_s1/checkpoints/ckpt_000614400",
+     "num_timesteps": 614400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "curve_t000921600",
+     "checkpoint": "m7p_geo4_s1/checkpoints/ckpt_000921600",
+     "num_timesteps": 921600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "curve_t001228800",
+     "checkpoint": "m7p_geo4_s1/checkpoints/ckpt_001228800",
+     "num_timesteps": 1228800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "curve_t001536000",
+     "checkpoint": "m7p_geo4_s1/checkpoints/ckpt_001536000",
+     "num_timesteps": 1536000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "curve_t001843200",
+     "checkpoint": "m7p_geo4_s1/checkpoints/ckpt_001843200",
+     "num_timesteps": 1843200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "curve_t002150400",
+     "checkpoint": "m7p_geo4_s1/checkpoints/ckpt_002150400",
+     "num_timesteps": 2150400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "curve_t002457600",
+     "checkpoint": "m7p_geo4_s1/checkpoints/ckpt_002457600",
+     "num_timesteps": 2457600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "curve_t002764800",
+     "checkpoint": "m7p_geo4_s1/checkpoints/ckpt_002764800",
+     "num_timesteps": 2764800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s1",
+     "arm": "exp",
+     "label": "final",
+     "checkpoint": "m7p_geo4_s1/final",
+     "num_timesteps": 3072000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ],
+   "m7p_geo4_s2": [
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "initial",
+     "checkpoint": "m7p_geo4_s2/checkpoints/ckpt_000000000",
+     "num_timesteps": 0,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "curve_t000307200",
+     "checkpoint": "m7p_geo4_s2/checkpoints/ckpt_000307200",
+     "num_timesteps": 307200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "curve_t000614400",
+     "checkpoint": "m7p_geo4_s2/checkpoints/ckpt_000614400",
+     "num_timesteps": 614400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "curve_t000921600",
+     "checkpoint": "m7p_geo4_s2/checkpoints/ckpt_000921600",
+     "num_timesteps": 921600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "curve_t001228800",
+     "checkpoint": "m7p_geo4_s2/checkpoints/ckpt_001228800",
+     "num_timesteps": 1228800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "curve_t001536000",
+     "checkpoint": "m7p_geo4_s2/checkpoints/ckpt_001536000",
+     "num_timesteps": 1536000,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "curve_t001843200",
+     "checkpoint": "m7p_geo4_s2/checkpoints/ckpt_001843200",
+     "num_timesteps": 1843200,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "curve_t002150400",
+     "checkpoint": "m7p_geo4_s2/checkpoints/ckpt_002150400",
+     "num_timesteps": 2150400,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "curve_t002457600",
+     "checkpoint": "m7p_geo4_s2/checkpoints/ckpt_002457600",
+     "num_timesteps": 2457600,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "curve_t002764800",
+     "checkpoint": "m7p_geo4_s2/checkpoints/ckpt_002764800",
+     "num_timesteps": 2764800,
+     "deterministic_episodes": 5,
+     "stochastic_episodes": 60
+    },
+    {
+     "seed": 12345,
+     "workers": 5,
+     "horizon": 3600,
+     "extra_env": {
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "standby_preboot": true,
+     "standby_count": 1,
+     "frozen_vecnormalize": true,
+     "preserve_all": true,
+     "eval_metrics": true,
+     "observation": "btt_policy_obs_v3_geo4",
+     "reward_contract": "btt_reward_v2",
+     "starts": "tick0_only",
+     "run": "m7p_geo4_s2",
+     "arm": "exp",
+     "label": "final",
+     "checkpoint": "m7p_geo4_s2/final",
+     "num_timesteps": 3072000,
+     "deterministic_episodes": 100,
+     "stochastic_episodes": 100
+    }
+   ]
+  },
+  "census": {
+   "runs": 3,
+   "per_run": 985,
+   "episodes": 2955,
+   "arithmetic": "3 runs x 985 = 2955",
+   "labels_per_run": 11,
+   "control_reused": true
+  },
+  "tick0_check": "rl/m7h_verify.verify_eval_tick0 on every label",
+  "metrics_check": "rl/m7g_k_run.verify_metrics on every label",
+  "clear_verification": "rl/m7g_k_run.verify_clears_in",
+  "crossing_verification": "rl/m7n_crossing.verify_crossings_in (btt_qualified_crossing_v1) on the experimental finals; the control's M7n documents re-verified by crossing_inputs",
+  "own_contract": "every checkpoint is evaluated under the observation contract recorded in its checkpoint.json (geo4 for the experimental arm); the evaluator refuses any other",
+  "inputs": "rl/m7l_analysis.label_inputs on both arms' finals and the experimental initials; rl/m7n_crossing.crossing_inputs"
+ },
+ "directory_plan": {
+  "root": "runs/m7p/campaign",
+  "planned": 16,
+  "existing": [],
+  "problems": [],
+  "ok": true
+ },
+ "limits": {
+  "runs": 3,
+  "transitions": 9216000,
+  "max_game_processes": 10,
+  "extension": "none",
+  "extra_seeds": "none",
+  "scale_tuning": "none",
+  "relaunch_after_stop": "none"
+ },
+ "not_evidence_of_success": [
+  "lower saturation, higher derivative or retained sensitivity (supporting diagnostics only)",
+  "a higher target mean in one or two seeds (gate 4 needs every seed)",
+  "a raw left entry, an off-stage fall on the left, an unqualified crossing",
+  "training-time tracker counts or native clears during training (training behaviour, always reported separately)",
+  "the geo4 diagnostic's 60-episode result (one seed, 307,200 transitions, stop-only band)"
+ ],
+ "selection": "geo4 is selected only by gates 1, 2 or 4; every other outcome (invalid, incomplete, failure_regression, failure_no_learning, inconclusive) keeps btt_policy_obs_v3_entities selected. Lower first-layer saturation, retained sensitivity or any other offline measurement is reported as a supporting diagnostic and is NEVER sufficient to select geo4.",
+ "problems": [],
+ "ok": true
+}

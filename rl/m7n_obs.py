@@ -150,7 +150,11 @@ class EntityObservationBuilder:
     displacement / velocity columns, and projectile slots are sticky per spawn serial. Any collision table with at
     most SEGMENT_SLOTS segments is accepted (the pinned-Mario check is a task validation, not a contract term)."""
 
-    def __init__(self, lines: Sequence[ms.SpatialLine], classifier: st.ActionClassifier):
+    def __init__(self, lines: Sequence[ms.SpatialLine], classifier: st.ActionClassifier, *,
+                 segment_length_scale: float = LENGTH_SCALE, segment_velocity_scale: float = VELOCITY_SCALE):
+        # M7p (opt-in): the segment_geometry block may use its own fixed scale; the defaults reproduce v3 exactly.
+        self._seg_length_scale = float(segment_length_scale)
+        self._seg_velocity_scale = float(segment_velocity_scale)
         segs = ms.static_segments(lines)
         if not segs:
             raise ObservationV3Error("empty collision table")
@@ -239,6 +243,7 @@ class EntityObservationBuilder:
                 moving[g.id] = (g.translate[0], g.translate[1], g.speed[0], g.speed[1])
                 kind[self._group_rows[g.id], 6] = 1.0
         out: List[float] = []
+        SL, SV = self._seg_length_scale, self._seg_velocity_scale   # == L, V unless an opt-in contract set them
         for grp, ax, ay, bx, by, vx, vy, vv in self._segs:
             sx = sy = 0.0
             if grp in moving:
@@ -252,8 +257,8 @@ class EntityObservationBuilder:
             rax, ray = ax - px, ay - py
             t = -(rax * vx + ray * vy) / vv
             t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
-            out += (rax / L, ray / L, (bx - px) / L, (by - py) / L, (rax + t * vx) / L, (ray + t * vy) / L,
-                    sx / V, sy / V)
+            out += (rax / SL, ray / SL, (bx - px) / SL, (by - py) / SL, (rax + t * vx) / SL, (ray + t * vy) / SL,
+                    sx / SV, sy / SV)
         out += self._padding
         seg = np.array(out, dtype=np.float32).reshape(SHAPES[SEGMENT_GEOMETRY_KEY])
 
@@ -321,6 +326,8 @@ class EntityObsV3Wrapper(gym.Wrapper):
     attribute shadows client.request; no inherited file changes), issues one extra non-consuming `observe` per reset
     and cross-checks it against the reset observation. Fails loudly when either object is missing."""
 
+    contract_id: str = OBS_CONTRACT   # an opt-in subclass (M7p) reports its own contract id in info
+
     def __init__(self, env: Any, *, base: Any, character: str = DEFAULT_CHARACTER, check_invariants: bool = False,
                  table: Optional[Dict[str, Any]] = None):
         super().__init__(env)
@@ -362,8 +369,12 @@ class EntityObsV3Wrapper(gym.Wrapper):
                 self.invariant_problems.append({"where": where, "input_tick": sp.input_tick, "problems": problems})
         self._prev_spatial, self._prev_entity, self._prev_observation = sp, en, dict(observation)
 
+    def _make_builder(self, lines: Sequence[ms.SpatialLine]) -> EntityObservationBuilder:
+        """The episode's builder (v3 scaling); an opt-in subclass may return a differently scaled builder."""
+        return EntityObservationBuilder(lines, self.classifier)
+
     def _info(self, info: Dict[str, Any], stale: bool) -> Dict[str, Any]:
-        info["policy_observation_contract"] = OBS_CONTRACT
+        info["policy_observation_contract"] = self.contract_id
         info["v3_stale"] = stale
         info["v3_unmapped_status_ids"] = dict(self.classifier.unmapped_seen)
         info["v3_projectile_overflow"] = self.builder.projectile_overflow if self.builder else 0
@@ -382,7 +393,7 @@ class EntityObsV3Wrapper(gym.Wrapper):
                                      f"({reply.get('observation')} vs {reset_obs})")
         sp = ms.spatial_of(reply, expect_lines=True)
         en = ne.entity_of(reply)
-        self.builder = EntityObservationBuilder(sp.lines or (), self.classifier)
+        self.builder = self._make_builder(sp.lines or ())
         self._prev_spatial = self._prev_entity = self._prev_observation = None
         self._static_targets = {i: sp.target_positions[i] for i in range(ms.TARGET_COUNT)
                                 if i != ms.MOVING_TARGET_ID and sp.target_live_mask & (1 << i)}
@@ -503,21 +514,23 @@ def m7n_contracts(horizon: int, reward: Any, character: str = DEFAULT_CHARACTER)
     return c
 
 
-def _tracker_class(character: str) -> Any:
+def _tracker_class(character: str, contracts_fn: Any = None) -> Any:
     import btt_parallel as bp
+
+    contracts = contracts_fn or m7n_contracts   # M7p: an opt-in contract records its own contract block
 
     class M7nEpisodeTracker(bp.M7EpisodeTracker):
         """M7EpisodeTracker whose artifact labels record the v3 observation contract (nothing else changes)."""
 
         def labels_for_new_episode(self) -> Dict[str, Any]:
             labels = super().labels_for_new_episode()
-            labels["contracts"] = m7n_contracts(self.env.max_episode_steps or 0, self.reward, character)
+            labels["contracts"] = contracts(self.env.max_episode_steps or 0, self.reward, character)
             return labels
 
     return M7nEpisodeTracker
 
 
-def build_worker_env_v3(spec: Any) -> Any:
+def build_worker_env_v3(spec: Any, *, wrapper_cls: Any = None, contracts_fn: Any = None) -> Any:
     """The M7 worker stack of btt_parallel.build_worker_env with EntityObsV3Wrapper directly above Track1PolicyWrapper
     (every other layer, argument and order identical to the v2 stack of rl/m7g_obs.py). The spec's extra_env must
     contain SSB64_RL_SPATIAL=1 and SSB64_RL_ENTITY=1, so every standby generation boots with both diagnostics.
@@ -550,7 +563,7 @@ def build_worker_env_v3(spec: Any) -> Any:
                                  standby=spec.standby, generation_runtime_root=paths["runtime_gens"],
                                  profile=spec.profile(), standby_fault=spec.standby_fault,
                                  retain_failed_cap=spec.retain_failed_cap)
-    tracker = _tracker_class(character)(run_id=spec.run_id, role=spec.role, rank=spec.rank,
+    tracker = _tracker_class(character, contracts_fn)(run_id=spec.run_id, role=spec.role, rank=spec.rank,
                                         coordinator=bp.RunCoordinator(spec.coordination_dir),
                                         artifact_root=paths["artifacts"], ledger_path=paths["ledger"], env=base,
                                         reward=spec.reward_contract, retain_failed_cap=spec.retain_failed_cap,
@@ -561,7 +574,7 @@ def build_worker_env_v3(spec: Any) -> Any:
                                            labels=tracker.labels_for_new_episode,
                                            on_episode_end=tracker.on_episode_end, targets_total=bp.TARGETS_TOTAL)
     track1 = bp.Track1PolicyWrapper(recording)
-    v3 = EntityObsV3Wrapper(track1, base=base, character=character)
+    v3 = (wrapper_cls or EntityObsV3Wrapper)(track1, base=base, character=character)
     stats = bp.EpisodeStatsWrapper(v3)
     return bp.M7WorkerWrapper(stats, spec=spec, base=base, tracker=tracker, recording=recording)
 

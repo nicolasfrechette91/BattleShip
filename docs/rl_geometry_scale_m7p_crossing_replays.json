@@ -1,0 +1,251 @@
+{
+ "contract": "m7p_crossing_addendum_replays_v1",
+ "utc": "2026-09-28T12:29:00+00:00",
+ "purpose": "minimal exact replays (raw replies kept) of the two seed-1 geo4 final left-side candidates, to report jumps available at takeoff, moving-platform state and the height path; the campaign decision (failure_regression) is not re-decided",
+ "checkpoint": {
+  "path": "runs/m7p/campaign/m7p_geo4_s1/final",
+  "run_id": "m7p_geo4_s1",
+  "num_timesteps": 3072000,
+  "files_sha256": {
+   "model.zip": "f7d11d766be0859a66ef780ad676c62c1bb5f3311fef18feee95476a984c8581",
+   "vecnormalize.pkl": "822386f6f52a39d99519701a0f1722d9c699e322bb9f4cf2d15e9f09aeab76b9",
+   "checkpoint.json": "676feb0e371c6ccb148ad928a1a220ba9f89a20d964219cb427b77a86e9430d4"
+  },
+  "observation": "btt_policy_obs_v3_geo4",
+  "observation_sha256": "2b984528671e99f5d2ca9a94c33c93e555017edabdae7e332a4e4bdba30ba8a2"
+ },
+ "executable_sha256": "748dbad98e9a5c32fa802f0dadb87ad56888376170981179860c96fb3cc19e00",
+ "flags": {
+  "SSB64_RL_NO_RENDER": "1",
+  "SSB64_RAPHNET_DISABLE": "1",
+  "SSB64_RL_SPATIAL": "1",
+  "SSB64_RL_ENTITY": "1",
+  "SSB64_RL_TARGET_DIAG": "1"
+ },
+ "crossing_document": {
+  "path": "runs/m7p/campaign/_clears/m7p_geo4_s1/final/crossing_verification.json",
+  "sha256": "d87302bfc0242f54ca77bb3247ad41d5dd5e4e0ab63d315d393402986733e298"
+ },
+ "evaluation": {
+  "path": "runs/m7p/campaign/_eval/m7p_geo4_s1/final/stochastic/evaluation.json",
+  "sha256": "1a2129a60dca037cf32fe066295a6762360c823e030246e095fd172992a98d89"
+ },
+ "episodes": [
+  {
+   "episode_id": "episode_20260928T072129Z_44619208",
+   "native_action_digest": "af661e295cd1a843e12b598c70fea641132adb03d6eb56c49a03ab14ce9359d5",
+   "artifact_dir": "runs/m7p/campaign/_eval/m7p_geo4_s1/final/stochastic/workers/w04/artifacts/episode_20260928T072129Z_44619208",
+   "artifact_actions_sha256": "10f41f1af9350100dfafe1925ebe543e4759270433db6e586e8ba72e5362f881",
+   "replay_work_dir": "runs/m7p/campaign/_clears/m7p_geo4_s1/final/crossing_000_af661e29",
+   "reasons": [
+    "left_entry",
+    "left_target"
+   ],
+   "exact": {
+    "consumed_tick_mismatch": null,
+    "unsent": 0,
+    "digest_equal": true,
+    "breaks_equal_recorded": true,
+    "first_left_entry_equal": true,
+    "targets_equal": true,
+    "ok": true
+   },
+   "qualified_crossing": true,
+   "verified_left_target_break": true,
+   "breaks": [
+    [
+     0,
+     218
+    ],
+    [
+     4,
+     327
+    ],
+    [
+     9,
+     706
+    ],
+    [
+     5,
+     1579
+    ],
+    [
+     7,
+     2400
+    ],
+    [
+     6,
+     3008
+    ]
+   ],
+   "approach_surface": {
+    "surface": "L1",
+    "step_index": 2318,
+    "consumed_tick": 2318,
+    "input_tick": 2319,
+    "time_passed": 2318,
+    "x": 2156.56884765625,
+    "y": -450.0,
+    "ground_air_state": 0,
+    "fighter_status_id": 20,
+    "steps_from_takeoff_to_entry": 683
+   },
+   "first_left_entry": {
+    "step_index": 3001,
+    "consumed_tick": 3001,
+    "input_tick": 3002,
+    "time_passed": 3001,
+    "x": -2117.800048828125,
+    "y": 3932.3984375,
+    "ground_air_state": 1,
+    "fighter_status_id": 224
+   },
+   "entries": [
+    {
+     "step_index": 3001,
+     "consumed_tick": 3001,
+     "class": "over_wall",
+     "y_c": 3950.068,
+     "x": -2117.800048828125,
+     "y": 3932.3984375,
+     "x_prev": -2090.60009765625,
+     "y_prev": 3959.3984375,
+     "sweep_complete_at_entry": false,
+     "landing": {
+      "step_index": 3141,
+      "consumed_tick": 3141,
+      "x": -3060.85595703125,
+      "y": -1950.0,
+      "surface": "L3",
+      "on_left_floor": true,
+      "native_failure_step": false
+     },
+     "exit": null,
+     "qualified": true
+    }
+   ],
+   "landings": [
+    {
+     "step_index": 3141,
+     "consumed_tick": 3141,
+     "x": -3060.85595703125,
+     "y": -1950.0,
+     "surface": "L3",
+     "on_left_floor": true,
+     "native_failure_step": false
+    }
+   ],
+   "terminal": {
+    "kind": "native_failure",
+    "submitted": 3445,
+    "last_consumed_tick": 3444,
+    "final_game_status": 5,
+    "final_targets_remaining": 4
+   },
+   "route": {
+    "rule": "btt_route_rule_v1",
+    "identity": "lower_precision",
+    "reason": "approach surface L1 is the raised right step"
+   },
+   "rank": 4,
+   "worker_episode": 5,
+   "length": 3445,
+   "end_reason": "fall"
+  },
+  {
+   "episode_id": "episode_20260928T072253Z_85c10043",
+   "native_action_digest": "eabee627feb90f0fd770271e332aec01509230f6948acd2e957b675957b33aef",
+   "artifact_dir": "runs/m7p/campaign/_eval/m7p_geo4_s1/final/stochastic/workers/w02/artifacts/episode_20260928T072253Z_85c10043",
+   "artifact_actions_sha256": "2770a7d9877b04d200903ca08092989f4a72325fd0bf09832e940401f2622d57",
+   "replay_work_dir": "runs/m7p/campaign/_clears/m7p_geo4_s1/final/crossing_001_eabee627",
+   "reasons": [
+    "left_entry"
+   ],
+   "exact": {
+    "consumed_tick_mismatch": null,
+    "unsent": 0,
+    "digest_equal": true,
+    "breaks_equal_recorded": true,
+    "first_left_entry_equal": true,
+    "targets_equal": true,
+    "ok": true
+   },
+   "qualified_crossing": false,
+   "verified_left_target_break": false,
+   "breaks": [
+    [
+     0,
+     32
+    ],
+    [
+     4,
+     155
+    ],
+    [
+     7,
+     800
+    ]
+   ],
+   "approach_surface": {
+    "surface": "L1",
+    "step_index": 745,
+    "consumed_tick": 745,
+    "input_tick": 746,
+    "time_passed": 745,
+    "x": 2100.0,
+    "y": -450.0,
+    "ground_air_state": 0,
+    "fighter_status_id": 20,
+    "steps_from_takeoff_to_entry": 260
+   },
+   "first_left_entry": {
+    "step_index": 1005,
+    "consumed_tick": 1005,
+    "input_tick": 1006,
+    "time_passed": 1005,
+    "x": -2130.830322265625,
+    "y": 3892.41552734375,
+    "ground_air_state": 1,
+    "fighter_status_id": 225
+   },
+   "entries": [
+    {
+     "step_index": 1005,
+     "consumed_tick": 1005,
+     "class": "over_wall",
+     "y_c": 3853.033,
+     "x": -2130.830322265625,
+     "y": 3892.41552734375,
+     "x_prev": -2040.716796875,
+     "y_prev": 3777.30517578125,
+     "sweep_complete_at_entry": false,
+     "landing": null,
+     "exit": null,
+     "qualified": false
+    }
+   ],
+   "landings": [],
+   "terminal": {
+    "kind": "native_failure",
+    "submitted": 1227,
+    "last_consumed_tick": 1226,
+    "final_game_status": 5,
+    "final_targets_remaining": 7
+   },
+   "route": {
+    "rule": "btt_route_rule_v1",
+    "identity": "lower_precision",
+    "reason": "approach surface L1 is the raised right step"
+   },
+   "rank": 2,
+   "worker_episode": 10,
+   "length": 1227,
+   "end_reason": "fall"
+  }
+ ],
+ "exclusions": [
+  "fixtures and TAS not read",
+  "no native RNG inspection",
+  "no policy evaluation"
+ ]
+}
