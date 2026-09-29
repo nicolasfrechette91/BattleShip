@@ -118,3 +118,7 @@ test.zip
 # RL training runs (M5+): checkpoints, models, episode artifacts, per-episode
 # game files. Never committed (CLAUDE.md: no training runs, logs, checkpoints).
 /runs/
+
+# Replay viewer local state (replay/README.md): index cache, verdict log,
+# launcher log, window positions, per-session runtime directories.
+/replay/_local/

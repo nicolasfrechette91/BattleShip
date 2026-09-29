@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+; Removes the "Replay episode" entries added by replay_context_menu_install.reg (current user only).
+; Empty parent keys created by the install (SystemFileAssociations\.jsonl\shell) are left in place.
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\shell\BattleShipReplay]
+
+[-HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.jsonl\shell\BattleShipReplay]
