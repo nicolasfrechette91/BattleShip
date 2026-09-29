@@ -96,6 +96,7 @@ import m7n_policy  # noqa: E402
 import m7p_obs_geo4  # noqa: E402  (M7p: opt-in geometry-scaled v3 variant; NumPy/Gymnasium only)
 import m7q_obs  # noqa: E402  (M7q: opt-in v4 observation with the native input state; NumPy/Gymnasium only)
 import m7q_policy  # noqa: E402  (M7q: v4 network identity; no PyTorch at import)
+import m7r_commit  # noqa: E402  (M7r: opt-in commitment action contract; NumPy/Gymnasium only)
 from btt_learning import POLICY_OBSERVATION_CONTRACT, TRACK1_CONTRACT  # noqa: E402
 from btt_rewards import (  # noqa: E402
     REWARD_CUSTOM_PREFIX,
@@ -172,7 +173,10 @@ OBSERVATION_EXTRA_ENV: Dict[str, Tuple[Tuple[str, str], ...]] = {POLICY_OBSERVAT
                                                                    OBS_V3_ENTITIES: m7n_obs.ENTITY_EXTRA_ENV,
                                                                    OBS_V3_GEO4: m7p_obs_geo4.ENTITY_EXTRA_ENV,
                                                                    OBS_V4_INPUT: m7q_obs.ENTITY_EXTRA_ENV}
-SUPPORTED_ACTION_CONTRACTS = (TRACK1_CONTRACT,)
+# M7r: btt_commit_s9_b8_m2_d6_v1 (rl/m7r_commit.py) = committed options whose per-tick words are Track 1 words; opt-in,
+# registered for observation v4 + reward v2 only. Track 1 stays the value of every existing profile.
+ACTION_COMMIT = m7r_commit.CONTRACT
+SUPPORTED_ACTION_CONTRACTS = (TRACK1_CONTRACT, ACTION_COMMIT)
 # M7j: btt_reward_v3 is opt-in (only a profile naming it uses it); it adds SSB64_RL_TARGET_DIAG=1 to the derived native
 # flags (btt_rewards.reward_extra_env), so v1 / v2 profiles keep their values, extra_env and fingerprints.
 SUPPORTED_REWARD_REQUESTS = (REWARD_V1_ID, REWARD_V2_ID, REWARD_V3_ID, REWARD_V3_T2_ID,   # M7k: v3_t2 opt-in too
@@ -230,7 +234,9 @@ FIELDS: Tuple[Field, ...] = (
        doc="policy observation: btt_policy_obs_v1 (15 float32), btt_policy_obs_v2_spatial (Dict, 525 values), "
            "btt_policy_obs_v3_entities (Dict, 606 pre-scaled values) or the opt-in diagnostic btt_policy_obs_v3_geo4 "
            "(v3 with segment_geometry / 4)"),
-    _F("contracts.action", "str", "immutable", choices=SUPPORTED_ACTION_CONTRACTS),
+    _F("contracts.action", "str", "immutable", choices=SUPPORTED_ACTION_CONTRACTS,
+       doc="btt_s9_b8_v1 (Track 1, one word per tick) or the opt-in btt_commit_s9_b8_m2_d6_v1 (options over Track 1 "
+           "words; n_steps and total_transitions then count native ticks)"),
     _F("contracts.reward", "str", "immutable", choices=SUPPORTED_REWARD_REQUESTS,
        doc="canonical id (values frozen) or 'custom' (id derived from the values)"),
     _F("contracts.artifact_schema", "int", "immutable", choices=(ARTIFACT_SCHEMA,)),
@@ -709,6 +715,11 @@ class Experiment:
             s["anchor_curriculum"] = self.anchor_curriculum
         if self.exploration is not None:   # M7o: likewise
             s["exploration"] = self.exploration
+        if self.values["contracts.action"] == ACTION_COMMIT:   # M7r: only the commitment contract adds a block
+            s["action_contract"] = {"contract": ACTION_COMMIT, "contract_sha256": m7r_commit.contract_digest(),
+                                    "per_tick_action_contract": TRACK1_CONTRACT,
+                                    "n_steps_unit": "native ticks per environment per rollout",
+                                    "total_transitions_unit": "native ticks"}
         return s
 
     def resolved_json(self) -> Dict[str, Any]:
@@ -998,6 +1009,22 @@ def _cross_field(v: Dict[str, Any], problems: List[str]) -> Optional[RewardContr
             problems.append("exploration.contract: fresh runs only (an exploration run is never resumed or warm-started)")
         if _is_int(g("environment.horizon")) and g("environment.horizon") != 3600:
             problems.append("exploration.contract: registered for the 3,600-tick horizon only")
+    # M7r: the commitment action contract is registered for observation v4 and btt_reward_v2, fresh tick-0 runs of the
+    # 3,600-tick horizon (no curriculum or exploration table, never resumed).
+    if g("contracts.action") == ACTION_COMMIT:
+        if obs != OBS_V4_INPUT:
+            problems.append(f"contracts.action = {ACTION_COMMIT!r}: registered for contracts.observation = "
+                            f"{OBS_V4_INPUT!r} only, not {_repr_value(obs)}")
+        if reward is not None and reward.contract != "btt_reward_v2":
+            problems.append(f"contracts.action = {ACTION_COMMIT!r}: registered for contracts.reward = 'btt_reward_v2' "
+                            f"only, not {reward.contract!r}")
+        if (g("curriculum.contract") is not None or g("anchor_curriculum.contract") is not None
+                or g("exploration.contract") is not None):
+            problems.append(f"contracts.action = {ACTION_COMMIT!r}: never combined with a curriculum or exploration table")
+        if g("run.mode") == "resume":
+            problems.append(f"contracts.action = {ACTION_COMMIT!r}: fresh runs only (never resumed or warm-started)")
+        if _is_int(g("environment.horizon")) and g("environment.horizon") != 3600:
+            problems.append(f"contracts.action = {ACTION_COMMIT!r}: registered for the 3,600-tick horizon only")
     # M7c lifecycle: the two standby fields must agree (explicit, never inferred).
     sp, sc = g("environment.standby_preboot"), g("environment.standby_count")
     if isinstance(sp, bool) and _is_int(sc):

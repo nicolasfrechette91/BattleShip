@@ -1,0 +1,136 @@
+{
+ "contract": {
+  "contract": "btt_commit_s9_b8_m2_d6_v1",
+  "schema_version": 1,
+  "space": {
+   "type": "gymnasium.spaces.MultiDiscrete",
+   "nvec": [
+    9,
+    8,
+    2,
+    6
+   ]
+  },
+  "components": {
+   "stick": {
+    "table": "btt_s9_b8_v1",
+    "names": [
+     "neutral",
+     "right",
+     "up-right",
+     "up",
+     "up-left",
+     "left",
+     "down-left",
+     "down",
+     "down-right"
+    ],
+    "native": [
+     [
+      0,
+      0
+     ],
+     [
+      80,
+      0
+     ],
+     [
+      80,
+      80
+     ],
+     [
+      0,
+      80
+     ],
+     [
+      -80,
+      80
+     ],
+     [
+      -80,
+      0
+     ],
+     [
+      -80,
+      -80
+     ],
+     [
+      0,
+      -80
+     ],
+     [
+      80,
+      -80
+     ]
+    ]
+   },
+   "button": {
+    "table": "btt_s9_b8_v1",
+    "names": [
+     "none",
+     "A",
+     "B",
+     "C-up",
+     "C-left",
+     "L",
+     "R",
+     "Z"
+    ],
+    "native": [
+     0,
+     32768,
+     16384,
+     8,
+     2,
+     32,
+     16,
+     8192
+    ],
+    "note": "R stays a Track 1 button; the game folds it to R+A+Z; no combined action exists"
+   },
+   "mode": {
+    "values": [
+     "tap",
+     "hold"
+    ],
+    "tap": "button on tick 1 only, none on ticks 2..tau",
+    "hold": "button on every tick 1..tau"
+   },
+   "max_length": {
+    "values": [
+     1,
+     2,
+     4,
+     8,
+     16,
+     32
+    ],
+    "unit": "native ticks"
+   }
+  },
+  "per_tick_word": "stick on every tick; button per mode; exactly one Track 1 action per consumed tick",
+  "termination": {
+   "max_length": "tick i = d",
+   "boundaries": [
+    "class_change",
+    "ground_air_change",
+    "apex",
+    "hitlag_end",
+    "target_break"
+   ],
+   "boundary_ticks": "i >= 2 (a change on tick 1 is the option's own intended effect)",
+   "boundary_source": "raw native reply: table-v2 class of fighter_status_id, ground_air_state, air_velocity_y (> 0 then <= 0 while airborne), entity hitlag_tics (> 0 then 0), targets_remaining (decreased); none across a non-live reply",
+   "episode_end": "terminated or truncated",
+   "rollout_boundary": "training only: the environment's rollout tick quota is used up"
+  },
+  "no_hidden_input": "ending an option submits nothing; the next decision's first tick follows immediately",
+  "duration_one": "d = 1 emits exactly the Track 1 word of (stick, button) in both modes",
+  "replay_truth": "the per-tick canonical native words recorded below this layer (M4 actions.jsonl)",
+  "sidecar": {
+   "file": "decisions.json.gz",
+   "schema": "btt_commit_sidecar_v1"
+  },
+  "reward": "the undiscounted sum of the per-tick rewards; the learner discounts per tick"
+ },
+ "contract_sha256": "87fd62c7c8e2e7a1331e99a72ef9ea73f97e6bffd25d5c36e53929394f4fcc04"
+}

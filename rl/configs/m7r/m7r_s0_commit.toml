@@ -1,0 +1,107 @@
+# M7r control-learning gate profile, arm commit, seed 0. NOT launched by the implementation milestone.
+# C: the commitment action contract btt_commit_s9_b8_m2_d6_v1 (semi-Markov PPO; n_steps and total_transitions count native ticks).
+# Body = rl/configs/m7q/m7q_pilot_s0.toml (observation v4, reward v2, PPO of M7n, N=5 standby, horizon 3,600,
+# no in-process evaluation) except: [run] name / base_seed / total_transitions (307,200 native ticks) /
+# output_root / notes, [contracts] action, [checkpoint] interval (102,400). The two arms of a seed differ only in
+# contracts.action, run.name and run.notes. Design: docs/rl_temporal_control_design_2026-09-28.md (rev 3).
+#
+#   python rl/train_m7.py --config rl/configs/m7r/m7r_s0_commit.toml --dry-run
+
+schema = "battleship_experiment_v1"
+
+[run]
+name = "m7r_s0_commit"
+mode = "train"
+base_seed = 0
+total_transitions = 307200
+output_root = "runs/m7r/gate"
+notes = "M7r control-learning gate, arm commit (btt_commit_s9_b8_m2_d6_v1), btt_policy_obs_v4_input, btt_reward_v2, seed 0, N=5 standby, 307,200 native ticks (hard cap), no in-process evaluation (post-hoc gate protocol)"
+
+[task]
+id = "ssb64_us_mario_btt_v1"
+game_version = "us"
+character = "mario"
+stage = "btt_mario"
+player = 0
+costume = 0
+
+[contracts]
+protocol_version = 1
+observation = "btt_policy_obs_v4_input"
+action = "btt_commit_s9_b8_m2_d6_v1"
+reward = "btt_reward_v2"
+artifact_schema = 1
+
+[reward]
+# btt_reward_v2 is frozen: these values are enforced, not configurable (v1 plus a one-time -5.0 native-failure penalty).
+target_broken = 1.0
+per_step = -0.001
+clear_bonus = 10.0
+failure_penalty = -5.0
+
+[environment]
+executable = "build-us/Release/BattleShip.exe"
+horizon = 3600
+process_count = 5
+no_render = true
+raphnet_disable = true
+startup_attempts = 3
+startup_timeout_s = 20.0
+ready_timeout_s = 60.0
+request_timeout_s = 10.0
+exit_timeout_s = 30.0
+step_timeout_s = 900.0
+worker_runtime_root = ""
+port_block_base = 30000
+port_block_size = 250
+position_delta_threshold = 300.0
+standby_preboot = true
+standby_count = 1
+standby_wait_timeout_s = 120.0
+
+[ppo]
+policy = "MultiInputPolicy"
+net_arch = [64, 64]
+activation = "tanh"
+learning_rate = 3e-4
+rollout_size = 5120
+n_steps = 1024
+batch_size = 512
+n_epochs = 10
+gamma = 0.999
+gae_lambda = 0.995
+clip_range = 0.2
+ent_coef = 0.0
+vf_coef = 0.5
+max_grad_norm = 0.5
+torch_threads = 1
+device = "cpu"
+
+[ppo.vecnormalize]
+normalize_observations = false
+normalize_rewards = false
+clip_obs = 10.0
+
+[checkpoint]
+interval = 102400
+initial = true
+
+[evaluation]
+# Phase K: no in-process evaluation during training (see the header); evaluations run post hoc.
+interval = 0
+initial = false
+final = false
+deterministic_episodes = 5
+stochastic_episodes = 60
+random_baseline_episodes = 100
+seed = 12345
+workers = 0
+
+[artifacts]
+periodic_episodes = 10
+retain_failed_cap = 20
+
+[resume]
+source_checkpoint = ""
+allow_executable_change = false
+allow_lifecycle_change = false

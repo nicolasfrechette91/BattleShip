@@ -1,0 +1,55 @@
+{
+ "rule": "m7r_gate_rule_v1",
+ "action_contract": "btt_commit_s9_b8_m2_d6_v1",
+ "action_contract_sha256": "87fd62c7c8e2e7a1331e99a72ef9ea73f97e6bffd25d5c36e53929394f4fcc04",
+ "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+ "code": {
+  "rl/configs/m7r/m7r_s0_commit.toml": "645b743e66a249dd884db703de00926cb222aabea45bac048e4c6bff6ddc44b7",
+  "rl/configs/m7r/m7r_s0_tick.toml": "b39bd05af73a190ed033dacee7f5ce08c3101f92b7b9643ab5cb8726039edda6",
+  "rl/configs/m7r/m7r_s1_commit.toml": "1155e72ee730a1af4451eacf2b85f10abd1272f46561a60f4d6075bc4a70d7b8",
+  "rl/configs/m7r/m7r_s1_tick.toml": "091bf61155635d94b483c9ccbda8e122345bf13a7235973ca62cafeb7b3b74ac",
+  "rl/configs/m7r/m7r_s2_commit.toml": "68d0dc1ddc86ed01fee10feef27e37cad33d46daeab6ad60b5cef9e69a07a238",
+  "rl/configs/m7r/m7r_s2_tick.toml": "10325313f2acb4c28cba913c3b16591769c1c50d8e341779e27549c11cae3826",
+  "rl/experiment_config.py": "03ab722bfa89ac71fadd96dfa1e02f4c5b1dd15f59e3fdd2bb408c56bc34bf90",
+  "rl/m7_evaluation.py": "48d337c5e057b11b640c815ed22c15d2aaa68785d5099e87204a60172da2a695",
+  "rl/m7_trainer.py": "d0d889fd3729ac775c9c70a6823e4d7ff0e0666b0c6f0f4063b55f707cd08886",
+  "rl/m7q_obs.py": "08188058f790bbf344c298542b5d2bee9b4e533dc54fe8eb9182f4df82e49b38",
+  "rl/m7r_analysis.py": "456d64f51ad91fbe94477255b05bff84195361bba73ff12c807af661a4b80bd8",
+  "rl/m7r_commit.py": "82d643997e3b589dbea89105419b0cfbfa134f811b7c63216f52fff762329588",
+  "rl/m7r_gate.py": "2978062e95c597f3b3d24c20c1f1fcbda6109d5f70a521d189fa548c07d47426",
+  "rl/m7r_ppo.py": "f17a5ef035bf140bef8e8d6606ce4d405c809fe13695823e137b41e5882effe9",
+  "rl/m7r_tests.py": "a100e3f760adb40d0920ffeb7993e3c829113acc24b069e81e3f7f20a22eabb3",
+  "rl/m7r_worker.py": "6c80129681defc47a66a6bf1544e953d71452d9a67ee87e4f31e6cf6e78fc19a"
+ },
+ "tick_budget": {
+  "training": 1843200,
+  "evaluation_max": 1296000,
+  "identity_check": 27521,
+  "replays_max": 115200
+ },
+ "eval_plan": {
+  "untrained": {
+   "checkpoint": "checkpoints/ckpt_000000000",
+   "stochastic": 20,
+   "deterministic": 0
+  },
+  "final": {
+   "checkpoint": "final",
+   "stochastic": 30,
+   "deterministic": 10
+  }
+ },
+ "backup_verification": {
+  "record": "D:\\BattleShip_runs_backup\\2026-09-28\\verification.json",
+  "sha256": "16b25bbe2283254348ddae3105dca8e6ef47a779dd68550942ed9470268e1fda",
+  "result": "PASS",
+  "verified_utc": "2026-09-28T20:44:33Z",
+  "files": 377359,
+  "bytes": 16968155612,
+  "hash_mismatches": 0,
+  "manifest_sha256": "a004a26e776e447eca90f37e305c878b42ea821f441a16e9ee5c35d987676763"
+ },
+ "decision_rule_reading": "ST1 and PR1 must both improve in the same seed, in at least two of three seeds",
+ "approved_utc": "2026-09-28T22:04:34Z",
+ "approval": "APPROVED: Run the bounded M7r three-seed commitment-versus-v4-per-tick control-learning gate within the documented native-tick limits; stop on any identity, preflight or integrity failure."
+}

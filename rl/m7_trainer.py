@@ -76,6 +76,7 @@ import m7n_policy as mnp  # noqa: E402
 import m7p_obs_geo4 as mgeo  # noqa: E402  (M7p: opt-in geometry-scaled v3 variant; v3 unchanged)
 import m7q_obs as mq  # noqa: E402  (M7q: opt-in v4 observation = v3 + native input state; v3 unchanged)
 import m7q_policy as mqp  # noqa: E402
+import m7r_commit as mrc  # noqa: E402  (M7r: opt-in commitment action contract; Track 1 unchanged)
 from battleship_env import DEFAULT_EXECUTABLE  # noqa: E402
 from btt_learning import POLICY_OBSERVATION_CONTRACT, POLICY_OBSERVATION_SIZE, TRACK1_CONTRACT  # noqa: E402
 from btt_rewards import REWARD_V1, RewardContract  # noqa: E402
@@ -334,6 +335,8 @@ class M7Config:
     anchor_curriculum: Optional[Dict[str, Any]] = None
     # M7o: the [exploration] table (None = no credit: nothing of M7o is constructed and no record gains a key)
     exploration: Optional[Dict[str, Any]] = None
+    # M7r: the action contract (Track 1 = every earlier run; the commitment contract is opt-in, v4 only)
+    action: str = TRACK1_CONTRACT
     # M7c standby lifecycle (rl/m7_standby.py); defaults = M7a/M7b behaviour
     standby_preboot: bool = False
     standby_count: int = 0
@@ -383,12 +386,16 @@ class M7Config:
     def observation_v4(self) -> bool:   # M7q: opt-in v4 (v3 + native input state; three read-only native flags)
         return self.observation == mq.OBS_CONTRACT
 
+    @property
+    def action_commit(self) -> bool:   # M7r: opt-in commitment options over Track 1 words (semi-Markov PPO)
+        return self.action == mrc.CONTRACT
+
     def compatibility_view(self) -> Dict[str, Any]:
         """The resume-compatibility view of this configuration (experiment_config.COMPAT_KEYS)."""
         return {
             "task.id": "ssb64_us_mario_btt_v1",
             "contracts.observation": self.observation,
-            "contracts.action": TRACK1_CONTRACT,
+            "contracts.action": self.action,
             "contracts.reward_resolved": self.reward.to_json(),
             "contracts.artifact_schema": ec.ARTIFACT_SCHEMA,
             "contracts.protocol_version": ec.PROTOCOL_VERSION,
@@ -518,6 +525,15 @@ class M7Config:
             missing = [f"{k}={v}" for k, v in ec.ANCHOR_CURRICULUM_EXTRA_ENV if dict(self.extra_env).get(k) != v]
             if missing:
                 raise ValueError(f"the M7m anchor curriculum needs the native flags {missing} in extra_env")
+        if self.action not in (TRACK1_CONTRACT, mrc.CONTRACT):
+            raise ValueError(f"action {self.action!r} not in {[TRACK1_CONTRACT, mrc.CONTRACT]}")
+        if self.action_commit:   # M7r: registered for observation v4 + reward v2, fresh tick-0 runs only
+            if not self.observation_v4 or self.reward.contract != "btt_reward_v2":
+                raise ValueError(f"action {mrc.CONTRACT!r} is registered for {mq.OBS_CONTRACT!r} + btt_reward_v2 only")
+            if self.curriculum is not None or self.anchor_curriculum is not None or self.exploration is not None:
+                raise ValueError(f"action {mrc.CONTRACT!r} is never combined with a curriculum or exploration table")
+            if self.resume_from is not None:
+                raise ValueError(f"action {mrc.CONTRACT!r}: fresh runs only (never resumed or warm-started)")
         if self.exploration is not None:   # M7o
             import btt_explore_cells as xp
 
@@ -540,6 +556,8 @@ class M7Config:
             d.pop("anchor_curriculum", None)    # M7m: likewise
         if d.get("exploration") is None:
             d.pop("exploration", None)    # M7o: likewise
+        if d.get("action") == TRACK1_CONTRACT:
+            d.pop("action", None)    # M7r: a Track 1 run records exactly what it did before
         d["runs_dir"] = portable_path(self.runs_dir)
         d["executable"] = portable_path(self.executable)
         d["resume_from"] = portable_path(self.resume_from) if self.resume_from else None
@@ -609,6 +627,7 @@ def config_from_experiment(exp: "ec.Experiment", *, run_id: Optional[str] = None
         observation=str(v["contracts.observation"]), policy=str(v["ppo.policy"]),
         curriculum=exp.curriculum, anchor_curriculum=exp.anchor_curriculum,
         exploration=exp.exploration,   # M7o: None without the table
+        action=str(v["contracts.action"]),   # M7r: Track 1 for every earlier profile
     )
 
 
@@ -626,6 +645,10 @@ def run_contracts(config: M7Config) -> Dict[str, Any]:
         return c
     if config.observation_geo4:   # M7p
         return mgeo.m7p_contracts(config.horizon, config.reward, mn.character_of(config.experiment_summary()))
+    if config.observation_v4 and config.action_commit:   # M7r: v4 + the commitment action contract
+        import m7r_worker as mrw
+
+        return mrw.m7r_contracts(config.horizon, config.reward, mn.character_of(config.experiment_summary()))
     if config.observation_v4:   # M7q
         return mq.m7q_contracts(config.horizon, config.reward, mn.character_of(config.experiment_summary()))
     return m7_contracts(config.horizon, config.reward)
@@ -647,6 +670,10 @@ def worker_factory(config: M7Config, spec: WorkerSpec) -> Any:
         return mn.M7nWorkerFactory(spec)
     if config.observation_geo4:   # M7p: the M7 stack + EntityObsGeo4Wrapper
         return mgeo.M7pWorkerFactory(spec)
+    if config.observation_v4 and config.action_commit:   # M7r: the v4 stack + CommitExecutorWrapper
+        import m7r_worker as mrw
+
+        return mrw.M7rCommitWorkerFactory(spec)
     if config.observation_v4:   # M7q: the M7 stack + EntityObsV4Wrapper
         return mq.M7qWorkerFactory(spec)
     return mo.M7gWorkerFactory(spec) if config.observation_v2 else WorkerFactory(spec)
@@ -668,6 +695,14 @@ def make_vecnormalize(config: M7Config, venv: Any) -> VecNormalize:
 def make_model(config: M7Config, vecnorm: VecNormalize) -> "M7PPO":
     """A fresh PPO model of this configuration (policy class from the observation contract; M7a-M7f arguments)."""
     c = config
+    if c.action_commit:   # M7r: semi-Markov PPO; n_steps = native ticks per environment per rollout
+        from m7r_ppo import CommitPPO
+
+        return CommitPPO(c.policy, vecnorm, learning_rate=c.learning_rate, n_steps=c.n_steps, batch_size=c.batch_size,
+                         n_epochs=c.n_epochs, gamma=c.gamma, gae_lambda=c.gae_lambda, clip_range=c.clip_range,
+                         ent_coef=c.ent_coef, vf_coef=c.vf_coef, max_grad_norm=c.max_grad_norm, seed=c.base_seed,
+                         device=c.device, verbose=0, policy_kwargs=policy_kwargs(c),
+                         m7r_minibatches=c.rollout_size // c.batch_size)
     return M7PPO(c.policy, vecnorm, learning_rate=c.learning_rate, n_steps=c.n_steps, batch_size=c.batch_size,
                  n_epochs=c.n_epochs, gamma=c.gamma, gae_lambda=c.gae_lambda, clip_range=c.clip_range,
                  ent_coef=c.ent_coef, vf_coef=c.vf_coef, max_grad_norm=c.max_grad_norm, seed=c.base_seed,
@@ -681,10 +716,16 @@ def annotate_model(config: M7Config, model: "M7PPO") -> None:
     model.m7_experiment = config.experiment_summary()
     if config.observation_v2 or config.observation_v3 or config.observation_geo4 or config.observation_v4:
         model.m7_policy_observation = config.observation
+    if config.action_commit:   # M7r only (every other model.zip gains nothing)
+        model.m7_action_contract = config.action
 
 
 def policy_network_identity(config: M7Config, model: PPO) -> Optional[Dict[str, Any]]:
     """The measured network and observation identity of a v2 model (None for v1: no v1 record gains a key)."""
+    if config.observation_v4 and config.action_commit:   # M7r: the v4 body with the 9 + 8 + 2 + 6 action head
+        return dict(mqp.describe(model), network_id=mrc.NETWORK_ID, action_contract=mrc.CONTRACT,
+                    action_contract_sha256=mrc.contract_digest(),
+                    observation=ec.policy_observation_identity(config.observation))
     if config.observation_v4:   # M7q (v4 network id, same shape family)
         return dict(mqp.describe(model), observation=ec.policy_observation_identity(config.observation))
     if config.observation_v3 or config.observation_geo4:   # M7n / M7p (same network identity)
@@ -1106,6 +1147,7 @@ class M7Run:
                 self.rollouts[-1]["train_s"] = round(self.model.m7_train_s[-1], 4) if self.model.m7_train_s else None
                 self.rollouts[-1]["train_metrics"] = self.model.m7_train_metrics[-1] if self.model.m7_train_metrics else None
                 self.rollouts[-1]["cpu_util_optimize"] = cpu_utilisation(self._cpu_opt, system_cpu_times())
+                self._commit_accounting(self.rollouts[-1])
                 append_jsonl(self.layout.metrics / "rollouts.jsonl", self.rollouts[-1])
         t = int(self.model.num_timesteps)
         self._snapshot_update_boundary()          # M7h: the previous update is complete here
@@ -1173,8 +1215,17 @@ class M7Run:
                 self.rollouts[-1]["train_s"] = round(self.model.m7_train_s[-1], 4) if self.model.m7_train_s else None
                 self.rollouts[-1]["train_metrics"] = self.model.m7_train_metrics[-1] if self.model.m7_train_metrics else None
                 self.rollouts[-1]["cpu_util_optimize"] = cpu_utilisation(self._cpu_opt, system_cpu_times())
+                self._commit_accounting(self.rollouts[-1])
                 append_jsonl(self.layout.metrics / "rollouts.jsonl", self.rollouts[-1])
             self._last_rollout_end = None
+
+    def _commit_accounting(self, record: Dict[str, Any]) -> None:
+        """M7r only: native ticks, decisions, option lengths and optimizer exposure of the rollout just trained on
+        (CommitPPO.m7r_last_rollout). Every other run's rollout rows are unchanged."""
+        if self.config.action_commit:
+            rec = getattr(self.model, "m7r_last_rollout", None)
+            if rec is not None:
+                record["commit_accounting"] = dict(rec)
 
     def _broadcast(self) -> None:
         t0 = time.perf_counter()
@@ -1366,6 +1417,15 @@ class M7Run:
             self.run_meta["ppo"] = resolved_ppo_params(self.model, c.policy)
             if c.observation_v2 or c.observation_v3 or c.observation_geo4 or c.observation_v4:
                 self.run_meta["policy_network"] = policy_network_identity(c, self.model)
+            if c.action_commit:   # M7r: what n_steps / total_timesteps mean for this learner
+                self.run_meta["commit"] = {
+                    "action_contract": mrc.CONTRACT, "action_contract_sha256": mrc.contract_digest(),
+                    "learner": "CommitPPO (rl/m7r_ppo.py): semi-Markov returns; per-tick gamma and lambda applied as "
+                               "gamma^tau and (gamma*lambda)^tau",
+                    "n_steps_unit": "native ticks per environment per rollout", "total_timesteps_unit": "native ticks",
+                    "native_ticks_per_rollout": c.rollout_size,
+                    "minibatches_per_epoch": c.rollout_size // c.batch_size,
+                    "gradient_steps_per_rollout": (c.rollout_size // c.batch_size) * c.n_epochs}
             write_json(self.layout.run_json, self.run_meta)
             if source is None and c.initial_checkpoint:
                 t0 = time.perf_counter()

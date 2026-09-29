@@ -1,0 +1,67 @@
+{
+ "rule": "m7s1_return_rule_v2",
+ "rule_sha256": "bea670ce1e9105c3db3dcbda8d4a5138321b5f417e7d0503e0201e15c1e59f8b",
+ "goal_blind_tv": 0.01,
+ "goal_contract_sha256": "22b0919eea3ab5e0cfdf2601e969124a846af72fc656a300d1366d1527e8d39e",
+ "policy_contract_sha256": "2b2c5c36aaf6dc79db6be42ee88a6c3aa5e36265f1f87d5cbbfda008d0cb4e4b",
+ "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+ "code": {
+  "rl/m7s_goal.py": "5fcd33f96bc4c1b955306736f595939f1eb7be77209c1be06b5dae05ac1686d5",
+  "rl/m7s_policy.py": "337e5c82b86f1af39451832d716d1e8f2ee2fcf39fb7fd51b46d43fa36711e6f",
+  "rl/m7s_worker.py": "2132b13393b9742cc90f55dba3f90f51ad67170fb335154e143f4d57c3cab87b",
+  "rl/m7s_collect.py": "06cfd0dfb6ead6267a46e2d52a290aaca1cc58ee587f060636d13ddd405dbc5d",
+  "rl/m7s_analysis.py": "fbcc402d6d4848de67eb9c772f412e63a4f67e24a7f4ee560895f6e4a7348313",
+  "rl/m7s_gate.py": "4bff49b4d3c7a882ae3c0bc13f4494ad45832adf07fede69e2517b7e81967859",
+  "rl/m7s_tests.py": "f00ab169d40b51dee5c2d00d0857c111c03049aa9c8195bf67e948fd3ebc6cac",
+  "rl/m7n_obs.py": "00f671ee0416134d696a8f080ab1a494a662a7e22f4a21f5f65f21c2906d135b",
+  "rl/btt_parallel.py": "e34187b3c19b6bf806cc8e31fd85018acb6a2e83ca3c93922c93887d52b64f75",
+  "rl/battleship_env.py": "11397c73322f90f4505d675a2a878aef36835e8309a1eedf0e749fb24b85ae42",
+  "rl/run_artifacts.py": "bcab944115d893bf6c447ad285d25f94a73111e2df1b273fdd5efbd1453cac5c",
+  "rl/m7_vec_env.py": "f067a3fd6085b9d78f27dea0b72cbd76fe7b797f132a14e548515d9d76e62f86",
+  "rl/m7_runtime.py": "3dc56722c924065356e6134174d5e2c4724c0f495ee8c4e0eed027dfd2d9c452",
+  "rl/m7f_trace.py": "99399e16718a9e5a5f4d4eb3ce6c4b00bb62e6f9483522b03946b52180cb9190",
+  "rl/experiment_config.py": "03ab722bfa89ac71fadd96dfa1e02f4c5b1dd15f59e3fdd2bb408c56bc34bf90",
+  "rl/m7_trainer.py": "d0d889fd3729ac775c9c70a6823e4d7ff0e0666b0c6f0f4063b55f707cd08886",
+  "rl/tools/runs_backup.py": "c4de9b0ab69849341a129e9e99263a28d7fdfccb292e4cfebe8e6221039db71c",
+  "rl/configs/m7n/m7n_s0_v3.toml": "7570cd736c7c89c81ff4f1da3e84208da8ad3eec7bdcdb2614b969d29e810dcb"
+ },
+ "p1": {
+  "budget": {
+   "null_goal": 27521,
+   "goal_on": 1548
+  },
+  "goal_on": {
+   "trace": "runs/m7q/_equiv/input_all/fx_m7e_s2_best6.json.gz",
+   "trace_sha256": "856c0e8d0f197ab3045dd6e5ea5a436a8672114b266b5b0a40efed944b3d299e",
+   "goal": "17,8,2",
+   "reach_tick": 774,
+   "prefix_action_digest": "8821b2ad2673a5474b5e090b45c19b715af6eedf47ade2e0d0346b3c23d226a8",
+   "v3_prefix_sha256": "c9000896dbb6015313a03ae09df4df6b38a5fd86cd9b19c6b5ef9965b500f0e7",
+   "repeats": 2
+  }
+ },
+ "clear_replays_per_seed": 2,
+ "tick_budget": {
+  "p1_identity": 29069,
+  "phase_a": 216000,
+  "phase_b": 2150400,
+  "evaluation": 648000,
+  "replays": 43200,
+  "clear_replays": 21600,
+  "total": 3108269
+ },
+ "seeds": [
+  0,
+  1,
+  2
+ ],
+ "backup": {
+  "base": "D:\\BattleShip_runs_backup\\2026-09-28",
+  "increments": [
+   "D:\\BattleShip_runs_backup\\2026-09-28_incr_m7r"
+  ]
+ },
+ "approval": "APPROVED: Run the bounded M7s three-seed return-only GCSL gate within the documented native-tick and replay caps; stop on any preflight, P1 identity, integrity or backup-coverage failure.",
+ "approved_by": "user (chat), 2026-09-28",
+ "approved_utc": "2026-09-29T03:45:54Z"
+}

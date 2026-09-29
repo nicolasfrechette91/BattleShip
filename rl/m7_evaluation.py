@@ -64,6 +64,7 @@ from btt_learning import (  # noqa: E402
     POLICY_OBSERVATION_CONTRACT,
     TARGETS_TOTAL,
     TRACK1_BUTTON_STATES,
+    TRACK1_CONTRACT,
     TRACK1_STICK_STATES,
     make_policy_observation_space,
 )
@@ -423,6 +424,10 @@ class EvaluationSettings:
     # M7g Phase K: record btt_eval_metrics_v1 per episode (rl/m7g_eval_metrics.py; adds SSB64_RL_TARGET_DIAG=1 to the
     # evaluation flags). Default off: every earlier evaluation is unchanged.
     eval_metrics: bool = False
+    # M7r (opt-in): the checkpoint's action contract (None = Track 1, every earlier evaluation) and the per-tick gate
+    # trace recorder (rl/m7r_worker.py; v4 only). Both default off.
+    action: Optional[str] = None
+    gate_trace: bool = False
 
     @property
     def observation_contract(self) -> str:
@@ -480,7 +485,15 @@ def _prepare_workers(root: Path, n: int, role: str, run_id: str, settings: Evalu
                         else mgeo.M7pWorkerFactory(spec) if settings.observation_contract == mgeo.OBS_CONTRACT   # M7p
                         else mq.M7qWorkerFactory(spec) if settings.observation_contract == mq.OBS_CONTRACT   # M7q
                         else WorkerFactory(spec))
-        if settings.eval_metrics:   # M7g Phase K: btt_eval_metrics_v1 recorder inside the worker (evaluation only)
+        commit = settings.action is not None and settings.action != TRACK1_CONTRACT
+        if commit or settings.gate_trace:   # M7r: v4 stack with the executor and / or the per-tick recorders
+            import m7r_worker as mrw
+
+            if settings.observation_contract != mq.OBS_CONTRACT:
+                raise CheckpointError(f"M7r evaluation workers need {mq.OBS_CONTRACT}, not {settings.observation_contract}")
+            factory = mrw.M7rEvalWorkerFactory(spec, commit=commit, gate_trace=settings.gate_trace,
+                                               eval_metrics=settings.eval_metrics)
+        elif settings.eval_metrics:   # M7g Phase K: btt_eval_metrics_v1 recorder inside the worker (evaluation only)
             from m7g_eval_metrics import EvalMetricsWorkerFactory
 
             factory = EvalMetricsWorkerFactory(factory)
@@ -637,8 +650,24 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
                  dict(mn.ENTITY_EXTRA_ENV) if observation in (mn.OBS_CONTRACT, mgeo.OBS_CONTRACT) else   # M7n / M7p: both flags
                  dict(mq.ENTITY_EXTRA_ENV) if observation == mq.OBS_CONTRACT else {})   # M7q: the three flags
     settings = replace(settings, observation=observation, extra_env=tuple(flags.items()))
+    # M7r: a checkpoint trained under the commitment contract is evaluated through its executor (never as Track 1)
+    action = (meta.get("contracts") or {}).get("action_contract")
+    if settings.action is not None and settings.action != (action or TRACK1_CONTRACT):
+        raise CheckpointError(f"evaluation action contract {settings.action} differs from the checkpoint's {action}")
+    if action is not None:
+        settings = replace(settings, action=action)
     t0 = time.perf_counter()
-    model = M7PPO.load(str(ckpt / MODEL_FILE), device="cpu")
+    if action is not None:
+        import m7r_commit as mrc
+        from m7r_ppo import CommitPPO
+
+        if action != mrc.CONTRACT:
+            raise CheckpointError(f"unknown action contract {action!r} in checkpoint.json")
+        model = CommitPPO.load(str(ckpt / MODEL_FILE), device="cpu")
+        if model.action_space != mrc.make_action_space() or getattr(model, "m7_action_contract", None) != action:
+            raise CheckpointError(f"model.zip is not a {action} model (action space {model.action_space})")
+    else:
+        model = M7PPO.load(str(ckpt / MODEL_FILE), device="cpu")
     check_model_identity(model, observation)
     with open(ckpt / VECNORM_FILE, "rb") as fp:   # hash-verified above; the workers do not exist yet
         check_vecnormalize_identity(pickle.load(fp), observation)
@@ -694,6 +723,10 @@ def evaluate_checkpoint(checkpoint_dir: os.PathLike | str, out_dir: os.PathLike 
     if settings.eval_metrics:
         result["policy_observation_contract"] = observation
         result["eval_metrics"] = True
+    if action is not None:   # M7r only
+        result["action_contract"] = action
+    if settings.gate_trace:   # M7r only
+        result["gate_trace"] = True
     if deterministic_episodes > 0:
         result["modes"]["deterministic"] = run_episodes(
             mode="deterministic", episodes=deterministic_episodes, out_dir=out / "deterministic",
