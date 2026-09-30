@@ -41,6 +41,9 @@ from replay_episode import DIGEST_CHECK, REPO_ROOT, Check, Verdict, button_name,
 from replay_game import SPEEDS, MAX_RENDERED_SPEED, ReplayEngine, TargetPrepass, load_state, save_state
 from replay_history import SavedFrame, plan_back, plan_forward, plan_view, ppm
 from replay_status import status_label
+from replay_task import character_name
+from replay_widgets import (DARK_AMBER, DARK_CYAN, DARK_GREEN, DARK_RED, GREY_TEXT, HEAD_FONT, INK,  # noqa: F401
+                            SMALL, UI_FONT, Tooltip, middle_ellipsis, popup_tip)
 
 POLL_MS = 33
 REVIEW_PLAY_MS = 8
@@ -53,14 +56,8 @@ REVIEW_BANNER_BG = "#0e4a5a"
 RUNS_DIR = REPO_ROOT / "runs"
 
 # Panel (light background) colors and fonts.
-UI_FONT = ("Segoe UI", 9)
-SMALL = ("Segoe UI", 8)
-HEAD_FONT = ("Segoe UI", 11, "bold")
 MONO = ("Consolas", 11)
 MONO_SMALL = ("Consolas", 10)
-GREY_TEXT = "#6b7280"
-INK = "#111827"
-DARK_GREEN, DARK_RED, DARK_AMBER, DARK_CYAN = "#15803d", "#b91c1c", "#b45309", "#0e7490"
 BADGE_GREY = "#9ca3af"
 MARKER = "#d97706"
 # Badge (text, background): the verdict, shown once.
@@ -298,8 +295,10 @@ def header_lines(s: Dict[str, Any]) -> List[str]:
     rows = s.get("rows")
     if rows is not None and s.get("rows_to_replay") not in (None, rows):
         rows = f"{rows} ({s['rows_to_replay']} replayable)"
-    lines = [join((("role", s.get("role")), ("run", s.get("run_id")), ("profile", s.get("profile")))),
-             join((("observation", s.get("observation")), ("reward", s.get("reward")))),
+    # The character is always shown ("?" when the run did not record it); the stage when recorded.
+    lines = [join((("character", character_name(s.get("character"))), ("stage", s.get("stage")),
+                   ("role", s.get("role")), ("run", s.get("run_id")))),
+             join((("profile", s.get("profile")), ("observation", s.get("observation")), ("reward", s.get("reward")))),
              join((("recorded end", end), ("targets", s.get("targets_broken")), ("rows", rows),
                    ("prefix", s.get("prefix_rows") or None)))]
     return [line for line in lines if line]
@@ -403,27 +402,9 @@ def result_details(snap: Dict[str, Any]) -> List[Tuple[str, str, str]]:
     return out
 
 
-def middle_ellipsis(text: str, max_px: int, measure, sep: str = os.sep) -> str:
-    """`text` if it fits in max_px pixels, else head + '…' + tail: the tail always keeps the last path component
-    (the episode folder), the head is as long as still fits."""
-    if measure(text) <= max_px:
-        return text
-    cut = text.rstrip(sep).rfind(sep)
-    if cut <= 0:
-        return text  # a single component: nothing to elide around
-    tail = text[cut:]
-    lo, hi = 0, cut
-    while lo < hi:  # largest head length that fits
-        mid = (lo + hi + 1) // 2
-        if measure(text[:mid] + "…" + tail) <= max_px:
-            lo = mid
-        else:
-            hi = mid - 1
-    return text[:lo] + "…" + tail
-
-
-def live_columns(view: Dict[str, Any]) -> Dict[str, str]:
-    """Texts of the fixed-width live-state columns (tick, stick, button, targets, x, y, action state)."""
+def live_columns(view: Dict[str, Any], character: Optional[str] = None) -> Dict[str, str]:
+    """Texts of the fixed-width live-state columns (tick, stick, button, targets, x, y, action state). Action-state
+    names come from the character's own table (replay_status.py); unknown ids stay numbers."""
     row, obs = view["row"], view["observation"] or {}
     tick = view["tick"]
     tb, tt = view["targets_broken"], view["targets_total"]
@@ -435,7 +416,7 @@ def live_columns(view: Dict[str, Any]) -> Dict[str, str]:
         "targets": f"{tb if tb is not None else '-'}/{tt}",
         "x": f"{x:.1f}" if isinstance(x, (int, float)) else "-",
         "y": f"{y:.1f}" if isinstance(y, (int, float)) else "-",
-        "status": "  " + status_label(obs.get("fighter_status_id")),
+        "status": "  " + status_label(obs.get("fighter_status_id"), character),
     }
 
 
@@ -448,37 +429,6 @@ def marker_groups(break_ticks: List[int]) -> List[Tuple[int, int, int]]:
         else:
             groups.append((tick, n, n))
     return groups
-
-
-def popup_tip(parent: tk.Widget, text: str, x: int, y: int) -> tk.Toplevel:
-    """A small borderless hint window at screen position (x, y)."""
-    tip = tk.Toplevel(parent)
-    tip.overrideredirect(True)
-    tip.attributes("-topmost", True)
-    tk.Label(tip, text=text, bg="#ffffe0", fg=INK, relief="solid", bd=1, font=SMALL, padx=4, justify="left").pack()
-    tip.geometry(f"+{x}+{y}")
-    return tip
-
-
-class Tooltip:
-    """A small hint under a widget while the pointer is over it."""
-
-    def __init__(self, widget: tk.Widget, text: str):
-        self.widget, self.text, self.tip = widget, text, None
-        widget.bind("<Enter>", self.show, add="+")
-        widget.bind("<Leave>", self.hide, add="+")
-        widget.bind("<ButtonPress>", self.hide, add="+")
-
-    def show(self, _event=None) -> None:
-        if self.tip is not None:
-            return
-        self.tip = popup_tip(self.widget, self.text, self.widget.winfo_rootx(),
-                             self.widget.winfo_rooty() + self.widget.winfo_height() + 2)
-
-    def hide(self, _event=None) -> None:
-        if self.tip is not None:
-            self.tip.destroy()
-            self.tip = None
 
 
 class ViewerUI:
@@ -881,7 +831,7 @@ class ViewerUI:
             fg = DARK_AMBER if snap.get("rebuilding") else DARK_RED if snap["phase"] == "error" else INK
             self.status_label.configure(fg=fg)
         tick_color = DARK_CYAN if view["review"] else INK
-        for key, text in live_columns(view).items():
+        for key, text in live_columns(view, self.summary.get("character")).items():
             cell = self.cells[key]
             if cell.cget("text") != text:
                 cell.configure(text=text)

@@ -483,6 +483,9 @@ def format_verdict(ep: Episode, tracker: ReplayTracker, verdict: Verdict) -> str
 
 def episode_summary(ep: Episode) -> Dict[str, Any]:
     """A short description of the recorded episode for the viewer panel."""
+    from replay_task import task_identity
+
+    task = task_identity(ep.metadata)
     labels = ep.labels
     exp = labels.get("experiment") if isinstance(labels.get("experiment"), dict) else {}
     contracts = labels.get("contracts") if isinstance(labels.get("contracts"), dict) else {}
@@ -494,6 +497,9 @@ def episode_summary(ep: Episode) -> Dict[str, Any]:
     return {
         "episode_id": ep.episode_id,
         "directory": str(ep.directory),
+        "character": task.character,  # None when not recorded (shown as "?"); never assumed
+        "stage": task.stage,
+        "task_source": task.source,
         "role": labels.get("role"),
         "run_id": labels.get("run_id"),
         "profile": exp.get("name") or exp.get("environment_profile"),

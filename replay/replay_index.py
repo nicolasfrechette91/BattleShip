@@ -6,36 +6,31 @@
     python replay/replay_index.py show N|EPISODE_ID|PATH
     python replay/replay_index.py play N|EPISODE_ID|PATH [viewer options...]
     python replay/replay_index.py check N|EPISODE_ID|PATH          (headless MATCH/DESYNC)
-    python replay/replay_index.py gui                               (sortable, filterable table)
+    python replay/replay_index.py gui                               (browser)
     replay\\replay_index.cmd ...                                     (Windows wrapper)
 
-N is a row number of the last `list`. The cache is replay/_local/index.sqlite.
-A rescan re-reads only episode directories whose mtime changed, plus summary
-files (evaluation.json, crossing_verification.json, census.json) whose
-mtime/size changed. Episode directories modified in the last few minutes, or
-without metadata.json, are skipped: they may still be being written.
+N is a row number of the last `list`. The cache is replay/_local/index.sqlite (schema 2; an older cache is dropped
+and rebuilt by the next scan). A rescan re-reads only episode directories whose mtime changed, plus run-level
+summary files whose mtime/size changed. Episode directories modified in the last few minutes, or without
+metadata.json, are skipped: they may still be being written.
 
-Left entry (first live tick with position_x < -2100) and qualified crossing
-(btt_qualified_crossing_v1) are NOT in metadata.json. They are taken from the
-best available per-episode source, in this order:
+Character and stage come from what the run recorded (replay_task.py); "?" when it recorded neither.
 
-    replay       replay/_local/verdicts.jsonl (this tool's own replays; MATCH only)   exact, yes/no
-    gate_trace   gate_trace.json.gz in the episode dir (M7r evaluations)            exact, yes/no
-    eval_metrics evaluation.json -> eval_metrics.first_left_entry (M7g-K..M7r evals) exact, yes/no
-    census       runs/m7p/addendum/walltop_census/census.json                         exact, yes/no
-    reward_v3    labels.reward_v3 (M7j/M7k/M7l)                                        exact, yes/no
-    m7s_goals    m7s_goals.json.gz cells (x bins aligned to -2100)                     exact, yes/no
-    crossing_verification.json records (candidates only)                             yes only
-    final_obs    final observation live and x < -2100                                  yes only
+Tags are stage-specific milestones (Mario's Break the Targets: "left entry @3001", "crossing"). They are not in
+metadata.json: each stage's extractor in replay_tags.py reads the sidecar and summary files its runs write, the
+index stores its facts per stage, and only the episode's own stage extractor turns them into tags. An episode
+whose stage is not recorded has no tags.
 
-Everything else is "?" (unknown). Crossing yes/no comes from
-crossing_verification.json or the census; "no left entry" implies no crossing.
+The last target (tick of the last target break; the completion for a clear) comes from recorded per-target break
+ticks (replay_breaks.py: evaluation.json, episodes.jsonl, gate traces, decision sidecars, this tool's MATCH
+replays), never from replaying during a scan; "?" when unknown. Test / smoke / equivalence episodes (is_test) are
+listed unless `list --no-tests`.
 """
 
 from __future__ import annotations
 
 import argparse
-import gzip
+import datetime as _dt
 import json
 import os
 import re
@@ -48,7 +43,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from replay_episode import LEFT_BOUNDARY_X, REPO_ROOT, recorded_end, recorded_targets  # noqa: E402
+from replay_episode import REPO_ROOT, TARGETS_TOTAL_DEFAULT, recorded_end, recorded_targets  # noqa: E402
+import replay_breaks  # noqa: E402
+from replay_tags import EXTRACTORS, Fact, extractor_for, summary_file_names  # noqa: E402
+from replay_task import UNKNOWN, character_name, task_identity  # noqa: E402
 
 RUNS_DIR = REPO_ROOT / "runs"
 LOCAL_DIR = REPO_ROOT / "replay" / "_local"
@@ -56,24 +54,19 @@ INDEX_DB = LOCAL_DIR / "index.sqlite"
 LAST_LIST = LOCAL_DIR / "last_list.json"
 VERDICTS_FILE = LOCAL_DIR / "verdicts.jsonl"
 VIEWER = Path(__file__).resolve().parent / "replay.py"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+TICKS_PER_SECOND = 60  # native ticks and the game's time_passed are both 1/60 s
 
 # Directory names that never contain episode artifacts in any runs/ layout (per-process game dirs, runtime
 # copies, logs, checkpoints). Pruned for speed; --no-prune walks everything.
 PRUNE_NAMES = {"logs", "runtime", "runtime_gens", "episodes", "coordination", "checkpoints", "__pycache__"}
 PRUNE_RE = re.compile(r"g\d+_a\d+$")
-SUMMARY_FILES = ("evaluation.json", "crossing_verification.json", "census.json")
-EPISODE_SIDECARS = ("gate_trace.json.gz", "m7s_goals.json.gz")
-M7S_LEFT_MAX_I = 5  # btt_goal_cell_v1: i = floor((x + 3900) / 300); i <= 5  <=>  x < -2100 exactly
-
-EXACT_SOURCES = ("replay", "gate_trace", "eval_metrics", "census", "reward_v3", "m7s_goals")
-POSITIVE_SOURCES = ("crossing_verification", "final_obs")
 
 EPISODE_COLUMNS = (
     "path", "episode_id", "milestone", "run", "phase", "worker", "role", "run_id", "profile", "observation", "reward",
-    "end_kind", "end_detail", "truncation", "rows", "steps", "targets", "cleared", "completion_tick",
-    "completion_time", "last_tick", "final_x", "final_y", "prefix_rows", "created", "sidecars", "dir_mtime_ns",
-    "meta_mtime_ns",
+    "character", "stage", "task_source", "end_kind", "end_detail", "truncation", "rows", "steps", "targets",
+    "targets_total", "cleared", "completion_tick", "completion_time", "last_tick", "final_x", "final_y",
+    "prefix_rows", "created", "sidecars", "dir_mtime_ns", "meta_mtime_ns",
 )
 
 
@@ -87,18 +80,32 @@ def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
     row = db.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
-    if row is None or int(row[0]) != SCHEMA_VERSION:
+    if row is None or int(row[0]) != SCHEMA_VERSION:  # older cache: rebuilt by the next scan
         db.executescript("DROP TABLE IF EXISTS episodes; DROP TABLE IF EXISTS summaries; "
-                         "DROP TABLE IF EXISTS annotations;")
+                         "DROP TABLE IF EXISTS annotations; DROP TABLE IF EXISTS facts; DROP TABLE IF EXISTS breaks; "
+                         "DELETE FROM meta WHERE key = 'last_scan_utc';")
         db.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (str(SCHEMA_VERSION),))
     cols = ", ".join(f"{c} {'TEXT PRIMARY KEY' if c == 'path' else ''}" for c in EPISODE_COLUMNS)
     db.execute(f"CREATE TABLE IF NOT EXISTS episodes ({cols})")
     db.execute("CREATE TABLE IF NOT EXISTS summaries (path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER)")
-    db.execute("CREATE TABLE IF NOT EXISTS annotations (episode_id TEXT, source TEXT, source_path TEXT, "
-               "left_entry INTEGER, left_tick INTEGER, min_x REAL, crossing INTEGER, "
+    # Stage-specific facts from replay_tags extractors; `data` is the extractor's own JSON.
+    # Recorded per-target break ticks (replay_breaks.py), one row per (episode, source).
+    db.execute("CREATE TABLE IF NOT EXISTS breaks (episode_id TEXT, source TEXT, source_path TEXT, ticks TEXT, "
                "PRIMARY KEY (episode_id, source))")
+    db.execute("CREATE TABLE IF NOT EXISTS facts (episode_id TEXT, stage TEXT, source TEXT, source_path TEXT, "
+               "data TEXT, PRIMARY KEY (episode_id, stage, source))")
+    # forget() deletes by source path on every re-read episode / summary file: without these, each is a full scan.
+    db.execute("CREATE INDEX IF NOT EXISTS facts_source_path ON facts (source_path)")
+    db.execute("CREATE INDEX IF NOT EXISTS breaks_source_path ON breaks (source_path)")
     db.commit()
     return db
+
+
+def last_scan(db_path: Optional[Path] = None) -> Optional[str]:
+    db = connect(db_path)
+    row = db.execute("SELECT value FROM meta WHERE key='last_scan_utc'").fetchone()
+    db.close()
+    return row[0] if row else None
 
 
 # -- metadata -> row ---------------------------------------------------------------------------------------
@@ -114,8 +121,8 @@ def rel(path: Path) -> str:
 def split_location(rel_path: str) -> Tuple[str, str, str, Optional[str]]:
     """(milestone, run, phase, worker) from runs/<milestone>/<run...>/[workers/wNN/]artifacts*/<episode>."""
     parts = rel_path.split("/")
-    if parts and parts[0] == "runs":
-        parts = parts[1:]
+    if "runs" in parts:  # runs/... inside the repository, or .../runs/... (a scan root elsewhere)
+        parts = parts[parts.index("runs") + 1:]
     milestone = parts[0] if parts else ""
     middle = parts[1:-1]
     worker = None
@@ -148,11 +155,14 @@ def episode_row(d: Path, meta: Dict[str, Any], names: Iterable[str], dir_mtime: 
     terminal = meta.get("terminal") if isinstance(meta.get("terminal"), dict) else {}
     exp = labels.get("experiment") if isinstance(labels.get("experiment"), dict) else {}
     final = meta.get("final_observation") if isinstance(meta.get("final_observation"), dict) else {}
+    initial = meta.get("initial_observation") if isinstance(meta.get("initial_observation"), dict) else {}
     kind, detail = recorded_end(meta)
+    task = task_identity(meta)
     path = rel(d)
     milestone, run, phase, worker = split_location(path)
     observation = _get(labels, "contracts", "policy_observation_contract") or _get(exp, "policy_observation",
                                                                                     "contract")
+    live = final.get("fighter_valid") == 1 and final.get("btt_active") == 1
     return {
         "path": path,
         "episode_id": str(meta.get("episode_id") or d.name),
@@ -161,19 +171,20 @@ def episode_row(d: Path, meta: Dict[str, Any], names: Iterable[str], dir_mtime: 
         "profile": exp.get("name") or exp.get("environment_profile"),
         "observation": observation,
         "reward": labels.get("reward_contract"),
+        "character": task.character, "stage": task.stage, "task_source": task.source,
         "end_kind": kind, "end_detail": detail,
         "truncation": labels.get("truncation_reason", terminal.get("truncation_reason")),
         "rows": _int(meta.get("action_count")),
         "steps": _int(terminal.get("step_count")),
         "targets": recorded_targets(meta),
+        "targets_total": _int(_get(labels, "contracts", "targets_total")) or _int(initial.get("targets_remaining"))
+        or TARGETS_TOTAL_DEFAULT,
         "cleared": 1 if labels.get("cleared", terminal.get("cleared")) is True else 0,
         "completion_tick": _int(labels.get("completion_input_tick")),
         "completion_time": _int(labels.get("completion_time_passed")),
         "last_tick": _int(terminal.get("last_consumed_tick")),
-        "final_x": _float(final.get("position_x")) if final.get("fighter_valid") == 1 and final.get("btt_active") == 1
-        else None,
-        "final_y": _float(final.get("position_y")) if final.get("fighter_valid") == 1 and final.get("btt_active") == 1
-        else None,
+        "final_x": _float(final.get("position_x")) if live else None,
+        "final_y": _float(final.get("position_y")) if live else None,
         "prefix_rows": _int(_get(labels, "m7h_start", "prefix_length")),
         "created": _get(meta, "diagnostics", "created_utc") or "",
         "sidecars": ",".join(sorted(n for n in names if n not in ("actions.jsonl", "metadata.json"))),
@@ -181,107 +192,26 @@ def episode_row(d: Path, meta: Dict[str, Any], names: Iterable[str], dir_mtime: 
     }
 
 
-# -- per-episode annotations --------------------------------------------------------------------------------
+def store_breaks(db: sqlite3.Connection, breaks: List[replay_breaks.Break]) -> None:
+    db.executemany("INSERT OR REPLACE INTO breaks VALUES (?, ?, ?, ?)",
+                   [(eid, src, path, json.dumps(ticks, separators=(",", ":"))) for eid, src, path, ticks in breaks])
 
 
-def annotations_from_episode(d: Path, meta: Dict[str, Any], names: Iterable[str]) -> List[Dict[str, Any]]:
-    """Left-entry facts derivable from the episode directory itself."""
-    eid = str(meta.get("episode_id") or d.name)
-    out: List[Dict[str, Any]] = []
-    rv3 = _get(meta, "labels", "reward_v3")
-    if isinstance(rv3, dict) and isinstance(rv3.get("entry_counts"), dict):
-        first = rv3.get("first_entry") if isinstance(rv3.get("first_entry"), dict) else None
-        n = sum(int(v) for v in rv3["entry_counts"].values() if isinstance(v, int))
-        out.append({"episode_id": eid, "source": "reward_v3", "source_path": rel(d / "metadata.json"),
-                    "left_entry": 1 if (n > 0 or first) else 0,
-                    "left_tick": _int(first.get("consumed_tick")) if first else None, "min_x": None, "crossing": None})
-    final = meta.get("final_observation") if isinstance(meta.get("final_observation"), dict) else {}
-    if final.get("fighter_valid") == 1 and final.get("btt_active") == 1 and \
-            isinstance(final.get("position_x"), (int, float)) and final["position_x"] < LEFT_BOUNDARY_X:
-        out.append({"episode_id": eid, "source": "final_obs", "source_path": rel(d / "metadata.json"),
-                    "left_entry": 1, "left_tick": None, "min_x": None, "crossing": None})
-    names = set(names)
-    if "gate_trace.json.gz" in names:
-        try:
-            with gzip.open(d / "gate_trace.json.gz", "rt", encoding="utf-8") as fp:
-                doc = json.load(fp)
-            f = {k: i for i, k in enumerate(doc["fields"])}
-            first_t, min_x = None, None
-            for row in doc["rows"]:
-                if not row[f["live"]] or row[f["t"]] is None or row[f["t"]] < 0:
-                    continue
-                x = float(row[f["pos_x"]])
-                min_x = x if min_x is None else min(min_x, x)
-                if first_t is None and x < LEFT_BOUNDARY_X:
-                    first_t = int(row[f["t"]])
-            out.append({"episode_id": eid, "source": "gate_trace", "source_path": rel(d / "gate_trace.json.gz"),
-                        "left_entry": 1 if first_t is not None else 0, "left_tick": first_t, "min_x": min_x,
-                        "crossing": None})
-        except (OSError, ValueError, KeyError, TypeError, IndexError):
-            pass
-    if "m7s_goals.json.gz" in names:
-        try:
-            with gzip.open(d / "m7s_goals.json.gz", "rt", encoding="utf-8") as fp:
-                doc = json.load(fp)
-            first_t = None
-            for t, cell in enumerate(doc.get("cells") or []):
-                if isinstance(cell, str) and cell:
-                    if int(cell.split(",")[0]) <= M7S_LEFT_MAX_I:
-                        first_t = t
-                        break
-            out.append({"episode_id": eid, "source": "m7s_goals", "source_path": rel(d / "m7s_goals.json.gz"),
-                        "left_entry": 1 if first_t is not None else 0, "left_tick": first_t, "min_x": None,
-                        "crossing": None})
-        except (OSError, ValueError, KeyError, TypeError, IndexError):
-            pass
-    return out
+def forget(db: sqlite3.Connection, source_path: str, like: bool = False) -> None:
+    """Drop the facts and break ticks read from one file (or, with like=True, from files under a directory).
+    Both lookups use the source_path indexes: '/' + 1 == '0', so [dir/, dir0) is exactly the paths under dir/."""
+    for table in ("facts", "breaks"):
+        if like:
+            db.execute(f"DELETE FROM {table} WHERE source_path >= ? AND source_path < ?",
+                       (source_path + "/", source_path + "0"))
+        else:
+            db.execute(f"DELETE FROM {table} WHERE source_path = ?", (source_path,))
 
 
-def annotations_from_summary(path: Path) -> List[Dict[str, Any]]:
-    """Left-entry / crossing facts from a run-level summary file."""
-    try:
-        with open(path, encoding="utf-8") as fp:
-            doc = json.load(fp)
-    except (OSError, ValueError):
-        return []
-    out: List[Dict[str, Any]] = []
-    src = rel(path)
-    if path.name == "evaluation.json":
-        for e in doc.get("episodes") or []:
-            m = e.get("eval_metrics") if isinstance(e, dict) else None
-            if not isinstance(m, dict) or "first_left_entry" not in m or not e.get("episode_id"):
-                continue
-            first = m.get("first_left_entry") if isinstance(m.get("first_left_entry"), dict) else None
-            out.append({"episode_id": e["episode_id"], "source": "eval_metrics", "source_path": src,
-                        "left_entry": 1 if first else 0, "left_tick": _int(first.get("consumed_tick")) if first else None,
-                        "min_x": _float(m.get("min_live_x")), "crossing": None})
-    elif path.name == "crossing_verification.json":
-        for r in doc.get("records") or []:
-            if not isinstance(r, dict) or not r.get("episode_id"):
-                continue
-            a = r.get("analysis") if isinstance(r.get("analysis"), dict) else {}
-            first = a.get("first_left_entry") if isinstance(a.get("first_left_entry"), dict) else None
-            exact = r.get("exact")
-            exact_ok = exact.get("ok") if isinstance(exact, dict) else exact
-            out.append({"episode_id": r["episode_id"], "source": "crossing_verification", "source_path": src,
-                        "left_entry": 1 if first else None, "left_tick": _int(first.get("consumed_tick")) if first else None,
-                        "min_x": _float(a.get("min_x")) if not isinstance(a.get("min_x"), dict)
-                        else _float(a["min_x"].get("x")),
-                        "crossing": (1 if r.get("qualified_crossing") else 0) if exact_ok is not False else None})
-    elif path.name == "census.json":
-        for e in doc.get("episodes") or []:
-            if not isinstance(e, dict) or not e.get("episode_id") or not e.get("exact_replay", True):
-                continue
-            out.append({"episode_id": e["episode_id"], "source": "census", "source_path": src,
-                        "left_entry": 1 if (e.get("left_entries") or 0) > 0 else 0,
-                        "left_tick": _int(e.get("first_left_entry_tick")), "min_x": _float(e.get("min_x")),
-                        "crossing": 1 if e.get("qualified_crossing") else 0})
-    return out
-
-
-def upsert_annotations(db: sqlite3.Connection, rows: List[Dict[str, Any]]) -> None:
-    db.executemany("INSERT OR REPLACE INTO annotations VALUES (:episode_id, :source, :source_path, :left_entry, "
-                   ":left_tick, :min_x, :crossing)", rows)
+def store_facts(db: sqlite3.Connection, stage: str, facts: List[Fact]) -> None:
+    db.executemany("INSERT OR REPLACE INTO facts VALUES (?, ?, ?, ?, ?)",
+                   [(f.episode_id, stage, f.source, f.source_path, json.dumps(f.data, separators=(",", ":")))
+                    for f in facts])
 
 
 # -- scan --------------------------------------------------------------------------------------------------------
@@ -302,6 +232,7 @@ def scan(*, root: Path = RUNS_DIR, full: bool = False, recent_minutes: float = 5
     cached = {r["path"]: (r["dir_mtime_ns"], r["meta_mtime_ns"])
               for r in db.execute("SELECT path, dir_mtime_ns, meta_mtime_ns FROM episodes")}
     summaries_cached = {r["path"]: (r["mtime_ns"], r["size"]) for r in db.execute("SELECT * FROM summaries")}
+    summary_names = set(summary_file_names()) | set(replay_breaks.SUMMARY_FILES)
     horizon_ns = time.time_ns() - int(recent_minutes * 60e9)
     stats = {"episodes_seen": 0, "added_or_updated": 0, "unchanged": 0, "skipped_recent": 0, "skipped_no_metadata": 0,
              "unreadable": 0, "removed": 0, "summaries_read": 0, "dirs_listed": 0}
@@ -342,23 +273,28 @@ def scan(*, root: Path = RUNS_DIR, full: bool = False, recent_minutes: float = 5
                         stats["unchanged"] += 1
                         continue
                 stack.append((Path(e.path), mtime))
-            elif e.name in SUMMARY_FILES:
+            elif e.name in summary_names:
                 st = e.stat()
                 summaries_seen[rel(Path(e.path))] = (st.st_mtime_ns, st.st_size, Path(e.path))
     for p, (mtime, size, full_path) in summaries_seen.items():
         if full or summaries_cached.get(p) != (mtime, size):
-            db.execute("DELETE FROM annotations WHERE source_path = ?", (p,))
-            upsert_annotations(db, annotations_from_summary(full_path))
+            forget(db, p)
+            if full_path.name in replay_breaks.SUMMARY_FILES:
+                store_breaks(db, replay_breaks.from_summary(full_path, rel))
+            for ex in EXTRACTORS.values():
+                if full_path.name in ex.summary_files:
+                    store_facts(db, ex.stage, ex.from_summary(full_path, rel))
             db.execute("INSERT OR REPLACE INTO summaries VALUES (?, ?, ?)", (p, mtime, size))
             stats["summaries_read"] += 1
     root_rel = rel(root)
     for p in cached:
         if p not in seen and (p == root_rel or p.startswith(root_rel + "/")):
             db.execute("DELETE FROM episodes WHERE path = ?", (p,))
+            forget(db, p, like=True)
             stats["removed"] += 1
     for p in summaries_cached:
         if p not in summaries_seen and (p.startswith(root_rel + "/")):
-            db.execute("DELETE FROM annotations WHERE source_path = ?", (p,))
+            forget(db, p)
             db.execute("DELETE FROM summaries WHERE path = ?", (p,))
     db.execute("INSERT OR REPLACE INTO meta VALUES ('last_scan_utc', ?)",
                (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),))
@@ -401,9 +337,11 @@ def _index_episode(db, d: Path, d_mtime: int, by_name: Dict[str, os.DirEntry], c
         return
     row = episode_row(d, meta, by_name.keys(), d_mtime, meta_mtime)
     db.execute(f"INSERT OR REPLACE INTO episodes VALUES ({', '.join(':' + c for c in EPISODE_COLUMNS)})", row)
-    db.execute("DELETE FROM annotations WHERE episode_id = ? AND source IN ('reward_v3', 'final_obs', 'gate_trace', "
-               "'m7s_goals')", (row["episode_id"],))
-    upsert_annotations(db, annotations_from_episode(d, meta, by_name.keys()))
+    forget(db, p, like=True)  # this episode's own files
+    store_breaks(db, replay_breaks.from_episode(d, row["episode_id"], by_name.keys(), rel))
+    ex = extractor_for(row["stage"])
+    if ex is not None:
+        store_facts(db, ex.stage, ex.from_episode(d, meta, by_name.keys(), rel))
     stats["added_or_updated"] += 1
 
 
@@ -427,71 +365,145 @@ def load_verdicts(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+def end_label(r: Dict[str, Any]) -> str:
+    """clear | fall | timeout (step limit / tick quota) | goal (M7s goal reached) | aborted | unknown."""
+    kind = r.get("end_kind")
+    if kind in ("clear", "fall"):
+        return kind
+    if kind == "truncated":
+        detail = r.get("end_detail") or ""
+        if "goal_reached" in detail:
+            return "goal"
+        if "aborted" in detail or "lifecycle_failure" in detail:
+            return "aborted"
+        return "timeout"
+    return "unknown"
+
+
+def time_seconds(r: Dict[str, Any]) -> Optional[float]:
+    """Completion time for a clear (the game's time_passed), else the end tick, in seconds."""
+    if r.get("end_kind") == "clear" and r.get("completion_time") is not None:
+        return r["completion_time"] / TICKS_PER_SECOND
+    if r.get("last_tick") is not None:
+        return r["last_tick"] / TICKS_PER_SECOND
+    return None
+
+
+def time_text(r: Dict[str, Any]) -> str:
+    """'7.43 s' for a clear; '2975 · 49.6 s' (end tick · seconds) otherwise."""
+    if r.get("end_kind") == "clear" and r.get("completion_time") is not None:
+        return f"{r['completion_time'] / TICKS_PER_SECOND:.2f} s"
+    if r.get("last_tick") is not None:
+        return f"{r['last_tick']} · {r['last_tick'] / TICKS_PER_SECOND:.1f} s"
+    return "–"
+
+
+def created_local(created_utc: str) -> Optional[_dt.datetime]:
+    try:
+        dt = _dt.datetime.fromisoformat(created_utc.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_dt.timezone.utc)
+    return dt.astimezone()
+
+
+def created_text(created_utc: str) -> str:
+    """Local time, short: 'Sep 27 03:22'."""
+    dt = created_local(created_utc)
+    return f"{dt:%b} {dt.day} {dt:%H:%M}" if dt else ""
+
+
+TEST_ROLES = ("test", "m6_equivalence")
+
+
+def is_test(r: Dict[str, Any]) -> bool:
+    """Test / smoke / equivalence episodes, hidden by default in the browser: roles test and m6_equivalence, no
+    role recorded (all in regression and test folders), and every `_`-prefixed milestone folder (the repository's
+    smoke / regression / preflight / debug runs, whose roles are ordinary training / evaluation)."""
+    return r["role"] in TEST_ROLES or r["role"] is None or r["milestone"].startswith("_")
+
+
+def set_last_target(r: Dict[str, Any], sources: Dict[str, List[int]]) -> None:
+    r["last_target_tick"], r["last_target_text"], r["last_target_source"] = replay_breaks.last_target(r, sources)
+
+
 def load_rows(db_path: Optional[Path] = None, verdicts_path: Optional[Path] = None) -> List[Dict[str, Any]]:
-    """Every indexed episode with resolved left entry / crossing / replay verdict."""
+    """Every indexed episode with its tags (from its own stage's facts), replay verdict and display fields."""
     db = connect(db_path)
     rows = [dict(r) for r in db.execute("SELECT * FROM episodes")]
-    notes: Dict[str, List[Dict[str, Any]]] = {}
-    for a in db.execute("SELECT * FROM annotations"):
-        notes.setdefault(a["episode_id"], []).append(dict(a))
+    facts: Dict[Tuple[str, str], Dict[str, Fact]] = {}
+    for f in db.execute("SELECT * FROM facts"):
+        try:
+            data = json.loads(f["data"])
+        except (TypeError, ValueError):
+            continue
+        facts.setdefault((f["episode_id"], f["stage"]), {})[f["source"]] = Fact(f["episode_id"], f["source"],
+                                                                                f["source_path"], data)
+    breaks: Dict[str, Dict[str, List[int]]] = {}
+    for b in db.execute("SELECT * FROM breaks"):
+        try:
+            breaks.setdefault(b["episode_id"], {})[b["source"]] = json.loads(b["ticks"])
+        except (TypeError, ValueError):
+            continue
     db.close()
     verdicts = load_verdicts(verdicts_path)
     for r in rows:
-        ann = {a["source"]: a for a in notes.get(r["episode_id"], [])}
         v = verdicts.get(r["path"])
         r["replay"] = v.get("verdict") if v else None
         r["replay_mode"] = v.get("mode") if v else None
-        if v and v.get("verdict") == "MATCH" and isinstance(v.get("trajectory"), dict):
-            t = v["trajectory"]
-            first = t.get("first_left_entry")
-            ann["replay"] = {"source": "replay", "source_path": rel(VERDICTS_FILE), "left_entry": 1 if first else 0,
-                             "left_tick": first.get("consumed_tick") if first else None,
-                             "min_x": t.get("min_live_x"), "crossing": None}
-        r["left"], r["left_tick"], r["left_source"], r["min_x"] = None, None, None, None
-        for s in EXACT_SOURCES + POSITIVE_SOURCES:
-            a = ann.get(s)
-            if a is None or a["left_entry"] is None:
-                continue
-            if s in POSITIVE_SOURCES and not a["left_entry"]:
-                continue
-            r["left"], r["left_tick"], r["left_source"] = bool(a["left_entry"]), a["left_tick"], s
-            break
-        for s in EXACT_SOURCES + ("crossing_verification",):
-            a = ann.get(s)
-            if a is not None and a.get("min_x") is not None:
-                r["min_x"] = a["min_x"]
-                break
-        r["crossing"], r["crossing_source"] = None, None
-        for s in ("crossing_verification", "census"):
-            a = ann.get(s)
-            if a is not None and a.get("crossing") is not None:
-                r["crossing"], r["crossing_source"] = bool(a["crossing"]), s
-                break
-        if r["crossing"] is None and r["left"] is False:
-            r["crossing"], r["crossing_source"] = False, "no left entry"
-        r["sources"] = sorted(ann)
+        r["character_name"] = character_name(r["character"])
+        r["end_label"] = end_label(r)
+        r["time_s"] = time_seconds(r)
+        r["time_text"] = time_text(r)
+        r["is_test"] = is_test(r)
+        mine_breaks = dict(breaks.get(r["episode_id"], {}))
+        replay_break = replay_breaks.from_replay(v, r["episode_id"]) if v else None
+        if replay_break is not None:
+            mine_breaks["replay"] = replay_break[3]
+        set_last_target(r, mine_breaks)
+        r["created_text"] = created_text(r["created"])
+        r["tags"], r["tag_details"], r["tag_sources"] = [], [], []
+        ex = extractor_for(r["stage"])
+        if ex is not None:
+            mine = dict(facts.get((r["episode_id"], ex.stage), {}))
+            fact = ex.from_replay(v, r["episode_id"]) if v else None
+            if fact is not None:
+                mine[fact.source] = fact
+            r["tags"], r["tag_details"] = ex.resolve(mine)
+            r["tag_sources"] = sorted(mine)
+        r["tag_text"] = " · ".join(r["tags"])
     return rows
 
 
+def _num(v: Optional[float], missing: float) -> float:
+    return v if v is not None else missing
+
+
 SORT_KEYS = {
-    "targets": lambda r: r["targets"] if r["targets"] is not None else -1,
-    "left": lambda r: {True: 2, None: 1, False: 0}[r["left"]],
-    "left_tick": lambda r: r["left_tick"] if r["left_tick"] is not None else 10 ** 9,
-    "crossing": lambda r: {True: 2, None: 1, False: 0}[r["crossing"]],
-    "completion": lambda r: r["completion_tick"] if r["completion_tick"] is not None else 10 ** 9,
-    "end": lambda r: {"clear": 0, "fall": 1, "truncated": 2}.get(r["end_kind"], 3),
-    "last_tick": lambda r: r["last_tick"] if r["last_tick"] is not None else -1,
-    "steps": lambda r: r["steps"] if r["steps"] is not None else -1,
-    "min_x": lambda r: r["min_x"] if r["min_x"] is not None else 10 ** 9,
-    "created": lambda r: r["created"] or "",
-    "path": lambda r: r["path"],
+    "targets": lambda r: _num(r["targets"], -1),
+    "last": lambda r: _num(r["last_target_tick"], 10 ** 9),  # last target broken (the clear for a clear)
+    "character": lambda r: (r["character"] is None, r["character_name"]),
+    "stage": lambda r: (r["stage"] is None, r["stage"] or ""),
+    "end": lambda r: {"clear": 0, "goal": 1, "fall": 2, "timeout": 3, "aborted": 4}.get(r["end_label"], 5),
+    "verdict": lambda r: {"MATCH": 0, "DESYNC": 1}.get(r["replay"], 2),
+    "role": lambda r: r["role"] or "~",
     "milestone": lambda r: r["milestone"],
+    "run": lambda r: r["run"],
+    "tags": lambda r: (-len(r["tags"]), r["tag_text"]),
+    "created": lambda r: r["created"] or "",
+    "completion": lambda r: _num(r["completion_tick"], 10 ** 9),
+    "last_tick": lambda r: _num(r["last_tick"], -1),
+    "steps": lambda r: _num(r["steps"], -1),
+    "path": lambda r: r["path"],
 }
-DESCENDING_BY_DEFAULT = {"targets", "left", "crossing", "created", "last_tick", "steps"}
+DESCENDING_BY_DEFAULT = {"targets", "created", "last_tick", "steps"}
+DEFAULT_SORT = "targets,last"  # most targets first, then the earliest last-target break
 
 
-def tri(value: Optional[bool]) -> str:
-    return {True: "yes", False: "no", None: "?"}[value]
+def matches_text(r: Dict[str, Any], text: str) -> bool:
+    """Case-insensitive substring of path, run id, profile or tags."""
+    return text.lower() in " ".join((r["path"], r["run_id"] or "", r["profile"] or "", r["tag_text"])).lower()
 
 
 def filter_rows(rows: List[Dict[str, Any]], args: argparse.Namespace) -> List[Dict[str, Any]]:
@@ -503,7 +515,11 @@ def filter_rows(rows: List[Dict[str, Any]], args: argparse.Namespace) -> List[Di
             continue
         if args.role and r["role"] != args.role:
             continue
-        if args.end and r["end_kind"] not in args.end:
+        if args.character and (r["character"] or UNKNOWN) not in args.character:
+            continue
+        if args.stage and (r["stage"] or UNKNOWN) not in args.stage:
+            continue
+        if args.end and r["end_kind"] not in args.end and r["end_label"] not in args.end:
             continue
         if args.min_targets is not None and (r["targets"] is None or r["targets"] < args.min_targets):
             continue
@@ -511,14 +527,13 @@ def filter_rows(rows: List[Dict[str, Any]], args: argparse.Namespace) -> List[Di
             continue
         if args.cleared and not r["cleared"]:
             continue
-        if args.left and tri(r["left"]) not in args.left:
-            continue
-        if args.crossing and tri(r["crossing"]) not in args.crossing:
+        if args.tag and not any(args.tag.lower() in t.lower() for t in r["tags"]):
             continue
         if args.replay and (r["replay"] or "none").lower() not in args.replay:
             continue
-        if args.text and args.text.lower() not in (r["path"] + " " + (r["run_id"] or "") + " " +
-                                                   (r["profile"] or "")).lower():
+        if getattr(args, "no_tests", False) and r["is_test"]:
+            continue
+        if args.text and not matches_text(r, args.text):
             continue
         out.append(r)
     return out
@@ -539,25 +554,20 @@ def sort_rows(rows: List[Dict[str, Any]], spec: str, reverse: Optional[bool]) ->
     return rows
 
 
-def left_text(r: Dict[str, Any]) -> str:
-    if r["left"] and r["left_tick"] is not None:
-        return f"yes@{r['left_tick']}"
-    return tri(r["left"])
-
-
 def print_table(rows: List[Dict[str, Any]]) -> None:
-    head = f"{'#':>4}  {'tgt':>3}  {'end':<9} {'tick':>5}  {'left':<9} {'cross':<5} {'replay':<6} {'role':<5} {'where':<52} episode"
+    head = (f"{'#':>4}  {'tgt':>5}  {'character':<10} {'end':<8} {'last target':>15}  {'rep':<3} {'role':<5} {'where':<46} "
+            f"{'tags':<28} episode")
     print(head)
     print("-" * len(head))
+    marks = {"MATCH": "ok", "DESYNC": "X"}
     for i, r in enumerate(rows, 1):
-        tick = r["completion_tick"] if r["end_kind"] == "clear" else r["last_tick"]
         where = f"{r['milestone']}/{r['run']}" + (f" {r['worker']}" if r["worker"] else "")
-        if len(where) > 52:
-            where = "..." + where[-49:]
-        role = (r["role"] or "")[:5]
-        print(f"{i:>4}  {r['targets'] if r['targets'] is not None else '-':>3}  {r['end_kind']:<9} "
-              f"{tick if tick is not None else '-':>5}  {left_text(r):<9} {tri(r['crossing']):<5} "
-              f"{(r['replay'] or '-'):<6} {role:<5} {where:<52} {r['episode_id']}")
+        if len(where) > 46:
+            where = "..." + where[-43:]
+        tgt = f"{r['targets'] if r['targets'] is not None else '-'}/{r['targets_total']}"
+        print(f"{i:>4}  {tgt:>5}  {r['character_name'][:10]:<10} {r['end_label']:<8} {r['last_target_text']:>15}  "
+              f"{marks.get(r['replay'], '.'):<3} {(r['role'] or '')[:5]:<5} {where:<46} {r['tag_text'][:28]:<28} "
+              f"{r['episode_id']}")
 
 
 def save_last_list(rows: List[Dict[str, Any]]) -> None:
@@ -604,14 +614,18 @@ def add_filters(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--milestone", "-m", action="append", help="runs/<milestone> prefix, e.g. m7p (repeatable)")
     ap.add_argument("--run", help="substring of the run path, e.g. geo4_s1/final")
     ap.add_argument("--role", choices=("training", "evaluation"))
-    ap.add_argument("--end", action="append", choices=("clear", "fall", "truncated", "unknown"))
+    ap.add_argument("--character", action="append", help="e.g. mario, or ? for not recorded (repeatable)")
+    ap.add_argument("--stage", action="append", help="e.g. btt_mario, or ? for not recorded (repeatable)")
+    ap.add_argument("--end", action="append",
+                    choices=("clear", "fall", "truncated", "timeout", "goal", "aborted", "unknown"))
     ap.add_argument("--min-targets", type=int)
     ap.add_argument("--max-targets", type=int)
     ap.add_argument("--cleared", action="store_true")
-    ap.add_argument("--left", action="append", choices=("yes", "no", "?"), help="left entry (x < -2100)")
-    ap.add_argument("--crossing", action="append", choices=("yes", "no", "?"), help="btt_qualified_crossing_v1")
+    ap.add_argument("--tag", help="substring of a tag, e.g. 'left entry' or crossing")
     ap.add_argument("--replay", action="append", choices=("match", "desync", "none"))
-    ap.add_argument("--text", help="substring of path / run_id / profile")
+    ap.add_argument("--text", help="substring of path / run_id / profile / tags")
+    ap.add_argument("--no-tests", action="store_true",
+                    help="hide test / smoke / equivalence episodes (roles test, m6_equivalence, none; _ folders)")
 
 
 def cmd_scan(args) -> int:
@@ -651,13 +665,18 @@ def cmd_show(args) -> int:
         return 1
     r = rows[0]
     for k in ("episode_id", "path", "milestone", "run", "phase", "worker", "role", "run_id", "profile", "observation",
-              "reward", "end_kind", "end_detail", "rows", "steps", "targets", "cleared", "completion_tick",
-              "completion_time", "last_tick", "final_x", "final_y", "prefix_rows", "created", "sidecars"):
+              "reward", "character", "stage", "task_source", "end_kind", "end_detail", "rows", "steps", "targets",
+              "targets_total", "cleared", "completion_tick", "completion_time", "last_tick", "prefix_rows", "created",
+              "sidecars"):
         print(f"  {k:<16} {r[k]}")
-    print(f"  {'left entry':<16} {left_text(r)} (source {r['left_source'] or '-'}), min x {r['min_x']}")
-    print(f"  {'crossing':<16} {tri(r['crossing'])} (source {r['crossing_source'] or '-'})")
+    print(f"  {'last target':<16} {r['last_target_text']} ({r['last_target_source']})")
+    print(f"  {'end tick':<16} {r['time_text']}")
+    print(f"  {'test episode':<16} {'yes' if r['is_test'] else 'no'}")
+    print(f"  {'tags':<16} {r['tag_text'] or '-'}")
+    for k, v in r["tag_details"]:
+        print(f"    {k:<14} {v}")
     print(f"  {'replay':<16} {r['replay'] or '-'} {('(' + r['replay_mode'] + ')') if r['replay_mode'] else ''}")
-    print(f"  {'sources':<16} {', '.join(r['sources']) or '-'}")
+    print(f"  {'tag sources':<16} {', '.join(r['tag_sources']) or '-'}")
     return 0
 
 
@@ -686,8 +705,9 @@ def main(argv=None) -> int:
     s.add_argument("--root", default=str(RUNS_DIR), help="scan only this subtree (default runs/)")
     lp = sub.add_parser("list", help="filter + sort the index")
     add_filters(lp)
-    lp.add_argument("--sort", default="targets,left,created",
-                    help=f"comma-separated keys, prefix - or + to force order: {', '.join(SORT_KEYS)}")
+    lp.add_argument("--sort", default=DEFAULT_SORT,
+                    help=f"comma-separated keys, prefix - or + to force order: {', '.join(SORT_KEYS)} "
+                         f"(default {DEFAULT_SORT}: most targets, then earliest last target)")
     lp.add_argument("--reverse", action="store_true")
     lp.add_argument("--limit", type=int, default=40, help="rows to show (0 = all)")
     lp.add_argument("--format", choices=("table", "paths", "json"), default="table")

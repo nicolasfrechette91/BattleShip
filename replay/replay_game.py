@@ -508,6 +508,85 @@ class TargetPrepass(threading.Thread):
             self.seconds = time.monotonic() - t0
 
 
+class CheckBatch(threading.Thread):
+    """Headless MATCH/DESYNC for a list of episode directories (the browser's "Check filtered"), one fresh
+    BattleShip process at a time, in the background.
+
+    Each finished replay is recorded exactly like `replay.py --check` (replay/_local/verdicts.jsonl, which the
+    index reads for the verdict column and, for MATCH, exact target-break ticks); runs/ is only read. cancel()
+    terminates the running process and stops. Callbacks run on this thread: on_start(i, path),
+    on_result(i, path, result) with result {"verdict": MATCH | DESYNC | incomplete | error, "trajectory",
+    "error"}, on_done(batch)."""
+
+    def __init__(self, paths: List[Path], *, executable: Path = DEFAULT_EXE,
+                 on_start: Optional[Callable[[int, Path], None]] = None,
+                 on_result: Optional[Callable[[int, Path, Dict[str, Any]], None]] = None,
+                 on_done: Optional[Callable[["CheckBatch"], None]] = None):
+        super().__init__(name="check-batch", daemon=True)
+        self.paths = [Path(p) for p in paths]
+        self.executable = Path(executable)
+        self.on_start, self.on_result, self.on_done = on_start, on_result, on_done
+        self.counts: Dict[str, int] = collections.Counter()
+        self.finished_count = 0
+        self.state = "running"  # running | done | cancelled
+        self._cancel = threading.Event()
+        self._game: Optional[GameProcess] = None
+
+    def cancel(self) -> None:
+        self._cancel.set()
+        game = self._game
+        process = game.process if game is not None else None
+        if process is not None and process.poll() is None:
+            process.terminate()
+
+    def _on_game(self, game: GameProcess) -> None:
+        self._game = game
+        if self._cancel.is_set():
+            raise _Cancelled()
+
+    def _on_step(self, _row: Row, _tracker: ReplayTracker) -> None:
+        if self._cancel.is_set():
+            raise _Cancelled()
+
+    def run(self) -> None:
+        from replay_episode import load_episode
+
+        try:
+            cleanup_stale_sessions()
+            try:
+                exe = executable_identity(self.executable)
+            except OSError as exc:
+                exe = {"path": repo_relative(self.executable), "error": str(exc)}
+            for i, path in enumerate(self.paths):
+                if self._cancel.is_set():
+                    break
+                if self.on_start:
+                    self.on_start(i, path)
+                try:
+                    ep = load_episode(path)
+                    verdict, tracker = check_episode(ep, executable=self.executable, log=lambda _m: None,
+                                                     cleanup=False, session_tag="check", on_game=self._on_game,
+                                                     on_step=self._on_step)
+                    if tracker.ended:
+                        record_verdict(ep, tracker, verdict, mode="headless", exe=exe)
+                    result = {"verdict": verdict.word if tracker.ended else "incomplete",
+                              "trajectory": tracker.trajectory.as_dict(), "error": None}
+                except Exception as exc:  # noqa: BLE001 - one bad episode does not stop the batch
+                    if self._cancel.is_set():
+                        break
+                    result = {"verdict": "error", "trajectory": None, "error": f"{type(exc).__name__}: {exc}"}
+                finally:
+                    self._game = None
+                self.counts[result["verdict"]] += 1
+                self.finished_count += 1
+                if self.on_result:
+                    self.on_result(i, path, result)
+        finally:
+            self.state = "cancelled" if self._cancel.is_set() else "done"
+            if self.on_done:
+                self.on_done(self)
+
+
 # -- saved-frame capture -------------------------------------------------------------------------------------
 
 

@@ -51,6 +51,7 @@ from replay_game import (DEFAULT_EXE, SPEEDS, Geometry, ReplayEngine, ReplayRunt
                          check_episode, executable_identity, load_state, record_verdict)
 from replay_history import (CAPTURE_MODES, DEFAULT_SCALE, DEFAULT_SECONDS, FILTERS, HistoryConfig,  # noqa: E402
                             history_bytes)
+from replay_task import character_name  # noqa: E402
 
 EXIT_MATCH, EXIT_DESYNC, EXIT_USAGE, EXIT_RUNTIME = 0, 1, 2, 3
 
@@ -113,7 +114,8 @@ def main(argv=None) -> int:
         print(f"error: executable not found: {args.exe}", file=sys.stderr)
         return EXIT_USAGE
     s = episode_summary(ep)
-    print(f"episode {s['episode_id']}  role={s['role']} run={s['run_id']} profile={s['profile']}")
+    print(f"episode {s['episode_id']}  character={character_name(s['character'])} stage={s['stage'] or '?'} "
+          f"role={s['role']} run={s['run_id']} profile={s['profile']}")
     print(f"  {s['directory']}")
     print(f"  recorded: end={s['end']} ({s['end_detail']}), targets={s['targets_broken']}, "
           f"rows={s['rows']} (replayable {s['rows_to_replay']}), prefix rows={s['prefix_rows']}")

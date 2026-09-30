@@ -11,6 +11,7 @@ withdrawn Tk window. Exit code 0 when every test passes.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -202,20 +203,29 @@ def location_split() -> None:
     assert ri.split_location("runs/m7a_pilot_n5/artifacts_learning_abc/episode_z") == ("m7a_pilot_n5", "", "", None)
 
 
+MARIO = {"experiment": {"task_id": "ssb64_us_mario_btt_v1"}}
+
+
 @test
-def index_scan_incremental_and_sources() -> None:
+def index_scan_incremental_and_tags() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "runs"
         db = Path(tmp) / "index.sqlite"
         verdicts = Path(tmp) / "verdicts.jsonl"
         stoch = root / "m7x" / "campaign" / "_eval" / "r1" / "final" / "stochastic"
         art = stoch / "workers" / "w00" / "artifacts"
-        a = fall_episode(art / "episode_20260929T000000Z_aaaaaaaa")
+        final = obs(input_tick=3, time_passed=2, game_status=5, targets_remaining=8, position_x=-2200.0)
+        a = write_episode(art / "episode_20260929T000000Z_aaaaaaaa", rows_of(3), final=final,
+                          labels={"role": "evaluation", "end_reason": "fall", "termination_reason": "native_failure",
+                                  "targets_broken": 2, **MARIO},
+                          terminal={"step_count": 3, "last_consumed_tick": 2, "targets_broken": 2})
         b = write_episode(art / "episode_20260929T000001Z_bbbbbbbb", rows_of(4),
                           labels={"role": "evaluation", "end_reason": "horizon", "truncation_reason": "max_episode_steps",
-                                  "targets_broken": 4},
+                                  "targets_broken": 4, **MARIO},
                           terminal={"step_count": 4, "last_consumed_tick": 3, "targets_broken": 4},
                           final=obs(input_tick=4, time_passed=3, targets_remaining=6, position_x=500.0))
+        # no character recorded, final position left of the wall: no tag (the rule is Mario-stage geometry)
+        u = fall_episode(root / "m7old" / "run" / "artifacts" / "episode_20260920T000000Z_uuuuuuuu")
         with open(stoch / "evaluation.json", "w", encoding="utf-8") as fp:
             json.dump({"episodes": [
                 {"episode_id": b.name, "eval_metrics": {"first_left_entry": None, "min_live_x": -1650.0}},
@@ -228,18 +238,36 @@ def index_scan_incremental_and_sources() -> None:
         age(root)
         fresh = fall_episode(art / "episode_20260929T000003Z_dddddddd")  # just written: skipped as recent
         s1 = ri.scan(root=root, db_path=db, progress=lambda m: None)
-        assert s1["added_or_updated"] == 2 and s1["skipped_recent"] == 1 and s1["skipped_no_metadata"] == 1, s1
+        assert s1["added_or_updated"] == 3 and s1["skipped_recent"] == 1 and s1["skipped_no_metadata"] == 1, s1
         rows = {r["episode_id"]: r for r in ri.load_rows(db_path=db, verdicts_path=verdicts)}
-        assert set(rows) == {a.name, b.name}, rows.keys()
+        assert set(rows) == {a.name, b.name, u.name}, rows.keys()
         assert hidden.name not in rows and fresh.name not in rows
-        ra, rb = rows[a.name], rows[b.name]
+        ra, rb, ru = rows[a.name], rows[b.name], rows[u.name]
         assert (ra["end_kind"], ra["targets"], ra["last_tick"], ra["worker"]) == ("fall", 2, 2, "w00")
-        assert (ra["left"], ra["left_tick"], ra["left_source"]) == (True, 2, "eval_metrics")
-        assert (rb["left"], rb["left_source"], rb["crossing"]) == (False, "eval_metrics", False)
+        assert (ra["character"], ra["stage"], ra["character_name"]) == ("mario", "btt_mario", "Mario")
+        assert ra["task_source"] == "labels.experiment.task_id"
+        assert ra["tags"] == ["left entry @2"] and ra["tag_text"] == "left entry @2"
+        assert dict(ra["tag_details"])["left entry"] == "yes at tick 2 (eval_metrics)"
+        assert rb["tags"] == [] and dict(rb["tag_details"])["crossing"] == "no (no left entry)"
+        assert (ru["character"], ru["stage"], ru["character_name"], ru["tags"]) == (None, None, "?", [])
+        assert (ra["end_label"], rb["end_label"], rb["time_text"], ra["targets_total"]) == (
+            "fall", "timeout", "3 · 0.1 s", 10)
+        # filters: character (? = not recorded), tag, and the text search over tags
+        base = dict(milestone=None, run=None, role=None, character=None, stage=None, end=None, min_targets=None,
+                    max_targets=None, cleared=False, tag=None, replay=None, text=None)
+
+        def pick(**kw):
+            return {r["episode_id"] for r in ri.filter_rows(list(rows.values()), argparse.Namespace(**{**base, **kw}))}
+
+        assert pick(character=["?"]) == {u.name} and pick(character=["mario"]) == {a.name, b.name}
+        assert pick(tag="left entry") == {a.name} and pick(text="LEFT ENTRY") == {a.name}
+        assert pick(end=["timeout"]) == {b.name} and pick(end=["truncated"]) == {b.name}
+        assert [r["episode_id"] for r in ri.sort_rows(list(rows.values()), ri.DEFAULT_SORT, None)][0] == b.name
+        assert (ra["last_target_text"], rb["last_target_text"], ru["is_test"], ra["is_test"]) == ("?", "?", False, False)
         # incremental: nothing changed -> nothing re-read; the recent one is picked up once it is old
         age(fresh)
         s2 = ri.scan(root=root, db_path=db, progress=lambda m: None)
-        assert s2["added_or_updated"] == 1 and s2["unchanged"] == 2 and s2["summaries_read"] == 0, s2
+        assert s2["added_or_updated"] == 1 and s2["unchanged"] == 3 and s2["summaries_read"] == 0, s2
         # a replay verdict (MATCH) outranks eval_metrics; a DESYNC verdict is shown but never used as evidence
         with open(verdicts, "w", encoding="utf-8") as fp:
             fp.write(json.dumps({"episode_dir": ra["path"], "verdict": "MATCH", "mode": "headless",
@@ -247,14 +275,118 @@ def index_scan_incremental_and_sources() -> None:
             fp.write(json.dumps({"episode_dir": rb["path"], "verdict": "DESYNC", "mode": "headless",
                                  "trajectory": {"first_left_entry": {"consumed_tick": 1}}}) + "\n")
         rows = {r["episode_id"]: r for r in ri.load_rows(db_path=db, verdicts_path=verdicts)}
-        assert rows[a.name]["left_source"] == "replay" and rows[a.name]["replay"] == "MATCH"
-        assert rows[b.name]["left"] is False and rows[b.name]["replay"] == "DESYNC"
+        assert dict(rows[a.name]["tag_details"])["left entry"] == "yes at tick 2 (replay)"
+        assert rows[a.name]["replay"] == "MATCH" and "replay" in rows[a.name]["tag_sources"]
+        assert rows[b.name]["tags"] == [] and rows[b.name]["replay"] == "DESYNC"
         # a removed episode disappears on the next scan
         for p in sorted(b.rglob("*"), reverse=True):
             p.unlink()
         b.rmdir()
         s3 = ri.scan(root=root, db_path=db, progress=lambda m: None)
         assert s3["removed"] == 1, s3
+
+
+@test
+def old_index_schema_is_rebuilt() -> None:
+    import sqlite3
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "index.sqlite"
+        old = sqlite3.connect(db)
+        old.executescript("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); INSERT INTO meta VALUES "
+                          "('schema', '1'), ('last_scan_utc', 'x'); CREATE TABLE episodes (path TEXT PRIMARY KEY, "
+                          "left INTEGER); INSERT INTO episodes VALUES ('runs/x', 1); CREATE TABLE annotations (a);")
+        old.commit()
+        old.close()
+        assert ri.load_rows(db_path=db, verdicts_path=Path(tmp) / "none.jsonl") == []  # dropped, rebuilt empty
+        assert ri.last_scan(db) is None
+
+
+@test
+def task_identity_sources() -> None:
+    from replay_task import CHARACTER_NAMES, KNOWN_CHARACTERS, TASKS, character_name, task_identity
+
+    view = {"labels": {"experiment": {"compatibility_view": {"task.character": "mario", "task.stage": "btt_mario"},
+                                      "task_id": "ssb64_us_mario_btt_v1"}}}
+    assert task_identity(view) == ("mario", "btt_mario", "labels.experiment.compatibility_view task.*")
+    only_id = task_identity({"labels": {"experiment": {"task_id": "ssb64_us_mario_btt_v1"}}})
+    assert only_id == ("mario", "btt_mario", "labels.experiment.task_id")
+    fox = task_identity({"labels": {"experiment": {"task_id": "ssb64_jp_fox_btt_v1"}}})
+    assert fox == ("fox", "btt_fox", "labels.experiment.task_id (pattern)")
+    assert task_identity({"labels": {"experiment": {"task_id": "ssb64_us_wario_btt_v1"}}}).character is None
+    acc = {"format": "battleship_btt_episode", "labels": {"contracts": {"action_class_character": "mario"}}}
+    assert task_identity(acc) == ("mario", "btt_mario", "labels.contracts.action_class_character")
+    none = task_identity({"labels": {"role": "evaluation"}})
+    assert none == (None, None, "not recorded") and character_name(none.character) == "?"
+    assert character_name("donkey_kong") == "Donkey Kong" and set(CHARACTER_NAMES) == set(KNOWN_CHARACTERS)
+    try:  # the local copies match rl/experiment_config (a heavy import: gymnasium, numpy)
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "rl"))
+        import experiment_config as ec
+    except ImportError:
+        return
+    assert tuple(ec.KNOWN_CHARACTERS) == KNOWN_CHARACTERS
+    assert {k: (v["character"], v["stage"]) for k, v in ec.SUPPORTED_TASKS.items()} == TASKS
+
+
+@test
+def another_stage_adds_tags_without_touching_the_index() -> None:
+    """A second stage's extractor (a stand-in for Fox) registers in replay_tags.EXTRACTORS; the index scans its
+    summary file and shows its tags; Mario's facts (evaluation.json left entry) never reach a Fox episode."""
+    import replay_tags
+
+    class FoxTags(replay_tags.StageTags):
+        stage = "btt_fox"
+        summary_files = ("fox_summary.json",)
+
+        def from_summary(self, path, rel):
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            return [replay_tags.Fact(e, "fox_summary", rel(path), {"reflector": True}) for e in doc["reflector"]]
+
+        def resolve(self, facts):
+            return (["reflector"], [("reflector", "yes")]) if "fox_summary" in facts else ([], [])
+
+    replay_tags.EXTRACTORS["btt_fox"] = FoxTags()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runs"
+            art = root / "m9" / "run" / "artifacts"
+            final = obs(input_tick=3, time_passed=2, game_status=5, targets_remaining=8, position_x=-2200.0)
+            f = write_episode(art / "episode_20261001T000000Z_ffffffff", rows_of(3), final=final,
+                              labels={"role": "evaluation", "end_reason": "fall",
+                                      "termination_reason": "native_failure", "targets_broken": 2,
+                                      "experiment": {"task_id": "ssb64_us_fox_btt_v1"}},
+                              terminal={"step_count": 3, "last_consumed_tick": 2, "targets_broken": 2})
+            (root / "m9" / "run" / "fox_summary.json").write_text(json.dumps({"reflector": [f.name]}),
+                                                                  encoding="utf-8")
+            (root / "m9" / "run" / "evaluation.json").write_text(json.dumps({"episodes": [
+                {"episode_id": f.name, "eval_metrics": {"first_left_entry": {"consumed_tick": 1}}}]}),
+                encoding="utf-8")
+            age(root)
+            ri.scan(root=root, db_path=Path(tmp) / "i.sqlite", progress=lambda m: None)
+            (r,) = ri.load_rows(db_path=Path(tmp) / "i.sqlite", verdicts_path=Path(tmp) / "v.jsonl")
+            assert (r["character_name"], r["stage"], r["tags"]) == ("Fox", "btt_fox", ["reflector"]), r
+    finally:
+        del replay_tags.EXTRACTORS["btt_fox"]
+
+
+@test
+def display_fields() -> None:
+    import datetime as dt
+
+    clear = {"end_kind": "clear", "completion_time": 446, "last_tick": 446, "end_detail": ""}
+    assert ri.time_text(clear) == "7.43 s" and abs(ri.time_seconds(clear) - 446 / 60) < 1e-9
+    assert ri.time_text({"end_kind": "fall", "completion_time": None, "last_tick": 2975}) == "2975 · 49.6 s"
+    assert ri.time_text({"end_kind": "unknown", "completion_time": None, "last_tick": None}) == "–"
+    labels = {"end_reason=horizon, truncation=max_episode_steps": "timeout",
+              "end_reason=horizon, truncation=tick_quota": "timeout",
+              "end_reason=horizon, truncation=goal_reached": "goal",
+              "end_reason=aborted": "aborted", "end_reason=lifecycle_failure": "aborted"}
+    for detail, want in labels.items():
+        assert ri.end_label({"end_kind": "truncated", "end_detail": detail}) == want, detail
+    assert ri.end_label({"end_kind": "unknown"}) == "unknown"
+    local = dt.datetime(2026, 9, 27, 1, 22, tzinfo=dt.timezone.utc).astimezone()
+    assert ri.created_text("2026-09-27T01:22:00+00:00") == f"{local:%b} {local.day} {local:%H:%M}"
+    assert ri.created_text("") == "" and ri.created_text("garbage") == ""
 
 
 # -- replay_history (saved frames) ------------------------------------------------------------------------------------
@@ -459,18 +591,26 @@ def capture_after_a_gap_waits_past_stale_reads() -> None:
 
 @test
 def action_state_names_from_decomp() -> None:
-    """Names come from decomp/src/ft/ftdef.h + ftchar/ftmario/ftmario.h (read only); unknown ids stay numbers."""
-    from replay_status import load_error, status_label, status_names
+    """Common names from decomp/src/ft/ftdef.h, each character's own ids from ftchar/<dir>/<dir>.h (read only);
+    ids 220+ are only named with the character known, otherwise they stay numbers."""
+    from replay_status import coverage, load_errors, status_label, status_names
 
-    names = status_names()
-    assert names, load_error
+    names = status_names("mario")
+    assert names, load_errors
     assert status_label(10) == "Wait (10)"  # nFTCommonStatusWait, not the ControlStart range marker
     assert status_label(26) == "Fall (26)" and status_label(24) == "JumpAerialF (24)"
     assert status_label(37) == "DamageHi1 (37)" and status_label(56) == "WallDamage (56)"  # marker aliases skipped
     assert status_label(62) == "DokanStart (62)"  # a real state whose own name ends in Start
-    assert status_label(219) == "LandingAirNull (219)" and status_label(225) == "SpecialHi (225)"  # Mario's range
-    assert len(names) == 229 and max(names) == 228
-    assert status_label(229) == "229" and status_label(None) == "-" and status_label("x") == "x"
+    assert status_label(219) == "LandingAirNull (219)"
+    assert status_label(225, "mario") == "SpecialHi (225)"  # Mario's own range
+    assert status_label(225, "fox") == "SpecialN (225)"  # the same id is another state for Fox
+    assert status_label(225) == "225"  # character unknown: never guessed
+    assert status_label(224, "jigglypuff") == "JumpAerialF2 (224)"  # the decomp's odd ftStatus_purin_ prefix
+    assert status_label(225, "wario") == "225" and "wario" in load_errors  # no table: common names only
+    assert len(names) == 229 and max(names) == 228 and len(status_names()) == 220
+    assert status_label(229, "mario") == "229" and status_label(None) == "-" and status_label("x") == "x"
+    cov = coverage()
+    assert len(cov) == 12 and all(n > 0 for n in cov.values()) and cov["mario"] == 9, cov
 
 
 @test
@@ -483,7 +623,7 @@ def panel_texts() -> None:
          "observation": None, "reward": None, "end": "unknown", "end_detail": "not recorded", "targets_broken": None,
          "rows": 12, "rows_to_replay": 11, "prefix_rows": None}
     lines = header_lines(s)
-    assert lines == ["role evaluation · profile m7p_geo4_s1", "rows 12 (11 replayable)"], lines
+    assert lines == ["character ? · role evaluation", "profile m7p_geo4_s1", "rows 12 (11 replayable)"], lines
     assert not any(bad in " ".join(lines) for bad in ("None", "not recorded", "unknown", "observation", "prefix"))
     s.update(end="fall", end_detail="end_reason=fall", targets_broken=6, rows_to_replay=12, prefix_rows=120)
     assert header_lines(s)[-1] == "recorded end fall (end_reason=fall) · targets 6 · rows 12 · prefix 120"
@@ -707,6 +847,242 @@ def viewer_panel_is_stable_and_result_expands() -> None:
             assert ui.path_tip.text.startswith(str(ep.directory))
         finally:
             ui.root.destroy()
+
+
+@test
+def target_break_sources_and_last_target() -> None:
+    """Recorded break ticks (evaluation.json, episodes.jsonl, gate trace, decisions sidecar, MATCH replays) and the
+    last-target rules: exact count, curriculum prefix, clear = completion, 0 targets, otherwise unknown."""
+    import gzip
+
+    import replay_breaks as rbk
+
+    rel = lambda p: Path(p).name  # noqa: E731
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "evaluation.json").write_text(json.dumps({"episodes": [
+            {"episode_id": "e1", "target_break_ticks": [30, 10, 20]},
+            {"episode_id": "e2", "eval_metrics": {"target_breaks": [{"consumed_tick": 5}, {"consumed_tick": 7}]}},
+            {"episode_id": "e3"}]}), encoding="utf-8")
+        with open(d / "episodes.jsonl", "w", encoding="utf-8") as fp:
+            fp.write(json.dumps({"episode_id": "e4", "target_break_ticks": [100]}) + "\n{not json\n")
+        assert rbk.from_summary(d / "evaluation.json", rel) == [("e1", "evaluation", "evaluation.json", [10, 20, 30]),
+                                                                ("e2", "evaluation", "evaluation.json", [5, 7])]
+        assert rbk.from_summary(d / "episodes.jsonl", rel) == [("e4", "episodes_log", "episodes.jsonl", [100])]
+        with gzip.open(d / "gate_trace.json.gz", "wt", encoding="utf-8") as fp:
+            json.dump({"fields": ["t", "live", "targets"], "rows": [[-1, 1, 10], [0, 1, 10], [1, 1, 9], [2, 1, 7]]}, fp)
+        with gzip.open(d / "decisions.json.gz", "wt", encoding="utf-8") as fp:
+            json.dump({"signature_fields": ["live", "targets"], "signatures": [[1, 10], [1, 10], [1, 9], [1, 9]]}, fp)
+        got = rbk.from_episode(d, "e5", ["gate_trace.json.gz", "decisions.json.gz"], rel)
+        assert got == [("e5", "gate_trace", "gate_trace.json.gz", [1, 2, 2]),  # two targets on tick 2
+                       ("e5", "decisions", "decisions.json.gz", [1])], got  # row t + 1 = after consumed tick t
+    match = {"verdict": "MATCH", "trajectory": {"target_break_ticks": [3, 9]}}
+    assert rbk.from_replay(match, "e6")[3] == [3, 9] and rbk.from_replay(dict(match, verdict="DESYNC"), "e6") is None
+
+    base = {"targets": 3, "end_kind": "fall", "completion_tick": None, "completion_time": None, "prefix_rows": None}
+    assert rbk.last_target(base, {"evaluation": [10, 20, 3008]}) == (3008, "3008 · 50.1 s", "evaluation")
+    assert rbk.last_target(base, {"evaluation": [10, 20]}) == (None, "?", "not recorded")  # count differs
+    assert rbk.last_target(base, {"evaluation": [1, 2, 3], "replay": [4, 5, 6]})[2] == "replay"  # replay first
+    assert rbk.last_target(base, {"episodes_log": [], "decisions": [7, 8, 9]})[0] == 9
+    prefix = dict(base, prefix_rows=500)
+    assert rbk.last_target(prefix, {"episodes_log": [600, 900]})[0] == 900  # the missing break is the prefix's
+    assert rbk.last_target(prefix, {"episodes_log": []})[1] == "?"  # every break inside the prefix
+    assert rbk.last_target(prefix, {"episodes_log": [400, 900]})[1] == "?"  # a tick inside the prefix: not trusted
+    clear = dict(base, targets=10, end_kind="clear", completion_tick=447, completion_time=446)
+    assert rbk.last_target(clear, {}) == (446, "446 · 7.43 s", "completion")
+    assert rbk.last_target(dict(base, targets=0), {}) == (None, "–", "no target broken")
+    assert rbk.last_target(dict(base, targets=None), {"evaluation": [1]})[1] == "?"
+
+
+@test
+def browser_filters_sort_and_card() -> None:
+    """The real browser on a temporary index (withdrawn window): default order (targets, then last-target tick),
+    tests hidden by default, live filters with "N of M", tag search, the stage filter only when stages vary, the
+    details card without empty fields, the run tooltip, keyboard selection, heading sort, best per run."""
+    try:
+        import tkinter as tk
+
+        tk.Tk().destroy()
+    except Exception:  # noqa: BLE001 - no display
+        return
+    import replay_browser as rbw
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "runs"
+        art = root / "m7x" / "r1" / "artifacts"
+        fin = obs(input_tick=3, time_passed=2, game_status=5, targets_remaining=4, position_x=-2200.0)
+        clear = write_episode(art / "episode_20260929T000000Z_clear000", rows_of(3), final=obs(targets_remaining=0),
+                              labels={"role": "evaluation", "cleared": True, "termination_reason": "native_clear",
+                                      "completion_time_passed": 446, "completion_input_tick": 447,
+                                      "targets_broken": 10, **MARIO},
+                              terminal={"step_count": 3, "last_consumed_tick": 446, "targets_broken": 10})
+        left = write_episode(art / "episode_20260929T000001Z_left0000", rows_of(3), final=fin,
+                             labels={"role": "evaluation", "end_reason": "fall", "termination_reason": "native_failure",
+                                     "targets_broken": 6, **MARIO},
+                             terminal={"step_count": 3, "last_consumed_tick": 3001, "targets_broken": 6})
+        slow = write_episode(art / "episode_20260929T000002Z_slow0000", rows_of(3), final=obs(targets_remaining=4),
+                             labels={"role": "training", "end_reason": "horizon", "truncation_reason": "max_episode_steps",
+                                     "targets_broken": 6, **MARIO},
+                             terminal={"step_count": 3, "last_consumed_tick": 3600, "targets_broken": 6})
+        unknown = write_episode(art / "episode_20260929T000003Z_unkn0000", rows_of(3), final=obs(targets_remaining=4),
+                                labels={"role": "training", "end_reason": "horizon",
+                                        "truncation_reason": "max_episode_steps", "targets_broken": 6, **MARIO},
+                                terminal={"step_count": 3, "last_consumed_tick": 3600, "targets_broken": 6})
+        old = fall_episode(root / "m7old" / "artifacts" / "episode_20260920T000000Z_old00000")
+        test = write_episode(root / "m7x" / "r2" / "artifacts" / "episode_20260929T000009Z_test0000", rows_of(3),
+                             final=fin, labels={"role": "test", "end_reason": "fall", "targets_broken": 7, **MARIO},
+                             terminal={"step_count": 3, "last_consumed_tick": 2, "targets_broken": 7})
+        smoke = write_episode(root / "_m7_smoke" / "artifacts" / "episode_20260929T000010Z_smok0000", rows_of(3),
+                              final=fin, labels={"role": "training", "end_reason": "fall", "targets_broken": 8},
+                              terminal={"step_count": 3, "last_consumed_tick": 2, "targets_broken": 8})
+        (root / "m7x" / "r1" / "evaluation.json").write_text(json.dumps({"episodes": [
+            {"episode_id": left.name, "target_break_ticks": [10, 20, 30, 40, 50, 2500],
+             "eval_metrics": {"first_left_entry": {"consumed_tick": 3001}}},
+            {"episode_id": slow.name, "target_break_ticks": [1, 2, 3, 4, 5, 3000]}]}), encoding="utf-8")
+        age(root)
+        db = Path(tmp) / "i.sqlite"
+        ri.scan(root=root, db_path=db, progress=lambda m: None)
+        b = rbw.Browser(lambda: ri.load_rows(db_path=db, verdicts_path=Path(tmp) / "v.jsonl"),
+                        lambda **kw: {})
+        b.root.withdraw()
+        try:
+            ids = [r["episode_id"] for r in b.view]
+            # targets desc, then last-target tick asc (unknown last); tests hidden
+            assert ids == [clear.name, left.name, slow.name, unknown.name, old.name], ids
+            assert [r["last_target_text"] for r in b.view[:4]] == ["446 · 7.43 s", "2500 · 41.7 s", "3000 · 50.0 s",
+                                                                   "?"]
+            assert b.count.get() == "5 of 7 episodes (2 tests hidden)" and not b.stage_box.winfo_manager()
+            b.show_tests.set(True)
+            b.apply()
+            assert {r["episode_id"] for r in b.view} >= {test.name, smoke.name} and b.count.get() == "7 of 7 episodes"
+            b.show_tests.set(False)
+            assert b.combos["character"].cget("values")[-1] == "?"
+            b.vars["character"].set("?")
+            b.apply()
+            assert [r["episode_id"] for r in b.view] == [old.name] and b.count.get().startswith("1 of 7 episodes")
+            b.reset_filters()
+            b.vars["text"].set("LEFT entry @3001")
+            b.apply()
+            assert [r["episode_id"] for r in b.view] == [left.name]
+            b.vars["end"].set("clear")
+            b.apply()
+            assert b.view == []
+            b.reset_filters()
+            b.table.select(0)
+            fields = dict(rbw.card_fields(b.table.selected()))
+            assert fields["character"] == "Mario" and fields["last target"] == "446 · 7.43 s (completion)"
+            assert fields["end"].startswith("clear") and "worker" not in fields and "test episode" not in fields
+            assert not any(v in ("None", "") for v in fields.values())
+            assert b.card_title.cget("text") == clear.name and str(b.buttons[0].cget("state")) == "normal"
+            assert (0, "run") in b.table._tips and b.table._tips[(0, "run")].endswith(clear.name)
+            old_fields = dict(rbw.card_fields(next(r for r in b.rows if r["episode_id"] == old.name)))
+            assert old_fields["character"] == "? (not recorded)" and "stage" not in old_fields
+            b.table._key(1)
+            assert b.table.selected()["episode_id"] == left.name
+            b.sort_by("last")  # ascending: 446 (clear), 2500, 3000, then the unknowns
+            assert [r["episode_id"] for r in b.view][:3] == [clear.name, left.name, slow.name]
+            assert b.table.selected()["episode_id"] == left.name  # the selection survives re-sorting
+            b.sort_by("targets")
+            # best per run: m7x/r1 -> the clear (4 episodes), m7old -> its only one
+            b.best_run.set(True)
+            b.apply()
+            assert [(r["episode_id"], r["run_count_text"]) for r in b.view] == [(clear.name, "4"), (old.name, "1")]
+            assert "runeps" in [c[0] for c in b.table.columns] and b.count.get().startswith("2 runs (best of 5")
+            b.vars["min_targets"].set("6")
+            b.apply()
+            assert [(r["episode_id"], r["run_count_text"]) for r in b.view] == [(clear.name, "4")]
+            b.vars["role"].set("training")
+            b.apply()
+            assert [(r["episode_id"], r["run_count_text"]) for r in b.view] == [(slow.name, "2 of 4")]
+            b.reset_filters()
+            assert "runeps" not in [c[0] for c in b.table.columns]
+        finally:
+            b.root.destroy()
+
+
+@test
+def browser_check_filtered() -> None:
+    """Check filtered with a stand-in runner: the verdict column and an unknown last target update per result,
+    the confirmation above CONFIRM_ABOVE episodes, cancel, and the reload at the end."""
+    try:
+        import tkinter as tk
+
+        tk.Tk().destroy()
+    except Exception:  # noqa: BLE001 - no display
+        return
+    import replay_browser as rbw
+
+    class FakeBatch:
+        made: List["FakeBatch"] = []
+
+        def __init__(self, paths, on_start, on_result, on_done):
+            self.paths, self.on_start, self.on_result, self.on_done = paths, on_start, on_result, on_done
+            self.counts, self.finished_count, self.state, self.cancelled = {}, 0, "running", False
+            FakeBatch.made.append(self)
+
+        def start(self):
+            pass
+
+        def step(self, verdict, ticks=None):
+            i = self.finished_count
+            self.on_start(i, self.paths[i])
+            self.counts[verdict] = self.counts.get(verdict, 0) + 1
+            self.finished_count += 1
+            self.on_result(i, self.paths[i], {"verdict": verdict, "trajectory": {"target_break_ticks": ticks or []},
+                                              "error": None})
+
+        def finish(self):
+            self.state = "cancelled" if self.cancelled else "done"
+            self.on_done(self)
+
+        def cancel(self):
+            self.cancelled = True
+
+        def join(self, _timeout=None):
+            pass
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "runs"
+        art = root / "m7x" / "r1" / "artifacts"
+        eps = [write_episode(art / f"episode_20260929T00000{i}Z_chk{i}0000", rows_of(3), final=obs(targets_remaining=8),
+                             labels={"role": "evaluation", "end_reason": "horizon",
+                                     "truncation_reason": "max_episode_steps", "targets_broken": 2, **MARIO},
+                             terminal={"step_count": 3, "last_consumed_tick": 3599, "targets_broken": 2})
+               for i in range(3)]
+        age(root)
+        db = Path(tmp) / "i.sqlite"
+        ri.scan(root=root, db_path=db, progress=lambda m: None)
+        b = rbw.Browser(lambda: ri.load_rows(db_path=db, verdicts_path=Path(tmp) / "v.jsonl"), lambda **kw: {})
+        b.root.withdraw()
+        b.batch_factory = FakeBatch
+        asked = []
+        b._confirm = lambda n: asked.append(n) or False
+        saved_limit = rbw.CONFIRM_ABOVE
+        try:
+            rbw.CONFIRM_ABOVE = 2
+            b.check_filtered()  # 3 listed > 2: asks, and "no" starts nothing
+            assert asked == [3] and b.batch is None and not FakeBatch.made
+            rbw.CONFIRM_ABOVE = 50
+            assert all(r["last_target_text"] == "?" for r in b.view)
+            b.check_filtered()
+            batch = FakeBatch.made[-1]
+            assert b.batch is batch and b.check_btn.cget("text") == "Cancel check" and len(batch.paths) == 3
+            batch.step("MATCH", [100, 200])
+            b._drain()
+            r0 = next(r for r in b.rows if str(ri.REPO_ROOT / r["path"]) == str(batch.paths[0]))
+            assert r0["replay"] == "MATCH" and r0["last_target_text"] == "200 · 3.3 s"  # filled in by the replay
+            assert "checking 1/3" in b.status.get() and "1 MATCH" in b.status.get()
+            batch.step("DESYNC")
+            b._drain()
+            b.check_filtered()  # the button now cancels
+            assert batch.cancelled and "cancelling" in b.status.get()
+            batch.finish()
+            b._drain()
+            assert b.batch is None and b.check_btn.cget("text") == "Check filtered…"
+            assert b.status.get() == "check cancelled after 2 of 3 episodes · 1 MATCH · 1 DESYNC", b.status.get()
+        finally:
+            rbw.CONFIRM_ABOVE = saved_limit
+            b.root.destroy()
 
 
 def main() -> int:
