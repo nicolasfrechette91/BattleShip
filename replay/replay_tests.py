@@ -254,6 +254,161 @@ def index_scan_incremental_and_sources() -> None:
         assert s3["removed"] == 1, s3
 
 
+# -- replay_history (saved frames) ------------------------------------------------------------------------------------
+
+
+def saved(tick: int, nbytes: int = 12):
+    from replay_history import SavedFrame
+
+    return SavedFrame(tick=tick, width=2, height=2, rgb=bytes(nbytes))
+
+
+@test
+def history_config_and_memory() -> None:
+    from replay_history import HistoryConfig, frame_bytes, history_bytes
+
+    default = HistoryConfig()
+    assert default.frames == 600 and default.scale == 2 and default.enabled and default.capture == "always"
+    assert frame_bytes(960, 720, 2) == 480 * 360 * 3 == 518_400
+    assert history_bytes(default, 960, 720) == 311_040_000  # the documented ~311 MB
+    assert history_bytes(HistoryConfig(scale=1), 960, 720) == 1_244_160_000
+    assert history_bytes(HistoryConfig(scale=4), 960, 720) == 77_760_000
+    assert HistoryConfig(seconds=0).frames == 0 and not HistoryConfig(seconds=0).enabled
+    assert HistoryConfig(seconds=2.5).frames == 150
+
+
+@test
+def history_eviction_keeps_frames_near_the_game() -> None:
+    from replay_history import FrameHistory
+
+    h = FrameHistory(3)
+    for t in range(-1, 5):  # playback: the oldest ticks go first
+        h.put(saved(t))
+    assert h.ticks() == [2, 3, 4] and len(h) == 3 and h.nbytes == 36 and h.span() == (2, 4)
+    h.put(saved(0))  # a rebuild inserts an older tick: the frame farthest from it goes
+    assert h.ticks() == [0, 2, 3], h.ticks()
+    h.put(saved(3, nbytes=99))  # replacing a tick keeps the count
+    assert len(h) == 3 and h.get(3).nbytes == 99 and 2 in h and 4 not in h
+    off = FrameHistory(0)
+    off.put(saved(1))
+    assert len(off) == 0 and off.get(1) is None
+
+
+@test
+def pixel_conversion_and_ppm() -> None:
+    from replay_history import bgrx_to_rgb, ppm
+
+    bgrx = bytes([1, 2, 3, 0, 10, 20, 30, 255])  # two pixels, GDI order B,G,R,X
+    assert bgrx_to_rgb(bgrx) == bytes([3, 2, 1, 30, 20, 10])
+    data = ppm(2, 1, bgrx_to_rgb(bgrx))
+    assert data.startswith(b"P6 2 1 255\n") and data.endswith(bytes([3, 2, 1, 30, 20, 10]))
+    try:
+        import tkinter as tk
+
+        root = tk.Tk()
+    except Exception:  # noqa: BLE001 - no display: the byte-level checks above still ran
+        return
+    try:
+        img = tk.PhotoImage(data=data, format="PPM")
+        assert (img.width(), img.height()) == (2, 1)
+        assert tuple(img.get(0, 0)) == (3, 2, 1) and tuple(img.get(1, 0)) == (30, 20, 10)
+        assert img.zoom(2).width() == 4
+    finally:
+        root.destroy()
+
+
+@test
+def navigation_plans() -> None:
+    from replay_history import FrameHistory, plan_back, plan_forward, plan_view
+
+    h = FrameHistory(100)
+    for t in range(40, 100):  # saved ticks 40..99, live game at 100, last row 3444
+        h.put(saved(t))
+    last = 3444
+    assert plan_back(None, 100, h, last) == ("saved", 99)  # Left from the live game: instant
+    assert plan_back(41, 100, h, last) == ("saved", 40)
+    assert plan_back(40, 100, h, last) == ("rebuild", 39)  # older than the saved frames
+    assert plan_forward(98, 100, h, last) == ("saved", 99)
+    assert plan_forward(99, 100, h, last) == ("live", 100)  # back to the live game
+    assert plan_forward(None, 100, h, last) == ("forward", 101)  # a real step
+    assert plan_view(-1, 100, h, last) == ("rebuild", -1)  # tick-0 state not saved -> restart
+    assert plan_back(-1, 100, h, last) == ("none", -2)
+    assert plan_view(3000, 100, h, last) == ("forward", 3000)
+    assert plan_view(3445, 100, h, last) == ("none", 3445)
+    assert plan_back(None, -1, None, last) == ("none", -2)  # at the start, no history
+    assert plan_back(None, 5, None, last) == ("rebuild", 4)  # history off: always rebuild
+
+
+@test
+def engine_capture_policy() -> None:
+    from replay_game import ReplayEngine
+    from replay_history import HistoryConfig
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ep = load_episode(fall_episode(Path(tmp) / "episode_x_policy"))
+        always = ReplayEngine(ep, history=HistoryConfig(seconds=10))
+        assert always.history is not None and always.history.capacity == 600
+        assert always._should_capture(5, paced=True) and always._should_capture(5, paced=False)
+        always._jump_to = 1001  # fast-forward to tick 1000: only its last 600 ticks are kept
+        assert not always._should_capture(400, paced=False) and always._should_capture(401, paced=False)
+        slow = ReplayEngine(ep, history=HistoryConfig(seconds=10, capture="slow"))
+        assert not slow._should_capture(5, paced=True)  # 1x playback
+        assert slow._should_capture(5, paced=False)  # single step
+        slow._speed = 0.5
+        assert slow._should_capture(5, paced=True)
+        off = ReplayEngine(ep, history=HistoryConfig(seconds=0))
+        assert off.history is None and not off._should_capture(5, paced=False)
+
+
+@test
+def capture_worker_never_stores_a_doubtful_frame() -> None:
+    """CaptureWorker._copy with a fake capturer: the timing rule that keeps a saved frame from showing tick k+1."""
+    import collections
+    import time as _time
+
+    from replay_game import CAPTURE_SAFE_S, CaptureWorker
+    from replay_history import FrameHistory, HistoryConfig
+
+    class FakeCapturer:
+        def __init__(self, frames, read_delay):
+            self.frames, self.read_delay, self.last_read_time, self.calls = list(frames), read_delay, 0.0, 0
+
+        def capture(self, hwnd, divisor):
+            self.calls += 1
+            data = self.frames.pop(0) if len(self.frames) > 1 else self.frames[0]
+            self.last_read_time = _time.perf_counter() + self.read_delay
+            return 1, 1, data
+
+    class FakeEngine:
+        def __init__(self):
+            self.history_config = HistoryConfig(seconds=1)
+            self.history = FrameHistory(60)
+            self._last_submit = (-2, 0.0)
+            self.capture_ms = collections.deque(maxlen=10)
+            self.stale_retries = self.late_drops = 0
+
+    px = [bytes([i, i, i, 0]) for i in range(8)]
+    e = FakeEngine()
+    w = CaptureWorker(e)
+    now = _time.perf_counter()
+    w._copy(FakeCapturer([px[1]], 0.0), 1, None, {}, None, 0, now)  # on time
+    assert 1 in e.history and e.late_drops == 0
+    e._last_submit = (3, now)  # tick 3 already submitted
+    w._copy(FakeCapturer([px[2]], CAPTURE_SAFE_S + 0.01), 2, None, {}, None, 0, now)  # read too late -> dropped
+    assert 2 not in e.history and e.late_drops == 1
+    e._last_submit = (3, _time.perf_counter() + 1.0)  # next tick not submitted before the (late) read: still safe
+    w._copy(FakeCapturer([px[3]], CAPTURE_SAFE_S + 0.01), 3, None, {}, None, 0, _time.perf_counter())
+    assert 3 in e.history and e.late_drops == 1
+    fake = FakeCapturer([px[3], px[4]], 0.0)  # first read still shows tick 3 (stale) -> re-read
+    e._last_submit = (4, _time.perf_counter())
+    w._copy(fake, 4, None, {}, None, 0, _time.perf_counter())
+    assert e.stale_retries == 1 and fake.calls == 2 and e.history.get(4).rgb == bytes([4, 4, 4])
+    e._last_submit = (9, _time.perf_counter())
+    idle = FakeCapturer([px[5]], 0.0)
+    w._copy(idle, 5, None, {}, None, 0, _time.perf_counter() - 1.0)  # far behind: skipped without reading
+    assert idle.calls == 0 and 5 not in e.history and e.late_drops == 2
+
+
 def main() -> int:
     failed = 0
     for fn in TESTS:

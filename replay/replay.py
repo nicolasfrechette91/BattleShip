@@ -16,12 +16,20 @@ metadata.json and prints MATCH or DESYNC.
     --speed S        0.25, 0.5, 1, 2 or 4 (rendered playback is capped at 1x)
     --start-tick N   fast-forward to tick N first
     --exit-at-end    close everything after the verdict (scripted runs)
+    --history-seconds S   saved frames for instant steps back (default 10 s = 600
+                          frames; 0 disables)
+    --history-scale N     saved-frame resolution = game window / N (default 2 =
+                          half: ~311 MB for 10 s of a 960x720 window)
+    --history-capture M   always (default) | slow: only single steps, <= 0.5x
+                          and the end of fast-forwards
+    --history-filter F    smooth (default) | nearest (less CPU per saved frame)
 
 Exit codes: 0 MATCH, 1 DESYNC, 2 bad arguments or artifact, 3 BattleShip
 failed or the replay did not reach the end.
 
 Keys (control panel, or the game window while it has focus): Space play/pause,
-Right or . single step, + / - speed, R restart, G jump, Q / Esc quit.
+Left or , back one tick (saved frame, or rebuild when older), Right or . step,
++ / - speed, R restart, G jump, Q / Esc quit.
 Do not press other keys in the game window (Ctrl+R resets the game, the Esc
 menu can change gameplay settings); either would desync the replay.
 """
@@ -39,6 +47,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from replay_episode import EpisodeError, episode_summary, format_verdict, load_episode  # noqa: E402
 from replay_game import (DEFAULT_EXE, SPEEDS, Geometry, ReplayEngine, ReplayRuntimeError, check_episode,  # noqa: E402
                          executable_identity, load_state, record_verdict)
+from replay_history import (CAPTURE_MODES, DEFAULT_SCALE, DEFAULT_SECONDS, FILTERS, HistoryConfig,  # noqa: E402
+                            history_bytes)
 
 EXIT_MATCH, EXIT_DESYNC, EXIT_USAGE, EXIT_RUNTIME = 0, 1, 2, 3
 
@@ -76,7 +86,19 @@ def main(argv=None) -> int:
     ap.add_argument("--no-hud", action="store_true", help="control panel only, no overlay on the game window")
     ap.add_argument("--exe", type=Path, default=DEFAULT_EXE, help=f"BattleShip executable (default {DEFAULT_EXE})")
     ap.add_argument("--keep-session", action="store_true", help="keep replay/_local/sessions/<id> for debugging")
+    ap.add_argument("--history-seconds", type=float, default=DEFAULT_SECONDS,
+                    help=f"saved frames for instant steps back, in seconds of ticks (default {DEFAULT_SECONDS:g}; 0 = off)")
+    ap.add_argument("--history-scale", type=int, choices=(1, 2, 3, 4), default=DEFAULT_SCALE,
+                    help="saved-frame resolution = game window / N (default 2 = half)")
+    ap.add_argument("--history-capture", choices=CAPTURE_MODES, default="always",
+                    help="always (default), or slow = only single steps, <= 0.5x and the end of fast-forwards")
+    ap.add_argument("--history-filter", choices=FILTERS, default="smooth",
+                    help="downscale filter: smooth (default, ~4 ms CPU per frame) or nearest (~0.4 ms)")
     args = ap.parse_args(argv)
+    if args.history_seconds < 0:
+        ap.error("--history-seconds must be >= 0")
+    history = HistoryConfig(seconds=args.history_seconds, scale=args.history_scale, capture=args.history_capture,
+                            filter=args.history_filter)
 
     try:
         ep = load_episode(args.episode)
@@ -115,8 +137,11 @@ def main(argv=None) -> int:
     if args.size:
         geometry.width, geometry.height = args.size
 
+    if history.enabled:
+        print(f"  saved frames: {history.frames} ticks at 1/{history.scale} resolution, up to "
+              f"{history_bytes(history, geometry.width, geometry.height) / 1e6:.0f} MB ({history.capture} capture)")
     engine = ReplayEngine(ep, executable=args.exe, speed=args.speed, play=args.play, start_tick=args.start_tick,
-                          geometry=geometry, keep_session=args.keep_session)
+                          geometry=geometry, keep_session=args.keep_session, history=history)
     try:
         import replay_ui
     except ImportError as exc:  # tkinter missing

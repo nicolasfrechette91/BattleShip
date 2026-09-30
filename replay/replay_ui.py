@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Tk control panel and HUD overlay for the replay viewer (standard library only).
+"""Tk control panel, HUD overlay and saved-frame view for the replay viewer (standard library only).
 
 The game renders in its own window; the viewer never draws into it. The HUD
 is a separate borderless, click-through, color-keyed tk window kept on top of
 the game window's client area (tick, stick direction, button, targets broken,
-playback state). The control panel is an ordinary tk window. All game control
-goes through ReplayEngine commands; the UI only reads engine snapshots.
+playback state). The control panel is an ordinary tk window.
+
+Stepping back uses the saved-frame history (replay_history.py): a stored frame
+of an earlier tick is shown in a click-through window over the game window,
+framed in cyan, while the HUD shows "SAVED FRAME tick N" and the live tick. The
+game itself is not touched until playback resumes past the saved frames or a
+tick older than the history is requested ("rebuilding to tick N": fresh
+process + fast-forward). All game control goes through ReplayEngine commands;
+the UI only reads engine snapshots and the history.
 """
 
 from __future__ import annotations
@@ -19,17 +26,24 @@ from typing import Any, Dict, Optional
 import replay_win32 as win32
 from replay_episode import button_name, stick_arrow
 from replay_game import SPEEDS, MAX_RENDERED_SPEED, ReplayEngine, load_state, save_state
+from replay_history import SavedFrame, plan_back, plan_forward, plan_view, ppm
 
 POLL_MS = 33
+REVIEW_PLAY_MS = 8
 HUD_KEY = "#010101"  # color key: pixels of exactly this color are transparent
-HUD_W, HUD_H = 330, 118
+HUD_W, HUD_H = 330, 146
 FONT = ("Consolas", 11)
 FONT_BIG = ("Consolas", 12, "bold")
-GREEN, RED, AMBER, WHITE = "#4ade80", "#f87171", "#fbbf24", "#f5f5f5"
+GREEN, RED, AMBER, WHITE, CYAN = "#4ade80", "#f87171", "#fbbf24", "#f5f5f5", "#22d3ee"
+REVIEW_BANNER_BG = "#0e4a5a"
 
 
 def speed_label(v: float) -> str:
     return f"{v:g}x" + (" (capped at 1x)" if v > MAX_RENDERED_SPEED else "")
+
+
+def tick_label(tick: int) -> str:
+    return "tick-0 state" if tick < 0 else f"tick {tick}"
 
 
 class Hud:
@@ -75,6 +89,10 @@ class Hud:
             self._last_geom = geom
             self.win.attributes("-topmost", True)
 
+    def raise_above(self) -> None:
+        self.win.lift()
+        self.win.attributes("-topmost", True)
+
     def hide(self) -> None:
         if self.visible:
             self.win.withdraw()
@@ -85,26 +103,32 @@ class Hud:
             self.canvas.create_text(x + dx, y + dy, text=text, fill="#000000", anchor="nw", font=font)
         self.canvas.create_text(x, y, text=text, fill=color, anchor="nw", font=font)
 
-    def draw(self, snap: Dict[str, Any]) -> None:
+    def draw(self, view: Dict[str, Any]) -> None:
         c = self.canvas
         c.delete("all")
-        row = snap["last_row"]
-        obs = snap["observation"]
-        tick = f"tick {row.sequence_index}" if row is not None else "tick - (tick-0 state)"
-        self._text(8, 4, f"{tick}  / {snap['rows'] - 1}", font=FONT_BIG)
+        y0 = 4
+        if view["review"]:
+            # Unmistakable: a solid banner (not color-keyed) naming the saved tick and where the live game is.
+            c.create_rectangle(0, 0, HUD_W, 24, fill=REVIEW_BANNER_BG, outline=CYAN, width=2)
+            c.create_text(8, 4, anchor="nw", fill=CYAN, font=FONT_BIG,
+                          text=f"◀ SAVED FRAME  {tick_label(view['tick'])}")
+            c.create_text(HUD_W - 6, 5, anchor="ne", fill=WHITE, font=FONT, text=f"live {view['live_tick']}")
+            y0 = 28
+        row = view["row"]
+        obs = view["observation"]
+        self._text(8, y0, f"{tick_label(view['tick'])}  / {view['rows'] - 1}", CYAN if view["review"] else WHITE,
+                   FONT_BIG)
         if row is not None:
-            arrow = stick_arrow(row.stick_x, row.stick_y)
-            self._text(8, 26, f"stick {arrow} ({row.stick_x:+d},{row.stick_y:+d})")
-            self._text(8, 46, f"button {button_name(row.buttons)}",
-                       AMBER if row.buttons else WHITE)
+            self._text(8, y0 + 22, f"stick {stick_arrow(row.stick_x, row.stick_y)} ({row.stick_x:+d},{row.stick_y:+d})")
+            self._text(8, y0 + 42, f"button {button_name(row.buttons)}", AMBER if row.buttons else WHITE)
         else:
-            self._text(8, 26, "stick -")
-            self._text(8, 46, "button -")
-        tb, tt = snap["targets_broken"], snap["targets_total"]
-        self._text(8, 66, f"targets {tb if tb is not None else '-'}/{tt}")
-        self._text(8, 90, status_text(snap), status_color(snap))
+            self._text(8, y0 + 22, "stick -")
+            self._text(8, y0 + 42, "button -")
+        tb, tt = view["targets_broken"], view["targets_total"]
+        self._text(8, y0 + 62, f"targets {tb if tb is not None else '-'}/{tt}")
+        self._text(8, y0 + 86, view["status"], view["status_color"])
         # stick diagram
-        cx, cy, r = HUD_W - 40, 44, 26
+        cx, cy, r = HUD_W - 40, y0 + 40, 26
         c.create_oval(cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1, outline="#000000", width=3)
         c.create_oval(cx - r, cy - r, cx + r, cy + r, outline=WHITE, width=1)
         c.create_line(cx - r, cy, cx + r, cy, fill="#777777")
@@ -118,12 +142,77 @@ class Hud:
             c.create_line(cx, cy, px, py, fill=AMBER, width=2)
             c.create_oval(px - 5, py - 5, px + 5, py + 5, fill=AMBER, outline="#000000")
         if obs:
-            self._text(HUD_W - 118, 76, f"x {obs.get('position_x', 0):8.1f}")
-            self._text(HUD_W - 118, 94, f"y {obs.get('position_y', 0):8.1f}")
+            self._text(HUD_W - 118, y0 + 72, f"x {obs.get('position_x', 0):8.1f}")
+            self._text(HUD_W - 118, y0 + 90, f"y {obs.get('position_y', 0):8.1f}")
+
+
+class ReviewOverlay:
+    """A click-through window exactly over the game's client area showing one saved frame, framed in cyan."""
+
+    BORDER = 4
+
+    def __init__(self, root: tk.Tk):
+        self.win = tk.Toplevel(root)
+        self.win.overrideredirect(True)
+        self.win.attributes("-topmost", True)
+        self.win.configure(bg="#000000")
+        self.canvas = tk.Canvas(self.win, bg="#000000", highlightthickness=0, bd=0)
+        self.canvas.pack(fill="both", expand=True)
+        self.win.withdraw()
+        self.visible = False
+        self.hwnd: Optional[int] = None
+        self._image: Optional[tk.PhotoImage] = None
+        self._key: Optional[tuple] = None
+        self._geom = ""
+
+    def show(self, frame: SavedFrame, rect: tuple) -> bool:
+        """Display `frame` over rect; True when the window (re)appeared or moved (the HUD must be raised again)."""
+        x, y, w, h = rect
+        changed = False
+        key = (frame.tick, w, h)
+        if key != self._key:
+            img = tk.PhotoImage(data=ppm(frame.width, frame.height, frame.rgb), format="PPM")
+            factor = max(1, int(round(w / frame.width))) if frame.width else 1
+            self._image = img.zoom(factor) if factor > 1 else img
+            c = self.canvas
+            c.delete("all")
+            c.create_image(0, 0, image=self._image, anchor="nw")
+            b = self.BORDER
+            c.create_rectangle(b // 2, b // 2, w - b // 2, h - b // 2, outline=CYAN, width=b)
+            self._key = key
+        geom = f"{w}x{h}+{x}+{y}"
+        if not self.visible:
+            self.win.deiconify()
+            self.visible = True
+            changed = True
+            self.win.update_idletasks()
+            if self.hwnd is None:
+                try:
+                    self.hwnd = int(self.win.wm_frame(), 16)
+                    win32.make_click_through(self.hwnd)
+                except (tk.TclError, ValueError):
+                    self.hwnd = None
+        if geom != self._geom:
+            self.win.geometry(geom)
+            self.win.update_idletasks()
+            self._geom = geom
+            self.win.attributes("-topmost", True)
+            changed = True
+        return changed
+
+    def hide(self) -> None:
+        if self.visible:
+            self.win.withdraw()
+            self.visible = False
 
 
 def status_text(snap: Dict[str, Any]) -> str:
     phase = snap["phase"]
+    if snap.get("rebuilding") and phase in ("booting", "jumping"):
+        target = snap.get("rebuild_to")
+        if phase == "booting":
+            return f"⟲ rebuilding to {tick_label(target)}: starting BattleShip"
+        return f"⟲ rebuilding to {tick_label(target)} ({max(snap['live_tick'], 0)}/{target})"
     if phase == "playing":
         tps = snap["achieved_tps"]
         rate = f" {tps:4.1f} ticks/s" if tps else ""
@@ -131,7 +220,7 @@ def status_text(snap: Dict[str, Any]) -> str:
     if phase == "paused":
         return "❚❚ paused"
     if phase == "jumping":
-        return f"» jump to tick {snap['jump_to'] - 1}"
+        return f"» fast-forward to tick {snap['jump_to'] - 1}"
     if phase == "booting":
         return "starting BattleShip..."
     if phase == "ended":
@@ -143,6 +232,8 @@ def status_text(snap: Dict[str, Any]) -> str:
 
 
 def status_color(snap: Dict[str, Any]) -> str:
+    if snap.get("rebuilding"):
+        return AMBER
     if snap["phase"] == "ended":
         return GREEN if snap["verdict"] == "MATCH" else RED
     if snap["phase"] == "error" or snap["mismatch"]:
@@ -153,19 +244,26 @@ def status_color(snap: Dict[str, Any]) -> str:
 class ViewerUI:
     def __init__(self, engine: ReplayEngine, *, summary: Dict[str, Any], hud: bool = True, exit_at_end: bool = False):
         self.engine = engine
+        self.history = engine.history
+        self.last_tick = len(engine.rows) - 1
         self.summary = summary
         self.exit_at_end = exit_at_end
         self.root = tk.Tk()
         self.root.title(f"Replay - {summary['episode_id']}")
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.review = ReviewOverlay(self.root)
         self.hud = Hud(self.root) if hud else None
+        self.view_tick: Optional[int] = None  # None = live game; else the saved tick shown
+        self._review_play: Optional[tuple] = None  # (t0, start tick) while playing through saved frames
+        self._pending_back = False
+        self._note = ""
         self._closing = False
         self._end_seen = False
         self._last_error: Optional[str] = None
         self._seeking = False
         self._panel_placed = False
         self._keys_prev: Dict[str, bool] = {}
-        self._repeat_at = 0.0
+        self._repeat_at: Dict[str, float] = {}
         self._build()
         saved = load_state().get("panel_geometry")
         if isinstance(saved, str):
@@ -180,7 +278,7 @@ class ViewerUI:
     def _build(self) -> None:
         s = self.summary
         root = self.root
-        root.minsize(560, 420)
+        root.minsize(600, 440)
         pad = {"padx": 8, "pady": 3}
         info = ttk.LabelFrame(root, text="Recorded episode")
         info.pack(fill="x", **pad)
@@ -202,9 +300,12 @@ class ViewerUI:
         now.pack(fill="x", **pad)
         self.status = tk.StringVar(value="starting...")
         self.detail = tk.StringVar(value="")
-        ttk.Label(now, textvariable=self.status, font=FONT_BIG).pack(anchor="w", padx=6)
+        self.history_line = tk.StringVar(value="")
+        self.status_label = tk.Label(now, textvariable=self.status, font=FONT_BIG, anchor="w")
+        self.status_label.pack(fill="x", padx=6)
         ttk.Label(now, textvariable=self.detail, font=FONT).pack(anchor="w", padx=6)
-        self.seek = tk.Scale(now, from_=0, to=max(0, len(self.engine.rows) - 1), orient="horizontal",
+        ttk.Label(now, textvariable=self.history_line, font=("Segoe UI", 8)).pack(anchor="w", padx=6)
+        self.seek = tk.Scale(now, from_=0, to=max(0, self.last_tick), orient="horizontal",
                              showvalue=True, resolution=1, length=520, takefocus=0)
         self.seek.pack(fill="x", padx=6)
         self.seek.bind("<ButtonPress-1>", lambda e: setattr(self, "_seeking", True))
@@ -212,11 +313,11 @@ class ViewerUI:
 
         bar = ttk.Frame(root)
         bar.pack(fill="x", **pad)
-        ttk.Button(bar, text="Restart (R)", takefocus=False, command=lambda: self.engine.send("restart")).pack(side="left")
-        self.play_btn = ttk.Button(bar, text="Play (Space)", width=13, takefocus=False,
-                                   command=lambda: self.engine.send("toggle"))
+        ttk.Button(bar, text="Restart (R)", takefocus=False, command=self.restart).pack(side="left")
+        ttk.Button(bar, text="◀ Back (←)", takefocus=False, command=self.step_back).pack(side="left", padx=(4, 0))
+        self.play_btn = ttk.Button(bar, text="Play (Space)", width=13, takefocus=False, command=self.toggle)
         self.play_btn.pack(side="left", padx=4)
-        ttk.Button(bar, text="Step (→)", takefocus=False, command=lambda: self.engine.send("step")).pack(side="left")
+        ttk.Button(bar, text="Step (→)", takefocus=False, command=self.step_forward).pack(side="left")
         ttk.Label(bar, text="  speed").pack(side="left")
         self.speed = ttk.Combobox(bar, width=16, state="readonly", takefocus=False, values=[speed_label(v) for v in SPEEDS])
         self.speed.current(SPEEDS.index(self.engine.speed) if self.engine.speed in SPEEDS else 2)
@@ -230,20 +331,21 @@ class ViewerUI:
 
         res = ttk.LabelFrame(root, text="Result (replayed vs metadata.json)")
         res.pack(fill="both", expand=True, **pad)
-        self.result = tk.Text(res, height=11, font=FONT, wrap="word", state="disabled")
+        self.result = tk.Text(res, height=10, font=FONT, wrap="word", state="disabled")
         self.result.tag_configure("match", foreground="#15803d", font=FONT_BIG)
         self.result.tag_configure("desync", foreground="#b91c1c", font=FONT_BIG)
         self.result.pack(fill="both", expand=True, padx=4, pady=4)
-        ttk.Label(root, text="Keys: Space play/pause, → or . step, + / - speed, R restart, G jump, Q quit. "
-                             "Don't use other keys in the game window.", font=("Segoe UI", 8)).pack(anchor="w", padx=8)
+        ttk.Label(root, text="Keys: Space play/pause, ← or , back, → or . step, + / - speed, R restart, "
+                             "G jump, Q quit. Don't use other keys in the game window.",
+                  font=("Segoe UI", 8)).pack(anchor="w", padx=8)
 
-        for seq, fn in (("<space>", lambda e: self.engine.send("toggle")),
-                        ("<Right>", lambda e: self.engine.send("step")),
-                        ("<period>", lambda e: self.engine.send("step")),
+        for seq, fn in (("<space>", lambda e: self.toggle()),
+                        ("<Right>", lambda e: self.step_forward()), ("<period>", lambda e: self.step_forward()),
+                        ("<Left>", lambda e: self.step_back()), ("<comma>", lambda e: self.step_back()),
                         ("<plus>", lambda e: self._bump_speed(+1)), ("<equal>", lambda e: self._bump_speed(+1)),
                         ("<KP_Add>", lambda e: self._bump_speed(+1)),
                         ("<minus>", lambda e: self._bump_speed(-1)), ("<KP_Subtract>", lambda e: self._bump_speed(-1)),
-                        ("r", lambda e: self.engine.send("restart")), ("R", lambda e: self.engine.send("restart")),
+                        ("r", lambda e: self.restart()), ("R", lambda e: self.restart()),
                         ("g", lambda e: self._focus_jump()), ("G", lambda e: self._focus_jump()),
                         ("q", lambda e: self.close()), ("<Escape>", lambda e: self.close())):
             self.root.bind(seq, self._shortcut(fn))
@@ -258,11 +360,112 @@ class ViewerUI:
             return "break"
         return handler
 
+    # -- navigation ---------------------------------------------------------------------------------------
+
+    def _live_tick(self, snap: Optional[Dict[str, Any]] = None) -> int:
+        return (snap or self.engine.snapshot())["live_tick"]
+
+    def _busy(self, snap: Dict[str, Any]) -> bool:
+        return snap["phase"] in ("booting", "jumping")
+
+    def _enter_review(self, tick: int) -> None:
+        self.view_tick = tick
+        self._note = ""
+
+    def _exit_review(self) -> None:
+        self.view_tick = None
+        self._review_play = None
+
+    def _rebuild(self, tick: int) -> None:
+        """Older than the saved frames: fresh process + fast-forward (the engine shows 'rebuilding to tick N')."""
+        self._exit_review()
+        self.engine.send("jump", tick)
+
+    def _apply(self, plan: tuple) -> None:
+        kind, tick = plan
+        if kind == "saved":
+            self._enter_review(tick)
+        elif kind == "live":
+            self._exit_review()
+        elif kind == "rebuild":
+            self._rebuild(tick)
+        elif kind == "forward":
+            self._exit_review()
+            self.engine.send("step" if tick == self._live_tick() + 1 else "jump", tick)
+        else:
+            self._note = "already at the tick-0 state" if tick < 0 else "already at the last row"
+        self._refresh()
+
+    def step_back(self) -> None:
+        snap = self.engine.snapshot()
+        if self._busy(snap):
+            return
+        self._review_play = None
+        if snap["phase"] == "playing":  # stop the game first, then step back from where it stopped
+            self.engine.send("pause")
+            self._pending_back = True
+            return
+        self._apply(plan_back(self.view_tick, snap["live_tick"], self.history, self.last_tick))
+
+    def step_forward(self) -> None:
+        snap = self.engine.snapshot()
+        if self._busy(snap):
+            return
+        self._review_play = None
+        if self.view_tick is None:
+            self.engine.send("step")
+            return
+        self._apply(plan_forward(self.view_tick, snap["live_tick"], self.history, self.last_tick))
+
+    def toggle(self) -> None:
+        if self.view_tick is None:
+            self.engine.send("toggle")
+        elif self._review_play is None:  # play forward through the saved frames, then hand over to the game
+            self._review_play = (time.perf_counter(), self.view_tick)
+            self.root.after(REVIEW_PLAY_MS, self._review_step)
+        else:
+            self._review_play = None
+
+    def jump(self, tick: int) -> None:
+        snap = self.engine.snapshot()
+        tick = max(-1, min(int(tick), self.last_tick))
+        self._review_play = None
+        self._apply(plan_view(tick, snap["live_tick"], self.history, self.last_tick))
+
+    def restart(self) -> None:
+        self._exit_review()
+        self.engine.send("restart")
+
+    def _review_step(self) -> None:
+        """Playback through saved frames at the selected speed (any speed: nothing is rendered by the game)."""
+        if self._review_play is None or self.view_tick is None or self._closing:
+            return
+        t0, start = self._review_play
+        snap = self.engine.snapshot()
+        live = snap["live_tick"]
+        target = start + int((time.perf_counter() - t0) * 60.0 * self.engine.speed)
+        if target >= live:  # caught up: continue with the live game
+            self._exit_review()
+            if snap["phase"] == "paused":
+                self.engine.send("play")
+            return
+        if target != self.view_tick:
+            if self.history is not None and target in self.history:
+                self.view_tick = target
+                self._refresh()
+            else:
+                self._review_play = None
+                self._note = f"no saved frame for tick {target}: press Right or Jump"
+                return
+        self.root.after(REVIEW_PLAY_MS, self._review_step)
+
     # -- actions ------------------------------------------------------------------------------------------
 
     def _set_speed(self, v: float) -> None:
         self.engine.send("speed", v)
         self.speed.current(SPEEDS.index(v))
+        if self._review_play is not None and self.view_tick is not None:  # keep the position, change the pace
+            self._review_play = (time.perf_counter(), self.view_tick)
         self.root.focus_set()
 
     def _bump_speed(self, delta: int) -> None:
@@ -278,14 +481,14 @@ class ViewerUI:
         try:
             tick = int(text)
         except ValueError:
-            self.detail.set(f"jump: '{text}' is not a tick number")
+            self._note = f"jump: '{text}' is not a tick number"
             return
-        self.engine.send("jump", tick)
+        self.jump(tick)
         self.root.focus_set()
 
     def _seek_release(self, _event) -> None:
         self._seeking = False
-        self.engine.send("jump", int(self.seek.get()))
+        self.jump(int(self.seek.get()))
 
     def close(self) -> None:
         if self._closing:
@@ -308,9 +511,16 @@ class ViewerUI:
         if self._closing:
             return
         snap = self.engine.snapshot()
-        self._update_panel(snap)
-        self._update_hud(snap)
-        self._game_hotkeys(snap)
+        if self.view_tick is not None and self._busy(snap):  # a rebuild / fast-forward replaces the review
+            self._exit_review()
+        if self._pending_back and snap["phase"] in ("paused", "ended", "error"):
+            self._pending_back = False
+            self.step_back()
+            snap = self.engine.snapshot()
+        view = self._view(snap)
+        self._update_panel(snap, view)
+        self._update_overlays(snap, view)
+        self._game_hotkeys()
         if snap["phase"] == "ended" and not self._end_seen:
             self._end_seen = True
             self._show_result(snap)
@@ -332,26 +542,62 @@ class ViewerUI:
                 return
         self.root.after(POLL_MS, self._poll)
 
-    def _update_panel(self, snap: Dict[str, Any]) -> None:
+    def _view(self, snap: Dict[str, Any]) -> Dict[str, Any]:
+        """What the HUD and panel describe: the saved frame on screen, or the live game."""
+        frame = self.history.get(self.view_tick) if (self.history is not None and self.view_tick is not None) else None
+        if self.view_tick is not None and frame is None:  # evicted meanwhile: back to live
+            self._exit_review()
+        if frame is not None:
+            playing = self._review_play is not None
+            return {"review": True, "frame": frame, "tick": frame.tick, "live_tick": snap["live_tick"],
+                    "row": frame.row, "observation": frame.observation, "targets_broken": frame.targets_broken,
+                    "targets_total": snap["targets_total"], "rows": snap["rows"],
+                    "status": (f"▶ saved frames {speed_label(self.engine.speed).split(' ')[0]}" if playing
+                               else "◀ saved frame (game paused)"),
+                    "status_color": CYAN}
         row = snap["last_row"]
-        tick = row.sequence_index if row is not None else None
-        self.status.set(f"{'tick ' + str(tick) if tick is not None else 'tick-0 state'}  of {snap['rows'] - 1}"
-                        f"   |   {status_text(snap)}")
-        obs = snap["observation"]
+        return {"review": False, "frame": None, "tick": row.sequence_index if row is not None else -1,
+                "live_tick": snap["live_tick"], "row": row, "observation": snap["observation"],
+                "targets_broken": snap["targets_broken"], "targets_total": snap["targets_total"], "rows": snap["rows"],
+                "status": status_text(snap), "status_color": status_color(snap)}
+
+    def _update_panel(self, snap: Dict[str, Any], view: Dict[str, Any]) -> None:
+        if view["review"]:
+            self.status.set(f"SAVED FRAME {tick_label(view['tick'])}  (live game at {tick_label(view['live_tick'])})"
+                            f"   |   {view['status']}")
+            self.status_label.configure(fg="#0e7490")
+        else:
+            self.status.set(f"{tick_label(view['tick'])}  of {snap['rows'] - 1}   |   {view['status']}")
+            self.status_label.configure(fg="#b45309" if snap.get("rebuilding") else "#000000")
+        row, obs = view["row"], view["observation"]
         parts = []
         if row is not None:
             parts.append(f"stick {stick_arrow(row.stick_x, row.stick_y)} ({row.stick_x:+d},{row.stick_y:+d})  "
                          f"button {button_name(row.buttons)}")
-        tb = snap["targets_broken"]
-        parts.append(f"targets {tb if tb is not None else '-'}/{snap['targets_total']}")
+        tb = view["targets_broken"]
+        parts.append(f"targets {tb if tb is not None else '-'}/{view['targets_total']}")
         if obs:
             parts.append(f"x {obs.get('position_x', 0):.1f} y {obs.get('position_y', 0):.1f} "
                          f"status {obs.get('fighter_status_id')} t={obs.get('time_passed')}")
-        msg = snap["error"] or snap["message"]
+        msg = self._note or snap["error"] or snap["message"]
         self.detail.set("   ".join(parts) + (f"\n{msg}" if msg else ""))
-        self.play_btn.configure(text="Pause (Space)" if snap["phase"] == "playing" else "Play (Space)")
+        self.history_line.set(self._history_text())
+        playing = snap["phase"] == "playing" or self._review_play is not None
+        self.play_btn.configure(text="Pause (Space)" if playing else "Play (Space)")
         if not self._seeking:
-            self.seek.set(tick if tick is not None else 0)
+            self.seek.set(max(view["tick"], 0))
+
+    def _history_text(self) -> str:
+        h = self.history
+        if h is None:
+            return "saved frames: off (--history-seconds 0)"
+        cfg = self.engine.history_config
+        span = h.span()
+        cost = sorted(self.engine.capture_ms)
+        median = f", capture {cost[len(cost) // 2]:.1f} ms/frame" if cost else ""
+        where = f"ticks {tick_label(span[0])}..{span[1]}" if span else "none yet"
+        return (f"saved frames: {len(h)}/{h.capacity} ({h.nbytes / 1e6:.0f} MB, 1/{cfg.scale} resolution), "
+                f"{where}{median}")
 
     def _show_result(self, snap: Dict[str, Any]) -> None:
         t = self.result
@@ -365,52 +611,68 @@ class ViewerUI:
             t.insert("end", "\n".join(snap["verdict_lines"]) + "\n")
         t.configure(state="disabled")
 
-    def _update_hud(self, snap: Dict[str, Any]) -> None:
-        hud = self.hud
+    def _update_overlays(self, snap: Dict[str, Any], view: Dict[str, Any]) -> None:
         game = self.engine.game_window()
         if not self._panel_placed and game:
             rect = win32.client_rect_on_screen(game)
             if rect:
-                x = min(rect[0] + rect[2] + 16, max(0, self.root.winfo_screenwidth() - 640))
+                x = min(rect[0] + rect[2] + 16, max(0, self.root.winfo_screenwidth() - 660))
                 self.root.geometry(f"+{x}+{max(0, rect[1] - 30)}")
                 self._panel_placed = True
-        if hud is None:
-            return
-        hud.ensure_click_through()
         rect = win32.client_rect_on_screen(game) if game else None
         fg = win32.foreground_root()
-        ours = {game, win32.root_of(self.root.winfo_id()), hud.hwnd}
-        # The HUD is topmost: hide it only while another application's focused window overlaps the game window
-        # (focus on another monitor keeps it visible).
+        ours = {game, win32.root_of(self.root.winfo_id()), self.review.hwnd}
+        if self.hud is not None:
+            self.hud.ensure_click_through()
+            ours.add(self.hud.hwnd)
+        # The overlays are topmost: hide them only while another application's focused window overlaps the game
+        # window (focus on another monitor keeps them visible).
         covered = (fg is not None and fg not in ours and not win32.is_shell_window(fg)
                    and win32.rects_intersect(win32.window_rect(fg), win32.window_rect(game)))
-        if rect is None or win32.is_minimized(game) or covered:
-            hud.hide()
+        hidden = rect is None or win32.is_minimized(game) or covered
+        raise_hud = False
+        if view["review"] and not hidden:
+            raise_hud = self.review.show(view["frame"], rect)
+        else:
+            self.review.hide()
+        if self.hud is None:
             return
-        hud.draw(snap)
-        hud.show(rect[0] + 6, rect[1] + 6)
+        if hidden:
+            self.hud.hide()
+            return
+        self.hud.draw(view)
+        self.hud.show(rect[0] + 6, rect[1] + 6)
+        if raise_hud:
+            self.hud.raise_above()
 
-    def _game_hotkeys(self, snap: Dict[str, Any]) -> None:
+    def _refresh(self) -> None:
+        """Redraw panel and overlays now (saved-frame playback does not wait for the next poll)."""
+        snap = self.engine.snapshot()
+        view = self._view(snap)
+        self._update_panel(snap, view)
+        self._update_overlays(snap, view)
+
+    def _game_hotkeys(self) -> None:
         """Hotkeys while the GAME window has focus (tk never sees those key events)."""
         game = self.engine.game_window()
         if not game or win32.foreground_root() != game:
             self._keys_prev.clear()
             return
         now = time.monotonic()
-        for name, action in (("space", "toggle"), ("right", "step"), ("period", "step"),
-                             ("plus", "+"), ("add", "+"), ("minus", "-"), ("subtract", "-")):
+        for name, action in (("space", "toggle"), ("right", "fwd"), ("period", "fwd"), ("left", "back"),
+                             ("comma", "back"), ("plus", "+"), ("add", "+"), ("minus", "-"), ("subtract", "-")):
             down = win32.key_down(name)
             was = self._keys_prev.get(name, False)
             self._keys_prev[name] = down
             fire = down and not was
-            if down and was and action == "step" and now >= self._repeat_at:
-                fire = True
+            if down and was and action in ("fwd", "back") and now >= self._repeat_at.get(name, 0.0):
+                fire = True  # held: repeat
             if not fire:
                 continue
-            if action == "step":
-                self._repeat_at = now + (0.35 if not was else 0.05)
-                self.engine.send("step")
+            if action in ("fwd", "back"):
+                self._repeat_at[name] = now + (0.35 if not was else 0.05)
+                (self.step_forward if action == "fwd" else self.step_back)()
             elif action == "toggle":
-                self.engine.send("toggle")
+                self.toggle()
             else:
                 self._bump_speed(+1 if action == "+" else -1)

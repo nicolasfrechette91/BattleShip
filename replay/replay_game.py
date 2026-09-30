@@ -41,6 +41,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass
@@ -49,6 +50,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 import replay_win32 as win32
 from replay_episode import (REPO_ROOT, Episode, ReplayTracker, Row, Verdict, compare, format_verdict)
+from replay_history import FrameHistory, HistoryConfig, SavedFrame, bgrx_to_rgb
 
 from battleship_client import BattleShipClient, BattleShipError, ConnectionClosed, StepState  # noqa: E402
 from battleship_process import allocate_loopback_port  # noqa: E402
@@ -63,6 +65,12 @@ STATE_FILE = LOCAL_DIR / "viewer_state.json"
 CONFIG_NAME = "BattleShip.cfg.json"
 OPENGL_BACKEND = {"Id": 1, "Name": "OpenGL"}  # libultraship WindowBackend::FAST3D_SDL_OPENGL
 NATIVE_TICK_S = 1.0 / 60.0
+CAPTURE_SETTLE_S = 0.002  # see CaptureWorker
+CAPTURE_STALE_RETRIES = 4  # a stale copy was always fresh on the first retry (measured)
+# Frame k stays on screen until >= ~16.3 ms after its step reply (vsync'ed, paced presents). Measured against
+# slow-stepped reference frames: every 1x copy read within 25 ms was correct, every copy read after 30 ms wrong.
+CAPTURE_SAFE_S = 0.016
+CAPTURE_READ_S = 0.006  # a window read takes ~5 ms (960x720)
 SPEEDS = (0.25, 0.5, 1.0, 2.0, 4.0)
 MAX_RENDERED_SPEED = 1.0  # the port paces every rendered present to >= 1/60 s (see README)
 
@@ -418,6 +426,96 @@ def check_episode(ep: Episode, *, executable: Path = DEFAULT_EXE, keep_session: 
     return compare(tracker), tracker
 
 
+# -- saved-frame capture -------------------------------------------------------------------------------------
+
+
+class CaptureWorker(threading.Thread):
+    """Copies game frames into the history off the stepping thread.
+
+    Timing argument: the step reply of tick k arrives after the game presented frame k, and the port paces
+    presents at least 1/60 s apart (libultraship SyncFramerateWithTime), so frame k stays on the window for at
+    least ~16.3 ms after the reply even though the stepping thread submits tick k+1 at once. The copy waits
+    CAPTURE_SETTLE_S (an immediate copy was the previous tick's image on ~2-3 % of 1x ticks: SwapBuffers returns
+    before the new frame is visible), reads the window (~5 ms), re-reads if the copy still equals the previous
+    tick's, and downscales afterwards. A copy is stored only if its read finished within CAPTURE_SAFE_S of the reply,
+    or before tick k+1 was submitted at all; anything later could show tick k+1 and is dropped (counted in
+    engine.late_drops), never stored under the wrong tick.
+    """
+
+    def __init__(self, engine: "ReplayEngine"):
+        super().__init__(name="replay-capture", daemon=True)
+        self.engine = engine
+        self.jobs: "queue.Queue[Any]" = queue.Queue()
+        self._last: Optional[Tuple[int, bytes]] = None  # (tick, BGRX) of the previous copy
+
+    def submit(self, job: Tuple[int, Optional[Row], Dict[str, Any], Optional[int], int, float]) -> None:
+        self.jobs.put(job)
+
+    def reset(self) -> None:
+        """A new process: the previous copy is no longer the previous tick of this one."""
+        self.jobs.put("reset")
+
+    def stop(self) -> None:
+        self.jobs.put(None)
+        self.join(5.0)
+
+    def run(self) -> None:
+        win32.raise_current_thread_priority()  # the read must land inside the frame's on-screen window
+        capturer = win32.WindowCapturer(win32.COLORONCOLOR if self.engine.history_config.filter == "nearest"
+                                        else win32.HALFTONE)
+        try:
+            while True:
+                job = self.jobs.get()
+                if job is None:
+                    return
+                if job == "reset":
+                    self._last = None
+                    continue
+                try:
+                    self._copy(capturer, *job)
+                except OSError:
+                    self._last = None
+        finally:
+            capturer.close()
+
+    def _copy(self, capturer: win32.WindowCapturer, tick: int, row: Optional[Row], obs: Dict[str, Any],
+              targets: Optional[int], hwnd: int, t_ready: float) -> None:
+        e = self.engine
+        scale = e.history_config.scale
+        wait = t_ready + CAPTURE_SETTLE_S - time.perf_counter()
+        if wait > 0:
+            time.sleep(wait)
+        elif e._last_submit[0] > tick and -wait > CAPTURE_SAFE_S - CAPTURE_SETTLE_S - CAPTURE_READ_S:
+            # Behind (a hiccup queued several frames): this read could not finish in time; skip it at once so the
+            # following frames are caught again instead of every queued one arriving late.
+            e.late_drops += 1
+            self._last = None
+            return
+        shot = capturer.capture(hwnd, scale)
+        prev = self._last
+        if shot is not None and prev is not None and prev[0] == tick - 1 and shot[2] == prev[1]:
+            e.stale_retries += 1
+            for _ in range(CAPTURE_STALE_RETRIES):
+                time.sleep(0.001)
+                again = capturer.capture(hwnd, scale)
+                if again is not None and again[2] != prev[1]:
+                    shot = again
+                    break
+        if shot is None:
+            self._last = None
+            return
+        t_read = capturer.last_read_time  # the window pixels were read by then; downscaling came after
+        next_tick, next_submitted = e._last_submit
+        if next_tick > tick and next_submitted < t_read and t_read - t_ready > CAPTURE_SAFE_S:
+            e.late_drops += 1  # tick k+1 may already be on screen: never store a doubtful image
+            self._last = None
+            return
+        width, height, bgrx = shot
+        self._last = (tick, bgrx)
+        e.history.put(SavedFrame(tick, width, height, bgrx_to_rgb(bgrx), row, obs, targets))
+        e.capture_ms.append((t_read - t_ready) * 1000.0)
+
+
 # -- interactive engine --------------------------------------------------------------------------------
 
 
@@ -427,13 +525,20 @@ class ReplayEngine(threading.Thread):
     Commands: play, pause, toggle, step, speed(v), restart, jump(tick), quit.
     `jump(N)` stops with native tick N consumed (the frame on screen is the
     post-update of tick N); a target behind the cursor restarts the process
-    and fast-forwards from tick 0. Fast-forward and playback share the port's
-    rendered-present cap of 60 ticks/s (see README: >1x needs a native change).
+    and fast-forwards from tick 0 ("rebuilding"). Fast-forward and playback
+    share the port's rendered-present cap of 60 ticks/s (see README: >1x needs
+    a native change).
+
+    With a history, the frame of every tick shown (and of the last
+    `history.capacity` ticks of a fast-forward) is copied from the game window
+    right after the tick returns, together with that tick's HUD data; the UI
+    shows stored frames for instant steps back (replay_history.py).
     """
 
     def __init__(self, ep: Episode, *, executable: Path = DEFAULT_EXE, speed: float = 1.0, play: bool = False,
                  start_tick: Optional[int] = None, geometry: Optional[Geometry] = None, keep_session: bool = False,
-                 log: Callable[[str], None] = print, on_end: Optional[Callable[[Verdict], None]] = None):
+                 log: Callable[[str], None] = print, on_end: Optional[Callable[[Verdict], None]] = None,
+                 history: Optional[HistoryConfig] = None):
         super().__init__(name="replay-engine", daemon=True)
         self.ep = ep
         self.rows = ep.replay_rows
@@ -441,6 +546,16 @@ class ReplayEngine(threading.Thread):
         self.keep_session = keep_session
         self.log = log
         self.on_end = on_end
+        self.history_config = history if history is not None else HistoryConfig()
+        self.history: Optional[FrameHistory] = (FrameHistory(self.history_config.frames)
+                                                if self.history_config.enabled else None)
+        self._worker: Optional[CaptureWorker] = None  # started in run() when the history is on
+        self._last_submit: Tuple[int, float] = (-2, 0.0)  # (row, perf_counter) of the latest step request
+        self.stale_retries = 0
+        self.late_drops = 0
+        self._rebuilding = False
+        self._rebuild_to: Optional[int] = None  # tick being rebuilt to (shown while the fresh process boots)
+        self.capture_ms: Deque[float] = collections.deque(maxlen=120)
         self.commands: "queue.Queue[Tuple[str, Any]]" = queue.Queue()
         self._lock = threading.Lock()
         self._speed = float(speed)
@@ -494,6 +609,9 @@ class ReplayEngine(threading.Thread):
                 "mismatch": self.tracker.first_mismatch,
                 "pid": self.game.pid if self.game else None,
                 "hwnd": self.game.hwnd if self.game else None,
+                "live_tick": self.cursor - 1,  # -1 = tick-0 state
+                "rebuilding": self._rebuilding,
+                "rebuild_to": self._rebuild_to,
             }
 
     def game_window(self) -> Optional[int]:
@@ -521,6 +639,12 @@ class ReplayEngine(threading.Thread):
             base = recorded_runtime_config(self.ep) or (self.executable.resolve().parent / CONFIG_NAME)
             self.game = GameProcess(self.executable, session, headless=False, base_config=base,
                                     geometry=self._geometry)
+            if self.history is not None:
+                self._worker = CaptureWorker(self)
+                self._worker.start()
+                # Three busy threads (stepping, capture, Tk): with CPython's default 5 ms GIL switch interval the
+                # stepping thread could wait past a 16.7 ms tick (measured: 56 instead of 60 ticks/s).
+                sys.setswitchinterval(0.001)
             self._launch()
             info = self.game.config_info
             self.log(f"config base {info['base']}; gameplay settings {info['gameplay']}")
@@ -533,6 +657,8 @@ class ReplayEngine(threading.Thread):
             self._set(error=f"{type(exc).__name__}: {exc}", phase="error")
             self.log(f"ERROR: {type(exc).__name__}: {exc}")
         finally:
+            if self._worker is not None:
+                self._worker.stop()
             if self.game is not None:
                 self.game.remember_geometry()
                 self.game.close()
@@ -550,6 +676,9 @@ class ReplayEngine(threading.Thread):
             self.game.remember_geometry()
         tracker = ReplayTracker(self.ep)
         t0 = time.monotonic()
+        self._last_submit = (-2, 0.0)
+        if self._worker is not None:
+            self._worker.reset()
         tracker.feed_initial(self.game.launch())
         with self._lock:
             self.tracker = tracker
@@ -562,9 +691,13 @@ class ReplayEngine(threading.Thread):
             self.error = None
             self.message = f"fresh process pid {self.game.pid} ready in {time.monotonic() - t0:.1f} s"
         self._update_phase()
+        self._capture(-1, None)  # the tick-0 state
 
     def _update_phase(self) -> None:
         with self._lock:
+            if self._jump_to is None:  # no pending jump: nothing is being rebuilt (_request_jump re-sets it)
+                self._rebuilding = False
+                self._rebuild_to = None
             if self.error:
                 self.phase = "error"
             elif self.tracker.ended:
@@ -584,7 +717,7 @@ class ReplayEngine(threading.Thread):
             try:
                 self._iteration()
             except ReplayRuntimeError as exc:
-                self._set(error=str(exc), _playing=False, _jump_to=None, message="")
+                self._set(error=str(exc), _playing=False, _jump_to=None, _rebuilding=False, message="")
                 self._update_phase()
                 self.log(f"ERROR: {exc}")
 
@@ -597,7 +730,7 @@ class ReplayEngine(threading.Thread):
             self._drain_commands(block=False)
             if self._jump_to is not None and not self._quit:
                 if self.cursor >= self._jump_to or self.tracker.ended:
-                    self._set(_jump_to=None, _playing=False, message=f"at tick {self.cursor - 1}")
+                    self._set(_jump_to=None, _playing=False, _rebuilding=False, message=f"at tick {self.cursor - 1}")
                     self._update_phase()
                 else:
                     self._step_one(paced=False)
@@ -678,19 +811,47 @@ class ReplayEngine(threading.Thread):
             self._request_jump(int(value))
 
     def _request_jump(self, tick: int) -> None:
+        """Show tick N (rows 0..N consumed); N = -1 is the tick-0 state. Behind the cursor this is a rebuild:
+        a fresh process fast-forwarded to N."""
         n = len(self.rows)
-        target = max(1, min(int(tick) + 1, n))  # rows consumed after the jump: tick N is on screen
-        if target < self.cursor or (self.tracker.ended and target != self.cursor) or self.error:
-            self._set(_jump_to=None)
+        target = max(0, min(int(tick) + 1, n))  # rows consumed after the jump
+        rebuild = target < self.cursor or (self.tracker.ended and target != self.cursor) or bool(self.error)
+        # The target is registered before a relaunch, so the phase goes booting -> jumping without ever looking
+        # like "paused at the tick-0 state" in between.
+        self._set(_jump_to=target, _playing=False, _rebuilding=rebuild, _rebuild_to=target - 1 if rebuild else None)
+        if rebuild:
             self._launch()
-        self._set(_jump_to=target, _playing=False, message=f"fast-forward to tick {target - 1}")
+        verb = "rebuilding to" if rebuild else "fast-forward to"
+        self._set(message=f"{verb} tick {target - 1}" + (": fresh process + fast-forward" if rebuild else ""))
         self._update_phase()
+
+    def _should_capture(self, tick: int, paced: bool) -> bool:
+        if self.history is None:
+            return False
+        if self._jump_to is not None:  # fast-forward: keep only the last `capacity` ticks before the target
+            return tick > (self._jump_to - 1) - self.history.capacity
+        if self.history_config.capture == "always":
+            return True
+        return not paced or self._speed <= 0.5  # "slow": single steps and slow playback only
+
+    def _capture(self, tick: int, row: Optional[Row]) -> None:
+        """Hand the frame now on screen (the post-update of `tick`) and its HUD data to the capture thread."""
+        if self.history is None or self._worker is None or self.game is None:
+            return
+        hwnd = self.game.window()
+        if hwnd is None:
+            return
+        with self._lock:
+            obs = dict(self.tracker.last or self.tracker.initial or {})
+            targets = self.tracker.targets_broken
+        self._worker.submit((tick, row, obs, targets, hwnd, time.perf_counter()))
 
     def _step_one(self, *, paced: bool) -> None:
         assert self.game is not None
         if self.cursor >= len(self.rows) or self.tracker.ended:
             return
         row = self.rows[self.cursor]
+        self._last_submit = (row.sequence_index, time.perf_counter())  # read by the capture thread
         reply = self.game.step(row)
         now = time.perf_counter()
         with self._lock:
@@ -700,6 +861,8 @@ class ReplayEngine(threading.Thread):
             if self._times and now - self._times[-1] > 0.25:
                 self._times.clear()
             self._times.append(now)
+        if self._should_capture(row.sequence_index, paced):
+            self._capture(row.sequence_index, row)
         if self.tracker.first_mismatch and not self._mismatch_logged:
             self._mismatch_logged = True
             self._set(message=f"DESYNC at {self.tracker.first_mismatch}")

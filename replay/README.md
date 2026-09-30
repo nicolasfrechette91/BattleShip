@@ -16,7 +16,8 @@ libultraship or build change.
 | `replay_browser.py` | Tk table browser (`replay_index gui`) |
 | `replay_episode.py` | Artifact loading, expected outcome, per-step tracking, MATCH/DESYNC comparison |
 | `replay_game.py` | BattleShip process launch in a private runtime, replay engine (pause/step/speed/restart/jump) |
-| `replay_ui.py` | Tk control panel + click-through HUD overlay on the game window |
+| `replay_ui.py` | Tk control panel, click-through HUD overlay and saved-frame view on the game window |
+| `replay_history.py` | Saved-frame store, memory math, pixel conversion, step-back planner (see "Stepping back") |
 | `replay_win32.py` | ctypes helpers (find the game window, overlay placement, hotkeys, process priority) |
 | `replay_tests.py` | Offline tests (no game, temp fixtures only) |
 | `replay_gui.pyw` | Windowless launcher: browser + background index refresh (see "Launchers") |
@@ -137,20 +138,137 @@ repository root, write their output to `_local/launcher.log` (rotated at
   submitted as the input of native tick T through the protocol-1 loopback
   transport, one native update per row. M7h/M7m curriculum prefixes are
   ordinary leading rows, so they replay too.
-- **Controls** (panel, or the game window while it has focus): Space
-  play/pause, Right or `.` single step (hold to repeat), `+`/`-` speed, R
-  restart, G jump to the typed tick, Q/Esc quit. The seek bar jumps on
-  release.
+- **Controls** (panel, or the game window while it has focus):
+  - Space: play/pause.
+  - Left or `,`: back one tick (see "Stepping back").
+  - Right or `.`: step one tick. Left and Right repeat when held.
+  - `+`/`-`: speed.
+  - R: restart.
+  - G: jump to the typed tick.
+  - Q/Esc: quit.
+  - The seek bar jumps on release. The panel also has a "◀ Back" button.
 - **Speed.** 0.25x, 0.5x, 1x measured at 15.0-15.3, 29.9-30.3 and 58.3-60.0
-  ticks/s. 2x and 4x can be selected but run at 1x (see "Limits").
+  ticks/s. 2x and 4x can be selected but run at 1x for the live game (see
+  "Limits"); playback through saved frames honours them.
 - **Jump.** `jump N` stops with tick N consumed (the frame on screen is the
-  post-update of tick N). Forward jumps fast-forward at the 60 ticks/s render
-  cap; a target behind the cursor launches a fresh process and fast-forwards
-  from tick 0.
+  post-update of tick N).
+  - A saved tick is shown instantly.
+  - A forward jump fast-forwards at the 60 ticks/s render cap.
+  - An older unsaved tick is rebuilt: a fresh process fast-forwarded from
+    tick 0.
 - **HUD** (top-left of the game window; click-through; hidden while another
   application's window overlaps the game): tick, stick arrow + values + stick
   diagram, button name, targets broken so far (`targets_total -
   targets_remaining`), x/y, playback state and the final verdict.
+
+### Stepping back (saved frames)
+
+The game itself only moves forward: there are no save states, and one process
+is one episode. But a replay is deterministic: tick T renders the same frame
+in every process that replays the episode. So the viewer keeps recent frames
+and shows them for instant steps back.
+
+- **Saving.** Right after each tick returns, the frame on screen is copied
+  from the game window into memory, together with that tick's input,
+  observation and targets.
+  - This covers 1x playback, single steps, slow motion, and the last
+    history-length ticks of every fast-forward (so after a rebuild, further
+    steps back are instant again).
+  - The tick-0 state is saved too.
+  - Nothing is read from or written to the game.
+- **Left / `,`:**
+  - One tick back. A saved tick is shown at once over the game window: a
+    click-through image with a cyan frame.
+  - The HUD shows a solid cyan banner, **◀ SAVED FRAME tick N** with
+    **live L**, and describes the saved tick (input, targets, position). The
+    panel reads "SAVED FRAME tick N (live game at tick L)".
+  - The game stays paused at the live tick.
+  - If the live game was playing, it is paused first.
+- **Right / `.`:** forward through saved frames. Past the newest one, the
+  live game is back.
+- **Space on a saved frame:** plays forward through the saved frames at the
+  selected speed (2x/4x work here), then hands over to the live game
+  seamlessly.
+- **Older than the saved frames:** fallback. The engine launches a fresh
+  process and fast-forwards to the tick. The HUD and panel show
+  "⟲ rebuilding to tick N" (booting, then progress k/N).
+  - This takes about 2.5 s + N/60 s (measured: tick 390 in 9.6 s, tick 900
+    in 17.7 s).
+  - The last history-length ticks are saved on the way, so the next Left is
+    instant (measured: 37 ms).
+- **Options:**
+  - `--history-seconds S`: history length (default 10 s = 600 ticks; 0 turns
+    it off, and every step back becomes a rebuild).
+  - `--history-scale N`: resolution = game window / N; default 2 (half).
+  - `--history-filter smooth|nearest`: downscale filter (area-averaged, or
+    nearest-pixel with less CPU).
+  - `--history-capture always|slow`: slow saves only single steps, ≤ 0.5x
+    and fast-forward tails (for a heavily loaded machine; 1x playback then
+    saves nothing).
+
+Memory (pixel data; the viewer process adds ~80 MB):
+
+| Game window | Scale | Per frame | 10 s (600 frames) |
+| --- | --- | --- | --- |
+| 960x720 (default) | 1/2 (default) | 518 KB | **311 MB** (measured working set 394 MB) |
+| 960x720 | 1/1 | 2.07 MB | 1.24 GB |
+| 960x720 | 1/3 | 230 KB | 138 MB |
+| 960x720 | 1/4 | 130 KB | 78 MB |
+
+Memory scales linearly with `--history-seconds`. `replay.py` prints the
+upper bound at start. The panel shows the current count, MB and saved tick
+range.
+
+**How a frame is copied, and why it is the right tick.** All of this lives in
+`replay_game.CaptureWorker` and `replay_win32.WindowCapturer`.
+
+- **The read.** One GDI BitBlt from the game window's own DC (~5 ms at
+  960x720).
+  - It is byte-identical to `PrintWindow(PW_RENDERFULLCONTENT)`, and
+    windows on top (the HUD, other applications) are not included.
+  - `PrintWindow` itself takes ~16 ms because it waits for DWM, so it is
+    only a fallback.
+  - The downscale (StretchBlt, memory to memory) and the BGRX to RGB
+    conversion happen after the read.
+- **The capture thread.** Copies run on a background thread, so the
+  stepping thread submits the next tick immediately.
+- **Why the read is safe after the next submit.** The port paces presents at
+  least 1/60 s apart, so tick k's frame stays on screen for at least ~16 ms
+  after its step reply.
+- **Settle delay.** The step reply can arrive before the new frame is
+  visible: an immediate read returned the previous tick's image on 2-3 % of
+  1x ticks. The thread therefore waits 2 ms (0 stale in 1,200 ticks). A read
+  that still equals the previous tick's image is taken again.
+- **When a read is stored.** Only if it finished within 16 ms of the reply,
+  or before the next tick was submitted. Anything later is dropped and
+  counted, never stored under the wrong tick.
+- **Ground truth** (1x copies vs slow single-stepped references, 600 ticks):
+  - every read within 20 ms of the reply was the correct frame;
+  - reads at 24-28 ms (a start-up backlog) showed the next tick.
+- **Determinism, end to end.** A saved frame was byte-identical to the same
+  tick re-rendered by a fresh process after a rebuild.
+
+**1x playback, before / after (full UI running, 8 s windows):**
+
+| Saved frames | Rate |
+| --- | --- |
+| off | 59.8-60.1 ticks/s |
+| on (default: 10 s, half, smooth) | 59.3-60.1 ticks/s |
+
+- One run under load read 57.1 ticks/s, and one outlier read 30.0 ticks/s;
+  that outlier did not repeat in 4 reruns and was probably other desktop
+  activity.
+- Copy latency: median ~7 ms, p95 ~9 ms.
+- Dropped copies: 0-8 of ~530 frames in most runs (up to 24 in one run with
+  a ~70 ms hiccup).
+
+How the 60 ticks/s was reached:
+
+- A first synchronous version dropped 1x to 56.3 ticks/s. The copy then
+  moved to the background thread.
+- The viewer sets a 1 ms Python GIL switch interval.
+- The capture thread runs at above-normal priority (viewer process only; the
+  game's priority is untouched).
 - **End.** A replay ends on a native clear (`EpisodeEnded`), on the
   `btt_native_failure_v1` fall rule (the same rule training applies; the
   next submit would wedge the game), or when the rows run out. The window
@@ -317,10 +435,44 @@ and must never be committed.
   clobber it.
 - The HUD is a separate click-through window over the game, not drawn by the
   game. Screen recording tools capture it as part of the desktop.
+- **Saved-frame gaps.** A copy that could not be proven to show its own tick
+  is dropped (see "Stepping back"). This was 0-8 of ~530 frames in most 1x
+  runs on this machine. Stepping back onto such a tick is a rebuild, like a
+  tick older than the history.
+- **Saved-frame display.** Saved frames are shown at the capture resolution,
+  scaled up by an integer factor (half resolution by default). They are
+  hidden, like the HUD, while another application's window covers the game
+  window. Resizing the game window after a frame was saved shows that frame
+  at its old size.
 
 ## Verification (2026-09-29, exe sha256 30a3913b...)
 
-Offline tests: `python replay/replay_tests.py` passes 8/8.
+Offline tests: `python replay/replay_tests.py` passes 14/14. The 6 saved-frame
+tests cover:
+
+- memory math;
+- eviction around the current position;
+- BGRX to RGB conversion and a Tk PPM round trip;
+- the step-back planner (saved / live / forward / rebuild / none);
+- the engine's capture policy;
+- the capture thread's timing rule, with a fake capturer: on time is stored,
+  late after the next submit is dropped, late before the next submit is
+  stored, a stale copy is re-read, and a backlog is skipped.
+
+Saved frames, end to end on episode A (scripted, real game window; 18/18):
+
+- 1x 60.1 ticks/s with saved frames vs 60.0 without.
+- Left x5 gives saved frames with the game untouched (same process, same
+  live tick), and the SAVED FRAME banner and panel text.
+- Right back to live; Space through saved frames into live play.
+- Saved frame == the same tick re-rendered by a fresh process, byte for byte.
+- No false "paused" state during rebuilds.
+- A fast-forward to 1500 keeps exactly ticks 901..1500.
+- Left at 901 rebuilds to 900 (17.7 s), then Left is instant again (37 ms).
+- MATCH at the end; Left works after the fall.
+
+The earlier 13-step UI regression (keys, speeds, jumps, restart, MATCH) still
+passes 13/13 with saved frames on.
 
 Launchers, run exactly as Explorer or a double-click would, from
 `C:\Windows\Temp` (the `.reg` files were not imported):
