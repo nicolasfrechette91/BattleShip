@@ -1,0 +1,222 @@
+{
+ "gate": "m7u1",
+ "scope": "local control after the agent's own supplied recorded prefix (not a landing, crossing or tick-0 reach)",
+ "rule": "m7u1_control_rule_v2",
+ "rule_sha256": "ae372b196c7bf767f57d56857103ab4c23a63aefd7fec07fb3f09f447e8c9ba0",
+ "planner_sha256": "e1f9bc8fe4606a8eb2092da109b7ac00a356aaa15a2c5a734b2cd6413a44fa3b",
+ "state_sha256": "7c29113386d327edef77ecbc9e00b984c3f4e3c1acf00c742daaa6f42e98e6b7",
+ "model_contract": "m7u_dynamics_ensemble_v1",
+ "goal_contract": "m7u1_rising_goal_v1",
+ "members": 3,
+ "choice": {
+  "n_candidates": 64,
+  "train_steps": 6000
+ },
+ "bench_sha256": "65bd6a0acf7610b0860c0ee6a95e50dd39b14dd3637746cf202b4c3e19ea0b88",
+ "track_check_sha256": "9a25a66df05622f261d023456a453e0c1d3d8c0ea7b4a6150b390956d3a8086d",
+ "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+ "code": {
+  "rl/m7u_state.py": "99f76adad72257cf14f919519f6208ec90aaf92f2fc010d2bb1bd74b2066ff67",
+  "rl/m7u_model.py": "e7fe97402a1ffe5477be168035b00c468c32f073690b73efc6eccc95202d0b11",
+  "rl/m7u_planner.py": "43efee2ef275d271d410383182fb89a2cf61d572bc9d4446a17828b6413835bf",
+  "rl/m7u_goals.py": "506e48df5a198440e4c1429964421f18fd355ef6bf676b6bd9249c58aa4de014",
+  "rl/m7u_rule.py": "2ab8e269bbbbe7b3b21c5fe56499ca9657086f35a30ce2313d220c6425163002",
+  "rl/m7u_analysis.py": "247375f6aa8a09e3b547f83965af8d90bff205dc8314e5d44914abc295106607",
+  "rl/m7u_worker.py": "2302d27d439da9ee7cbf38c5b02c256ad70be33b3412e0397f97b66bba2e5b36",
+  "rl/m7u_gate.py": "b3acb99607c14542d8217b1c19dad0e58715ca70d087f22e7073f8c37a3fd709",
+  "rl/m7u_tests.py": "ad2a92e952d769226d74fe89b7594d601442fba4e973f8e78354c81294560455",
+  "rl/tools/m7u_bench.py": "76a940b71ea6bdb0d82cba28a9c0f8974872d1b300013f1ed60b372227ca89f8",
+  "rl/tools/m7u_track_check.py": "47078b652dbf0f3f711918a2528839e6c6b0b638ac3996a08837704d13271573",
+  "rl/btt_parallel.py": "e34187b3c19b6bf806cc8e31fd85018acb6a2e83ca3c93922c93887d52b64f75",
+  "rl/battleship_env.py": "11397c73322f90f4505d675a2a878aef36835e8309a1eedf0e749fb24b85ae42",
+  "rl/run_artifacts.py": "bcab944115d893bf6c447ad285d25f94a73111e2df1b273fdd5efbd1453cac5c",
+  "rl/m7_vec_env.py": "f067a3fd6085b9d78f27dea0b72cbd76fe7b797f132a14e548515d9d76e62f86",
+  "rl/m7_runtime.py": "3dc56722c924065356e6134174d5e2c4724c0f495ee8c4e0eed027dfd2d9c452",
+  "rl/m7n_obs.py": "00f671ee0416134d696a8f080ab1a494a662a7e22f4a21f5f65f21c2906d135b",
+  "rl/m7q_obs.py": "08188058f790bbf344c298542b5d2bee9b4e533dc54fe8eb9182f4df82e49b38",
+  "rl/m7q_input.py": "9bd6fc098f7606675fbd398b142d0950f2dfd16949bdfadbf4f4d21d0578433a",
+  "rl/m7g_spatial.py": "d95269b65648942594c2f9b598629c76dafb1fd839f08babc2621085f0e0b17c",
+  "rl/m7n_entity.py": "21121f4656262c363802d33e7e6112883fe0976fb33aaf0f22c5371fab0d6d53",
+  "rl/m7q_status_table.py": "c6ee3de5d8f75e3e61c264d2dfc1586093539e4bca67e5ee74dbf3a2806b6423",
+  "rl/m7r_commit.py": "82d643997e3b589dbea89105419b0cfbfa134f811b7c63216f52fff762329588",
+  "rl/experiment_config.py": "03ab722bfa89ac71fadd96dfa1e02f4c5b1dd15f59e3fdd2bb408c56bc34bf90",
+  "rl/m7_trainer.py": "d0d889fd3729ac775c9c70a6823e4d7ff0e0666b0c6f0f4063b55f707cd08886",
+  "rl/tools/runs_backup.py": "c4de9b0ab69849341a129e9e99263a28d7fdfccb292e4cfebe8e6221039db71c",
+  "rl/configs/m7q/m7q_pilot_s0.toml": "121e1d4877f365d71a673f2cdbec920c3fddf1fd83d529c6c752e9e716a49ade"
+ },
+ "tick_budget": {
+  "p1": 5921,
+  "collection": 331200,
+  "storage": 3600,
+  "eval_prefix": 72000,
+  "eval_control": 11520,
+  "replays": 6960,
+  "total": 431201
+ },
+ "wall_caps_s": {
+  "p1": 180,
+  "collection": 600,
+  "storage": 120,
+  "train": 900,
+  "evaluation": 1500,
+  "replays_analysis": 300
+ },
+ "global_cap_s": 3600,
+ "memory_cap_mb": 3072,
+ "gate_seed": 0,
+ "p1": [
+  [
+   "fx_m7d_s0v1_det_fall.json.gz",
+   3361
+  ],
+  [
+   "fx_m7d_s0v1_fall6_double.json.gz",
+   2560
+  ]
+ ],
+ "replays": {
+  "P": 6,
+  "RC": 2,
+  "S": 2
+ },
+ "approval": "APPROVED by the user (git nicolasfrechette91) 2026-09-30, once, exactly as configured in section 11; r2 supersedes r1 after the user-authorised test-only repair",
+ "revision": 2,
+ "supersedes": {
+  "revision": 1,
+  "preserved_copy": "docs/rl_model_planning_m7u_gate_approval_r1_superseded.json",
+  "sha256": "37c713113d95fefb12676daddc55accc01d4d91e8388a27cc45e20a4e1eccd7c",
+  "written_utc": "2026-09-30T16:55:36Z",
+  "d_copy": "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u_logs\\m7u_gate\\runs\\pre_launch\\approval_record_copy.json",
+  "stop_report": "docs/rl_model_planning_m7u_gate_report_2026-09-30.md",
+  "why": "r1 could never pass preflight: unit_approval_refusal required the repository record to be absent; the gate was not launched under r1 (0 native ticks)",
+  "identity_changes": {
+   "code": [
+    "rl/m7u_tests.py"
+   ],
+   "other": []
+  }
+ },
+ "authorisation": {
+  "source": "the user's chat messages of 2026-09-30",
+  "text": [
+   "Authorize gate `m7u1` **once**, exactly as configured in \u00a711 of `docs/rl_model_planning_m7u_implementation.md`.",
+   "Authorize the minimal test-only repair to `unit_approval_refusal`.",
+   "My authorization remains for the same single bounded `m7u1` gate; only this test repair changes its code identity."
+  ],
+  "conditions": [
+   "one run only: no automatic retry, extension or post-approval repair",
+   "launch only when the machine has adequate memory headroom and Avidemux / OBS no longer compete; never close unrelated applications; otherwise stop with a ready-to-launch report",
+   "P1 must pass before collection or training",
+   "stop on any identity, integrity, backup-coverage, cap or resource failure; a cap stop is INCOMPLETE, an integrity failure INVALID",
+   "the registered decision rule is applied unchanged",
+   "scope: local control after self-generated supplied prefixes; never a tick-0 reach, landing, crossing or clear",
+   "human recordings and TAS validation-only; native RNG seeds never inspected, logged, controlled, compared or hashed",
+   "after completion or a stop: preserve and independently back up all new evidence; results report",
+   "no commits, pushes, videos or larger campaign"
+  ]
+ },
+ "repair": {
+  "what": "rl/m7u_tests.py unit_approval_refusal: the production approval_status() on an isolated temporary record (missing / PENDING / altered identity refused; unreadable raises; valid accepted); repository record untouched",
+  "diff": "D:\\BattleShip_source_snapshots\\2026-09-30_m7u1_r2\\repair.diff",
+  "checks": "unit 17/17 with the real record present; 4 mutated approval checks all fail the test"
+ },
+ "review": {
+  "n_candidates": 64,
+  "train_steps": 6000,
+  "members": 3,
+  "goals": 40,
+  "rule_n": 40,
+  "budget_controlled_ticks": 96,
+  "goal_horizon": 64,
+  "rise": 300.0,
+  "box": 150.0,
+  "q_max": 0.02,
+  "scramble_shift": 20,
+  "heldout_episodes": 12,
+  "collection_episodes": 92,
+  "planner": {
+   "H": 64,
+   "EXEC": 4,
+   "MUTANTS": 15,
+   "REFILL_SEGMENTS": 64,
+   "fresh_plans": 48,
+   "BOX": 150.0
+  },
+  "controls": {
+   "RC": "candidate 0 at every decision, no model evaluated; words regenerated offline",
+   "S": "P's planner commanded to goal (k + 20) mod 40, scored on goal k",
+   "stream": "m7u1|0|goal|k shared by P / RC / S; PCG64 per decision from sha256; fixed draw block"
+  },
+  "rule": {
+   "id": "m7u1_control_rule_v2",
+   "pass": [
+    10,
+    8,
+    6
+   ],
+   "null": [
+    2,
+    0
+   ]
+  },
+  "tick_budget_total": 431201,
+  "tick_budget_includes_prefixes": 72000,
+  "tick_budget_includes_replays": 6960,
+  "wall_caps_s": {
+   "p1": 180,
+   "collection": 600,
+   "storage": 120,
+   "train": 900,
+   "evaluation": 1500,
+   "replays_analysis": 300
+  },
+  "global_cap_s": 3600,
+  "memory_cap_mb": 3072,
+  "pinned_world_digest": "ca1ac287141d02c112eee70263c59b773af0054de690da68f0ee248dc91f72e4",
+  "bench": {
+   "sha256": "65bd6a0acf7610b0860c0ee6a95e50dd39b14dd3637746cf202b4c3e19ea0b88",
+   "fits": true,
+   "choice": {
+    "n_candidates": 64,
+    "train_steps": 6000
+   },
+   "end_to_end_projection_s": 1701.7,
+   "peak_private_mb": 833.2,
+   "utc": "2026-09-30T03:38:32Z"
+  },
+  "n_goals_module": 40
+ },
+ "source_snapshot": {
+  "dest": "D:\\BattleShip_source_snapshots\\2026-09-30_m7u1_r2",
+  "snapshot_json_sha256": "91752bb5d14473b296687181071c312b9a913aeb0e32607f782cd9346f5564d4",
+  "result": "PASS",
+  "files": 53,
+  "git_head": "58f207c43334d6045adeb4d96e92e1256b2dfc12",
+  "independent_rehash": "PASS (PowerShell Get-FileHash over the D: copy, 53 / 53; verify mode run from the D: copy of the tool, PASS)",
+  "previous_snapshot": {
+   "dest": "D:\\BattleShip_source_snapshots\\2026-09-30_m7u1",
+   "snapshot_json_sha256": "f45de49de119c411337465b332debfc95e989c59c230378da5ecb0c34464ff4f"
+  }
+ },
+ "backup_coverage_before_approval": {
+  "ok": true,
+  "source_files": 391625,
+  "uncovered": 0,
+  "increments": [
+   "D:\\BattleShip_runs_backup\\2026-09-28_incr_m7r",
+   "D:\\BattleShip_runs_backup\\2026-09-29_incr_m7s"
+  ],
+  "skipped": [
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-09-29_incr_m7t_logs",
+    "why": "no top-level verification record"
+   },
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u_logs",
+    "why": "no top-level verification record"
+   }
+  ],
+  "utc": "2026-09-30T17:35:11Z"
+ },
+ "written_utc": "2026-09-30T17:35:43Z"
+}
