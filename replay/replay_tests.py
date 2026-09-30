@@ -4,8 +4,9 @@
     python replay/replay_tests.py
 
 Every fixture is built in a temporary directory; the real index
-(replay/_local/index.sqlite) and verdict log are never opened. Exit code 0
-when every test passes.
+(replay/_local/index.sqlite) and verdict log are never opened. The action-state
+test reads the decomp status headers (read only); the panel test opens a
+withdrawn Tk window. Exit code 0 when every test passes.
 """
 
 from __future__ import annotations
@@ -124,6 +125,8 @@ def fall_match_and_desyncs() -> None:
         feed(tr, ep, good[:2] + [dict(good[2], position_x=-2199.5)])
         v = compare(tr)
         assert not v.match and [c.name for c in v.failures()] == ["final observation (host_frame excluded)"], v.lines()
+        assert v.failures()[0].rows == [("position_x", -2200.0, -2199.5)]  # the table's rows, full precision
+        assert v.failures()[0].got == "position_x: -2200.0 vs -2199.5"  # the CLI / verdict log text is unchanged
         # a fall one tick early (more rows remain) is a DESYNC on end/steps
         tr = ReplayTracker(ep)
         feed(tr, ep, [good[0], dict(good[2], input_tick=2, time_passed=1)])
@@ -407,6 +410,303 @@ def capture_worker_never_stores_a_doubtful_frame() -> None:
     idle = FakeCapturer([px[5]], 0.0)
     w._copy(idle, 5, None, {}, None, 0, _time.perf_counter() - 1.0)  # far behind: skipped without reading
     assert idle.calls == 0 and 5 not in e.history and e.late_drops == 2
+
+
+@test
+def capture_after_a_gap_waits_past_stale_reads() -> None:
+    """Without the previous tick's copy a stale read cannot be recognized: the read then starts no earlier than
+    CAPTURE_SETTLE_UNVERIFIED_S after the reply (and a verified one after CAPTURE_SETTLE_S)."""
+    import collections
+    import time as _time
+
+    from replay_game import CAPTURE_SAFE_S, CAPTURE_SETTLE_S, CAPTURE_SETTLE_UNVERIFIED_S, CaptureWorker
+    from replay_history import FrameHistory, HistoryConfig
+
+    assert CAPTURE_SETTLE_S < CAPTURE_SETTLE_UNVERIFIED_S and CAPTURE_SETTLE_UNVERIFIED_S + 0.006 < CAPTURE_SAFE_S
+
+    class Capturer:
+        def __init__(self, data):
+            self.data, self.at, self.last_read_time = data, None, 0.0
+
+        def capture(self, hwnd, divisor):
+            self.at = self.last_read_time = _time.perf_counter()
+            return 1, 1, self.data
+
+    class Engine:
+        history_config = HistoryConfig(seconds=1)
+
+        def __init__(self):
+            self.history, self._last_submit = FrameHistory(60), (-2, 0.0)
+            self.capture_ms, self.stale_retries, self.late_drops = collections.deque(maxlen=10), 0, 0
+
+    e = Engine()
+    w = CaptureWorker(e)
+    for tick, data, prev_ok in ((7, b"\x07" * 4, False), (8, b"\x08" * 4, True), (10, b"\x0a" * 4, False)):
+        c = Capturer(data)
+        t_ready = _time.perf_counter()
+        e._last_submit = (tick + 1, t_ready)  # playing: the next tick is submitted at once
+        w._copy(c, tick, None, {}, None, 0, t_ready)
+        waited = c.at - t_ready
+        assert tick in e.history, tick
+        if prev_ok:
+            assert CAPTURE_SETTLE_S <= waited < CAPTURE_SETTLE_UNVERIFIED_S, (tick, waited)
+        else:
+            assert waited >= CAPTURE_SETTLE_UNVERIFIED_S, (tick, waited)
+
+
+# -- viewer panel ----------------------------------------------------------------------------------------------------
+
+
+@test
+def action_state_names_from_decomp() -> None:
+    """Names come from decomp/src/ft/ftdef.h + ftchar/ftmario/ftmario.h (read only); unknown ids stay numbers."""
+    from replay_status import load_error, status_label, status_names
+
+    names = status_names()
+    assert names, load_error
+    assert status_label(10) == "Wait (10)"  # nFTCommonStatusWait, not the ControlStart range marker
+    assert status_label(26) == "Fall (26)" and status_label(24) == "JumpAerialF (24)"
+    assert status_label(37) == "DamageHi1 (37)" and status_label(56) == "WallDamage (56)"  # marker aliases skipped
+    assert status_label(62) == "DokanStart (62)"  # a real state whose own name ends in Start
+    assert status_label(219) == "LandingAirNull (219)" and status_label(225) == "SpecialHi (225)"  # Mario's range
+    assert len(names) == 229 and max(names) == 228
+    assert status_label(229) == "229" and status_label(None) == "-" and status_label("x") == "x"
+
+
+@test
+def panel_texts() -> None:
+    from replay_episode import Check, Row, Verdict
+    from replay_ui import (BADGES, header_lines, live_columns, marker_groups, result_details, result_summary,
+                           runs_relative, status_text, verdict_badge)
+
+    s = {"episode_id": "episode_x", "role": "evaluation", "run_id": None, "profile": "m7p_geo4_s1",
+         "observation": None, "reward": None, "end": "unknown", "end_detail": "not recorded", "targets_broken": None,
+         "rows": 12, "rows_to_replay": 11, "prefix_rows": None}
+    lines = header_lines(s)
+    assert lines == ["role evaluation · profile m7p_geo4_s1", "rows 12 (11 replayable)"], lines
+    assert not any(bad in " ".join(lines) for bad in ("None", "not recorded", "unknown", "observation", "prefix"))
+    s.update(end="fall", end_detail="end_reason=fall", targets_broken=6, rows_to_replay=12, prefix_rows=120)
+    assert header_lines(s)[-1] == "recorded end fall (end_reason=fall) · targets 6 · rows 12 · prefix 120"
+    with tempfile.TemporaryDirectory() as tmp:
+        runs = Path(tmp) / "runs"
+        (runs / "m7p" / "episode_x").mkdir(parents=True)
+        assert runs_relative(str(runs / "m7p" / "episode_x"), runs) == ("runs" + os.sep, os.path.join("m7p", "episode_x"))
+        assert runs_relative(str(Path(tmp) / "elsewhere"), runs) == ("", str(Path(tmp) / "elsewhere"))
+
+    match = Verdict(True, [Check("end", True, "fall", "fall"), Check("steps", True, 3, 3)], ["digest: not recorded"])
+    desync = Verdict(False, [Check("end", True, "fall", "fall"), Check("steps", False, 3, 2)], [])
+    base = {"verdict": None, "verdict_detail": None, "error": None, "mismatch": None}
+    assert verdict_badge(base) == BADGES["pending"]
+    assert verdict_badge(dict(base, verdict="MATCH", verdict_detail=match)) == BADGES["MATCH"]
+    assert verdict_badge(dict(base, mismatch="row 3: step_count 9")) == BADGES["DESYNC"]  # decided before the end
+    assert verdict_badge(dict(base, error="stopped")) == BADGES["stopped"]
+    text, _, details = result_summary(dict(base, verdict="MATCH", verdict_detail=match))
+    assert text.startswith("✔ MATCH — 2 ok, 1 skipped") and details
+    text, _, _ = result_summary(dict(base, verdict="DESYNC", verdict_detail=desync))
+    assert text.startswith("✖ DESYNC — 1 failed, 1 ok, 0 skipped")
+    assert [tag for _, tag, _ in result_details(dict(base, verdict_detail=match))] == ["ok", "ok", "skip"]
+    line = "✖ steps: expected 3, got 2"
+    assert result_details(dict(base, verdict_detail=desync))[1] == (line, "fail", line)  # no digest: no labels
+    assert result_summary(base)[2] is False and result_details(base) == []
+
+    ended = {"phase": "ended", "end_kind": "clear", "live_tick": 467, "verdict": "MATCH"}
+    assert status_text(ended) == "■ ended: clear at tick 467"  # the panel: no verdict word (the badge has it)
+    assert status_text(ended, verdict=True) == "■ MATCH: clear at tick 467"  # the HUD over the game window
+    assert status_text(dict(ended, end_kind="rows_exhausted")) == "■ ended: truncated at tick 467"
+
+    view = {"row": Row(12, 0x4000, 80, -80, 12), "observation": obs(position_x=-1234.56, fighter_status_id=26,
+                                                                   time_passed=99),
+            "tick": 12, "targets_broken": 3, "targets_total": 10, "rows": 3445}
+    cols = live_columns(view)
+    assert cols == {"tick": "12 / 3444", "stick": "↘ +80 -80", "button": "B", "targets": "3/10", "x": "-1234.6",
+                    "y": "-2550.0", "status": "  Fall (26)"}, cols
+    assert "t=" not in " ".join(cols.values()) and "99" not in " ".join(cols.values())
+    cols = live_columns(dict(view, row=None, observation={}, tick=-1, targets_broken=None))
+    assert cols["tick"] == "tick-0 state" and cols["stick"] == cols["x"] == "-" and cols["targets"] == "-/10"
+    assert marker_groups([812, 1204, 1204, 3001]) == [(812, 1, 1), (1204, 2, 3), (3001, 4, 4)]
+    assert marker_groups([]) == []
+
+
+@test
+def desync_root_cause_and_observation_table() -> None:
+    from replay_episode import DIGEST_CHECK, Check, Verdict
+    from replay_ui import middle_ellipsis, result_details, result_summary
+
+    rows = [("air_velocity_x", 0.0, 1.9999990463256836), ("fighter_status_id", 0, 27),
+            ("position_x", -2186.0, -1467.7998046875)]
+    checks = [Check(DIGEST_CHECK, False, "af661e295cd1a843", "489fa7dc580de62e"), Check("steps", True, 3445, 3445),
+              Check("end", False, "fall", "truncated"),
+              Check("final observation (host_frame excluded)", False, "identical", "...", rows)]
+    snap = {"verdict": "DESYNC", "verdict_detail": Verdict(False, checks, ["x: not recorded"]), "error": None,
+            "mismatch": None}
+    text, _, _ = result_summary(snap)
+    assert text == ("✖ DESYNC — likely root cause: actions.jsonl differs from the recording (actions digest); "
+                    "2 downstream failures, 1 ok, 1 skipped"), text
+    lines = result_details(snap)
+    shown = [s for s, _, _ in lines]
+    tags = [t for _, t, _ in lines]
+    assert shown[0].startswith("✖ likely root cause · actions digest") and tags[0] == "root"
+    assert shown[2] == "✖ downstream · end: expected fall, got truncated" and tags[2] == "downstream"
+    assert shown[3] == "✖ downstream · final observation (host_frame excluded): 3 fields differ"
+    table = lines[4:8]
+    assert [t for _, t, _ in table] == ["table_head", "table", "table", "table"]
+    assert table[0][0].split() == ["field", "expected", "got"]
+    assert table[1][0].split() == ["air_velocity_x", "0.000", "2.000"]  # shown: 3 decimals
+    assert table[2][0].split() == ["fighter_status_id", "0", "27"]  # ints as they are
+    assert table[3][0].split() == ["position_x", "-2186.000", "-1467.800"]
+    assert len({len(s) for s, _, _ in table}) == 1  # aligned columns
+    assert table[1][2] == "    air_velocity_x\t0.0\t1.9999990463256836"  # copied: full precision, tab-separated
+    assert table[3][2] == "    position_x\t-2186.0\t-1467.7998046875"
+    assert tags[-1] == "skip"
+    # digest fine: no root-cause wording, failures are plain
+    plain = dict(snap, verdict_detail=Verdict(False, [Check(DIGEST_CHECK, True, "a", "a")] + checks[1:], []))
+    assert "root cause" not in result_summary(plain)[0]
+    assert not any(t in ("root", "downstream") for _, t, _ in result_details(plain))
+
+    sep = os.sep
+    path = sep.join(["runs", "m7p", "campaign", "_eval", "m7p_geo4_s1", "episode_20260928T072129Z_44619208"])
+    assert middle_ellipsis(path, len(path), len) == path  # fits: unchanged
+    short = middle_ellipsis(path, 50, len)
+    assert len(short) <= 50 and short.startswith("runs" + sep + "m7p") and "…" in short
+    assert short.endswith(sep + "episode_20260928T072129Z_44619208")  # the episode folder stays whole
+    assert middle_ellipsis(path, 10, len) == "…" + sep + "episode_20260928T072129Z_44619208"  # the folder wins
+    assert middle_ellipsis("episode_only", 3, len) == "episode_only"
+
+
+@test
+def target_prepass_marks_break_ticks() -> None:
+    from replay_episode import Row
+    from replay_game import TargetPrepass, _Cancelled
+
+    class Tracker:
+        def __init__(self):
+            self.initial, self.targets_broken = obs(targets_remaining=10), 0
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ep = load_episode(fall_episode(Path(tmp) / "episode_x_prepass"))
+        p = TargetPrepass(ep)
+        tr = Tracker()
+        for tick, broken in ((0, 0), (1, 0), (2, 1), (3, 1), (4, 3)):  # two targets on one tick
+            tr.targets_broken = broken
+            p._on_step(Row(tick, 0, 0, 0, tick), tr)
+        assert p.break_ticks == [2, 4, 4] and p.state == "running"
+        p.cancel()  # no process yet: only the flag
+        try:
+            p._on_step(Row(5, 0, 0, 0, 5), tr)
+            raise AssertionError("a cancelled pre-pass must stop at the next step")
+        except _Cancelled:
+            pass
+
+
+@test
+def stale_session_cleanup_spares_a_session_being_created() -> None:
+    """The marker pre-pass creates its session while the engine cleans up: a folder whose session.json is not
+    written yet belongs to the pid in its name."""
+    import replay_game
+
+    with tempfile.TemporaryDirectory() as tmp:
+        saved_dir = replay_game.SESSIONS_DIR
+        replay_game.SESSIONS_DIR = Path(tmp)
+        try:
+            ours = Path(tmp) / f"20260929T000000Z_{os.getpid()}_abcdefgh_markers"
+            dead = Path(tmp) / "20260929T000000Z_4000000000_abcdefgh"  # no such pid
+            ours.mkdir()
+            dead.mkdir()
+            removed = replay_game.cleanup_stale_sessions()
+            assert ours.is_dir() and not dead.exists() and removed == [dead.name], removed
+        finally:
+            replay_game.SESSIONS_DIR = saved_dir
+
+
+@test
+def viewer_panel_is_stable_and_result_expands() -> None:
+    """The real ViewerUI (unstarted engine, withdrawn window): changing values never changes the panel size, the
+    result stays one line on MATCH, opens by itself on DESYNC and toggles on click, markers are drawn."""
+    from replay_episode import Check, Row, Verdict
+    from replay_game import ReplayEngine
+
+    try:
+        import tkinter as tk
+
+        tk.Tk().destroy()
+    except Exception:  # noqa: BLE001 - no display
+        return
+    import replay_ui
+
+    class Prepass:
+        state, break_ticks, seconds, error = "done", [1, 2, 2], 0.5, None
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ep = load_episode(fall_episode(Path(tmp) / "episode_x_panel"))
+        engine = ReplayEngine(ep)
+        ui = replay_ui.ViewerUI(engine, summary={"episode_id": ep.episode_id, "directory": str(ep.directory),
+                                                 "rows": 3}, hud=False, prepass=Prepass())
+        ui.root.withdraw()
+        try:
+            base = engine.snapshot()
+
+            def show(snap):
+                engine.snapshot = lambda: snap
+                ui._update_panel(snap, ui._view(snap))
+                ui._update_result(snap)
+                ui._draw_markers(force=True)
+                ui.root.update_idletasks()
+                return ui.root.winfo_reqwidth(), {k: c.winfo_reqwidth() for k, c in ui.cells.items()}
+
+            short = dict(base, phase="playing", last_row=Row(0, 0, 0, 0, 0), live_tick=0, achieved_tps=60.0,
+                         observation=obs(position_x=1.0, fighter_status_id=10), targets_broken=0)
+            long_ = dict(base, phase="jumping", last_row=Row(2, 0xFFFF, -80, 80, 2), live_tick=2, jump_to=3,
+                         observation=obs(position_x=-12345.67, position_y=-99999.9, fighter_status_id=59),
+                         targets_broken=10, rebuilding=True, rebuild_to=2, message="speed 4x requested; " * 8)
+            w1, cells1 = show(short)
+            w2, cells2 = show(long_)
+            assert (w1, cells1) == (w2, cells2), (w1, w2, cells1, cells2)
+            assert ui.cells["status"].cget("text") == "  LandingFallSpecial (59)"  # longest common name still fits
+            match = Verdict(True, [Check("end", True, "fall", "fall")], [])
+            show(dict(short, phase="ended", end_kind="fall", verdict="MATCH", verdict_detail=match))
+            assert ui.badge.cget("text") == "MATCH" and not ui.result.winfo_manager()
+            assert "MATCH" not in ui.status.get() and ui.result_line.cget("text").startswith("▸ ✔ MATCH")
+            ui._toggle_result()
+            assert ui.result.winfo_manager() and ui.result_line.cget("text").startswith("▾ ")
+            ui._toggle_result()
+            assert not ui.result.winfo_manager()
+            desync = Verdict(False, [Check("steps", False, 3, 2)], [])
+            show(dict(short, phase="ended", end_kind="fall", verdict="DESYNC", verdict_detail=desync))
+            assert ui.badge.cget("text") == "DESYNC" and ui.result.winfo_manager()  # opened by itself
+            assert "expected 3, got 2" in ui.result.get("1.0", "end")
+            assert len(ui.markers.find_all()) == 2 * 2  # two groups (tick 1; ticks 2+2): a triangle and a label each
+            assert "3 target markers (pre-pass 0.5 s)" in ui._diag_text()
+            assert {"<Enter>", "<Leave>", "<Button-1>"} <= set(ui.markers.tag_bind("m2"))
+            ui._marker_enter(2, 2, 3, -3000, -3000)  # off screen
+            tip = ui._marker_tip.winfo_children()[0].cget("text")
+            assert tip == "Targets 2-3 broken at tick 2\nclick to jump there", tip
+            jumped = []
+            ui.jump = jumped.append
+            ui._marker_click(1)
+            assert jumped == [1] and ui._marker_tip is None
+
+            # Observation table: shown rounded, copied at full precision (all lines, or the selected ones).
+            rows = [("air_velocity_x", 0.0, 1.9999990463256836), ("position_x", -2186.0, -1467.7998046875)]
+            table = Verdict(False, [Check("final observation (host_frame excluded)", False, "identical", "...",
+                                          rows)], [])
+            show(dict(short, phase="ended", end_kind="fall", verdict="DESYNC", verdict_detail=table))
+            shown = ui.result.get("1.0", "end")
+            assert "2.000" in shown and "-1467.800" in shown and "1.99999" not in shown, shown
+            everything = ui._result_copy_text(selected=False)
+            assert "1.9999990463256836" in everything and "-1467.7998046875" in everything
+            assert ui._result_copy_text(selected=True) == ""  # nothing selected
+            ui.result.tag_add("sel", "3.4", "4.0")  # part of line 3 (the first table row) up to the start of line 4
+            assert ui._result_copy_text() == "    air_velocity_x\t0.0\t1.9999990463256836"
+            ui.result.tag_remove("sel", "1.0", "end")
+
+            # The path: middle ellipsis keeps the episode folder, the tooltip has the full path.
+            ui._fit_path(120)
+            assert "…" in ui.path_label.cget("text") and ui.path_label.cget("text").endswith(ep.directory.name)
+            ui._fit_path(5000)
+            assert ui.path_label.cget("text") == ui.path_text
+            assert ui.path_tip.text.startswith(str(ep.directory))
+        finally:
+            ui.root.destroy()
 
 
 def main() -> int:

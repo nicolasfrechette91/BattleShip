@@ -357,12 +357,18 @@ class ReplayTracker:
 # -- comparison ----------------------------------------------------------------------------------
 
 
+DIGEST_CHECK = "actions digest (file vs labels.native_action_digest)"
+ABSENT = "<absent>"
+
+
 @dataclass
 class Check:
     name: str
     ok: bool
     expected: Any
     got: Any
+    # Observation checks: every differing field as (field, expected value, got value), full precision.
+    rows: Optional[List[Tuple[str, Any, Any]]] = None
 
 
 @dataclass
@@ -391,14 +397,19 @@ class Verdict:
         return out
 
 
-def observation_diffs(expected: Mapping[str, Any], got: Mapping[str, Any]) -> List[str]:
+def observation_diff_rows(expected: Mapping[str, Any], got: Mapping[str, Any]) -> List[Tuple[str, Any, Any]]:
+    """(field, expected, got) for every differing field (type or value), host_frame excluded, sorted by field."""
     keys = sorted((set(expected) | set(got)) - set(OBS_EXCLUDED))
-    diffs = []
+    rows = []
     for k in keys:
-        a, b = expected.get(k, "<absent>"), got.get(k, "<absent>")
+        a, b = expected.get(k, ABSENT), got.get(k, ABSENT)
         if type(a) is not type(b) or a != b:
-            diffs.append(f"{k}: {a!r} vs {b!r}")
-    return diffs
+            rows.append((k, a, b))
+    return rows
+
+
+def observation_diffs(expected: Mapping[str, Any], got: Mapping[str, Any]) -> List[str]:
+    return [f"{k}: {a!r} vs {b!r}" for k, a, b in observation_diff_rows(expected, got)]
 
 
 def compare(tracker: ReplayTracker) -> Verdict:
@@ -408,15 +419,16 @@ def compare(tracker: ReplayTracker) -> Verdict:
     skipped: List[str] = []
 
     if e.recorded_digest is not None:
-        checks.append(Check("actions digest (file vs labels.native_action_digest)",
-                            e.file_digest == e.recorded_digest, e.recorded_digest[:16], e.file_digest[:16]))
+        checks.append(Check(DIGEST_CHECK, e.file_digest == e.recorded_digest, e.recorded_digest[:16],
+                            e.file_digest[:16]))
     else:
         skipped.append("actions digest: labels.native_action_digest not recorded")
 
     if e.initial_observation is not None and tracker.initial is not None:
+        rows = observation_diff_rows(e.initial_observation, tracker.initial)
         diffs = observation_diffs(e.initial_observation, tracker.initial)
         checks.append(Check("initial observation (tick 0, host_frame excluded)", not diffs,
-                            "identical", "; ".join(diffs) if diffs else "identical"))
+                            "identical", "; ".join(diffs) if diffs else "identical", rows or None))
     else:
         skipped.append("initial observation: not recorded")
 
@@ -453,9 +465,11 @@ def compare(tracker: ReplayTracker) -> Verdict:
                                 e.completion_input_tick, obs.get("input_tick")))
 
     if e.final_observation is not None and tracker.last is not None:
+        rows = observation_diff_rows(e.final_observation, tracker.last)
         diffs = observation_diffs(e.final_observation, tracker.last)
         checks.append(Check("final observation (host_frame excluded)", not diffs, "identical",
-                            "; ".join(diffs[:6]) + (" ..." if len(diffs) > 6 else "") if diffs else "identical"))
+                            "; ".join(diffs[:6]) + (" ..." if len(diffs) > 6 else "") if diffs else "identical",
+                            rows or None))
     elif e.final_observation is None:
         skipped.append("final observation: not recorded")
 

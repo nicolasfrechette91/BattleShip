@@ -13,29 +13,66 @@ game itself is not touched until playback resumes past the saved frames or a
 tick older than the history is requested ("rebuilding to tick N": fresh
 process + fast-forward). All game control goes through ReplayEngine commands;
 the UI only reads engine snapshots and the history.
+
+Panel layout, top to bottom: verdict badge + recorded-episode header, the
+live state in fixed-width columns, the playback status, the timeline (with
+target-break markers from TargetPrepass when one is given), the controls
+(media buttons | speed | tick + Jump), a one-line result that expands to
+every check, and a grey footer with the keys and the saved-frame diagnostics.
+Every text that changes while playing has a fixed width, so the window never
+resizes or shifts under the cursor.
 """
 
 from __future__ import annotations
 
 import math
+import os
+import re
+import subprocess
 import time
 import tkinter as tk
+import tkinter.font as tkfont
+from pathlib import Path
 from tkinter import ttk
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import replay_win32 as win32
-from replay_episode import button_name, stick_arrow
-from replay_game import SPEEDS, MAX_RENDERED_SPEED, ReplayEngine, load_state, save_state
+from replay_episode import DIGEST_CHECK, REPO_ROOT, Check, Verdict, button_name, stick_arrow
+from replay_game import SPEEDS, MAX_RENDERED_SPEED, ReplayEngine, TargetPrepass, load_state, save_state
 from replay_history import SavedFrame, plan_back, plan_forward, plan_view, ppm
+from replay_status import status_label
 
 POLL_MS = 33
 REVIEW_PLAY_MS = 8
 HUD_KEY = "#010101"  # color key: pixels of exactly this color are transparent
-HUD_W, HUD_H = 330, 146
+HUD_W, HUD_H = 330, 160
 FONT = ("Consolas", 11)
 FONT_BIG = ("Consolas", 12, "bold")
 GREEN, RED, AMBER, WHITE, CYAN = "#4ade80", "#f87171", "#fbbf24", "#f5f5f5", "#22d3ee"
 REVIEW_BANNER_BG = "#0e4a5a"
+RUNS_DIR = REPO_ROOT / "runs"
+
+# Panel (light background) colors and fonts.
+UI_FONT = ("Segoe UI", 9)
+SMALL = ("Segoe UI", 8)
+HEAD_FONT = ("Segoe UI", 11, "bold")
+MONO = ("Consolas", 11)
+MONO_SMALL = ("Consolas", 10)
+GREY_TEXT = "#6b7280"
+INK = "#111827"
+DARK_GREEN, DARK_RED, DARK_AMBER, DARK_CYAN = "#15803d", "#b91c1c", "#b45309", "#0e7490"
+BADGE_GREY = "#9ca3af"
+MARKER = "#d97706"
+# Badge (text, background): the verdict, shown once.
+BADGES = {"MATCH": ("MATCH", DARK_GREEN), "DESYNC": ("DESYNC", DARK_RED), "pending": ("PENDING", BADGE_GREY),
+          "stopped": ("STOPPED", "#57534e")}
+# Live-state columns: (key, header, width in characters, anchor).
+COLUMNS: Tuple[Tuple[str, str, int, str], ...] = (
+    ("tick", "TICK", 13, "w"), ("stick", "STICK", 11, "w"), ("button", "BUTTON", 9, "w"),
+    ("targets", "TARGETS", 8, "w"), ("x", "X", 9, "e"), ("y", "Y", 9, "e"), ("status", "  ACTION STATE", 26, "w"),
+)
+KEYS_HELP = "Space play/pause · ← , back · → . step · + − speed · R restart · G jump · Q quit · other keys in the game window can desync"
+RESULT_WIDTH = 96  # characters of the expanded check list
 
 
 def speed_label(v: float) -> str:
@@ -126,7 +163,7 @@ class Hud:
             self._text(8, y0 + 42, "button -")
         tb, tt = view["targets_broken"], view["targets_total"]
         self._text(8, y0 + 62, f"targets {tb if tb is not None else '-'}/{tt}")
-        self._text(8, y0 + 86, view["status"], view["status_color"])
+        self._text(8, y0 + 108, view["status"], view["status_color"])  # below x / y: long statuses don't overlap
         # stick diagram
         cx, cy, r = HUD_W - 40, y0 + 40, 26
         c.create_oval(cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1, outline="#000000", width=3)
@@ -206,7 +243,9 @@ class ReviewOverlay:
             self.visible = False
 
 
-def status_text(snap: Dict[str, Any]) -> str:
+def status_text(snap: Dict[str, Any], *, verdict: bool = False) -> str:
+    """Playback state. The verdict word is only included on request (the HUD over the game window); the panel
+    shows it once, in the badge."""
     phase = snap["phase"]
     if snap.get("rebuilding") and phase in ("booting", "jumping"):
         target = snap.get("rebuild_to")
@@ -224,8 +263,9 @@ def status_text(snap: Dict[str, Any]) -> str:
     if phase == "booting":
         return "starting BattleShip..."
     if phase == "ended":
-        v = snap["verdict"] or "?"
-        return f"■ end {snap['end_kind']} - {v}"
+        kind = {"rows_exhausted": "truncated"}.get(snap["end_kind"], snap["end_kind"])  # the checks' word
+        where = f"{kind} at {tick_label(snap['live_tick'])}"
+        return f"■ {snap['verdict'] or '?'}: {where}" if verdict else f"■ ended: {where}"
     if phase == "error":
         return "BattleShip stopped - press Restart"
     return phase
@@ -241,13 +281,215 @@ def status_color(snap: Dict[str, Any]) -> str:
     return WHITE
 
 
+# -- panel texts (pure functions of the summary / snapshot; tested in replay_tests.py) -------------------------
+
+
+def _recorded(value: Any) -> bool:
+    return value is not None and value != "" and value != "not recorded" and value != "unknown"
+
+
+def header_lines(s: Dict[str, Any]) -> List[str]:
+    """The recorded-episode lines under the episode id, without fields that are None or not recorded."""
+    def join(pairs):
+        return " · ".join(f"{k} {v}" for k, v in pairs if _recorded(v))
+    end = s.get("end") if _recorded(s.get("end")) else None
+    if end and _recorded(s.get("end_detail")):
+        end = f"{end} ({s['end_detail']})"
+    rows = s.get("rows")
+    if rows is not None and s.get("rows_to_replay") not in (None, rows):
+        rows = f"{rows} ({s['rows_to_replay']} replayable)"
+    lines = [join((("role", s.get("role")), ("run", s.get("run_id")), ("profile", s.get("profile")))),
+             join((("observation", s.get("observation")), ("reward", s.get("reward")))),
+             join((("recorded end", end), ("targets", s.get("targets_broken")), ("rows", rows),
+                   ("prefix", s.get("prefix_rows") or None)))]
+    return [line for line in lines if line]
+
+
+def runs_relative(directory: str, runs_dir: Path = RUNS_DIR) -> Tuple[str, str]:
+    """("runs\\", path inside runs) for an episode under runs/, else ("", the full path)."""
+    try:
+        return "runs" + os.sep, str(Path(directory).resolve().relative_to(Path(runs_dir).resolve()))
+    except ValueError:
+        return "", str(directory)
+
+
+def verdict_badge(snap: Dict[str, Any]) -> Tuple[str, str]:
+    """(text, background). A per-row clock mismatch already decides DESYNC before the end."""
+    if snap.get("verdict") in BADGES:
+        return BADGES[snap["verdict"]]
+    if snap.get("mismatch"):
+        return BADGES["DESYNC"]
+    if snap.get("error"):
+        return BADGES["stopped"]
+    return BADGES["pending"]
+
+
+def fmt_value(v: Any) -> str:
+    """Shown value: floats to 3 decimals."""
+    return f"{v:.3f}" if isinstance(v, float) else str(v)
+
+
+def full_value(v: Any) -> str:
+    """Copied value: full precision (a float's repr round-trips exactly)."""
+    return repr(v) if isinstance(v, float) else str(v)
+
+
+def root_cause(v: Verdict) -> Optional[Check]:
+    """The failed actions-digest check, if any: actions.jsonl then differs from what the recorded run submitted,
+    so the replay fed other inputs and every other failure most likely follows from that."""
+    return next((c for c in v.checks if c.name == DIGEST_CHECK and not c.ok), None)
+
+
+def result_summary(snap: Dict[str, Any]) -> Tuple[str, str, bool]:
+    """(one-line summary, color, has details)."""
+    v = snap.get("verdict_detail")
+    if snap.get("error"):
+        return "✖ BattleShip stopped: no verdict", DARK_RED, True
+    if v is not None:
+        ok = sum(1 for c in v.checks if c.ok)
+        failed = len(v.checks) - ok
+        if root_cause(v) is not None:
+            down = failed - 1
+            return (f"✖ DESYNC — likely root cause: actions.jsonl differs from the recording (actions digest); "
+                    f"{down} downstream failure{'' if down == 1 else 's'}, {ok} ok, {len(v.skipped)} skipped",
+                    DARK_RED, True)
+        parts = ([f"{failed} failed"] if failed else []) + [f"{ok} ok", f"{len(v.skipped)} skipped"]
+        return (f"{'✔' if v.match else '✖'} {v.word} — {', '.join(parts)}  (replay vs metadata.json)",
+                DARK_GREEN if v.match else DARK_RED, True)
+    if snap.get("mismatch"):
+        return f"✖ clocks differ from the recording at {snap['mismatch']}", DARK_RED, False
+    return "Checks against metadata.json run when the episode ends.", GREY_TEXT, False
+
+
+def observation_table(rows: List[Tuple[str, Any, Any]]) -> List[Tuple[str, str, str]]:
+    """field / expected / got lines (shown text, tag, copied text): floats shown to 3 decimals, copied at full
+    precision, tab-separated."""
+    shown = [("field", "expected", "got")] + [(k, fmt_value(a), fmt_value(b)) for k, a, b in rows]
+    w = [max(len(r[i]) for r in shown) for i in range(3)]
+    out = [(f"    {shown[0][0]:<{w[0]}}  {shown[0][1]:>{w[1]}}  {shown[0][2]:>{w[2]}}", "table_head",
+            "    field\texpected\tgot")]
+    for (k, a, b), (_, sa, sb) in zip(rows, shown[1:]):
+        out.append((f"    {k:<{w[0]}}  {sa:>{w[1]}}  {sb:>{w[2]}}", "table",
+                    f"    {k}\t{full_value(a)}\t{full_value(b)}"))
+    return out
+
+
+def result_details(snap: Dict[str, Any]) -> List[Tuple[str, str, str]]:
+    """(shown text, tag, copied text) lines of the expanded result: every check, then the skipped ones. With a
+    failed actions digest, that check is marked as the likely root cause and the other failures as downstream.
+    An observation mismatch is a field / expected / got table."""
+    if snap.get("error"):
+        return [(snap["error"], "fail", snap["error"])]
+    v = snap.get("verdict_detail")
+    if v is None:
+        return []
+    root = root_cause(v)
+    out: List[Tuple[str, str, str]] = []
+    for c in v.checks:
+        if c.ok:
+            line = f"✔ {c.name}: {c.got}"
+            out.append((line, "ok", line))
+            continue
+        role, tag = ("", "fail") if root is None else (
+            ("likely root cause · ", "root") if c is root else ("downstream · ", "downstream"))
+        if c.rows:
+            line = f"✖ {role}{c.name}: {len(c.rows)} field{'' if len(c.rows) == 1 else 's'} differ"
+            out.append((line, tag, line))
+            out += observation_table(c.rows)
+        else:
+            line = f"✖ {role}{c.name}: expected {c.expected}, got {c.got}"
+            out.append((line, tag, line))
+    out += [(f"– skipped: {s}", "skip", f"– skipped: {s}") for s in v.skipped]
+    return out
+
+
+def middle_ellipsis(text: str, max_px: int, measure, sep: str = os.sep) -> str:
+    """`text` if it fits in max_px pixels, else head + '…' + tail: the tail always keeps the last path component
+    (the episode folder), the head is as long as still fits."""
+    if measure(text) <= max_px:
+        return text
+    cut = text.rstrip(sep).rfind(sep)
+    if cut <= 0:
+        return text  # a single component: nothing to elide around
+    tail = text[cut:]
+    lo, hi = 0, cut
+    while lo < hi:  # largest head length that fits
+        mid = (lo + hi + 1) // 2
+        if measure(text[:mid] + "…" + tail) <= max_px:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo] + "…" + tail
+
+
+def live_columns(view: Dict[str, Any]) -> Dict[str, str]:
+    """Texts of the fixed-width live-state columns (tick, stick, button, targets, x, y, action state)."""
+    row, obs = view["row"], view["observation"] or {}
+    tick = view["tick"]
+    tb, tt = view["targets_broken"], view["targets_total"]
+    x, y = obs.get("position_x"), obs.get("position_y")
+    return {
+        "tick": tick_label(tick) if tick < 0 else f"{tick} / {view['rows'] - 1}",
+        "stick": f"{stick_arrow(row.stick_x, row.stick_y)} {row.stick_x:+d} {row.stick_y:+d}" if row else "-",
+        "button": button_name(row.buttons) if row else "-",
+        "targets": f"{tb if tb is not None else '-'}/{tt}",
+        "x": f"{x:.1f}" if isinstance(x, (int, float)) else "-",
+        "y": f"{y:.1f}" if isinstance(y, (int, float)) else "-",
+        "status": "  " + status_label(obs.get("fighter_status_id")),
+    }
+
+
+def marker_groups(break_ticks: List[int]) -> List[Tuple[int, int, int]]:
+    """(tick, first target number, last target number) per tick where targets broke."""
+    groups: List[Tuple[int, int, int]] = []
+    for n, tick in enumerate(break_ticks, start=1):
+        if groups and groups[-1][0] == tick:
+            groups[-1] = (tick, groups[-1][1], n)
+        else:
+            groups.append((tick, n, n))
+    return groups
+
+
+def popup_tip(parent: tk.Widget, text: str, x: int, y: int) -> tk.Toplevel:
+    """A small borderless hint window at screen position (x, y)."""
+    tip = tk.Toplevel(parent)
+    tip.overrideredirect(True)
+    tip.attributes("-topmost", True)
+    tk.Label(tip, text=text, bg="#ffffe0", fg=INK, relief="solid", bd=1, font=SMALL, padx=4, justify="left").pack()
+    tip.geometry(f"+{x}+{y}")
+    return tip
+
+
+class Tooltip:
+    """A small hint under a widget while the pointer is over it."""
+
+    def __init__(self, widget: tk.Widget, text: str):
+        self.widget, self.text, self.tip = widget, text, None
+        widget.bind("<Enter>", self.show, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
+        widget.bind("<ButtonPress>", self.hide, add="+")
+
+    def show(self, _event=None) -> None:
+        if self.tip is not None:
+            return
+        self.tip = popup_tip(self.widget, self.text, self.widget.winfo_rootx(),
+                             self.widget.winfo_rooty() + self.widget.winfo_height() + 2)
+
+    def hide(self, _event=None) -> None:
+        if self.tip is not None:
+            self.tip.destroy()
+            self.tip = None
+
+
 class ViewerUI:
-    def __init__(self, engine: ReplayEngine, *, summary: Dict[str, Any], hud: bool = True, exit_at_end: bool = False):
+    def __init__(self, engine: ReplayEngine, *, summary: Dict[str, Any], hud: bool = True, exit_at_end: bool = False,
+                 prepass: Optional[TargetPrepass] = None):
         self.engine = engine
         self.history = engine.history
         self.last_tick = len(engine.rows) - 1
         self.summary = summary
         self.exit_at_end = exit_at_end
+        self.prepass = prepass
         self.root = tk.Tk()
         self.root.title(f"Replay - {summary['episode_id']}")
         self.root.protocol("WM_DELETE_WINDOW", self.close)
@@ -259,16 +501,23 @@ class ViewerUI:
         self._note = ""
         self._closing = False
         self._end_seen = False
-        self._last_error: Optional[str] = None
+        self._result_key: Optional[tuple] = None
+        self._result_open = False
+        self._result_has_details = False
+        self._copy_lines: List[str] = []  # full-precision text of each line of the check list
+        self._markers_drawn: Optional[tuple] = None
+        self._marker_tip: Optional[tk.Toplevel] = None
         self._seeking = False
         self._panel_placed = False
         self._keys_prev: Dict[str, bool] = {}
         self._repeat_at: Dict[str, float] = {}
         self._build()
+        # Only the position is restored: the height follows the content (collapsed or expanded result).
         saved = load_state().get("panel_geometry")
-        if isinstance(saved, str):
+        m = re.search(r"([+-]-?\d+[+-]-?\d+)$", saved) if isinstance(saved, str) else None
+        if m:
             try:
-                self.root.geometry(saved)
+                self.root.geometry(m.group(1))
                 self._panel_placed = True
             except tk.TclError:
                 pass
@@ -278,66 +527,131 @@ class ViewerUI:
     def _build(self) -> None:
         s = self.summary
         root = self.root
-        root.minsize(600, 440)
-        pad = {"padx": 8, "pady": 3}
-        info = ttk.LabelFrame(root, text="Recorded episode")
-        info.pack(fill="x", **pad)
-        lines = [
-            s["episode_id"],
-            f"role {s['role']}   run {s['run_id']}   profile {s['profile']}",
-            f"observation {s['observation']}   reward {s['reward']}",
-            f"end {s['end']} ({s['end_detail']})   targets {s['targets_broken']}   rows {s['rows']}"
-            + (f"   prefix {s['prefix_rows']}" if s["prefix_rows"] else ""),
-        ]
-        for i, text in enumerate(lines):
-            ttk.Label(info, text=text, font=FONT_BIG if i == 0 else None).pack(anchor="w", padx=6)
-        path = ttk.Entry(info)
-        path.insert(0, s["directory"])
-        path.configure(state="readonly")
-        path.pack(fill="x", padx=6, pady=(2, 6))
+        root.minsize(640, 1)
+        style = ttk.Style(root)
+        style.configure("Media.TButton", font=("Segoe UI Symbol", 12), padding=(4, 1))
+        pad = {"padx": 10}
 
-        now = ttk.LabelFrame(root, text="Replay")
-        now.pack(fill="x", **pad)
+        # Header: verdict badge (shown once, here) + the recorded episode.
+        head = ttk.Frame(root)
+        head.pack(fill="x", padx=10, pady=(10, 6))
+        self.badge = tk.Label(head, text=BADGES["pending"][0], bg=BADGES["pending"][1], fg="white", width=9,
+                              font=("Segoe UI", 13, "bold"), padx=6, pady=8)
+        self.badge.grid(row=0, column=0, rowspan=5, sticky="nw", padx=(0, 12))
+        ttk.Label(head, text=s["episode_id"], font=HEAD_FONT).grid(row=0, column=1, sticky="w")
+        lines = header_lines(s)
+        for i, text in enumerate(lines, start=1):
+            ttk.Label(head, text=text, font=UI_FONT, foreground=GREY_TEXT).grid(row=i, column=1, sticky="w")
+        where = ttk.Frame(head)
+        where.grid(row=len(lines) + 1, column=1, sticky="ew", pady=(3, 0))
+        # The path (relative to runs\) with a middle ellipsis when it does not fit, so the episode folder name
+        # stays visible; the full path is in the tooltip and right-click copies it.
+        prefix, rel = runs_relative(s["directory"])
+        self.path_text = prefix + rel
+        self._path_font = tkfont.Font(root=root, font=UI_FONT)
+        self.path_label = tk.Label(where, text=self.path_text, font=UI_FONT, fg=INK, anchor="w", width=1)
+        self.path_label.pack(side="left", fill="x", expand=True)
+        self.path_label.bind("<Configure>", lambda e: self._fit_path())
+        self.path_label.bind("<Button-3>", lambda e: self._copy_path())
+        self.path_tip = Tooltip(self.path_label, f"{s['directory']}\n(right-click copies the full path)")
+        ttk.Button(where, text="Open folder", takefocus=False, command=self._open_folder).pack(side="left", padx=(6, 0))
+        head.columnconfigure(1, weight=1)
+
+        ttk.Separator(root).pack(fill="x", **pad)
+
+        # Live state: fixed-width columns, so nothing shifts while playing.
+        live = tk.Frame(root)
+        live.pack(fill="x", padx=10, pady=(6, 0))
+        self.cells: Dict[str, tk.Label] = {}
+        for col, (key, title, width, anchor) in enumerate(COLUMNS):
+            tk.Label(live, text=title, font=("Consolas", 8), fg=GREY_TEXT, anchor=anchor, padx=0).grid(
+                row=0, column=col, sticky="ew")
+            cell = tk.Label(live, text="-", font=MONO, fg=INK, width=width, anchor=anchor, padx=0)
+            cell.grid(row=1, column=col, sticky="ew")
+            self.cells[key] = cell
+        # Playback status (fixed width, two lines for a message).
         self.status = tk.StringVar(value="starting...")
-        self.detail = tk.StringVar(value="")
-        self.history_line = tk.StringVar(value="")
-        self.status_label = tk.Label(now, textvariable=self.status, font=FONT_BIG, anchor="w")
-        self.status_label.pack(fill="x", padx=6)
-        ttk.Label(now, textvariable=self.detail, font=FONT).pack(anchor="w", padx=6)
-        ttk.Label(now, textvariable=self.history_line, font=("Segoe UI", 8)).pack(anchor="w", padx=6)
-        self.seek = tk.Scale(now, from_=0, to=max(0, self.last_tick), orient="horizontal",
-                             showvalue=True, resolution=1, length=520, takefocus=0)
-        self.seek.pack(fill="x", padx=6)
+        self.message = tk.StringVar(value="")
+        self.status_label = tk.Label(root, textvariable=self.status, font=("Segoe UI", 10, "bold"), fg=INK,
+                                     anchor="w", width=80)
+        self.status_label.pack(fill="x", padx=10, pady=(6, 0))
+        tk.Label(root, textvariable=self.message, font=UI_FONT, fg=GREY_TEXT, anchor="nw", justify="left",
+                 width=100, height=1).pack(fill="x", padx=10)
+
+        # Timeline + target-break markers (TargetPrepass).
+        self.seek = tk.Scale(root, from_=0, to=max(0, self.last_tick), orient="horizontal", showvalue=True,
+                             resolution=1, length=600, takefocus=0, highlightthickness=0)
+        self.seek.pack(fill="x", padx=10)
         self.seek.bind("<ButtonPress-1>", lambda e: setattr(self, "_seeking", True))
         self.seek.bind("<ButtonRelease-1>", self._seek_release)
+        self.markers = tk.Canvas(root, height=18, highlightthickness=0, bd=0)
+        self.markers.pack(fill="x", padx=10)
+        self.seek.bind("<Configure>", lambda e: self._draw_markers(force=True), add="+")
 
+        # Controls: media buttons | speed | tick + Jump.
         bar = ttk.Frame(root)
-        bar.pack(fill="x", **pad)
-        ttk.Button(bar, text="Restart (R)", takefocus=False, command=self.restart).pack(side="left")
-        ttk.Button(bar, text="◀ Back (←)", takefocus=False, command=self.step_back).pack(side="left", padx=(4, 0))
-        self.play_btn = ttk.Button(bar, text="Play (Space)", width=13, takefocus=False, command=self.toggle)
-        self.play_btn.pack(side="left", padx=4)
-        ttk.Button(bar, text="Step (→)", takefocus=False, command=self.step_forward).pack(side="left")
-        ttk.Label(bar, text="  speed").pack(side="left")
+        bar.pack(fill="x", padx=10, pady=(2, 6))
+        media = ttk.Frame(bar)
+        media.pack(side="left")
+        self.restart_btn = ttk.Button(media, text="⏮", width=3, style="Media.TButton", takefocus=False,
+                                      command=self.restart)
+        back = ttk.Button(media, text="◀❚", width=3, style="Media.TButton", takefocus=False, command=self.step_back)
+        self.play_btn = ttk.Button(media, text="▶", width=4, style="Media.TButton", takefocus=False,
+                                   command=self.toggle)
+        step = ttk.Button(media, text="❚▶", width=3, style="Media.TButton", takefocus=False, command=self.step_forward)
+        for btn, tip in ((self.restart_btn, "Restart from the tick-0 state (R)"),
+                         (back, "Back one tick: saved frame, or rebuild when older (← or ,)"),
+                         (self.play_btn, "Play / pause (Space)"), (step, "Step one tick (→ or .)")):
+            btn.pack(side="left", padx=(0, 2))
+            Tooltip(btn, tip)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10)
+        ttk.Label(bar, text="Speed", font=UI_FONT).pack(side="left")
         self.speed = ttk.Combobox(bar, width=16, state="readonly", takefocus=False, values=[speed_label(v) for v in SPEEDS])
         self.speed.current(SPEEDS.index(self.engine.speed) if self.engine.speed in SPEEDS else 2)
         self.speed.bind("<<ComboboxSelected>>", lambda e: self._set_speed(SPEEDS[self.speed.current()]))
-        self.speed.pack(side="left", padx=4)
-        ttk.Label(bar, text="  tick").pack(side="left")
+        self.speed.pack(side="left", padx=(4, 0))
+        Tooltip(self.speed, "+ / − (above 1x only saved-frame playback is faster)")
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10)
+        ttk.Label(bar, text="Tick", font=UI_FONT).pack(side="left")
         self.jump_entry = ttk.Entry(bar, width=7)
-        self.jump_entry.pack(side="left", padx=2)
+        self.jump_entry.pack(side="left", padx=4)
         self.jump_entry.bind("<Return>", self._jump_from_entry)
-        ttk.Button(bar, text="Jump (G)", takefocus=False, command=self._jump_from_entry).pack(side="left")
+        jump = ttk.Button(bar, text="Jump", takefocus=False, command=self._jump_from_entry)
+        jump.pack(side="left")
+        Tooltip(jump, "Show this tick (G focuses the field; -1 = the tick-0 state)")
 
-        res = ttk.LabelFrame(root, text="Result (replayed vs metadata.json)")
-        res.pack(fill="both", expand=True, **pad)
-        self.result = tk.Text(res, height=10, font=FONT, wrap="word", state="disabled")
-        self.result.tag_configure("match", foreground="#15803d", font=FONT_BIG)
-        self.result.tag_configure("desync", foreground="#b91c1c", font=FONT_BIG)
-        self.result.pack(fill="both", expand=True, padx=4, pady=4)
-        ttk.Label(root, text="Keys: Space play/pause, ← or , back, → or . step, + / - speed, R restart, "
-                             "G jump, Q quit. Don't use other keys in the game window.",
-                  font=("Segoe UI", 8)).pack(anchor="w", padx=8)
+        # Result: one line, expands to every check (automatically on DESYNC).
+        ttk.Separator(root).pack(fill="x", **pad)
+        self.result_line = tk.Label(root, text="", font=UI_FONT, fg=GREY_TEXT, anchor="w", justify="left", width=100,
+                                    cursor="arrow")
+        self.result_line.pack(fill="x", padx=10, pady=(4, 2))
+        self.result_line.bind("<Button-1>", lambda e: self._toggle_result())
+        self.result_line.bind("<Configure>", lambda e: self.result_line.configure(wraplength=max(200, e.width - 8)))
+        self.result = tk.Text(root, height=1, width=RESULT_WIDTH, font=MONO_SMALL, wrap="word", state="disabled",
+                              relief="flat", bg="#f9fafb", padx=6, pady=4)
+        self.result.tag_configure("ok", foreground=DARK_GREEN)
+        self.result.tag_configure("fail", foreground=DARK_RED)
+        self.result.tag_configure("root", foreground=DARK_RED, font=("Consolas", 10, "bold"))
+        self.result.tag_configure("downstream", foreground="#9f5f5f")
+        self.result.tag_configure("table_head", foreground=GREY_TEXT)
+        self.result.tag_configure("table", foreground=INK)
+        self.result.tag_configure("skip", foreground=GREY_TEXT)
+        # Copying from the list gives the full-precision lines (the table shows floats to 3 decimals).
+        self.result.bind("<Button-1>", lambda e: self.result.focus_set(), add="+")
+        self.result.bind("<<Copy>>", lambda e: self._copy_result(selected=True))
+        menu = tk.Menu(root, tearoff=0)
+        menu.add_command(label="Copy selected lines (full precision)", command=lambda: self._copy_result(selected=True))
+        menu.add_command(label="Copy all checks (full precision)", command=lambda: self._copy_result(selected=False))
+        self.result.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
+
+        # Footer: keys (left) and saved-frame / capture / marker diagnostics (right), small and grey.
+        self.footer = tk.Frame(root)
+        self.footer.pack(fill="x", side="bottom", padx=10, pady=(0, 6))
+        tk.Label(self.footer, text=KEYS_HELP, font=SMALL, fg=GREY_TEXT, anchor="w").pack(side="top", anchor="w")
+        self.diag = tk.StringVar(value="")
+        tk.Label(self.footer, textvariable=self.diag, font=SMALL, fg=GREY_TEXT, anchor="w", width=110).pack(
+            side="top", anchor="w")
+        self._update_result(self.engine.snapshot())
 
         for seq, fn in (("<space>", lambda e: self.toggle()),
                         ("<Right>", lambda e: self.step_forward()), ("<period>", lambda e: self.step_forward()),
@@ -521,22 +835,16 @@ class ViewerUI:
         self._update_panel(snap, view)
         self._update_overlays(snap, view)
         self._game_hotkeys()
+        self._draw_markers()
         if snap["phase"] == "ended" and not self._end_seen:
             self._end_seen = True
-            self._show_result(snap)
             if self.exit_at_end:
                 self.root.after(1500, self.close)
         elif snap["phase"] != "ended" and self._end_seen:
             self._end_seen = False
-            self._show_result(snap)
-        if snap["error"] != self._last_error:  # BattleShip stopped (or a restart cleared the error)
-            self._last_error = snap["error"]
-            self._show_result(snap)
-            if snap["error"] and self.exit_at_end:
-                self.root.after(1500, self.close)
+        if self._update_result(snap) and snap["error"] and self.exit_at_end:  # BattleShip stopped
+            self.root.after(1500, self.close)
         if self.engine.finished.is_set():
-            if snap["error"]:
-                self._show_result(snap)
             if self.exit_at_end or not snap["error"]:
                 self.close()
                 return
@@ -559,64 +867,199 @@ class ViewerUI:
         return {"review": False, "frame": None, "tick": row.sequence_index if row is not None else -1,
                 "live_tick": snap["live_tick"], "row": row, "observation": snap["observation"],
                 "targets_broken": snap["targets_broken"], "targets_total": snap["targets_total"], "rows": snap["rows"],
-                "status": status_text(snap), "status_color": status_color(snap)}
+                "status": status_text(snap, verdict=True), "status_color": status_color(snap)}
 
     def _update_panel(self, snap: Dict[str, Any], view: Dict[str, Any]) -> None:
         if view["review"]:
-            self.status.set(f"SAVED FRAME {tick_label(view['tick'])}  (live game at {tick_label(view['live_tick'])})"
-                            f"   |   {view['status']}")
-            self.status_label.configure(fg="#0e7490")
+            how = (f"playing saved frames at {speed_label(self.engine.speed).split(' ')[0]}"
+                   if self._review_play is not None else "game paused")
+            self.status.set(f"◀ SAVED FRAME {tick_label(view['tick'])} — live game at "
+                            f"{tick_label(view['live_tick'])} ({how})")
+            self.status_label.configure(fg=DARK_CYAN)
         else:
-            self.status.set(f"{tick_label(view['tick'])}  of {snap['rows'] - 1}   |   {view['status']}")
-            self.status_label.configure(fg="#b45309" if snap.get("rebuilding") else "#000000")
-        row, obs = view["row"], view["observation"]
-        parts = []
-        if row is not None:
-            parts.append(f"stick {stick_arrow(row.stick_x, row.stick_y)} ({row.stick_x:+d},{row.stick_y:+d})  "
-                         f"button {button_name(row.buttons)}")
-        tb = view["targets_broken"]
-        parts.append(f"targets {tb if tb is not None else '-'}/{view['targets_total']}")
-        if obs:
-            parts.append(f"x {obs.get('position_x', 0):.1f} y {obs.get('position_y', 0):.1f} "
-                         f"status {obs.get('fighter_status_id')} t={obs.get('time_passed')}")
-        msg = self._note or snap["error"] or snap["message"]
-        self.detail.set("   ".join(parts) + (f"\n{msg}" if msg else ""))
-        self.history_line.set(self._history_text())
+            self.status.set(status_text(snap))
+            fg = DARK_AMBER if snap.get("rebuilding") else DARK_RED if snap["phase"] == "error" else INK
+            self.status_label.configure(fg=fg)
+        tick_color = DARK_CYAN if view["review"] else INK
+        for key, text in live_columns(view).items():
+            cell = self.cells[key]
+            if cell.cget("text") != text:
+                cell.configure(text=text)
+        if self.cells["tick"].cget("fg") != tick_color:
+            self.cells["tick"].configure(fg=tick_color)
+        self.message.set(self._note or snap["message"])
+        text, bg = verdict_badge(snap)
+        if self.badge.cget("text") != text:
+            self.badge.configure(text=text, bg=bg)
+        self.diag.set(self._diag_text())
         playing = snap["phase"] == "playing" or self._review_play is not None
-        self.play_btn.configure(text="Pause (Space)" if playing else "Play (Space)")
+        self.play_btn.configure(text="❚❚" if playing else "▶")
         if not self._seeking:
             self.seek.set(max(view["tick"], 0))
 
-    def _history_text(self) -> str:
+    def _diag_text(self) -> str:
+        """Footer diagnostics: saved frames, memory, capture cost, markers."""
         h = self.history
         if h is None:
-            return "saved frames: off (--history-seconds 0)"
-        cfg = self.engine.history_config
-        span = h.span()
-        cost = sorted(self.engine.capture_ms)
-        median = f", capture {cost[len(cost) // 2]:.1f} ms/frame" if cost else ""
-        where = f"ticks {tick_label(span[0])}..{span[1]}" if span else "none yet"
-        return (f"saved frames: {len(h)}/{h.capacity} ({h.nbytes / 1e6:.0f} MB, 1/{cfg.scale} resolution), "
-                f"{where}{median}")
+            parts = ["saved frames off (--history-seconds 0)"]
+        else:
+            cfg = self.engine.history_config
+            span = h.span()
+            cost = sorted(self.engine.capture_ms)
+            parts = [f"saved frames {len(h)}/{h.capacity}", f"{h.nbytes / 1e6:.0f} MB", f"1/{cfg.scale} res",
+                     f"ticks {span[0] if span[0] >= 0 else 'tick-0 state'}..{span[1]}" if span else "none yet"]
+            if cost:
+                parts.append(f"capture {cost[len(cost) // 2]:.1f} ms/frame")
+        p = self.prepass
+        if p is not None:
+            parts.append({"running": "target markers: headless pre-pass running",
+                          "done": f"{len(p.break_ticks)} target markers (pre-pass {p.seconds or 0:.1f} s)",
+                          "failed": f"no target markers ({p.error})", "cancelled": "target markers cancelled"}
+                         .get(p.state, p.state))
+        return " · ".join(parts)
 
-    def _show_result(self, snap: Dict[str, Any]) -> None:
+    def _update_result(self, snap: Dict[str, Any]) -> bool:
+        """Refresh the one-line result (and the check list) when the verdict, the error or the first mismatch
+        changes. Opens the list on DESYNC and on an error. True when something changed."""
+        key = (id(snap.get("verdict_detail")), snap.get("error"), snap.get("mismatch"))
+        if key == self._result_key:
+            return False
+        self._result_key = key
+        text, color, has_details = result_summary(snap)
+        self._result_has_details = has_details
         t = self.result
         t.configure(state="normal")
         t.delete("1.0", "end")
-        if snap["error"]:
-            t.insert("end", "ERROR\n", "desync")
-            t.insert("end", snap["error"] + "\n")
-        elif snap["verdict"]:
-            t.insert("end", f"{snap['verdict']}\n", "match" if snap["verdict"] == "MATCH" else "desync")
-            t.insert("end", "\n".join(snap["verdict_lines"]) + "\n")
-        t.configure(state="disabled")
+        lines = result_details(snap)
+        self._copy_lines = [copy for _, _, copy in lines]
+        for i, (line, tag, _) in enumerate(lines):
+            t.insert("end", line + ("\n" if i < len(lines) - 1 else ""), tag)
+        t.configure(state="disabled",
+                    height=max(1, min(24, sum(1 + len(line) // RESULT_WIDTH for line, _, _ in lines))))
+        desync = snap.get("error") or (snap.get("verdict") == "DESYNC")
+        self._set_result_open(bool(desync) or (self._result_open and has_details), text, color)
+        return True
+
+    def _toggle_result(self) -> None:
+        if self._result_has_details:
+            text, color, _ = result_summary(self.engine.snapshot())
+            self._set_result_open(not self._result_open, text, color)
+
+    def _set_result_open(self, open_: bool, text: str, color: str) -> None:
+        open_ = open_ and self._result_has_details
+        if self._result_has_details:
+            text = ("▾ " if open_ else "▸ ") + text + ("" if open_ else "   (click for every check)")
+        self.result_line.configure(text=text, fg=color, cursor="hand2" if self._result_has_details else "arrow")
+        self._result_open = open_
+        packed = bool(self.result.winfo_manager())
+        if open_ and not packed:
+            self.result.pack(fill="x", padx=10, pady=(0, 6), after=self.result_line)
+        elif packed and not open_:
+            self.result.pack_forget()
+        else:
+            return
+        self._fit_height()
+
+    def _fit_height(self) -> None:
+        """Let the window take the height of its content (the user's width is kept)."""
+        root = self.root
+        width = root.winfo_width()
+        root.geometry("")
+        root.update_idletasks()
+        if width > root.winfo_reqwidth():
+            root.geometry(f"{width}x{root.winfo_reqheight()}")
+
+    def _open_folder(self) -> None:
+        directory = self.summary["directory"]
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(directory)  # Explorer (Windows)
+            else:
+                subprocess.Popen(["xdg-open", directory])
+        except OSError as exc:
+            self._note = f"could not open the folder: {exc}"
+
+    def _fit_path(self, width: Optional[int] = None) -> None:
+        width = self.path_label.winfo_width() if width is None else width
+        text = middle_ellipsis(self.path_text, width - 6, self._path_font.measure)
+        if self.path_label.cget("text") != text:
+            self.path_label.configure(text=text)
+
+    def _copy_path(self) -> None:
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self.summary["directory"])
+        self._note = "full path copied"
+
+    def _result_copy_text(self, selected: bool = True) -> str:
+        """Full-precision text of the check-list lines the selection touches (every line when selected=False)."""
+        lines = self._copy_lines
+        if selected:
+            sel = self.result.tag_ranges("sel")
+            if not sel:
+                return ""
+            first, end = str(sel[0]), str(sel[-1])
+            a, b = int(first.split(".")[0]), int(end.split(".")[0])
+            if end.endswith(".0") and b > a:  # the selection stops at the start of line b: b is not included
+                b -= 1
+            lines = lines[a - 1:b]
+        return "\n".join(lines)
+
+    def _copy_result(self, selected: bool = True) -> str:
+        text = self._result_copy_text(selected)
+        if text:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+        return "break"  # never Tk's own copy, which would take the rounded text
+
+    def _marker_enter(self, tick: int, first: int, last: int, x_root: int, y_root: int) -> None:
+        self._marker_leave()
+        what = f"Target {first}" if first == last else f"Targets {first}-{last}"
+        self._marker_tip = popup_tip(self.markers, f"{what} broken at tick {tick}\nclick to jump there",
+                                     x_root + 12, y_root + 14)
+        self.markers.configure(cursor="hand2")
+
+    def _marker_leave(self) -> None:
+        if self._marker_tip is not None:
+            self._marker_tip.destroy()
+            self._marker_tip = None
+        self.markers.configure(cursor="")
+
+    def _marker_click(self, tick: int) -> None:
+        self._marker_leave()
+        self.jump(tick)
+
+    def _draw_markers(self, force: bool = False) -> None:
+        """Target-break markers under the timeline, aligned with the slider: a tooltip names the target and the
+        tick, a click jumps there."""
+        p = self.prepass
+        ticks = tuple(p.break_ticks) if (p is not None and p.state == "done") else ()
+        key = (ticks, self.seek.winfo_width(), self.markers.winfo_width())
+        if not force and key == self._markers_drawn:
+            return
+        self._markers_drawn = key
+        self._marker_leave()
+        c = self.markers
+        c.delete("all")
+        if not ticks or self.last_tick <= 0:
+            return
+        dx = self.seek.winfo_rootx() - c.winfo_rootx()
+        for tick, first, last in marker_groups(list(ticks)):
+            x = self.seek.coords(tick)[0] + dx
+            label = str(first) if first == last else f"{first}-{last}"
+            tag = f"m{tick}"
+            c.create_polygon(x, 1, x - 6, 9, x + 6, 9, fill=MARKER, outline="", tags=tag)
+            c.create_text(x, 9, text=label, anchor="n", fill=MARKER, font=("Segoe UI", 7, "bold"), tags=tag)
+            c.tag_bind(tag, "<Button-1>", lambda e, t=tick: self._marker_click(t))
+            c.tag_bind(tag, "<Enter>", lambda e, t=tick, f=first, la=last: self._marker_enter(t, f, la, e.x_root,
+                                                                                              e.y_root))
+            c.tag_bind(tag, "<Leave>", lambda e: self._marker_leave())
 
     def _update_overlays(self, snap: Dict[str, Any], view: Dict[str, Any]) -> None:
         game = self.engine.game_window()
         if not self._panel_placed and game:
             rect = win32.client_rect_on_screen(game)
             if rect:
-                x = min(rect[0] + rect[2] + 16, max(0, self.root.winfo_screenwidth() - 660))
+                x = min(rect[0] + rect[2] + 16, max(0, self.root.winfo_screenwidth() - self.root.winfo_width() - 8))
                 self.root.geometry(f"+{x}+{max(0, rect[1] - 30)}")
                 self._panel_placed = True
         rect = win32.client_rect_on_screen(game) if game else None

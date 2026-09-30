@@ -39,6 +39,7 @@ import hashlib
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -66,6 +67,10 @@ CONFIG_NAME = "BattleShip.cfg.json"
 OPENGL_BACKEND = {"Id": 1, "Name": "OpenGL"}  # libultraship WindowBackend::FAST3D_SDL_OPENGL
 NATIVE_TICK_S = 1.0 / 60.0
 CAPTURE_SETTLE_S = 0.002  # see CaptureWorker
+# After a gap (the previous tick's copy was dropped or never taken) a stale read cannot be recognized by comparing
+# with that copy, so the read waits past every stale window seen (all ended within the 2 ms settle; 0 stale reads in
+# 2,161 audited 1x ticks) with 3x margin, and still ends near 11 ms, inside CAPTURE_SAFE_S.
+CAPTURE_SETTLE_UNVERIFIED_S = 0.006
 CAPTURE_STALE_RETRIES = 4  # a stale copy was always fresh on the first retry (measured)
 # Frame k stays on screen until >= ~16.3 ms after its step reply (vsync'ed, paced presents). Measured against
 # slow-stepped reference frames: every 1x copy read within 25 ms was correct, every copy read after 30 ms wrong.
@@ -135,6 +140,9 @@ def cleanup_stale_sessions() -> List[str]:
             owner = json.loads((d / "session.json").read_text(encoding="utf-8")).get("viewer_pid")
         except (OSError, ValueError):
             owner = None
+        if owner is None:  # session.json not written yet (a session being created) or unreadable: the name has the pid
+            m = re.match(r"\d{8}T\d{6}Z_(\d+)_", d.name)
+            owner = int(m.group(1)) if m else None
         if owner is not None and pid_alive(int(owner)):
             continue
         try:
@@ -160,9 +168,9 @@ def remove_session_dir(d: Path) -> None:
     shutil.rmtree(d, ignore_errors=True)
 
 
-def new_session_dir(episode_id: str) -> Path:
+def new_session_dir(episode_id: str, tag: str = "") -> Path:
     stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    d = SESSIONS_DIR / f"{stamp}_{os.getpid()}_{episode_id[-8:]}"
+    d = SESSIONS_DIR / f"{stamp}_{os.getpid()}_{episode_id[-8:]}{'_' + tag if tag else ''}"
     d.mkdir(parents=True)
     with open(d / "session.json", "w", encoding="utf-8", newline="\n") as fp:
         json.dump({"viewer_pid": os.getpid(), "episode_id": episode_id, "created_utc": utc_now()}, fp, indent=2)
@@ -398,15 +406,23 @@ def executable_identity(exe: Path) -> Dict[str, Any]:
 
 
 def check_episode(ep: Episode, *, executable: Path = DEFAULT_EXE, keep_session: bool = False,
-                  log: Callable[[str], None] = print) -> Tuple[Verdict, ReplayTracker]:
-    """Replay every row in a no-render process as fast as possible and compare with metadata.json."""
-    cleanup_stale_sessions()
-    session = new_session_dir(ep.episode_id)
+                  log: Callable[[str], None] = print, cleanup: bool = True, session_tag: str = "",
+                  on_game: Optional[Callable[["GameProcess"], None]] = None,
+                  on_step: Optional[Callable[[Row, ReplayTracker], None]] = None) -> Tuple[Verdict, ReplayTracker]:
+    """Replay every row in a no-render process as fast as possible and compare with metadata.json.
+
+    on_game(game) runs before the launch, on_step(row, tracker) after every step (TargetPrepass: markers and
+    cancellation). cleanup=False leaves stale-session removal to the caller that owns the viewer."""
+    if cleanup:
+        cleanup_stale_sessions()
+    session = new_session_dir(ep.episode_id, session_tag)
     base = recorded_runtime_config(ep) or (executable.resolve().parent / CONFIG_NAME)
     game = GameProcess(executable, session, headless=True, base_config=base)
     tracker = ReplayTracker(ep)
     rows = ep.replay_rows
     try:
+        if on_game is not None:
+            on_game(game)
         t0 = time.monotonic()
         tracker.feed_initial(game.launch())
         log(f"launched pid {game.pid} (headless, config base {game.config_info['base']}, "
@@ -416,6 +432,8 @@ def check_episode(ep: Episode, *, executable: Path = DEFAULT_EXE, keep_session: 
         t0 = time.monotonic()
         for row in rows:
             tracker.feed_step(row, *game.step(row))
+            if on_step is not None:
+                on_step(row, tracker)
             if tracker.ended:
                 break
         log(f"stepped {tracker.steps} rows in {time.monotonic() - t0:.1f} s")
@@ -424,6 +442,70 @@ def check_episode(ep: Episode, *, executable: Path = DEFAULT_EXE, keep_session: 
         if not keep_session:
             remove_session_dir(session)
     return compare(tracker), tracker
+
+
+class _Cancelled(Exception):
+    pass
+
+
+class TargetPrepass(threading.Thread):
+    """Timeline markers: the ticks where targets break, from a headless replay started at load.
+
+    The same no-render replay as --check, in its own fresh process (IDLE priority, own session directory), so the
+    viewer window opens at once and the windowed game is never touched. The ticks describe this replay, which is
+    what the viewer will show; nothing is compared or recorded here.
+    """
+
+    def __init__(self, ep: Episode, *, executable: Path = DEFAULT_EXE):
+        super().__init__(name="target-prepass", daemon=True)
+        self.ep = ep
+        self.executable = Path(executable)
+        self.state = "running"  # running | done | failed | cancelled
+        self.break_ticks: List[int] = []  # the row of each break (repeated when several break on one tick)
+        self.error: Optional[str] = None
+        self.seconds: Optional[float] = None
+        self._cancel = threading.Event()
+        self._game: Optional[GameProcess] = None
+        self._broken: Optional[int] = None
+
+    def cancel(self) -> None:
+        self._cancel.set()
+        game = self._game
+        process = game.process if game is not None else None
+        if process is not None and process.poll() is None:
+            process.terminate()  # a pending launch or step fails at once; check_episode then cleans up
+
+    def _on_game(self, game: GameProcess) -> None:
+        self._game = game
+        if self._cancel.is_set():
+            raise _Cancelled()
+
+    def _on_step(self, row: Row, tracker: ReplayTracker) -> None:
+        if self._cancel.is_set():
+            raise _Cancelled()
+        if self._broken is None:  # first step: the tick-0 count, and keep the pre-pass out of the playback's way
+            win32.set_priority(self._game.pid if self._game else None, True)
+            init = tracker.initial or {}
+            self._broken = self.ep.targets_total - int(init.get("targets_remaining", self.ep.targets_total))
+        broken = tracker.targets_broken or 0
+        if broken > self._broken:
+            self.break_ticks.extend([row.sequence_index] * (broken - self._broken))
+        self._broken = broken
+
+    def run(self) -> None:
+        t0 = time.monotonic()
+        try:
+            check_episode(self.ep, executable=self.executable, log=lambda _msg: None, cleanup=False,
+                          session_tag="markers", on_game=self._on_game, on_step=self._on_step)
+            self.state = "done"
+        except Exception as exc:  # noqa: BLE001 - markers are optional; the viewer shows why they are missing
+            if self._cancel.is_set():
+                self.state = "cancelled"
+            else:
+                self.error = f"{type(exc).__name__}: {exc}"
+                self.state = "failed"
+        finally:
+            self.seconds = time.monotonic() - t0
 
 
 # -- saved-frame capture -------------------------------------------------------------------------------------
@@ -437,9 +519,12 @@ class CaptureWorker(threading.Thread):
     least ~16.3 ms after the reply even though the stepping thread submits tick k+1 at once. The copy waits
     CAPTURE_SETTLE_S (an immediate copy was the previous tick's image on ~2-3 % of 1x ticks: SwapBuffers returns
     before the new frame is visible), reads the window (~5 ms), re-reads if the copy still equals the previous
-    tick's, and downscales afterwards. A copy is stored only if its read finished within CAPTURE_SAFE_S of the reply,
-    or before tick k+1 was submitted at all; anything later could show tick k+1 and is dropped (counted in
-    engine.late_drops), never stored under the wrong tick.
+    tick's, and downscales afterwards. When there is no copy of the previous tick to compare with (after a dropped
+    copy or a gap), it waits CAPTURE_SETTLE_UNVERIFIED_S instead, past any stale window. A copy is stored only if its
+    read finished within CAPTURE_SAFE_S of the reply, or before tick k+1 was submitted at all; anything later could
+    show tick k+1 and is dropped (counted in engine.late_drops), never stored under the wrong tick. The port's pacer
+    (libultraship gfx_sdl2.cpp SyncFramerateWithTime) re-bases on the actual present time, so a late frame k is
+    never followed early by frame k+1.
     """
 
     def __init__(self, engine: "ReplayEngine"):
@@ -482,18 +567,20 @@ class CaptureWorker(threading.Thread):
               targets: Optional[int], hwnd: int, t_ready: float) -> None:
         e = self.engine
         scale = e.history_config.scale
-        wait = t_ready + CAPTURE_SETTLE_S - time.perf_counter()
+        prev = self._last
+        verified = prev is not None and prev[0] == tick - 1  # the previous tick's copy exists: stale reads show
+        settle = CAPTURE_SETTLE_S if verified else CAPTURE_SETTLE_UNVERIFIED_S
+        wait = t_ready + settle - time.perf_counter()
         if wait > 0:
             time.sleep(wait)
-        elif e._last_submit[0] > tick and -wait > CAPTURE_SAFE_S - CAPTURE_SETTLE_S - CAPTURE_READ_S:
+        elif e._last_submit[0] > tick and -wait > CAPTURE_SAFE_S - settle - CAPTURE_READ_S:
             # Behind (a hiccup queued several frames): this read could not finish in time; skip it at once so the
             # following frames are caught again instead of every queued one arriving late.
             e.late_drops += 1
             self._last = None
             return
         shot = capturer.capture(hwnd, scale)
-        prev = self._last
-        if shot is not None and prev is not None and prev[0] == tick - 1 and shot[2] == prev[1]:
+        if shot is not None and verified and shot[2] == prev[1]:
             e.stale_retries += 1
             for _ in range(CAPTURE_STALE_RETRIES):
                 time.sleep(0.001)
@@ -606,6 +693,7 @@ class ReplayEngine(threading.Thread):
                 "end_kind": self.tracker.end_kind,
                 "verdict": self.verdict.word if self.verdict else None,
                 "verdict_lines": self.verdict.lines() if self.verdict else [],
+                "verdict_detail": self.verdict,  # the Verdict (immutable once set): every check, for the result view
                 "mismatch": self.tracker.first_mismatch,
                 "pid": self.game.pid if self.game else None,
                 "hwnd": self.game.hwnd if self.game else None,
@@ -730,7 +818,7 @@ class ReplayEngine(threading.Thread):
             self._drain_commands(block=False)
             if self._jump_to is not None and not self._quit:
                 if self.cursor >= self._jump_to or self.tracker.ended:
-                    self._set(_jump_to=None, _playing=False, _rebuilding=False, message=f"at tick {self.cursor - 1}")
+                    self._set(_jump_to=None, _playing=False, _rebuilding=False, message="")  # the tick is shown
                     self._update_phase()
                 else:
                     self._step_one(paced=False)
@@ -865,7 +953,7 @@ class ReplayEngine(threading.Thread):
             self._capture(row.sequence_index, row)
         if self.tracker.first_mismatch and not self._mismatch_logged:
             self._mismatch_logged = True
-            self._set(message=f"DESYNC at {self.tracker.first_mismatch}")
+            self._set(message="")  # the UI shows the mismatch with the verdict (snapshot "mismatch")
             self.log(f"DESYNC detected at {self.tracker.first_mismatch}")
         if self.tracker.ended:
             self._finish()
@@ -876,7 +964,7 @@ class ReplayEngine(threading.Thread):
             self.verdict = verdict
             self._playing = False
             self._jump_to = None
-            self.message = f"{verdict.word}: end {self.tracker.end_kind} at tick {self.tracker.last_consumed_tick}"
+            self.message = ""  # the UI shows the verdict once (badge) and the end in the status line
         self._update_phase()
         self.log(format_verdict(self.ep, self.tracker, verdict))
         try:

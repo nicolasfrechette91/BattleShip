@@ -23,6 +23,8 @@ metadata.json and prints MATCH or DESYNC.
     --history-capture M   always (default) | slow: only single steps, <= 0.5x
                           and the end of fast-forwards
     --history-filter F    smooth (default) | nearest (less CPU per saved frame)
+    --no-markers     skip the background headless pre-pass that puts target-break
+                     markers on the timeline
 
 Exit codes: 0 MATCH, 1 DESYNC, 2 bad arguments or artifact, 3 BattleShip
 failed or the replay did not reach the end.
@@ -45,8 +47,8 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from replay_episode import EpisodeError, episode_summary, format_verdict, load_episode  # noqa: E402
-from replay_game import (DEFAULT_EXE, SPEEDS, Geometry, ReplayEngine, ReplayRuntimeError, check_episode,  # noqa: E402
-                         executable_identity, load_state, record_verdict)
+from replay_game import (DEFAULT_EXE, SPEEDS, Geometry, ReplayEngine, ReplayRuntimeError, TargetPrepass,  # noqa: E402
+                         check_episode, executable_identity, load_state, record_verdict)
 from replay_history import (CAPTURE_MODES, DEFAULT_SCALE, DEFAULT_SECONDS, FILTERS, HistoryConfig,  # noqa: E402
                             history_bytes)
 
@@ -94,6 +96,8 @@ def main(argv=None) -> int:
                     help="always (default), or slow = only single steps, <= 0.5x and the end of fast-forwards")
     ap.add_argument("--history-filter", choices=FILTERS, default="smooth",
                     help="downscale filter: smooth (default, ~4 ms CPU per frame) or nearest (~0.4 ms)")
+    ap.add_argument("--no-markers", action="store_true",
+                    help="no target-break markers (skips the background headless pre-pass)")
     args = ap.parse_args(argv)
     if args.history_seconds < 0:
         ap.error("--history-seconds must be >= 0")
@@ -147,12 +151,18 @@ def main(argv=None) -> int:
     except ImportError as exc:  # tkinter missing
         print(f"error: the viewer needs tkinter ({exc}); use --check for a headless replay", file=sys.stderr)
         return EXIT_USAGE
-    ui = replay_ui.ViewerUI(engine, summary=s, hud=not args.no_hud, exit_at_end=args.exit_at_end)
+    prepass = None if args.no_markers else TargetPrepass(ep, executable=args.exe)
+    ui = replay_ui.ViewerUI(engine, summary=s, hud=not args.no_hud, exit_at_end=args.exit_at_end, prepass=prepass)
     engine.start()
+    if prepass is not None:
+        prepass.start()
     try:
         ui.run()
     finally:
         engine.send("quit")
+        if prepass is not None:
+            prepass.cancel()
+            prepass.join(30)
         engine.finished.wait(30)
     if engine.error:
         return EXIT_RUNTIME

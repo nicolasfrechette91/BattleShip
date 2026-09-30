@@ -16,10 +16,11 @@ libultraship or build change.
 | `replay_browser.py` | Tk table browser (`replay_index gui`) |
 | `replay_episode.py` | Artifact loading, expected outcome, per-step tracking, MATCH/DESYNC comparison |
 | `replay_game.py` | BattleShip process launch in a private runtime, replay engine (pause/step/speed/restart/jump) |
-| `replay_ui.py` | Tk control panel, click-through HUD overlay and saved-frame view on the game window |
+| `replay_ui.py` | Tk control panel (see "Window layout"), click-through HUD overlay and saved-frame view on the game window |
 | `replay_history.py` | Saved-frame store, memory math, pixel conversion, step-back planner (see "Stepping back") |
+| `replay_status.py` | Action-state names for `fighter_status_id`, read from the decomp headers (see "Window layout") |
 | `replay_win32.py` | ctypes helpers (find the game window, overlay placement, hotkeys, process priority) |
-| `replay_tests.py` | Offline tests (no game, temp fixtures only) |
+| `replay_tests.py` | Offline tests (no game; temp fixtures; reads the decomp status headers) |
 | `replay_gui.pyw` | Windowless launcher: browser + background index refresh (see "Launchers") |
 | `replay_open.pyw` | Windowless launcher: one episode in the viewer (Explorer entry, browser Play) |
 | `replay_windowless.py` | Shared support for the `.pyw` launchers (log file, message boxes) |
@@ -40,6 +41,7 @@ replay\replay runs\m7p\campaign\_eval\m7p_geo4_s1\final\stochastic\workers\w04\a
 replay\replay <episode dir or its actions.jsonl> --play --speed 0.5
 replay\replay <episode dir> --start-tick 2900          fast-forward first, then paused on tick 2900
 replay\replay <episode dir> --check                    headless, prints MATCH/DESYNC, exit 0/1
+replay\replay <episode dir> --no-markers               no background pre-pass (no target markers)
 ```
 
 In PowerShell use `.\replay\replay.cmd ...`; `python replay\replay.py ...`
@@ -146,7 +148,8 @@ repository root, write their output to `_local/launcher.log` (rotated at
   - R: restart.
   - G: jump to the typed tick.
   - Q/Esc: quit.
-  - The seek bar jumps on release. The panel also has a "◀ Back" button.
+  - The timeline jumps on release. The media buttons do the same as the keys
+    (hover for the key).
 - **Speed.** 0.25x, 0.5x, 1x measured at 15.0-15.3, 29.9-30.3 and 58.3-60.0
   ticks/s. 2x and 4x can be selected but run at 1x for the live game (see
   "Limits"); playback through saved frames honours them.
@@ -160,6 +163,89 @@ repository root, write their output to `_local/launcher.log` (rotated at
   application's window overlaps the game): tick, stick arrow + values + stick
   diagram, button name, targets broken so far (`targets_total -
   targets_remaining`), x/y, playback state and the final verdict.
+
+### Window layout
+
+Top to bottom:
+
+- **Verdict badge** (top left). This is the only place the panel shows the
+  verdict word.
+  - Grey PENDING while there is no verdict, green MATCH, red DESYNC.
+  - A per-row clock mismatch turns it red before the end: it already decides
+    DESYNC.
+  - Grey STOPPED after BattleShip stops.
+  - The HUD over the game window still names the verdict at the end
+    ("■ MATCH: fall at tick 3444"), since the panel may be elsewhere.
+- **Header.** The episode id, then role, run, profile, observation, reward,
+  recorded end, targets, rows and prefix.
+  - A field that is None or not recorded is left out.
+  - The path is shown relative to `runs\` (the full path for an episode
+    elsewhere), with an **Open folder** button that opens it in Explorer.
+  - A path that doesn't fit is shortened in the middle, so the episode
+    folder name stays visible:
+    `runs\m7p\campaign\_ev…\episode_20260928T072129Z_44619208`.
+    The tooltip shows the full path, and right-click copies it.
+- **Live state**, in fixed-width columns: TICK, STICK, BUTTON, TARGETS, X, Y,
+  ACTION STATE.
+  - Every text that changes has a fixed width, so nothing shifts and the
+    window never resizes while playing.
+  - On a saved frame, the TICK column turns cyan.
+- **Action state.** `fighter_status_id` is shown as a name next to the number,
+  e.g. `Wait (10)`, `JumpAerialF (24)`, `SpecialAirHi (226)`.
+  - The names are read at start, read-only, from two decomp headers:
+    - `decomp/src/ft/ftdef.h`: `FTCommonStatus`, ids 0-219;
+    - `decomp/src/ft/ftchar/ftmario/ftmario.h`: `ftMarioStatus`, 220-228.
+  - The parser is `rl/m7n_status_table.parse_enum`, the one that built the
+    M7n/M7q action-class tables.
+  - A range marker such as `ControlStart` gives way to the state's own name,
+    so 10 is Wait.
+  - An id without a name shows as the number only.
+  - `python replay\replay_status.py` prints the table.
+- **Status line.** The playback state, with engine messages in grey below.
+  Examples: "▶ 1x 59.9 ticks/s", "❚❚ paused", "» fast-forward",
+  "⟲ rebuilding", "◀ SAVED FRAME tick N — live game at tick L",
+  "■ ended: fall at tick N".
+- **Timeline with target-break markers.** An amber triangle and the target
+  number sit under the tick where each target broke. Hover for a tooltip
+  ("Target 2 broken at tick 360"); click to jump to that tick.
+  - The markers come from a headless pre-pass started in the background at
+    load. It is the same no-render replay as `--check`: a separate fresh
+    process at IDLE priority, with its own session folder.
+  - The window therefore opens at once. The markers appear after about 5 s
+    (4.7-4.8 s measured for 3,445 rows).
+  - The markers describe this replay, which is what the viewer shows. The
+    pre-pass compares and records nothing.
+  - `--no-markers` skips it. Closing the viewer while it runs stops its
+    process.
+- **Controls**, in three groups:
+  - media buttons: ⏮ restart, ◀❚ back one tick, ▶/❚❚ play/pause, ❚▶ step;
+  - speed;
+  - the tick field and Jump.
+- **Result.** One line, e.g. "✔ MATCH — 8 ok, 0 skipped".
+  - Click it to expand every check: ✔ / ✖ with expected and got, then the
+    skipped ones.
+  - It opens by itself on DESYNC and on an error.
+  - **Likely root cause.** When the actions digest check fails,
+    `actions.jsonl` differs from what the recorded run submitted, so the
+    replay fed other inputs.
+    - The summary leads with that: "✖ DESYNC — likely root cause:
+      actions.jsonl differs from the recording (actions digest); 3 downstream
+      failures, 4 ok, 0 skipped".
+    - In the list, that check is marked "likely root cause", and every other
+      failure is marked "downstream".
+    - When the digest matches (or was not recorded), failures are listed
+      without labels.
+  - **Observation mismatches** (final, and initial if it ever differs) are a
+    field / expected / got table.
+    - Floats are shown to 3 decimals.
+    - Copying gives full precision, tab-separated: select lines and press
+      Ctrl+C (whole lines are copied), or right-click for "Copy all checks".
+    - The console and `verdicts.jsonl` text is unchanged.
+  - The window height follows the content; only the panel position is
+    remembered.
+- **Footer** (small, grey): the keys; below them, the saved-frame diagnostics
+  (count, MB, resolution, tick range, median copy time) and the marker
+  pre-pass state.
 
 ### Stepping back (saved frames)
 
@@ -181,7 +267,8 @@ and shows them for instant steps back.
     click-through image with a cyan frame.
   - The HUD shows a solid cyan banner, **◀ SAVED FRAME tick N** with
     **live L**, and describes the saved tick (input, targets, position). The
-    panel reads "SAVED FRAME tick N (live game at tick L)".
+    panel status reads "◀ SAVED FRAME tick N — live game at tick L", and its
+    TICK column turns cyan.
   - The game stays paused at the live tick.
   - If the live game was playing, it is paused first.
 - **Right / `.`:** forward through saved frames. Past the newest one, the
@@ -216,8 +303,8 @@ Memory (pixel data; the viewer process adds ~80 MB):
 | 960x720 | 1/4 | 130 KB | 78 MB |
 
 Memory scales linearly with `--history-seconds`. `replay.py` prints the
-upper bound at start. The panel shows the current count, MB and saved tick
-range.
+upper bound at start. The panel footer shows the current count, MB and saved
+tick range.
 
 **How a frame is copied, and why it is the right tick.** All of this lives in
 `replay_game.CaptureWorker` and `replay_win32.WindowCapturer`.
@@ -234,11 +321,17 @@ range.
   stepping thread submits the next tick immediately.
 - **Why the read is safe after the next submit.** The port paces presents at
   least 1/60 s apart, so tick k's frame stays on screen for at least ~16 ms
-  after its step reply.
+  after its step reply. The pacer (libultraship `gfx_sdl2.cpp`
+  `SyncFramerateWithTime`) re-bases on the actual present time, so a late
+  frame is never followed early by the next one.
 - **Settle delay.** The step reply can arrive before the new frame is
   visible: an immediate read returned the previous tick's image on 2-3 % of
   1x ticks. The thread therefore waits 2 ms (0 stale in 1,200 ticks). A read
   that still equals the previous tick's image is taken again.
+- **After a gap.** When the previous tick's copy is missing (a dropped copy),
+  a stale image cannot be recognised by that comparison. The thread then
+  waits 6 ms instead: three times the longest stale window seen, and the read
+  still ends near 11 ms.
 - **When a read is stored.** Only if it finished within 16 ms of the reply,
   or before the next tick was submitted. Anything later is dropped and
   counted, never stored under the wrong tick.
@@ -246,7 +339,10 @@ range.
   - every read within 20 ms of the reply was the correct frame;
   - reads at 24-28 ms (a start-up backlog) showed the next tick.
 - **Determinism, end to end.** A saved frame was byte-identical to the same
-  tick re-rendered by a fresh process after a rebuild.
+  tick re-rendered by a fresh process after a rebuild. A later audit compared
+  1x copies with the same ticks re-copied during a rebuild fast-forward:
+  2,161 ticks over 4 rounds, all byte-identical, with 0 dropped copies and
+  0 stale reads.
 
 **1x playback, before / after (full UI running, 8 s windows):**
 
@@ -447,8 +543,72 @@ and must never be committed.
 
 ## Verification (2026-09-29, exe sha256 30a3913b...)
 
-Offline tests: `python replay/replay_tests.py` passes 14/14. The 6 saved-frame
+### Result panel and timeline polish
+
+- **Offline tests:** 21/21, including the new root-cause / downstream and
+  table test.
+  - The rounded table is shown and the full-precision text is copied.
+  - Middle ellipsis keeps the episode folder.
+  - The panel test now also covers the marker tooltip and click, copying the
+    whole list and a selection, and the path label and its tooltip.
+- **Real DESYNC verdict** (headless replay of the tampered scratch copy)
+  rendered in the panel.
+  - The digest failure leads the summary; end, targets and final observation
+    are downstream; the table has 7 fields.
+  - A real mouse selection over two table rows plus Ctrl+C gave the
+    full-precision tab-separated lines. The clipboard was not written; the
+    text was recorded.
+- **UI regression:** 13/13.
+- **Live sessions:** saved frame 7/7, DESYNC 7/7.
+  - The markers check first failed once: the script counted before the
+    viewer's next refresh.
+  - The markers are drawn 54-62 ms after the pre-pass finishes; the check now
+    waits for them.
+
+### Window layout
+
+Offline tests: `python replay/replay_tests.py` passes 20/20. The 6 layout
 tests cover:
+
+- action-state names from the decomp headers (aliases, Mario's range, the
+  number fallback);
+- panel texts: the header without unrecorded fields, the `runs\` relative
+  path, the badge, the result line and check list, the columns (no `t=`) and
+  marker grouping;
+- the pre-pass break ticks and its cancellation;
+- stale-session cleanup sparing a session that is still being created;
+- the real panel, withdrawn: the width and every column stay the same between
+  short and long values, the result stays one line on MATCH, opens by itself
+  on DESYNC and toggles on click;
+- the post-gap capture wait.
+
+On a real game window, with scratch copies of episode A (never `runs/`):
+
+- **UI regression:** 13/13. 1x ran at 59.9 ticks/s; 4x ran at 59.9 ticks/s
+  (capped).
+- **Saved frames:** 18/18.
+- **Layout, saved frame:** 7/7.
+  - The window opened while the pre-pass was running.
+  - The pre-pass finished in 4.8 s, with break ticks 218, 327, 706, 1579,
+    2400 and 3008: the same as `--check`.
+  - 1x ran at 60.1 ticks/s.
+- **Layout, DESYNC** (rows 200-230 tampered): 7/7.
+  - Red badge, and the checks opened by themselves.
+  - No verdict word in the status line.
+  - The pre-pass markers (218, 360, 661, 1450) equal the windowed replay's
+    target breaks.
+- **Closing `replay.py` early:** exit in 2.6 s while the pre-pass was still
+  launching (two BattleShip processes), and 0.3 s after it finished. No
+  process or session folder was left behind.
+- **Test-script race:** the first reruns of the saved-frame scenario failed
+  its check that a saved frame equals the same tick re-rendered.
+  - The frames were identical. The script compared too early: the new copy
+    lands ~10-30 ms after the engine reports "paused".
+  - The script now waits for the copy.
+
+### Saved frames
+
+Offline tests at the time: 14/14. The 6 saved-frame tests cover:
 
 - memory math;
 - eviction around the current position;
@@ -473,6 +633,8 @@ Saved frames, end to end on episode A (scripted, real game window; 18/18):
 
 The earlier 13-step UI regression (keys, speeds, jumps, restart, MATCH) still
 passes 13/13 with saved frames on.
+
+### Launchers, episodes and the first viewer
 
 Launchers, run exactly as Explorer or a double-click would, from
 `C:\Windows\Temp` (the `.reg` files were not imported):
