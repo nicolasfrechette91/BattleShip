@@ -13,7 +13,11 @@ libultraship or build change.
 | --- | --- |
 | `replay.py` / `replay.cmd` | Viewer entry point (windowed, or `--check` headless) |
 | `replay_index.py` / `replay_index.cmd` | Index: `scan`, `list`, `show`, `play`, `check`, `gui` |
-| `replay_browser.py` | Tk table browser (`replay_index gui`) |
+| `replay_browser.py` | Episode browser (`replay_index gui`, `replay_gui.pyw`; see "Browser") |
+| `replay_task.py` | Character and stage of an episode, from what the run recorded ("?" otherwise) |
+| `replay_tags.py` | Per-stage tag extractors (Mario Break the Targets: left entry, crossing) |
+| `replay_breaks.py` | Recorded per-target break ticks and the "last target" rule |
+| `replay_widgets.py` | Tk pieces shared by the viewer panel and the browser (tooltips, text shortening, colors) |
 | `replay_episode.py` | Artifact loading, expected outcome, per-step tracking, MATCH/DESYNC comparison |
 | `replay_game.py` | BattleShip process launch in a private runtime, replay engine (pause/step/speed/restart/jump) |
 | `replay_ui.py` | Tk control panel (see "Window layout"), click-through HUD overlay and saved-frame view on the game window |
@@ -32,7 +36,9 @@ libultraship or build change.
 Project modules are imported read-only from `rl/`: `battleship_client`,
 `battleship_process.allocate_loopback_port`, `run_artifacts.read_artifact`,
 `m7_runtime.prepare_worker_runtime` / `remove_worker_runtime` / `pid_alive`,
-`m7g_fixture.gameplay_config`.
+`m7g_fixture.gameplay_config`, `m7n_status_table.parse_enum` /
+`CHARACTER_DIRS`. The task registry of `experiment_config` is mirrored, not
+imported (see "Character and stage").
 
 ## Running (Windows, from the repository root)
 
@@ -50,23 +56,28 @@ artifact, 3 BattleShip failure or no verdict (window closed early).
 
 ```
 replay\replay_index scan                 incremental, read-only (first run ~6 min for ~39k episodes, then ~7 s)
-replay\replay_index list --left yes      filter + sort; prints numbered rows
-replay\replay_index list -m m7p --min-targets 6 --sort -targets,left_tick
-replay\replay_index list --crossing yes
+replay\replay_index list --tag "left entry"   filter + sort (default: most targets, then fastest); numbered rows
+replay\replay_index list -m m7p --min-targets 6 --character mario
+replay\replay_index list --tag crossing
+replay\replay_index list --character ?  runs that recorded no character
 replay\replay_index list --end clear --format paths
-replay\replay_index show 1               details + where left entry / crossing came from
+replay\replay_index show 1               details, tags and where each came from
 replay\replay_index play 1 --play        open row 1 of the last list in the viewer
 replay\replay_index check 1              headless MATCH/DESYNC for row 1
-replay\replay_index gui                  sortable / filterable table, double-click to play
+replay\replay_index gui                  the browser, double-click to play
 ```
 
 `show`, `play` and `check` also accept an episode id, a unique id suffix
-(e.g. `44619208`) or a path. List filters: `--milestone/-m`, `--run`, `--role`,
-`--end clear|fall|truncated`, `--min-targets`, `--max-targets`, `--cleared`,
-`--left yes|no|?`, `--crossing yes|no|?`, `--replay match|desync|none`,
-`--text`. Sort keys: `targets, left, left_tick, crossing, completion, end,
-last_tick, steps, min_x, created, path, milestone` (prefix `-`/`+` to force
-the order; `--limit 0` shows all).
+(e.g. `44619208`) or a path.
+
+- **List filters:** `--milestone/-m`, `--run`, `--role`, `--character`
+  (`?` = not recorded), `--stage`, `--end clear|fall|timeout|goal|aborted|
+  unknown` (or `truncated` for all three non-clear, non-fall ends),
+  `--min-targets`, `--max-targets`, `--cleared`, `--tag`,
+  `--replay match|desync|none`, `--text` (path, run id, profile or tags).
+- **Sort keys:** `targets, time, character, stage, end, verdict, role,
+  milestone, run, tags, created, completion, last_tick, steps, path`. Prefix
+  `-`/`+` to force the order; `--limit 0` shows all.
 
 ## Launchers (optional, no console window)
 
@@ -88,6 +99,7 @@ repository root, write their output to `_local/launcher.log` (rotated at
     status line.
   - The table reloads when the refresh finishes.
   - Play opens the episode through `replay_open.pyw`.
+  - The window is described under "Browser".
 
 ### Explorer "Replay episode" entry
 
@@ -176,9 +188,11 @@ Top to bottom:
   - Grey STOPPED after BattleShip stops.
   - The HUD over the game window still names the verdict at the end
     ("■ MATCH: fall at tick 3444"), since the panel may be elsewhere.
-- **Header.** The episode id, then role, run, profile, observation, reward,
-  recorded end, targets, rows and prefix.
-  - A field that is None or not recorded is left out.
+- **Header.** The episode id, then character, stage, role, run, profile,
+  observation, reward, recorded end, targets, rows and prefix.
+  - The character is always shown: "?" when the run recorded none
+    (`replay_task.py`; never assumed to be Mario).
+  - Any other field that is None or not recorded is left out.
   - The path is shown relative to `runs\` (the full path for an episode
     elsewhere), with an **Open folder** button that opens it in Explorer.
   - A path that doesn't fit is shortened in the middle, so the episode
@@ -192,14 +206,28 @@ Top to bottom:
   - On a saved frame, the TICK column turns cyan.
 - **Action state.** `fighter_status_id` is shown as a name next to the number,
   e.g. `Wait (10)`, `JumpAerialF (24)`, `SpecialAirHi (226)`.
-  - The names are read at start, read-only, from two decomp headers:
-    - `decomp/src/ft/ftdef.h`: `FTCommonStatus`, ids 0-219;
-    - `decomp/src/ft/ftchar/ftmario/ftmario.h`: `ftMarioStatus`, 220-228.
+  - The names are read at start, read-only, from the decomp headers of the
+    episode's character:
+    - `decomp/src/ft/ftdef.h`: `FTCommonStatus`, ids 0-219, shared by every
+      fighter;
+    - `decomp/src/ft/ftchar/<dir>/<dir>.h`: that character's own
+      `ft<Char>Status`, ids from 220 (specials, entries, ...).
+  - `<dir>` comes from `rl/m7n_status_table.CHARACTER_DIRS`. All 12
+    characters' tables parse: Mario 9 own states, Fox 26, Donkey Kong 30,
+    Samus 11, Luigi 9, Link 17, Yoshi 14, Captain Falcon 19, Kirby 83,
+    Pikachu 18, Jigglypuff 16, Ness 25.
+  - The same id is a different state per character: 225 is Mario's
+    SpecialHi and Fox's SpecialN. So ids from 220 are only named when the
+    character is known; with "?" they stay numbers.
+  - Only Mario's names are exercised by real runs; the others are exactly the
+    decomp's enumerators.
   - The parser is `rl/m7n_status_table.parse_enum`, the one that built the
     M7n/M7q action-class tables.
   - A range marker such as `ControlStart` gives way to the state's own name,
     so 10 is Wait.
   - An id without a name shows as the number only.
+  - `python replay\replay_status.py --characters` lists the tables;
+    `python replay\replay_status.py fox` prints one.
   - `python replay\replay_status.py` prints the table.
 - **Status line.** The playback state, with engine messages in grey below.
   Examples: "▶ 1x 59.9 ticks/s", "❚❚ paused", "» fast-forward",
@@ -428,7 +456,8 @@ already showed visible and no-render trajectories are identical.
 
 ## Index
 
-- **Location:** `_local/index.sqlite`.
+- **Location:** `_local/index.sqlite`, schema 3. An older cache is dropped and
+  rebuilt by the next scan (a full re-read, ~6 min).
 - **Walk:** the scan walks `runs/` read-only. It prunes junctions and
   directories that never hold artifacts (`logs`, `runtime`, `runtime_gens`,
   `gNNNN_aN`, `episodes`, `coordination`, `checkpoints`; `--no-prune`
@@ -445,13 +474,58 @@ Per episode it stores:
 
 - path, milestone, run, phase and worker;
 - role, run_id, profile, observation and reward contracts;
-- end kind and detail, rows, steps, targets (whole episode), cleared,
-  completion tick/time, last consumed tick;
+- character, stage, and where they were recorded (below);
+- end kind and detail, rows, steps, targets (whole episode) and targets
+  total, cleared, completion tick/time, last consumed tick;
+- recorded per-target break ticks, per source (`breaks` table; see "Last target");
 - final position, prefix rows and sidecar files.
 
-**Left entry** (first live tick with `position_x < -2100`) and **qualified
-crossing** (`btt_qualified_crossing_v1`) are not in `metadata.json`. The best
-available source wins:
+### Character and stage (`replay_task.py`)
+
+Taken from what the run recorded, first match wins. When nothing is
+recorded, both show as "?"; the character is never assumed to be Mario.
+
+| Source | Example | Episodes (current tree) |
+| --- | --- | --- |
+| `labels.experiment.compatibility_view` `task.character` / `task.stage` | `mario` / `btt_mario` | 33,874 |
+| `labels.experiment.task_id`: a registered id (mirrors `rl/experiment_config.SUPPORTED_TASKS`), or the pattern `ssb64_<version>_<character>_<btt or btp>_v<n>` | `ssb64_us_mario_btt_v1` | 4,521 |
+| `labels.contracts.action_class_character`; the stage is then `btt_<character>`, since in Break the Targets every character plays their own stage | `mario` | 24 |
+| nothing: M7a-era runs, most regression and test folders | "?" | 922 |
+
+The run-level files of those older runs (`run.json`, summaries) do not name
+the character either. The copies of `KNOWN_CHARACTERS` and `SUPPORTED_TASKS`
+are checked against `rl/experiment_config.py` by `replay_tests.py`. Importing
+that module directly costs 0.7 s and pulls in gymnasium and numpy.
+
+Today every recorded episode is Mario on `btt_mario`, so the stage never
+varies within a character. The browser therefore shows no stage filter; it
+appears once some character has episodes on more than one stage.
+
+### Tags (`replay_tags.py`)
+
+Tags are stage-specific milestones that are not in `metadata.json`, for
+example "left entry @3001" or "crossing".
+
+- **One extractor per stage,** registered in `EXTRACTORS`. At scan time it
+  reads the episode's own sidecars (`from_episode`) and any run-level file it
+  names in `summary_files` (`from_summary`). At load time it reads this
+  tool's replay verdicts (`from_replay`) and turns everything into tags plus
+  detail lines (`resolve`).
+- **Facts are generic.** The index stores them as JSON per
+  (episode, stage, source) in the `facts` table.
+- **Only the episode's own stage extractor sees them.** An episode with no
+  recorded stage gets no tags.
+- **Adding a stage** means one `StageTags` subclass and one `EXTRACTORS`
+  entry. The index and the browser do not change; `replay_tests.py` shows
+  this with a stand-in Fox extractor.
+
+**Mario's Break the Targets (`btt_mario`).** The two tags are:
+
+- left entry: the first live tick with `position_x < -2100`, shown as
+  "left entry @tick", or plain "left entry" when the tick is unknown;
+- crossing: `btt_qualified_crossing_v1`, shown as "crossing".
+
+The best available source wins:
 
 | Source | Where | Answers |
 | --- | --- | --- |
@@ -464,23 +538,197 @@ available source wins:
 | `crossing_verification` | `_clears/.../crossing_verification.json` | yes only, crossing yes/no |
 | `final_obs` | final observation live and x < -2100 | yes only |
 
-- Anything else shows `?`.
+- A missing tag means "no" when an exact source says so, and "unknown"
+  otherwise. The details card and `show` say which, with the source.
 - "No left entry" implies "no crossing".
-- Replaying an episode (windowed or `check`) turns its `?` into an exact
-  answer.
+- Replaying an episode (windowed or `check`) adds an exact answer.
+- Behaviour change: 305 episodes with no recorded character used to count as
+  left entries through `final_obs`, mostly regression and test replays (M7f
+  and M7g regression suites, `_m7d_regressions`, `_m7c_game*`). They now have
+  no tags, because the rule is Mario-stage geometry.
+- Coverage on the current tree: 38,419 Mario episodes, of which 28,317 have an exact left-entry answer. 4 are tagged "left entry": M7p geo4 seed-1 episodes A and B, one M7n and one M7m evaluation episode. A is also tagged "crossing".
 
-Coverage on the current tree (39,341 episodes):
+### Last target (`replay_breaks.py`)
 
-- M7g-K, M7h, M7j, M7k, M7l, M7m, M7n, M7o, M7p, M7r and M7s are mostly
-  resolved.
-- M7a-M7e training and evaluation episodes stay `?`: there is no per-tick
-  source.
+The tick at which the last target broke. For a clear this is the
+completion. Per-target break ticks are not in `metadata.json`, and the scan
+never replays to find them. It reads what the runs already wrote, in this
+order of trust:
+
+| Source | Where |
+| --- | --- |
+| `replay` | `_local/verdicts.jsonl`, this tool's MATCH replays (exact, whole episode) |
+| `evaluation` | `evaluation.json` `episodes[].target_break_ticks` (else `eval_metrics.target_breaks`) |
+| `episodes_log` | trainer / evaluator `episodes.jsonl` `target_break_ticks` |
+| `gate_trace` | `gate_trace.json.gz`, the per-tick `targets` column (M7r evaluations) |
+| `decisions` | `decisions.json.gz`, the per-tick signature field `targets` (M7r) |
+
+The ticks are native consumed ticks. The first rule that applies wins:
+
+- **0 targets:** "–".
+- **Clear:** the completion, e.g. "446 · 7.43 s": the consumed tick, and the
+  game's `time_passed` in seconds.
+- **A source with one tick per recorded target:** its last tick, e.g.
+  "3008 · 50.1 s".
+- **An M7h/M7m curriculum episode** whose source lists only the policy
+  phase (every tick at or after the prefix, fewer ticks than targets): its
+  last tick. The missing breaks are the prefix's.
+- **Otherwise:** "?". This covers every break inside a curriculum prefix,
+  and runs that recorded no break ticks.
+
+Where sources overlap they agree, except in one M7h episode: its training
+log omits the prefix breaks, and a MATCH replay has them all. Replaying an
+episode (the viewer, `check`, or "Check filtered") makes its last target
+exact.
+
+Coverage on the current tree, by milestone:
+
+Known = a recorded tick, a clear, or no target broken. 37,474 of 39,341 episodes (95.3%) are known. The "?" are mostly M7s (941: its goal sidecars do not record breaks), M7h/M7m prefix episodes whose breaks all fell inside the prefix, and M7a-era and regression runs.
+
+| Milestone | Episodes | Known | Unknown (?) |
+| --- | ---: | ---: | ---: |
+| _m7_g1 | 2 | 2 | 0 |
+| _m7_g2 | 2 | 0 | 2 |
+| _m7_g3 | 2 | 1 | 1 |
+| _m7_g4 | 1 | 1 | 0 |
+| _m7_g6 | 19 | 1 | 18 |
+| _m7_g7 | 7 | 0 | 7 |
+| _m7_regressions | 3 | 0 | 3 |
+| _m7_smoke_20260923T032248Z | 2 | 1 | 1 |
+| _m7_smoke_final1 | 26 | 7 | 19 |
+| _m7b_eval_cli | 3 | 1 | 2 |
+| _m7b_m7a_smoke_final | 26 | 5 | 21 |
+| _m7b_regressions | 3 | 0 | 3 |
+| _m7b_smoke_20260923T032326Z | 22 | 22 | 0 |
+| _m7b_smoke_20260925T134448Z | 23 | 23 | 0 |
+| _m7b_smoke_20260925T151256Z | 23 | 23 | 0 |
+| _m7b_smoke_dev1 | 3 | 3 | 0 |
+| _m7b_smoke_dev2 | 20 | 1 | 19 |
+| _m7b_smoke_dev3 | 7 | 1 | 6 |
+| _m7b_smoke_final | 23 | 4 | 19 |
+| _m7c_game2 | 44 | 23 | 21 |
+| _m7c_game3 | 32 | 9 | 23 |
+| _m7c_reg_m7_smoke | 27 | 4 | 23 |
+| _m7c_reg_m7b_smoke | 22 | 5 | 17 |
+| _m7c_v2_n5 | 3 | 0 | 3 |
+| _m7c_v2_n5b | 4 | 0 | 4 |
+| _m7d_preflight_game1 | 90 | 71 | 19 |
+| _m7d_regressions | 107 | 74 | 33 |
+| _m7dbg | 6 | 2 | 4 |
+| _m7e_preflight_game | 28 | 27 | 1 |
+| m7a_compare | 14 | 0 | 14 |
+| m7a_pilot_n5 | 98 | 2 | 96 |
+| m7a_random_baseline | 3 | 0 | 3 |
+| m7c_stage1 | 8 | 0 | 8 |
+| m7c_stage1b | 8 | 0 | 8 |
+| m7c_stage2 | 14 | 0 | 14 |
+| m7d | 3,857 | 3,855 | 2 |
+| m7e | 3,228 | 3,227 | 1 |
+| m7f | 164 | 86 | 78 |
+| m7g | 82 | 43 | 39 |
+| m7g_k | 6,593 | 6,580 | 13 |
+| m7g_obs | 188 | 82 | 106 |
+| m7h | 5,085 | 4,894 | 191 |
+| m7j | 47 | 44 | 3 |
+| m7k | 68 | 65 | 3 |
+| m7l | 3,853 | 3,853 | 0 |
+| m7m | 2,273 | 2,228 | 45 |
+| m7n | 5,124 | 5,100 | 24 |
+| m7o | 3,345 | 3,339 | 6 |
+| m7p | 3,317 | 3,316 | 1 |
+| m7q | 2 | 0 | 2 |
+| m7r | 431 | 431 | 0 |
+| m7s | 959 | 18 | 941 |
+| **all** | **39,341** | **37,474** | **1,867** |
+
+## Browser
+
+`replay_index gui`, or `replay_gui.pyw` without a console. Standard library
+only; I recommend no theme package (see the note at the end of this section).
+
+- **Filters** apply as they change; the search applies 150 ms after typing
+  stops, and Esc clears it.
+  - Filters: milestone, character (`?` = not recorded), role, end, min
+    targets, verdict, and a search over path, run id, profile and tags.
+  - A stage filter appears only when some character has more than one
+    stage.
+  - **Reset** clears all filters and switches both toggles off.
+- **Show tests** (off by default) shows test, smoke and equivalence
+  episodes; otherwise 1,096 of 39,341 are hidden. They are:
+  - role `test` (409) or `m6_equivalence` (45);
+  - no role recorded (254), all in regression and test folders;
+  - everything in `_`-prefixed milestone folders (`_m7_smoke*`,
+    `_m7b_regressions`, `_m7c_*`, `_m7d_preflight*`, `_m7d_regressions`,
+    `_m7dbg`, `_m7e_preflight_game`, `_m7b_eval_cli`, ...). This is the
+    repository's convention for smoke, regression, preflight and debug runs,
+    and there is no "smoke" role: those episodes carry ordinary roles
+    (training 265, evaluation 122).
+  - `random_baseline` (15) stays visible.
+  - `replay_index list --no-tests` applies the same rule.
+- **Best per run** shows one row per run: milestone plus run path, with
+  workers merged. The row is the run's best episode by targets, then
+  last-target tick. An **Episodes** column shows how many of the run's
+  episodes pass the filters: "12", or "12 of 40" when filters hide some. The
+  count reads "N runs (best of M episodes)".
+- **The count** reads "N of M episodes (K tests hidden)".
+- **Check filtered…** replays every listed episode headless, in the
+  background, one BattleShip process at a time:
+  - above 50 episodes it asks first, with an estimate (about 4.5 s each);
+  - the status bar shows "checking k/N: episode · MATCH / DESYNC / failed
+    counts";
+  - the button becomes **Cancel check**, which terminates the running replay;
+  - each result updates the verdict column at once, and a MATCH fills in an
+    unknown last target;
+  - when the batch ends, the table reloads from the index.
+  - Verdicts are recorded like `replay.py --check`, in
+    `_local/verdicts.jsonl`, the verdict log the index reads. `runs/` is
+    only read, and sessions live under `_local/sessions/`.
+  - Closing the browser cancels a running batch.
+- **Columns:**
+  - targets: "7/10" (bold when all are broken);
+  - character;
+  - end: a pill. Clear is green, fall muted red, timeout grey. Goal (M7s
+    goal reached) is blue and aborted (aborted or lifecycle failure) amber;
+  - last target: "3008 · 50.1 s"; for a clear, the completion ("446 · 7.43 s",
+    green); "–" when no target broke; "?" when unknown (grey);
+  - verdict: ✔ MATCH, ✖ DESYNC or · none, from this tool's replays;
+  - role, milestone;
+  - run: shortened in the middle, with the full episode path as a tooltip;
+  - Episodes, in "Best per run" only;
+  - tags: narrow, since only 4 episodes have any; a tooltip shows them when
+    cut;
+  - created: local time, e.g. "Sep 27 03:22".
+- **Sorting:** the default is targets descending, then last-target tick
+  ascending, with unknowns last. Click a heading to sort by it (again to
+  reverse); ties keep the default order. Drag a heading edge to resize.
+- **Look:** zebra rows, 28 px rows, bold headings, a light green tint on
+  clears, a blue selection bar.
+- **Keys:** Up/Down/PageUp/PageDown/Home/End move the selection; Enter or a
+  double-click plays.
+- **Details card** (key/value, like the viewer header):
+  - The episode id and path are shown; the path is shortened in the middle,
+    with the full path in a tooltip.
+  - Then every non-empty field: character (and where it was recorded), stage,
+    role, run, run id, worker, profile, observation, reward, end with detail,
+    targets, last target with its source, end tick, steps, prefix rows,
+    created (full local time), verdict, whether it is a test episode, each
+    tag's answer and source, and sidecars.
+  - Buttons: ▶ Play, Check (headless), Copy path, Open folder.
+- **Status bar:** messages (viewer started, check progress and results, scan
+  progress), the index size and last scan time, and **Rescan** on the far
+  right.
+- **How it is drawn.** The table is drawn on a Canvas, visible rows only.
+  This lets one cell carry its own colors (`ttk.Treeview` colors whole rows
+  only), and all ~39k rows stay listed without the old 5,000-row cap.
+- **Theme package.** A package such as sv-ttk would restyle only the ttk
+  widgets (comboboxes, buttons, scrollbar). The table, pills and card are
+  drawn directly, so it would change little, and I did not propose it.
 
 ## Local state (`_local/`)
 
 | Path | Contents |
 | --- | --- |
-| `index.sqlite` | The cache (~36 MB) |
+| `index.sqlite` | The cache (~42 MB, schema 2) |
 | `verdicts.jsonl` | One line per finished replay |
 | `last_list.json` | Row numbers of the last `list` |
 | `viewer_state.json` | Window positions |
@@ -542,6 +790,66 @@ and must never be committed.
   at its old size.
 
 ## Verification (2026-09-29, exe sha256 30a3913b...)
+
+### Last target, tests, best per run, Check filtered (2026-09-30)
+
+- **Offline tests:** 28/28, including the new and rewritten tests.
+  - Break-tick sources: `evaluation.json` and its `eval_metrics`
+    fallback, `episodes.jsonl`, the gate-trace `targets` column (two
+    targets on one tick), the decisions signatures (row t + 1 = tick t), MATCH
+    replays, DESYNC ignored.
+  - Last-target rules: exact count, replay first, curriculum prefix, every
+    break inside the prefix is "?", clear = completion, 0 targets is "–".
+  - The browser: the new default order, tests hidden (a `test` role and a
+    `_` folder), the "N of M (K tests hidden)" count, the card's last target,
+    sorting by last target, best per run with "4" and "2 of 4" counts.
+  - Check filtered with a stand-in runner: the confirmation above the limit,
+    live verdict and last-target updates, cancel, the final status.
+- **Real index rebuilt** (schema 3) in 59 s.
+  - The first build of this schema took 627 s: deleting each re-read
+    episode's old facts scanned the whole table. The new `source_path`
+    indexes fix it (an `m7p` full rescan went from 87.4 s to 5.6 s).
+  - `load_rows` takes 2.0 s.
+- **Coverage:** 95.3% of episodes have a known last target (table under
+  "Last target").
+- **Tags:** 4 episodes have any tag. Episode A
+  (`runs/m7p/.../w04/.../episode_20260928T072129Z_44619208`) shows
+  "left entry @3001 · crossing" and last target "3008 · 50.1 s (replay)".
+- **Check filtered, live** on the real index, 8/8:
+  - the 4 tagged episodes: 4 MATCH in 20.4 s, progress "checking 2/4 ...",
+    the verdict column updated;
+  - the 3,317-episode M7p list: asked first, then cancelled after 1;
+  - no BattleShip process or session folder left.
+  - Worker threads never call Tk: they post to a queue that the Tk thread
+    drains. The first live run showed that calling Tk's `after()` from the
+    check thread fails when the event loop is not driven by `mainloop`.
+- **Viewer UI regression:** 13/13.
+
+### Browser redesign (2026-09-30)
+
+- **Offline tests:** 26/26. The new and rewritten tests cover:
+  - the index with character, stage and tags ("?" episodes get no tags);
+  - the character, `?`, tag and text filters, and the default sort;
+  - verdict evidence (MATCH counts, DESYNC never does);
+  - a schema 1 cache being dropped;
+  - every character/stage source, with the copies checked against
+    `rl/experiment_config`;
+  - a stand-in Fox extractor adding tags with no index or browser change;
+  - time, end and created texts;
+  - per-character action-state names (225: Mario SpecialHi, Fox SpecialN,
+    unknown "225"; all 12 tables);
+  - the real browser on a temporary index: order, live filters with
+    "N of M", tag search, the hidden stage filter, the card without empty
+    fields, the run tooltip, keys, sorting.
+- **Real index rebuilt** (schema 2, read-only): 39,341 episodes in 100 s.
+  - `load_rows` takes 1.5 s; the browser opens in 1.75 s.
+  - A filter over all rows takes 50-70 ms.
+  - Tag, `list` and `show` results are as described under "Tags".
+- **Viewer UI regression:** 13/13. 1x ran at 60.0 ticks/s.
+  - The header reads "character Mario · stage btt_mario".
+  - The action state showed Mario's own "SpecialN (223)".
+- **Browser Play → viewer:** the viewer opened on the selected episode in
+  0.9 s. Closing it left no BattleShip process or session folder.
 
 ### Result panel and timeline polish
 
