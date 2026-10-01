@@ -1,0 +1,314 @@
+{
+ "gate": "m7u3",
+ "scope": "refit-versus-frozen test of planner-controlled reach of rare behaviour-drawn airborne points from the normal tick-0 reset (one seed, one refit, 24 non-overlapping goals); not a landing, wall-top reach, crossing, target result or clear",
+ "rule": "m7u3_refit_rule_v1",
+ "rule_sha256": "e56d9fed952a81b8726804c9c7474da1f962ca1fa47b75ff91a6dfa0c55c8679",
+ "goal_contract": "m7u3_tick0_goal_v1",
+ "goal_contract_sha256": "b068dfdcec0306b6ef2a811bb3b47c835964b4a7adb8ee397e6651e8732cc96d",
+ "planner_sha256": "e1f9bc8fe4606a8eb2092da109b7ac00a356aaa15a2c5a734b2cd6413a44fa3b",
+ "state_sha256": "7c29113386d327edef77ecbc9e00b984c3f4e3c1acf00c742daaa6f42e98e6b7",
+ "frozen_model": {
+  "model_sha256": "a4bd30e51d379e57c070b6728f494f8abf52814efade2ae67ac39186e082e6fd",
+  "parameter_digest": "0e70af78f1bec21039fa65f6f35ed180d69b31a02dd482480b946aced1bc0156",
+  "vocab": {
+   "S": 61,
+   "V3": 16,
+   "V4": 28
+  },
+  "members": 3,
+  "track_sha256": "16318edf0902749a267db9b89903f163df90df16713d441ef42b192aea6c6534"
+ },
+ "retrain_model": {
+  "role": "offline diagnostic only: no native arm, no planner trial",
+  "seed": 1,
+  "steps": 6000,
+  "data": "m7u1 training episodes only",
+  "model_sha256": "47d51b1b17a9461413c250e56e6c8f3c0bb0b5edba0debc5658ea5b6998ed62b",
+  "parameter_digest": "13fa9cdbd143249a90c57b576b131c7ebd0edbbc0141f9cbbec19d4f58c916d7"
+ },
+ "refit": {
+  "contract": "m7u3_refit_v1",
+  "code_sha256": "73bbda054ef6894258b2952118bc6214ce27a8127e70064633427feb0b9d23b3",
+  "seed": 0,
+  "steps": 6000,
+  "batch": 1024,
+  "lr": 0.0003,
+  "members": 3,
+  "from_scratch": true,
+  "bootstrap": "stratified (m7u1's 80 episodes, then the training pool); empty pool == m7u1's",
+  "data": "m7u1 training episodes (80) + training pool t000..t539",
+  "identity_retrain": "bit-exact against the frozen parameter digest (prep_attestation)"
+ },
+ "m7u1_sources": {
+  "m7u1_state_sha256": "29f0d70f1043207ec64ae7049c61cdeb694f6ead5fd6ae18c390eebbb5bd91cd",
+  "m7u1_goals_sha256": "8e14e9f8f6bcb4a3992d615f5ed5d1df70b3bcd4f195ce34f13d690211acc636",
+  "m7u1_collection_sha256": "46d17d5092b5dbf7aa24563e9633228c8c97e863ee495c9bdc887a8e39c467e0",
+  "reference_digest": "4337cc35beebb23e342c11a2490ae72ed57495b9eb856e0d4f9eb9bc81ab912b",
+  "tick0_row_digest": "0bf8dbd7b03ab2e418a98c2cb9e20208f4fb1597023c12686a3d5921d5e67686"
+ },
+ "m7u2_sources": {
+  "m7u2_state_sha256": "f1fc4458ac98522b329ebe9c94107d8748f82d496c5c748f0fd32f1ba36ac633",
+  "m7u2_goals_sha256": "f16ac74aecc90d3ff375bcbbd5e348d266d0adb6037b08835a7091eb5f103442",
+  "m7u2_pool_sha256": "b6f3a44448798eaa71091c23d20b0dad5a77778d73362fadf492533cbfa1def2",
+  "m7u2_goal_digest": "1af171ccc3036b3b79c8088500e9a17e1537166e58533c36413d016ee8561307"
+ },
+ "m7u2_approval_code": {
+  "rl/m7u2_goals.py": "da4c6041ab0c4cd30de9299d91860701e94cac8eb37f93891d5cd449e95f4e3f",
+  "rl/m7u2_rule.py": "0243b7510a376e01f20bf853af54dcf69b8409349bbcd324acedb1df497f4f86",
+  "rl/m7u2_gate.py": "621bf45df9537b4ac96e48842a592abf72553d0b97e1132ed535eee4d3517f07",
+  "rl/m7u2_tests.py": "a8360765d1a4e753cce0a83566c6b6b26412786f797219259cc97e2a0a59714e",
+  "rl/m7u_state.py": "99f76adad72257cf14f919519f6208ec90aaf92f2fc010d2bb1bd74b2066ff67",
+  "rl/m7u_model.py": "e7fe97402a1ffe5477be168035b00c468c32f073690b73efc6eccc95202d0b11",
+  "rl/m7u_planner.py": "43efee2ef275d271d410383182fb89a2cf61d572bc9d4446a17828b6413835bf",
+  "rl/m7u_goals.py": "506e48df5a198440e4c1429964421f18fd355ef6bf676b6bd9249c58aa4de014",
+  "rl/m7u_rule.py": "2ab8e269bbbbe7b3b21c5fe56499ca9657086f35a30ce2313d220c6425163002",
+  "rl/m7u_analysis.py": "247375f6aa8a09e3b547f83965af8d90bff205dc8314e5d44914abc295106607",
+  "rl/m7u_worker.py": "2302d27d439da9ee7cbf38c5b02c256ad70be33b3412e0397f97b66bba2e5b36",
+  "rl/m7u_gate.py": "b3acb99607c14542d8217b1c19dad0e58715ca70d087f22e7073f8c37a3fd709",
+  "rl/m7u_tests.py": "ad2a92e952d769226d74fe89b7594d601442fba4e973f8e78354c81294560455",
+  "rl/btt_parallel.py": "e34187b3c19b6bf806cc8e31fd85018acb6a2e83ca3c93922c93887d52b64f75",
+  "rl/battleship_env.py": "11397c73322f90f4505d675a2a878aef36835e8309a1eedf0e749fb24b85ae42",
+  "rl/run_artifacts.py": "bcab944115d893bf6c447ad285d25f94a73111e2df1b273fdd5efbd1453cac5c",
+  "rl/m7_vec_env.py": "f067a3fd6085b9d78f27dea0b72cbd76fe7b797f132a14e548515d9d76e62f86",
+  "rl/m7_runtime.py": "3dc56722c924065356e6134174d5e2c4724c0f495ee8c4e0eed027dfd2d9c452",
+  "rl/m7n_obs.py": "00f671ee0416134d696a8f080ab1a494a662a7e22f4a21f5f65f21c2906d135b",
+  "rl/m7q_obs.py": "08188058f790bbf344c298542b5d2bee9b4e533dc54fe8eb9182f4df82e49b38",
+  "rl/m7q_input.py": "9bd6fc098f7606675fbd398b142d0950f2dfd16949bdfadbf4f4d21d0578433a",
+  "rl/m7g_spatial.py": "d95269b65648942594c2f9b598629c76dafb1fd839f08babc2621085f0e0b17c",
+  "rl/m7n_entity.py": "21121f4656262c363802d33e7e6112883fe0976fb33aaf0f22c5371fab0d6d53",
+  "rl/m7q_status_table.py": "c6ee3de5d8f75e3e61c264d2dfc1586093539e4bca67e5ee74dbf3a2806b6423",
+  "rl/m7r_commit.py": "82d643997e3b589dbea89105419b0cfbfa134f811b7c63216f52fff762329588",
+  "rl/experiment_config.py": "03ab722bfa89ac71fadd96dfa1e02f4c5b1dd15f59e3fdd2bb408c56bc34bf90",
+  "rl/m7_trainer.py": "d0d889fd3729ac775c9c70a6823e4d7ff0e0666b0c6f0f4063b55f707cd08886",
+  "rl/m7f_trace.py": "99399e16718a9e5a5f4d4eb3ce6c4b00bb62e6f9483522b03946b52180cb9190",
+  "rl/btt_learning.py": "4f23ecd086639d6750f0e96e1fa085316cc0cff44dcc60bee913cf6c17b6a8b6",
+  "rl/m7s_gate.py": "4bff49b4d3c7a882ae3c0bc13f4494ad45832adf07fede69e2517b7e81967859",
+  "rl/tools/runs_backup.py": "c4de9b0ab69849341a129e9e99263a28d7fdfccb292e4cfebe8e6221039db71c",
+  "rl/configs/m7q/m7q_pilot_s0.toml": "121e1d4877f365d71a673f2cdbec920c3fddf1fd83d529c6c752e9e716a49ade"
+ },
+ "world_digest": "ca1ac287141d02c112eee70263c59b773af0054de690da68f0ee248dc91f72e4",
+ "p1": {
+  "m7u1": {
+   "g26_P": {
+    "words": 171,
+    "reach_tick": 171,
+    "native_action_digest": "3b3bd40209cd8e0ed1a9415746d37bba5458cd1144aabad2a06c6b41bf518928"
+   },
+   "g14_P": {
+    "words": 183,
+    "reach_tick": 183,
+    "native_action_digest": "33087dc8a6e98bb1f9b716c92736906871f46bf64f17d27cea64cb61ae4a0d30"
+   }
+  },
+  "m7u2": {
+   "g14_P": {
+    "words": 49,
+    "reach_tick": 49,
+    "native_action_digest": "8d79e2a5beeaa654e4a4332b77cc7e92e391d7ef08499c65427c3117156285df"
+   },
+   "g03_P": {
+    "words": 60,
+    "reach_tick": 60,
+    "native_action_digest": "c5e23f9ab1cd5fdc572ee6a644f13b6fe0c0bdb56e36fc3555c8ad840f34a635"
+   }
+  }
+ },
+ "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+ "code": {
+  "rl/m7u3_goals.py": "2f92c5e76bd02c3e6f5e8be57e693ffe77ac5382a39a9b07c8baae523c216cbd",
+  "rl/m7u3_refit.py": "73bbda054ef6894258b2952118bc6214ce27a8127e70064633427feb0b9d23b3",
+  "rl/m7u3_rule.py": "f95fe97b5d05c6974312c5c11d80b89c1e63806c9e464df4d7758214fa7f84bc",
+  "rl/m7u3_analysis.py": "0e017eacc4123d3554cb662510ab3a6fc853d5c3a8ef5294e091ea61a337593f",
+  "rl/m7u3_gate.py": "53e9dad84313d7a1d245ac8d119a2f5a5ef278c1535cc68410953e746ac5e002",
+  "rl/m7u3_tests.py": "04faa91d11c11a364546adfabbd07309254e830cfc38e47d9a44f4599d9f7f07",
+  "rl/m7u2_goals.py": "da4c6041ab0c4cd30de9299d91860701e94cac8eb37f93891d5cd449e95f4e3f",
+  "rl/m7u2_rule.py": "0243b7510a376e01f20bf853af54dcf69b8409349bbcd324acedb1df497f4f86",
+  "rl/m7u2_gate.py": "621bf45df9537b4ac96e48842a592abf72553d0b97e1132ed535eee4d3517f07",
+  "rl/m7u2_tests.py": "a8360765d1a4e753cce0a83566c6b6b26412786f797219259cc97e2a0a59714e",
+  "rl/m7u_state.py": "99f76adad72257cf14f919519f6208ec90aaf92f2fc010d2bb1bd74b2066ff67",
+  "rl/m7u_model.py": "e7fe97402a1ffe5477be168035b00c468c32f073690b73efc6eccc95202d0b11",
+  "rl/m7u_planner.py": "43efee2ef275d271d410383182fb89a2cf61d572bc9d4446a17828b6413835bf",
+  "rl/m7u_goals.py": "506e48df5a198440e4c1429964421f18fd355ef6bf676b6bd9249c58aa4de014",
+  "rl/m7u_rule.py": "2ab8e269bbbbe7b3b21c5fe56499ca9657086f35a30ce2313d220c6425163002",
+  "rl/m7u_analysis.py": "247375f6aa8a09e3b547f83965af8d90bff205dc8314e5d44914abc295106607",
+  "rl/m7u_worker.py": "2302d27d439da9ee7cbf38c5b02c256ad70be33b3412e0397f97b66bba2e5b36",
+  "rl/m7u_gate.py": "b3acb99607c14542d8217b1c19dad0e58715ca70d087f22e7073f8c37a3fd709",
+  "rl/m7u_tests.py": "ad2a92e952d769226d74fe89b7594d601442fba4e973f8e78354c81294560455",
+  "rl/btt_parallel.py": "e34187b3c19b6bf806cc8e31fd85018acb6a2e83ca3c93922c93887d52b64f75",
+  "rl/battleship_env.py": "11397c73322f90f4505d675a2a878aef36835e8309a1eedf0e749fb24b85ae42",
+  "rl/run_artifacts.py": "bcab944115d893bf6c447ad285d25f94a73111e2df1b273fdd5efbd1453cac5c",
+  "rl/m7_vec_env.py": "f067a3fd6085b9d78f27dea0b72cbd76fe7b797f132a14e548515d9d76e62f86",
+  "rl/m7_runtime.py": "3dc56722c924065356e6134174d5e2c4724c0f495ee8c4e0eed027dfd2d9c452",
+  "rl/m7n_obs.py": "00f671ee0416134d696a8f080ab1a494a662a7e22f4a21f5f65f21c2906d135b",
+  "rl/m7q_obs.py": "08188058f790bbf344c298542b5d2bee9b4e533dc54fe8eb9182f4df82e49b38",
+  "rl/m7q_input.py": "9bd6fc098f7606675fbd398b142d0950f2dfd16949bdfadbf4f4d21d0578433a",
+  "rl/m7g_spatial.py": "d95269b65648942594c2f9b598629c76dafb1fd839f08babc2621085f0e0b17c",
+  "rl/m7n_entity.py": "21121f4656262c363802d33e7e6112883fe0976fb33aaf0f22c5371fab0d6d53",
+  "rl/m7q_status_table.py": "c6ee3de5d8f75e3e61c264d2dfc1586093539e4bca67e5ee74dbf3a2806b6423",
+  "rl/m7r_commit.py": "82d643997e3b589dbea89105419b0cfbfa134f811b7c63216f52fff762329588",
+  "rl/experiment_config.py": "03ab722bfa89ac71fadd96dfa1e02f4c5b1dd15f59e3fdd2bb408c56bc34bf90",
+  "rl/m7_trainer.py": "d0d889fd3729ac775c9c70a6823e4d7ff0e0666b0c6f0f4063b55f707cd08886",
+  "rl/m7f_trace.py": "99399e16718a9e5a5f4d4eb3ce6c4b00bb62e6f9483522b03946b52180cb9190",
+  "rl/btt_learning.py": "4f23ecd086639d6750f0e96e1fa085316cc0cff44dcc60bee913cf6c17b6a8b6",
+  "rl/m7s_gate.py": "4bff49b4d3c7a882ae3c0bc13f4494ad45832adf07fede69e2517b7e81967859",
+  "rl/tools/runs_backup.py": "c4de9b0ab69849341a129e9e99263a28d7fdfccb292e4cfebe8e6221039db71c",
+  "rl/configs/m7q/m7q_pilot_s0.toml": "121e1d4877f365d71a673f2cdbec920c3fddf1fd83d529c6c752e9e716a49ade"
+ },
+ "arms": [
+  "PF",
+  "PR",
+  "RC",
+  "SR"
+ ],
+ "n_candidates": 64,
+ "stream_seeds": {
+  "train": 1,
+  "pool": 2,
+  "goal": 3
+ },
+ "training_pool": [
+  540,
+  192
+ ],
+ "goal_pool": [
+  540,
+  128
+ ],
+ "n_goals": 24,
+ "non_overlap_span": 300.0,
+ "budget": 128,
+ "tick_budget": {
+  "p1": 463,
+  "train_pool": 103680,
+  "goal_pool": 69120,
+  "eval_control": 12288,
+  "replays": 12288,
+  "total": 197839
+ },
+ "wall_caps_s": {
+  "p1": 120,
+  "train_pool": 750,
+  "refit": 900,
+  "goal_pool": 750,
+  "goals": 120,
+  "evaluation": 1500,
+  "replays_analysis": 900
+ },
+ "global_cap_s": 4500,
+ "memory_caps_mb": {
+  "main_private": 3072,
+  "tree_private": 9216,
+  "tree_working_set": 4096,
+  "system_available_min": 1024,
+  "system_commit_free_min": 2048
+ },
+ "memory_sample_s": 5.0,
+ "readiness": {
+  "min_available_mb": 4096,
+  "min_commit_free_mb": 10240,
+  "probe_decisions": 40,
+  "probe_warmup": 5,
+  "probe_p95_max_s": 0.5,
+  "train_probe_steps": 20,
+  "train_probe_median_max_s": 0.1
+ },
+ "replays": "every success of every arm",
+ "repro": {
+  "m7u1_decisions": 32,
+  "m7u2_decisions": 32,
+  "tolerance": 0.001
+ },
+ "d_records": {
+  "folders": [
+   "2026-09-28",
+   "2026-09-28_incr_m7r",
+   "2026-09-29_incr_m7s",
+   "2026-09-29_incr_m7t_logs",
+   "2026-09-30_incr_m7u",
+   "2026-09-30_incr_m7u2",
+   "2026-09-30_incr_m7u_logs",
+   "2026-10-01_m7u3_prep"
+  ],
+  "digest": "d3f176bac719908e80b9fab40fb2f0258ba7de16e6ecb5c6f50fe2fdd8eefcfc"
+ },
+ "approval": "APPROVED by the user (git nicolasfrechette91) 2026-10-01, once, exactly as configured in the authorising message after amendment 1 (docs/rl_model_planning_m7u3_amendment_2026-10-01.md)",
+ "revision": 1,
+ "authorisation": {
+  "source": "the user's chat message of 2026-10-01 (fresh session)",
+  "text": [
+   "one pre-launch cap amendment (hard wall cap 3,600 s -> 4,500 s, nothing else), evidence preservation, approval and EXACTLY ONE M7u3 native gate run as designed",
+   "no retries, extensions, post-approval repairs, extra pools, threshold changes or follow-on runs; no commits, pushes, branches or PRs; no application closed",
+   "the replication readout applies only the two evaluable M7u2 conditions and is labelled 'partial replication (S condition not evaluable)' everywhere",
+   "at most 197,839 native updates; per-phase and memory caps as in the decisions record; global wall cap 4,500 s",
+   "outcome reported as recorded: PASS, NULL, INCONCLUSIVE, INCOMPLETE or INVALID"
+  ]
+ },
+ "amendment": {
+  "record": "docs/rl_model_planning_m7u3_amendment_2026-10-01.md",
+  "what": "global hard wall cap 3,600 s -> 4,500 s; replication-readout label (output wording only); nothing else",
+  "pre_amendment_files_kept_in_snapshot": "prepared_reference/rl/m7u3_{gate,tests,rule}.py (4aca3e60, 26a44633, d09e2330)"
+ },
+ "source_snapshot": {
+  "dest": "D:\\BattleShip_source_snapshots\\2026-10-01_m7u3",
+  "snapshot_json_sha256": "97c085f7826a11cb92a8279603e235271d86ad7e1279acedc241c51e4b7eac18",
+  "result": "PASS",
+  "files": 66,
+  "git_head": "1a68a7b04367bfd0b6b45d5b57c90eb1879d5d9d",
+  "independent_verification": "tool verify PASS (66 files) and a separate PowerShell re-hash of 66 snapshot files + 3 prepared_reference files (69 checked, 0 bad), executable hash equal"
+ },
+ "backup_coverage_before_approval": {
+  "ok": true,
+  "reason": null,
+  "source_files": 398054,
+  "uncovered": 0,
+  "increments": [
+   "D:\\BattleShip_runs_backup\\2026-09-28_incr_m7r",
+   "D:\\BattleShip_runs_backup\\2026-09-29_incr_m7s",
+   "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u",
+   "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u2"
+  ],
+  "skipped": [
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-09-29_incr_m7t_logs",
+    "why": "no top-level verification record"
+   },
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u_logs",
+    "why": "no top-level verification record"
+   },
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-10-01_m7u3_prep",
+    "why": "source C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\logs\\m7u3_prep is not under runs/"
+   }
+  ]
+ },
+ "preflight_before_approval": {
+  "ok_except_approval": true,
+  "problems": [
+   "no approval record at docs\\rl_model_planning_m7u3_gate_approval.json (the gate is not authorised)"
+  ],
+  "unit": [
+   "22 / 22 passed (unit); report C:\\Users\\kill_\\AppData\\Local\\Temp\\m7u3t_jzny6r_n\\m7u3_unit.json"
+  ],
+  "rule_self_test": [
+   "{\"rule\": \"m7u3_refit_rule_v1\", \"digest\": \"e56d9fed952a81b8726804c9c7474da1f962ca1fa47b75ff91a6dfa0c55c8679\", \"problems\": []}"
+  ],
+  "readiness": {
+   "memory": {
+    "available_mb": 8115.51171875,
+    "commit_free_mb": 17501.8828125
+   },
+   "timing": {
+    "n": 40,
+    "median_s": 0.3498598000151105,
+    "p95_s": 0.36663637998863124
+   },
+   "train_probe": {
+    "steps": 20,
+    "median_s": 0.04440260003320873,
+    "p95_s": 0.04708733501029201
+   }
+  }
+ },
+ "written_utc": "2026-10-01T20:27:09Z"
+}
