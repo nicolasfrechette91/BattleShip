@@ -1,0 +1,376 @@
+{
+ "gate": "m8_rd2",
+ "scope": "M8-rd2: continuation of archive m8_rd_a1 under m8_rd_select_v2; one session, one set of keyed draws; no control arm; not a policy result, not a learning result, not a comparison of v2 with v1",
+ "milestone": "M8",
+ "archive_id": "m8_rd_a1",
+ "session": "rd2",
+ "rule": "m8_rd2_rule_v1",
+ "rule_sha256": "f9779faac95feede6e3d7f64abc0360b9f5b1bbf587d3943f1c1a0193def457e",
+ "contracts": {
+  "m8_rd_cell_v1": "a1187d555888ab4abcd325ec914dd7395e80453130b2ee21a5faf2590ef830d2",
+  "m8_rd_select_v1": "e6945dfeac85d8f4b63efd45cfd42ffd158e30c076ac124d673ac6f05463a506",
+  "m8_rd_explore_v1": "d7d3c9ae358f72648293652e2a7e90c8f76195ad8766efc4d708f97812f080f7",
+  "m8_rd_claims_v1": "3dbd7da58d3afe9e357b81a98a543ec69cebbf586df022b7d555bed205e15c68",
+  "track1_btt_s9_b8_v1": "aab45c265f74ab093ea7e11ad2ecec9930f6f14e24652d67ed5fee3049dc30ac",
+  "btt_action_class_table_v2": "070d6b8f00d1ef9e19aa07e081e2dda40aa5a2523de50d81c9c03e78597d9b73",
+  "m8_rd_select_v2": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1"
+ },
+ "key_strings": {
+  "select_rd1": "m8_rd|<archive_id>|select|<iteration> (iterations 0..2174, rd1)",
+  "select_v2": "m8_rd|<archive_id>_v2|select|<iteration> (iterations from 2175)",
+  "explore_v2": "m8_rd|<archive_id>_v2|explore|<iteration>|<decision index>",
+  "identity_open": "m8_rd|<archive_id>|identity_open|rd2|<cell id>",
+  "identity_close": "m8_rd|<archive_id>|identity_close|rd2|<cell id>"
+ },
+ "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+ "runtime_files": {
+  "BattleShip.o2r": "fe2b307e35c84c40e2e42e570a5e58183d69f8adfad094c8da3d715ffe451d00",
+  "f3d.o2r": "73ab91ef09a30e8aa629d441fede7aac078c3f46d925c90a9562488f0b664408",
+  "gamecontrollerdb.txt": "9d3c6b8dace57e778ca9420180d0533d11e2c9a0077e52878e1032541c76aa00"
+ },
+ "flags": {
+  "explore": {
+   "SSB64_RL_NO_RENDER": "1",
+   "SSB64_RAPHNET_DISABLE": "1",
+   "SSB64_RL_SPATIAL": "1"
+  },
+  "verify": {
+   "SSB64_RL_NO_RENDER": "1",
+   "SSB64_RAPHNET_DISABLE": "1",
+   "SSB64_RL_SPATIAL": "1",
+   "SSB64_RL_ENTITY": "1",
+   "SSB64_RL_TARGET_DIAG": "1",
+   "SSB64_RL_INPUT": "1"
+  }
+ },
+ "p1": {
+  "m7d_s0v1_det_fall": {
+   "words": 3361,
+   "artifact_actions_sha256": "0a8ef46e308cb79636b0b3ab4e785dbe1527c4767fbfd4f00d411e078a86dff4",
+   "artifact_metadata_sha256": "c138ef72748e2ac241f3708cec3c459d92adc1215ede75d9a3b0eadc2f3c06f4",
+   "trace_sha256": "70c9c0026dadd0c4777d7740c5797afaef6d3930a52b73b2b0711623e04aa889",
+   "native_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+   "recorded_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+   "trace_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+   "consumed_ticks_ok": true,
+   "trace_submitted": 3361,
+   "trace_flags": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_INPUT": "1",
+    "SSB64_RL_ENTITY": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   }
+  },
+  "m7d_s0v1_fall6_double": {
+   "words": 2560,
+   "artifact_actions_sha256": "e8191e99b1aebe4d1b9368e6b0cdcb4cdf02fe065c7dde187b8c96a589339a95",
+   "artifact_metadata_sha256": "7340ab9d7d97d6633728067f3c2390f86da914704e40d3cd3bf2a0f585e3802e",
+   "trace_sha256": "20211fcbef77b79087340654a9c9b8c626e080dc56f2020a78a021353c0de6be",
+   "native_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+   "recorded_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+   "trace_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+   "consumed_ticks_ok": true,
+   "trace_submitted": 2560,
+   "trace_flags": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_INPUT": "1",
+    "SSB64_RL_ENTITY": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   }
+  }
+ },
+ "caps": {
+  "exploration_tick_cap": 6000000,
+  "min_exploration_ticks": 2000000,
+  "open_tick_cap": 70000,
+  "replay_tick_cap": 400000,
+  "wall_caps_s": {
+   "p1": 240.0,
+   "T": 3000.0,
+   "verify": 360.0
+  },
+  "global_cap_s": 3600.0,
+  "checkpoint_every_s": 300.0,
+  "memory_caps_mb": {
+   "main_private": 3072,
+   "tree_private": 9216,
+   "tree_working_set": 4096,
+   "system_available_min": 1024,
+   "system_commit_free_min": 2048
+  },
+  "memory_sample_s": 5.0,
+  "max_battleship_processes": 10,
+  "lifecycle_failure_limit": 3,
+  "verify_threads": 3,
+  "identity_k": 16,
+  "job_timeout_s": 900.0,
+  "wall_cap_grace_s": 20.0
+ },
+ "workers": 5,
+ "burst_words": 120,
+ "horizon": 3600,
+ "readiness": {
+  "min_available_mb": 4096,
+  "min_commit_free_mb": 10240,
+  "min_free_gib_c": 5.0,
+  "min_free_gib_d": 5.0
+ },
+ "base": {
+  "rd1_archive_files_sha256": {
+   "archive_meta.json": "9817466714521ee70976e27ce09e9cd50ffc658a5fedfb050d88247264dd48ad",
+   "cells.jsonl": "639d7710cab27d78feb5cd276e6f2e058dda8c4e91baddd3950b251072fa90db",
+   "bursts.bin": "d409799224a313650657d1096add9dcb41b49e6a6867111be1ce725e334bd0bf",
+   "bursts.idx.jsonl": "eb18f5674b27ef0cae924624d82e38f6787033bdae5c6569e32accb51d917121",
+   "events.jsonl": "02a271c7bc5b624dc4da3a982185214d6039de4661faf21baf576b18d4c4d6dd"
+  },
+  "rd1_close_record_sha256": "b1c13cf9a4fced57db7a8ca231e59afe193e38a2d586f42aa9293efadd9919f8",
+  "rd1_increment": "2026-10-02_incr_m8_rd1",
+  "rd1_increment_manifest_sha256": "e81226d7f36a28a09966b577bfd95cbee093fbdf91f2714b9d28d3a7046103f4",
+  "rd1_checkpoint_seq": 7,
+  "pin_tick0_digest": "2817d8cf3494615505f3a23f7dc34a70a36f2d8e096e54924f84414af0ffd6ec",
+  "lines_sha256": "c251d89ab05110b697a48f25f43430b1f3a8b06406fd59317a0e4c534f82da71",
+  "rd1_pins": {
+   "approval_sha256": "c141e2068123467ff8ea57589e792a7bcc18eae8cf2dbe3e87b4fd3c10b5c23d",
+   "archive_id": "m8_rd_a1",
+   "contracts": {
+    "btt_action_class_table_v2": "070d6b8f00d1ef9e19aa07e081e2dda40aa5a2523de50d81c9c03e78597d9b73",
+    "m8_rd_cell_v1": "a1187d555888ab4abcd325ec914dd7395e80453130b2ee21a5faf2590ef830d2",
+    "m8_rd_claims_v1": "3dbd7da58d3afe9e357b81a98a543ec69cebbf586df022b7d555bed205e15c68",
+    "m8_rd_explore_v1": "d7d3c9ae358f72648293652e2a7e90c8f76195ad8766efc4d708f97812f080f7",
+    "m8_rd_select_v1": "e6945dfeac85d8f4b63efd45cfd42ffd158e30c076ac124d673ac6f05463a506",
+    "track1_btt_s9_b8_v1": "aab45c265f74ab093ea7e11ad2ecec9930f6f14e24652d67ed5fee3049dc30ac"
+   },
+   "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+   "flags": {
+    "explore": {
+     "SSB64_RAPHNET_DISABLE": "1",
+     "SSB64_RL_NO_RENDER": "1",
+     "SSB64_RL_SPATIAL": "1"
+    },
+    "verify": {
+     "SSB64_RAPHNET_DISABLE": "1",
+     "SSB64_RL_ENTITY": "1",
+     "SSB64_RL_INPUT": "1",
+     "SSB64_RL_NO_RENDER": "1",
+     "SSB64_RL_SPATIAL": "1",
+     "SSB64_RL_TARGET_DIAG": "1"
+    }
+   },
+   "frozen_sha256": {
+    "BattleShip.cfg.json": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+    "imgui.ini": "0d26732173ee8129df8976203c713db5325a05b9785dfffcb75cd4f83c183042"
+   },
+   "git_head": "6a30c88695e013e11ef28a55c5f2c944a6d69468",
+   "p1": {
+    "m7d_s0v1_det_fall": {
+     "artifact_actions_sha256": "0a8ef46e308cb79636b0b3ab4e785dbe1527c4767fbfd4f00d411e078a86dff4",
+     "artifact_metadata_sha256": "c138ef72748e2ac241f3708cec3c459d92adc1215ede75d9a3b0eadc2f3c06f4",
+     "consumed_ticks_ok": true,
+     "native_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+     "recorded_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+     "trace_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+     "trace_flags": {
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_INPUT": "1",
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "trace_sha256": "70c9c0026dadd0c4777d7740c5797afaef6d3930a52b73b2b0711623e04aa889",
+     "trace_submitted": 3361,
+     "words": 3361
+    },
+    "m7d_s0v1_fall6_double": {
+     "artifact_actions_sha256": "e8191e99b1aebe4d1b9368e6b0cdcb4cdf02fe065c7dde187b8c96a589339a95",
+     "artifact_metadata_sha256": "7340ab9d7d97d6633728067f3c2390f86da914704e40d3cd3bf2a0f585e3802e",
+     "consumed_ticks_ok": true,
+     "native_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+     "recorded_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+     "trace_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+     "trace_flags": {
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_INPUT": "1",
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "trace_sha256": "20211fcbef77b79087340654a9c9b8c626e080dc56f2020a78a021353c0de6be",
+     "trace_submitted": 2560,
+     "words": 2560
+    }
+   },
+   "rule_sha256": "e0bbfe212d3c0079bd8f5da1f1d923a180d1d260260a69217ba6c20b770071ef",
+   "runtime_files": {
+    "BattleShip.o2r": "fe2b307e35c84c40e2e42e570a5e58183d69f8adfad094c8da3d715ffe451d00",
+    "f3d.o2r": "73ab91ef09a30e8aa629d441fede7aac078c3f46d925c90a9562488f0b664408",
+    "gamecontrollerdb.txt": "9d3c6b8dace57e778ca9420180d0533d11e2c9a0077e52878e1032541c76aa00"
+   }
+  },
+  "rd1_first_rd2_iteration": 2175
+ },
+ "open_overlay": {
+  "sha256": "3c1b684c88e881dfed92a374ed736b8f514bf620193a2f3183bb50fad30df454",
+  "expected_counts": {
+   "cells": 8264,
+   "eligible_v1": 6960,
+   "descent_among_v1_eligible": 1905,
+   "bound_among_v1_eligible": 1309,
+   "union": 2454,
+   "eligible_v2": 4506,
+   "descent_by_region": {
+    "below": 1307,
+    "beside": 424,
+    "onlow": 129,
+    "onhigh": 45
+   },
+   "bound_by_class": {
+    "A2": 0,
+    "A1": 361,
+    "A0": 948
+   },
+   "bound_below_floor": 1309,
+   "descent_a2a1_on_stage_y_ge_0": 22,
+   "descent_a2_y_ge_0": 8,
+   "descent_launch_capable": 0,
+   "descent_grounded": 0,
+   "still_eligible": {
+    "launch_capable": 14,
+    "step_contact": 32,
+    "grounded": 201
+   },
+   "a2a1_on_stage_y_ge_0_v1_eligible": 403,
+   "launch_capable_cells": 14
+  }
+ },
+ "budgets": {
+  "exploration": "50 min or 6,000,000 native ticks, valid from 2,000,000",
+  "open": "70,000 ticks / 4 min",
+  "verification": "400,000 ticks / 6 min",
+  "hard_cap": "60 min from P1"
+ },
+ "code": {
+  "rl/m8_rd_cells.py": "f7bacbeb38cc1d3680b696149181b2b485ea767c196f2d9c10f41111ad8ab1f8",
+  "rl/m8_rd_explore.py": "9a11779acad1cd89fce767d7b6828fc683403a271181ef4142c78f1f152d5ebc",
+  "rl/m8_rd_archive.py": "7ef9c750b111ac413b96ffe74ab77a1cdf86c8691e579443d196b7bced5bf6b7",
+  "rl/m8_rd_claims.py": "e7e746412081501baf64c0d00df83c70c00308b603b39b030e71a4b48feb8610",
+  "rl/m8_rd_rule.py": "2946b40d05e001ff686e75ea7839eb9fc3ff0920bdefe0e1133f4dc5b80379f1",
+  "rl/m8_rd_worker.py": "f9261f8ba206880039bf38a442adc3455695425fcfeec92768ed2472ece15285",
+  "rl/m8_rd_run.py": "c7c4c6ec36519b5d987b2e33e595c3696eee479ef5c3b4a2ef5bfc35b2a1bd5b",
+  "rl/m8_rd_finish.py": "e378455d51ec17b1c9b606cb9b8d4c4acf3cf219523133f793de628f925dc093",
+  "rl/m8_rd_session.py": "30b276d04dc0015eb2592adf42112c21568d10e5b66960091778edd40d70c52b",
+  "rl/m8_rd_report.py": "bbdc15d2a97ab85296b5a80c99ce10bac4bc57e66ef9f9a0eab2153ea71369ff",
+  "rl/m8_rd_snapshot.py": "85d5dae6508401887ccfbe172cfdc74551e6db3a48f2e679d8f3d66c341b65b3",
+  "rl/m8_rd_stub.py": "d2c8a681dd09a8747e1863626a670027c755a457052f6c17f8997136b36cae1a",
+  "rl/m8_rd_fakegame.py": "b905baf5eec6ec21ee381a796683c28e2088fe87e1f88f4d462f423424006d82",
+  "rl/m8_rd_tests.py": "6235a3d0aafd5d00edf23cb1135ca49ccd9c06e4cce6f84eb798a5d1b19905e9",
+  "rl/battleship_client.py": "0d119f0297480821791017a2e5caac0e360cfd7f08bb50f74650386d90f07253",
+  "rl/battleship_process.py": "ac3cc658aec825cc128c1030c3cd0ab48645e2711eca065c67698ccb8ad8e705",
+  "rl/m7_standby.py": "6318a595ef774d9f7bfbd79782f11cc0eea9e716eb08f424a208aa6d9e1e3eb3",
+  "rl/m7_runtime.py": "3dc56722c924065356e6134174d5e2c4724c0f495ee8c4e0eed027dfd2d9c452",
+  "rl/m7f_trace.py": "99399e16718a9e5a5f4d4eb3ce6c4b00bb62e6f9483522b03946b52180cb9190",
+  "rl/m7n_crossing.py": "c0d46afb912a727b9f75b96de2021956923de03df82f39ebb4d4d88405e823f0",
+  "rl/m7g_fixture.py": "880e641e22609ae7aa3da7b339fecae5eee69bc5c6e9cf4237413f0db6e1770b",
+  "rl/btt_reward_v3.py": "04589be48921a9e4bda6a6c1f13f1a35f26bd89ccb50d544a959adf878cdeaa4",
+  "rl/btt_rewards.py": "15bd68fd664a871c9dbdb7285882ab0219b353899573f777813207afe05dae4e",
+  "rl/m7q_status_table.py": "c6ee3de5d8f75e3e61c264d2dfc1586093539e4bca67e5ee74dbf3a2806b6423",
+  "rl/m7n_status_table.py": "9aaa29ac19910ac174971e37fae630a8eee19548216f586e521940e94d7cdeff",
+  "rl/m7g_spatial.py": "d95269b65648942594c2f9b598629c76dafb1fd839f08babc2621085f0e0b17c",
+  "rl/m7h_curriculum.py": "12428c0cc6044ae501b5d288d129259d1ea64eb0b5e26586be43376b4fb0ea8e",
+  "rl/m7u_gate.py": "b3acb99607c14542d8217b1c19dad0e58715ca70d087f22e7073f8c37a3fd709",
+  "rl/m7u2_gate.py": "621bf45df9537b4ac96e48842a592abf72553d0b97e1132ed535eee4d3517f07",
+  "rl/m7s_gate.py": "4bff49b4d3c7a882ae3c0bc13f4494ad45832adf07fede69e2517b7e81967859",
+  "rl/m7u3_gate.py": "53e9dad84313d7a1d245ac8d119a2f5a5ef278c1535cc68410953e746ac5e002",
+  "rl/tools/runs_backup.py": "c4de9b0ab69849341a129e9e99263a28d7fdfccb292e4cfebe8e6221039db71c",
+  "rl/data/m7n_action_classes_v2.json": "ba4307e6b8848f324096156674dd28d45c637f34e1aa53e345c5ed5d2f4af4a8",
+  "rl/m8_rd_select2.py": "3872ada2e44f81397dea646748234bac470f636273daa5e6f106e298b95a00ca",
+  "rl/m8_rd_resume.py": "226fe47132efa637ba0f3702127ffbc70a1612fca871e8f9337fa97ffe526fdc",
+  "rl/m8_rd2_worker.py": "ae4a9c71deefe0c9e44197afcce94d110195aa07b36c61e18e915898fcea7ea6",
+  "rl/m8_rd2_run.py": "04344887e9bf444ea19f7d25ae8061f7b1ea95149d8658f943d2302b5b20eee0",
+  "rl/m8_rd2_session.py": "4462abe8d602f408f910fac1e153c7dc3c18362b6567b9e2160d86eb11e5c81e",
+  "rl/m8_rd2_rule.py": "8ada75ed35fe31e55a89d330cc425e57b8b15bca8e20cd2812ff4be6f8fc9193",
+  "rl/m8_rd2_report.py": "226536444ad2545ed555ff29caba1f283ab7e1488d81f3784f6b7a5096db2bc5",
+  "rl/m8_rd2_snapshot.py": "958807451147a77fc58679894ee193717b8fbabd2b1986d7500f101d1233c65e",
+  "rl/m8_rd2_tests.py": "d6ea352f36d64e2a1a8df9fcbae6e1d17af329b21c5ee795bd249012a2889155"
+ },
+ "docs_sha256": {
+  "docs/rl_m8_rd_proposal_2026-10-01.md": "e34672c8d59da959c7496d37c66af1580df9c98ff3256949806144e3f64c2683",
+  "docs/rl_m8_rd_amendment_2026-10-02.md": "3a78f041452a4c24b6747e1b35d3aff3bc92ca34080b4665976b937f955e7c67",
+  "docs/rl_m8_rd_implementation.md": "a699d4dc5de82369bbde1f62345a4c5e5e99fc9b71882d3ed9a3fbb46188fa02",
+  "docs/rl_m8_rd1_results_2026-10-02.md": "59a2d9f76c6a7f3c4290c69ca90e3a8a92de713eb9510beed756392c8bc4a917",
+  "docs/rl_m8_rd1_diagnosis_2026-10-02.md": "e9a6ba06907f3a6ff8972c983eaf9c2750d2ba6f36e2505b938234c238a917cb",
+  "docs/rl_m8_rd_continuation_proposal_2026-10-02.md": "d3e9a176cefc7e6637be107153fd2a859f6599285593938813ec87a472716306",
+  "docs/rl_m8_rd2_decisions_2026-10-02.md": "9e4c1171f5c691cd414521f5989d52370f717304ecbae476b14499ff53de42c6",
+  "docs/rl_m8_rd2_implementation.md": "3230bb64f3da5eb192c0297d74f2172eb5f85b14cc17b829b993ff40cf710fba"
+ },
+ "git_head": "1e0f847dd6d54f197263c92b4107907ca0d239d5",
+ "d_records": {
+  "folders": [
+   "2026-09-28",
+   "2026-09-28_incr_m7r",
+   "2026-09-29_incr_m7s",
+   "2026-09-29_incr_m7t_logs",
+   "2026-09-30_incr_m7u",
+   "2026-09-30_incr_m7u2",
+   "2026-09-30_incr_m7u_logs",
+   "2026-10-01_incr_m7u3",
+   "2026-10-01_m7u3_prep",
+   "2026-10-02_incr_m8_rd1"
+  ],
+  "digest": "bf50dc9c302df938f67acaa926ad9f06eaab3e6c438c45821f68af6577470f31"
+ },
+ "approval": "APPROVED by the user (git nicolasfrechette91) 2026-10-02, once, exactly as configured in the authorising message of the unattended M8-rd2 preparation-and-run session, with the answers recorded in docs/rl_m8_rd2_decisions_2026-10-02.md",
+ "revision": 1,
+ "authorisation": {
+  "source": "the user's chat message of 2026-10-02 (the unattended M8-rd2 session)",
+  "text": [
+   "implement the continuation proposal (docs/rl_m8_rd_continuation_proposal_2026-10-02.md) as decided by the user's eleven answers, in new files, with unit tests, a production-count synthetic end-to-end test and a preflight",
+   "if and only if every launch condition of the message held: ONE M8-rd2 native session as designed, detached, with no retries, extensions, repairs or follow-on sessions; the outcome (a milestone, NO_MILESTONE/DILUTION_REDUCED, NO_MILESTONE/DILUTION_PERSISTS, INCOMPLETE or INVALID) reported as recorded",
+   "exploration 50 min or 6,000,000 native ticks, valid from 2,000,000; open phase 70,000 ticks / 4 min; verification 400,000 ticks / 6 min; the 60-minute hard cap; memory caps as rd1's",
+   "rd2 writes only under runs/m8_rd_rd2/; runs/m8_rd/ stays byte-identical to its D: increment",
+   "no commits, pushes, branches or PRs; no application closed; no native RNG seed inspection, logging, control, comparison or hashing",
+   "after the run: a verified D: increment of runs/m8_rd_rd2, an independent re-hash, 0 uncovered runs/ files, rd1's tree still byte-identical, a results record"
+  ]
+ },
+ "source_snapshot": {
+  "dest": "D:\\BattleShip_source_snapshots\\2026-10-02_m8_rd2",
+  "snapshot_json_sha256": "ddffd976a0c06a131ec48a2e99ce20395d2900dd18f6535ca17eae175b9abd26",
+  "result": "PASS",
+  "files": 80,
+  "git_head": "1e0f847dd6d54f197263c92b4107907ca0d239d5",
+  "independent_verification": "tool verify PASS (80 files, 0 mismatches, executable equal) and a separate PowerShell re-hash (81 items, 0 bad, same snapshot.json sha256)"
+ },
+ "backup_coverage_before_approval": {
+  "ok": true,
+  "reason": null,
+  "source_files": 409243,
+  "uncovered": 0,
+  "increments": [
+   "D:\\BattleShip_runs_backup\\2026-09-28_incr_m7r",
+   "D:\\BattleShip_runs_backup\\2026-09-29_incr_m7s",
+   "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u",
+   "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u2",
+   "D:\\BattleShip_runs_backup\\2026-10-01_incr_m7u3",
+   "D:\\BattleShip_runs_backup\\2026-10-02_incr_m8_rd1"
+  ],
+  "skipped": [
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-09-29_incr_m7t_logs",
+    "why": "no top-level verification record"
+   },
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u_logs",
+    "why": "no top-level verification record"
+   },
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-10-01_m7u3_prep",
+    "why": "source C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\logs\\m7u3_prep is not under runs/"
+   }
+  ]
+ }
+}
