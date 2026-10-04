@@ -1085,6 +1085,138 @@ def browser_check_filtered() -> None:
             b.root.destroy()
 
 
+def write_route(d: Path, *, session: str = "rd4", words: int = 3, clear: bool = True) -> Path:
+    """A minimal M8 route folder (metadata m8_rd_route_v1 + actions.jsonl + trace.json.gz) whose trace is the
+    exact replay of its rows: targets break on ticks 0 and 2 (10 -> 8)."""
+    import gzip
+
+    from replay_episode import Row
+
+    d.mkdir(parents=True)
+    rows = [{"sequence_index": i, "buttons": 0x8000 if i % 2 else 0, "stick_x": 80, "stick_y": 0, "consumed_tick": i}
+            for i in range(words)]
+    with open(d / "actions.jsonl", "w", encoding="utf-8", newline="\n") as fp:
+        for r in rows:
+            fp.write(json.dumps(r) + "\n")
+    remaining = [9, 9, 8][:words]
+    steps = [{"consumed_tick": i, "state_name": "WaitingForAction", "step_count": i + 1,
+              "observation": obs(input_tick=i + 1, time_passed=i, targets_remaining=remaining[i],
+                                 position_x=-2200.0 if i == 2 else 0.0)} for i in range(words)]
+    if clear:
+        steps[-1]["state_name"] = "EpisodeEnded"
+    with gzip.open(d / "trace.json.gz", "wt", encoding="utf-8") as fp:
+        json.dump({"initial": {"observation": obs()}, "steps": steps}, fp)
+    digest = action_digest([Row(r["sequence_index"], r["buttons"], r["stick_x"], r["stick_y"], r["consumed_tick"])
+                            for r in rows])
+    term = ({"kind": "clear", "submitted": words, "last_consumed_tick": words - 1} if clear else
+            {"kind": "sequence_end", "submitted": words, "last_consumed_tick": words - 1})
+    meta = {"schema": "m8_rd_route_v1", "arm": "T", "claim": "clear" if clear else "t", "session": session,
+            "native_action_digest": digest, "words": words, "action_contract": "rlaction_native_v1",
+            "replay": {"exact": True, "t": 2, "l0": True, "l0_tick": 1, "crossing": True,
+                       "first_qualified_entry": 2, "left_target": True, "left_target_breaks": [[6, 2]],
+                       "clear": clear, "terminal": term, "label": "T_c0001_left",
+                       "clear_facts": {"completion_time_passed": words - 1, "completion_input_tick": words}}}
+    (d / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+    return d
+
+
+@test
+def m8_routes_load_and_check() -> None:
+    """M8 routes (metadata m8_rd_route_v1, no labels / terminal / observations) open in the viewer; their
+    expected outcome is the verifying replay (trace.json.gz); feeding that replay gives MATCH, a changed row
+    DESYNC; folder names repeat across runs, so the id is route_<session>_<folder>."""
+    from replay_episode import ReplayTracker, artifact_format, compare, expected_outcome, load_route_trace
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = write_route(Path(tmp) / "runs" / "m8_rd_rd4" / "routes" / "T_t", clear=False)
+        ep = load_episode(d)
+        assert ep.episode_id == "route_rd4_T_t" and artifact_format(ep.metadata) == "m8_rd_route_v1"
+        e = expected_outcome(ep)
+        assert (e.end_kind, e.steps, e.last_consumed_tick, e.targets_broken) == ("truncated", 3, 2, 2)
+        assert e.recorded_digest == e.file_digest and e.initial_observation and e.final_observation
+        assert e.completion_time_passed is None  # not a clear: no completion clocks expected
+
+        def replay(episode):
+            tr = ReplayTracker(episode)
+            trace = load_route_trace(episode.directory)
+            tr.feed_initial(trace["initial"]["observation"])
+            for row, s in zip(episode.replay_rows, trace["steps"]):
+                tr.feed_step(row, s["state_name"], s["step_count"], s["consumed_tick"], s["observation"])
+                if tr.ended:
+                    break
+            return compare(tr), tr
+
+        v, tr = replay(ep)
+        assert v.match and not v.skipped and tr.end_kind == "rows_exhausted", v.lines()
+        assert tr.trajectory.target_break_ticks == [0, 2]
+        c = load_episode(write_route(Path(tmp) / "runs" / "m8_rd_rd4" / "routes" / "T_clear"))
+        v, _ = replay(c)
+        assert v.match and expected_outcome(c).completion_input_tick == 3, v.lines()
+        lines = (c.directory / "actions.jsonl").read_text(encoding="utf-8").splitlines()
+        lines[1] = lines[1].replace('"stick_x": 80', '"stick_x": -80')
+        (c.directory / "actions.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        v, _ = replay(load_episode(c.directory))
+        assert not v.match and [x.name for x in v.failures()][0].startswith("actions digest")
+        bad = write_route(Path(tmp) / "runs" / "m8_rd" / "routes" / "T_bad")
+        meta = json.loads((bad / "metadata.json").read_text(encoding="utf-8"))
+        (bad / "metadata.json").write_text(json.dumps(dict(meta, words=99)), encoding="utf-8")
+        try:
+            load_episode(bad)
+            raise AssertionError("a route whose words differ from its rows must be refused")
+        except EpisodeError:
+            pass
+
+
+@test
+def scan_reports_what_it_does_not_index() -> None:
+    """Archive folders, actions without metadata, unrecognized metadata formats and still-being-written folders
+    are counted with an example path (scan output, browser status, meta last_scan_report). A route is listed
+    with its own fields; an unrecognized format is listed, not hidden as a test."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "runs"
+        route = write_route(root / "m8_rd_rd4" / "routes" / "T_clear")
+        for name in ("archive", "archive.prev", "base"):
+            (root / "m8_rd_rd4" / name).mkdir(parents=True)
+            (root / "m8_rd_rd4" / name / "cells.jsonl").write_text("{}\n", encoding="utf-8")
+            (root / "m8_rd_rd4" / name / "bursts.bin").write_bytes(b"\x00")
+        orphan = root / "m9" / "loose" / "ep1"
+        orphan.mkdir(parents=True)
+        (orphan / "actions.jsonl").write_text("", encoding="utf-8")
+        odd = root / "m9" / "odd" / "ep2"
+        odd.mkdir(parents=True)
+        (odd / "actions.jsonl").write_text("", encoding="utf-8")
+        (odd / "metadata.json").write_text(json.dumps({"schema": "future_v9", "role": None}), encoding="utf-8")
+        roleless = fall_episode(root / "m7x" / "regress" / "artifacts" / "episode_20260929T000000Z_nrole000")
+        meta = json.loads((roleless / "metadata.json").read_text(encoding="utf-8"))
+        meta["labels"].pop("role")
+        (roleless / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+        age(root)
+        db = Path(tmp) / "i.sqlite"
+        s = ri.scan(root=root, db_path=db, progress=lambda m: None)
+        assert s["archives"] == 3 and s["skipped_no_metadata"] == 1 and s["unrecognized"] == 1, s
+        text = s["not_indexed"]
+        assert "3 exploration archive folders" in text and "m8_rd_rd4/archive" in text, text
+        assert "1 folders with actions.jsonl but no metadata.json, e.g." in text and "m9/loose/ep1" in text
+        assert "1 episodes with an unrecognized metadata format" in text and "m9/odd/ep2" in text
+        assert ri.last_scan_report(db)["not_indexed"] == text
+        rows = {r["episode_id"]: r for r in ri.load_rows(db_path=db, verdicts_path=Path(tmp) / "v.jsonl")}
+        r = rows["route_rd4_T_clear"]
+        assert (r["role"], r["format"], r["end_label"], r["targets"], r["is_test"]) == (
+            "route", "m8_rd_route_v1", "clear", 2, False)
+        assert r["created_source"] == "file time" and r["created"].startswith("20")
+        assert r["character_name"] == "?" and r["tags"] == ["wall top @1", "crossing @2", "left target @2", "clear"]
+        assert r["last_target_text"] == "2 · 0.03 s" and r["last_target_source"] == "completion"
+        assert rows["ep2"]["format"] == "unrecognized (future_v9)" and not rows["ep2"]["is_test"]
+        assert rows[roleless.name]["is_test"]  # the known format without a role stays a test
+        seq = write_route(root / "m8_rd_rd3" / "routes" / "T_t", session="rd3", clear=False)
+        age(seq)
+        ri.scan(root=root, db_path=db, progress=lambda m: None)
+        r3 = next(r for r in ri.load_rows(db_path=db, verdicts_path=Path(tmp) / "v.jsonl")
+                  if r["episode_id"] == "route_rd3_T_t")
+        assert (r3["end_label"], r3["last_target_text"], r3["last_target_source"]) == ("prefix", "2 · 0.0 s",
+                                                                                       "route_trace")
+
+
 def main() -> int:
     failed = 0
     for fn in TESTS:

@@ -18,6 +18,7 @@ Nothing here writes below runs/.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import os
@@ -33,6 +34,12 @@ if str(RL_DIR) not in sys.path:
 
 METADATA_FILE = "metadata.json"
 ACTIONS_FILE = "actions.jsonl"
+EPISODE_FORMAT = "battleship_btt_episode"  # rl/run_artifacts.py, artifact_schema 1
+# M8 route discovery routes (runs/m8_rd*/routes/<name>/): a verified tick-0 action sequence with its own metadata
+# schema (no labels / terminal / observations) and the replay that verified it in trace.json.gz.
+ROUTE_SCHEMAS = ("m8_rd_route_v1",)
+ROUTE_TRACE = "trace.json.gz"
+NATIVE_ACTION_CONTRACT = "rlaction_native_v1"
 
 # btt_native_failure_v1 (rl/btt_parallel.py is_native_failure): the first post-update
 # observation with game_status == 5, btt_active == 1, targets_remaining > 0 and no
@@ -96,7 +103,7 @@ class Episode:
 
     @property
     def episode_id(self) -> str:
-        return str(self.metadata.get("episode_id") or self.directory.name)
+        return episode_id_of(self.metadata, self.directory)
 
     @property
     def labels(self) -> Dict[str, Any]:
@@ -139,23 +146,88 @@ def resolve_episode_dir(path: os.PathLike | str) -> Path:
     return p.resolve()
 
 
+def is_route(metadata: Mapping[str, Any]) -> bool:
+    return metadata.get("schema") in ROUTE_SCHEMAS
+
+
+def episode_id_of(metadata: Mapping[str, Any], directory: Path) -> str:
+    """metadata.episode_id; a route has none and its folder names repeat across runs (T_t), so it is
+    route_<session>_<folder>, e.g. route_rd4_T_clear."""
+    if metadata.get("episode_id"):
+        return str(metadata["episode_id"])
+    if is_route(metadata):
+        return f"route_{metadata.get('session')}_{Path(directory).name}"
+    return Path(directory).name
+
+
+def artifact_format(metadata: Mapping[str, Any]) -> str:
+    """battleship_btt_episode, a route schema, or 'unrecognized (...)' (indexed, but its fields mean nothing to us)."""
+    if metadata.get("format") == EPISODE_FORMAT and metadata.get("artifact_schema") == 1:
+        return EPISODE_FORMAT
+    if is_route(metadata):
+        return str(metadata["schema"])
+    what = metadata.get("format") or metadata.get("schema")
+    return f"unrecognized ({what})" if what else "unrecognized (no format or schema field)"
+
+
+def _route_rows(directory: Path, metadata: Mapping[str, Any]) -> List["Row"]:
+    """A route's actions.jsonl, validated like an artifact's (rl/run_artifacts.RecordedAction rows, contiguous
+    sequence indices); `words` plays the role of action_count."""
+    from run_artifacts import RecordedAction
+
+    if metadata.get("action_contract") != NATIVE_ACTION_CONTRACT:
+        raise EpisodeError(f"action_contract {metadata.get('action_contract')!r}, expected {NATIVE_ACTION_CONTRACT}")
+    rows: List[Row] = []
+    try:
+        with open(directory / ACTIONS_FILE, encoding="utf-8") as fp:
+            for lineno, line in enumerate(fp):
+                if not line.strip():
+                    continue
+                a = RecordedAction.from_json(json.loads(line))
+                if a.sequence_index != len(rows):
+                    raise EpisodeError(f"{ACTIONS_FILE}:{lineno + 1}: sequence_index {a.sequence_index}, "
+                                       f"expected {len(rows)}")
+                rows.append(Row(a.sequence_index, int(a.buttons), int(a.stick_x), int(a.stick_y), a.consumed_tick))
+    except (OSError, ValueError) as exc:
+        raise EpisodeError(f"{directory / ACTIONS_FILE}: {exc}") from exc
+    if metadata.get("words") != len(rows):
+        raise EpisodeError(f"route words {metadata.get('words')!r} != {len(rows)} rows")
+    return rows
+
+
+def load_route_trace(directory: Path) -> Optional[Dict[str, Any]]:
+    """The route's verifying replay (initial reply, every step reply, native result), or None."""
+    try:
+        with gzip.open(Path(directory) / ROUTE_TRACE, "rt", encoding="utf-8") as fp:
+            doc = json.load(fp)
+        return doc if isinstance(doc, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
 def load_episode(path: os.PathLike | str) -> Episode:
-    """Read and validate an artifact with the project's own reader (rl/run_artifacts.read_artifact)."""
+    """Read and validate an artifact with the project's own reader (rl/run_artifacts.read_artifact), or an M8
+    route (ROUTE_SCHEMAS) with the same row validation."""
     from run_artifacts import ArtifactError, read_artifact  # imported lazily: it pulls in gymnasium when present
 
     directory = resolve_episode_dir(path)
-    try:
-        art = read_artifact(directory)
-    except ArtifactError as exc:
-        raise EpisodeError(str(exc)) from exc
-    rows = [Row(a.sequence_index, int(a.buttons), int(a.stick_x), int(a.stick_y), a.consumed_tick)
-            for a in art.actions]
+    metadata = load_json(directory / METADATA_FILE)
+    if isinstance(metadata, dict) and is_route(metadata):
+        rows = _route_rows(directory, metadata)
+    else:
+        try:
+            art = read_artifact(directory)
+        except ArtifactError as exc:
+            raise EpisodeError(str(exc)) from exc
+        metadata = art.metadata
+        rows = [Row(a.sequence_index, int(a.buttons), int(a.stick_x), int(a.stick_y), a.consumed_tick)
+                for a in art.actions]
     for r in rows:
         if r.consumed_tick is not None and r.consumed_tick != r.sequence_index:
             raise EpisodeError(
                 f"row {r.sequence_index} has consumed_tick {r.consumed_tick}: not a tick-0 episode "
                 "(every row i must be native tick i)")
-    return Episode(directory, art.metadata, rows)
+    return Episode(directory, metadata, rows)
 
 
 def action_digest(rows: List[Row]) -> str:
@@ -201,8 +273,18 @@ def _int_or_none(value: Any) -> Optional[int]:
     return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _route(metadata: Mapping[str, Any]) -> Dict[str, Any]:
+    r = metadata.get("replay")
+    return r if isinstance(r, dict) else {}
+
+
 def recorded_end(metadata: Mapping[str, Any]) -> Tuple[str, str]:
-    """(kind, detail) of a recorded episode: kind is clear | fall | truncated | unknown."""
+    """(kind, detail) of a recorded episode: kind is clear | fall | truncated | unknown. A route whose action
+    sequence simply ends (terminal sequence_end: a prefix to an archive cell, the game never ended) is truncated."""
+    if is_route(metadata):
+        k = (_route(metadata).get("terminal") or {}).get("kind")
+        kind = {"clear": "clear", "fall": "fall"}.get(k, "truncated" if k else "unknown")
+        return kind, f"route claim {metadata.get('claim')}, terminal {k}" if k else "not recorded"
     labels = metadata.get("labels") if isinstance(metadata.get("labels"), dict) else {}
     terminal = metadata.get("terminal") if isinstance(metadata.get("terminal"), dict) else {}
     termination = labels.get("termination_reason", terminal.get("termination_reason"))
@@ -225,6 +307,8 @@ def recorded_end(metadata: Mapping[str, Any]) -> Tuple[str, str]:
 def recorded_targets(metadata: Mapping[str, Any]) -> Optional[int]:
     """Targets broken over the whole episode (prefix rows included): terminal.targets_broken, else labels
     (labels count the policy phase only when an M7h/M7m prefix exists)."""
+    if is_route(metadata):
+        return _int_or_none(_route(metadata).get("t"))
     labels = metadata.get("labels") if isinstance(metadata.get("labels"), dict) else {}
     terminal = metadata.get("terminal") if isinstance(metadata.get("terminal"), dict) else {}
     targets = _int_or_none(terminal.get("targets_broken"))
@@ -233,7 +317,36 @@ def recorded_targets(metadata: Mapping[str, Any]) -> Optional[int]:
     return targets
 
 
+def route_expected(ep: Episode) -> Expected:
+    """A route's recorded outcome: its verifying replay (metadata replay.terminal, replay.t, completion clocks)
+    and, from trace.json.gz, the tick-0 and final observations."""
+    m, r = ep.metadata, _route(ep.metadata)
+    term = r.get("terminal") if isinstance(r.get("terminal"), dict) else {}
+    kind, detail = recorded_end(m)
+    clocks = m.get("completion_clocks") if isinstance(m.get("completion_clocks"), dict) else (
+        r.get("clear_facts") if isinstance(r.get("clear_facts"), dict) else {})
+    trace = load_route_trace(ep.directory) or {}
+    steps = trace.get("steps") if isinstance(trace.get("steps"), list) else []
+    initial = (trace.get("initial") or {}).get("observation") if isinstance(trace.get("initial"), dict) else None
+    final = steps[-1].get("observation") if steps and isinstance(steps[-1], dict) else None
+    clear = kind == "clear"
+    return Expected(
+        end_kind=kind, end_detail=detail, rows_to_replay=len(ep.replay_rows),
+        steps=_int_or_none(term.get("submitted")),
+        last_consumed_tick=_int_or_none(term.get("last_consumed_tick")),
+        targets_broken=_int_or_none(r.get("t")),
+        completion_time_passed=_int_or_none(clocks.get("completion_time_passed")) if clear else None,
+        completion_input_tick=_int_or_none(clocks.get("completion_input_tick")) if clear else None,
+        initial_observation=initial if isinstance(initial, dict) else None,
+        final_observation=final if isinstance(final, dict) else None,
+        recorded_digest=m.get("native_action_digest") if isinstance(m.get("native_action_digest"), str) else None,
+        file_digest=action_digest(ep.rows),
+    )
+
+
 def expected_outcome(ep: Episode) -> Expected:
+    if is_route(ep.metadata):
+        return route_expected(ep)
     m, labels = ep.metadata, ep.labels
     terminal = m.get("terminal") if isinstance(m.get("terminal"), dict) else {}
     kind, detail = recorded_end(m)
@@ -494,15 +607,17 @@ def episode_summary(ep: Episode) -> Dict[str, Any]:
     observation = contracts.get("policy_observation_contract")
     if not observation and isinstance(exp.get("policy_observation"), dict):
         observation = exp["policy_observation"].get("contract")
+    route = _route(ep.metadata) if is_route(ep.metadata) else None
     return {
         "episode_id": ep.episode_id,
         "directory": str(ep.directory),
         "character": task.character,  # None when not recorded (shown as "?"); never assumed
         "stage": task.stage,
         "task_source": task.source,
-        "role": labels.get("role"),
-        "run_id": labels.get("run_id"),
-        "profile": exp.get("name") or exp.get("environment_profile"),
+        "role": "route" if route is not None else labels.get("role"),
+        "run_id": ep.metadata.get("session") if route is not None else labels.get("run_id"),
+        "profile": (f"arm {ep.metadata.get('arm')}, claim {ep.metadata.get('claim')}, {route.get('label')}"
+                    if route is not None else exp.get("name") or exp.get("environment_profile")),
         "observation": observation,
         "reward": labels.get("reward_contract"),
         "rows": len(ep.rows),

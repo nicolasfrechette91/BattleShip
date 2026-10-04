@@ -31,7 +31,7 @@ from tkinter import messagebox, ttk
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from replay_index import (DESCENDING_BY_DEFAULT, REPO_ROOT, SORT_KEYS, VIEWER, created_local, last_scan,
-                          matches_text, set_last_target)
+                          last_scan_report, matches_text, set_last_target)
 from replay_task import UNKNOWN
 from replay_widgets import (DARK_GREEN, DARK_RED, GREY_TEXT, HEAD_FONT, INK, UI_FONT, Tooltip, end_ellipsis,
                             middle_ellipsis, popup_tip)
@@ -48,7 +48,8 @@ SELECT_BG, SELECT_LINE = "#dbeafe", "#60a5fa"
 HEAD_BG, GRID = "#eef0f3", "#d9dde3"
 # End pills (background, text): clear green, fall muted red, timeout grey.
 PILLS = {"clear": ("#16a34a", "#ffffff"), "fall": ("#f1d5d5", "#9b2c2c"), "timeout": ("#e3e6ea", "#4b5563"),
-         "goal": ("#dbeafe", "#1e40af"), "aborted": ("#fdecc8", "#92400e"), "unknown": ("#f3f4f6", "#9ca3af")}
+         "goal": ("#dbeafe", "#1e40af"), "aborted": ("#fdecc8", "#92400e"), "unknown": ("#f3f4f6", "#9ca3af"),
+         "prefix": ("#e0e7ff", "#3730a3")}  # an M8 route that stops at an archive cell (the game did not end)
 VERDICT_MARKS = {"MATCH": ("✔", DARK_GREEN), "DESYNC": ("✖", DARK_RED)}
 NO_VERDICT = ("·", "#9ca3af")
 
@@ -124,7 +125,10 @@ def card_fields(r: Dict[str, Any]) -> List[Tuple[str, str]]:
         ("last target", f"{r['last_target_text']} ({r['last_target_source']})"),
         ("end tick", r["time_text"] if r["time_text"] != "–" else None),
         ("steps", r.get("steps")), ("prefix rows", r.get("prefix_rows")),
-        ("created", f"{created:%Y-%m-%d %H:%M:%S} (local)" if created else None),
+        ("created", (f"{created:%Y-%m-%d %H:%M:%S} (local"
+                     + (", metadata.json file time: no recorded creation time)" if r.get("created_source") == "file time"
+                        else ")")) if created else None),
+        ("artifact", r.get("format") if r.get("format") not in (None, "battleship_btt_episode") else None),
         ("verdict", verdict),
         ("test episode", "yes (hidden unless Show tests)" if r.get("is_test") else None),
         *r.get("tag_details", []),
@@ -467,7 +471,7 @@ class Browser:
         self.stage_box = combo(bar, "Stage", "stage", ["any"], 13)  # packed only when stages vary per character
         self._stage_anchor = combo(bar, "Role", "role", ["any", "training", "evaluation"], 10)
         self._stage_anchor.pack(side="left", padx=(0, 8))
-        combo(bar, "End", "end", ["any", "clear", "fall", "timeout", "goal", "aborted", "unknown"], 9).pack(
+        combo(bar, "End", "end", ["any", "clear", "fall", "timeout", "goal", "aborted", "prefix", "unknown"], 9).pack(
             side="left", padx=(0, 8))
         combo(bar, "Min targets", "min_targets", ["any"] + [str(i) for i in range(1, 11)], 6).pack(
             side="left", padx=(0, 8))
@@ -559,6 +563,9 @@ class Browser:
         when = created_local(stamp) if stamp else None
         self.index_info.set(f"index: {len(self.rows):,} episodes"
                             + (f", scanned {when:%b} {when.day} {when:%H:%M}" if when else ", not scanned yet"))
+        report = last_scan_report().get("not_indexed")
+        if report and not self.status.get():
+            self.status.set(f"last scan, not indexed: {report}")
         self.apply(keep=keep["path"] if keep else None)
 
     def rescan(self, first_time: bool = False) -> None:
@@ -577,7 +584,8 @@ class Browser:
             try:
                 stats = self.scan_fn(progress=progress)
                 msg = (f"index refreshed: {stats['added_or_updated']} new/updated, {stats['removed']} removed, "
-                       f"{stats['skipped_recent']} still being written (skipped), {stats['wall_s']} s")
+                       f"{stats['wall_s']} s" + (f" · not indexed: {stats['not_indexed']}"
+                                                if stats.get("not_indexed") else ""))
             except Exception as exc:  # noqa: BLE001
                 msg = f"scan failed: {exc}"
             print(msg)

@@ -219,11 +219,54 @@ class MarioBTT(StageTags):
         return tags, details
 
 
+class RouteClaims(StageTags):
+    """Milestones an M8 route's own verification replay recorded (metadata.json replay.*: l0 / l0_tick, crossing /
+    first_qualified_entry, left_target / left_target_breaks, clear). Nothing is inferred from stage geometry here,
+    so these apply although the route records no character (the M8 code hard-codes Mario; the run files never
+    say so)."""
+
+    stage = "route:m8_rd_route_v1"
+    FIELDS = ("l0", "l0_tick", "crossing", "first_qualified_entry", "left_target", "left_target_breaks", "clear")
+
+    def from_episode(self, d, meta, names, rel):
+        from replay_episode import episode_id_of
+
+        r = meta.get("replay") if isinstance(meta.get("replay"), dict) else None
+        if r is None:
+            return []
+        return [Fact(episode_id_of(meta, d), "route_replay", rel(d / "metadata.json"),
+                     {k: r.get(k) for k in self.FIELDS})]
+
+    def resolve(self, facts):
+        f = facts.get("route_replay")
+        if f is None:
+            return [], []
+        d = f.data
+        breaks = [b[1] for b in d.get("left_target_breaks") or [] if isinstance(b, list) and len(b) == 2]
+        tags, details = [], []
+        if d.get("l0"):
+            tags.append(f"wall top @{d['l0_tick']}" if d.get("l0_tick") is not None else "wall top")
+        if d.get("crossing"):
+            q = d.get("first_qualified_entry")
+            tags.append(f"crossing @{q}" if q is not None else "crossing")
+        if d.get("left_target"):
+            tags.append(f"left target @{min(breaks)}" if breaks else "left target")
+        if d.get("clear"):
+            tags.append("clear")
+        for key, label in (("l0", "wall top (L0)"), ("crossing", "crossing"), ("left_target", "left target"),
+                           ("clear", "clear")):
+            details.append((label, f"{'yes' if d.get(key) else 'no'} (route replay)"))
+        return tags, details
+
+
 EXTRACTORS: Dict[str, StageTags] = {e.stage: e for e in (MarioBTT(),)}
+# Artifact formats that carry their own recorded milestones, used when no stage extractor applies.
+FORMAT_EXTRACTORS: Dict[str, StageTags] = {"m8_rd_route_v1": RouteClaims()}
 
 
-def extractor_for(stage: Optional[str]) -> Optional[StageTags]:
-    return EXTRACTORS.get(stage) if stage else None
+def extractor_for(stage: Optional[str], fmt: Optional[str] = None) -> Optional[StageTags]:
+    """The episode's stage extractor, else its artifact format's (recorded claims), else None."""
+    return (EXTRACTORS.get(stage) if stage else None) or (FORMAT_EXTRACTORS.get(fmt) if fmt else None)
 
 
 def summary_file_names() -> Tuple[str, ...]:

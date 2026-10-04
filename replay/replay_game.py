@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 import replay_win32 as win32
-from replay_episode import (REPO_ROOT, Episode, ReplayTracker, Row, Verdict, compare, format_verdict)
+from replay_episode import (REPO_ROOT, Episode, ReplayTracker, Row, Verdict, compare, format_verdict, is_route)
 from replay_history import FrameHistory, HistoryConfig, SavedFrame, bgrx_to_rgb
 
 from battleship_client import BattleShipClient, BattleShipError, ConnectionClosed, StepState  # noqa: E402
@@ -180,8 +180,23 @@ def new_session_dir(episode_id: str, tag: str = "") -> Path:
 # -- configuration -------------------------------------------------------------------------------------
 
 
+def route_runtime_config(ep: Episode) -> Optional[Path]:
+    """An M8 route's pinned config: rd1's frozen copy at <rd1 run>/archive/runtime/BattleShip.cfg.json, found from
+    the route's run (routes/<name>/ -> run/archive/archive_meta.json base.rd1_root, or the run itself for rd1)."""
+    run = ep.directory.parent.parent
+    try:
+        meta = json.loads((run / "archive" / "archive_meta.json").read_text(encoding="utf-8"))
+        rd1 = Path((meta.get("base") or {}).get("rd1_root") or run)
+    except (OSError, ValueError, AttributeError):
+        rd1 = run
+    p = rd1 / "archive" / "runtime" / CONFIG_NAME
+    return p if p.is_file() else None
+
+
 def recorded_runtime_config(ep: Episode) -> Optional[Path]:
     """The private config copy the recorded episode's process ran with, if it still exists (read-only)."""
+    if is_route(ep.metadata):
+        return route_runtime_config(ep)
     startup = ep.labels.get("startup")
     rt = startup.get("runtime_dir") if isinstance(startup, dict) else None
     if not rt:

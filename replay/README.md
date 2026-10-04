@@ -418,6 +418,18 @@ MATCH requires every check that `metadata.json` supports to agree exactly:
 `host_frame` is excluded, as in every project comparison. There is no RNG
 inspection, logging, control or hashing.
 
+For an M8 route, the same checks come from its verifying replay:
+
+- the digest is `native_action_digest`;
+- the end is `replay.terminal.kind`, where `sequence_end` means the rows ran
+  out (truncated);
+- steps and last tick are `replay.terminal.submitted` and
+  `replay.terminal.last_consumed_tick`;
+- targets are `replay.t`;
+- clear clocks come from `completion_clocks` or `replay.clear_facts`;
+- the tick-0 and final observations are the first and last replies in
+  `trace.json.gz`.
+
 ### Launch settings (existing opt-in knobs only)
 
 - `SSB64_RL_BTT=1`, `SSB64_RL_STEP=1`, and `SSB64_RL_PORT` on an
@@ -456,8 +468,9 @@ already showed visible and no-render trajectories are identical.
 
 ## Index
 
-- **Location:** `_local/index.sqlite`, schema 3. An older cache is dropped and
-  rebuilt by the next scan (a full re-read, ~6 min).
+- **Location:** `_local/index.sqlite`, schema 4. An older cache is dropped and
+  rebuilt by the next scan: a full re-read, 51 s with a warm disk cache and
+  about 7 min cold.
 - **Walk:** the scan walks `runs/` read-only. It prunes junctions and
   directories that never hold artifacts (`logs`, `runtime`, `runtime_gens`,
   `gNNNN_aN`, `episodes`, `coordination`, `checkpoints`; `--no-prune`
@@ -469,6 +482,22 @@ already showed visible and no-render trajectories are identical.
   (default 5), or without `metadata.json`, are skipped and picked up by a
   later scan.
 - **Removed:** vanished episodes are dropped.
+- **Reported, never silent.** Every scan counts what it saw but could not
+  list, or could not list meaningfully, with one example path each
+  (alphabetically first):
+  - exploration archive folders, i.e. folders with `cells.jsonl`,
+    `archive_meta.json` or `bursts.bin` (M8 route discovery): cells, not
+    episodes;
+  - folders with `actions.jsonl` but no `metadata.json`;
+  - episodes whose `metadata.json` has an unrecognized format: listed, but
+    their fields are unknown;
+  - folders still being written, and unreadable folders.
+  - The line is printed by `replay_index scan` ("not indexed: ..."), stored
+    in the index (`meta last_scan_report`), and shown in the browser's
+    status bar after a rescan and at start-up.
+  - Current tree: 11 archive folders (e.g. `runs/m8_rd/archive`) and 4
+    unrecognized episodes (the deliberately broken `bad_*` fixtures of the M4
+    regression tests).
 
 Per episode it stores:
 
@@ -478,7 +507,48 @@ Per episode it stores:
 - end kind and detail, rows, steps, targets (whole episode) and targets
   total, cleared, completion tick/time, last consumed tick;
 - recorded per-target break ticks, per source (`breaks` table; see "Last target");
-- final position, prefix rows and sidecar files.
+- final position, prefix rows and sidecar files;
+- the artifact format (`battleship_btt_episode`, `m8_rd_route_v1`, or
+  "unrecognized (...)"), and whether the creation time was recorded or is
+  the `metadata.json` file time.
+
+### M8 routes (`runs/m8_rd*/routes/<name>/`)
+
+Route-discovery runs write verified routes in their own schema,
+`m8_rd_route_v1`. Each route is a tick-0 native action sequence
+(`actions.jsonl`), with `metadata.json` holding its claim, arm and session,
+`native_action_digest`, `words`, and the verifying replay's facts under
+`replay.*`. `trace.json.gz` holds every reply of that replay. There are no
+`labels`, `terminal`, observations, role or creation time.
+
+- **Listed as role `route`.** Targets come from `replay.t`, the end from
+  `replay.terminal.kind`, and steps and last tick from `replay.terminal`.
+  Clear clocks come from `completion_clocks` or `replay.clear_facts`.
+- **End "prefix":** a route that just stops (`terminal.kind
+  sequence_end`, a prefix to an archive cell) has the end "prefix". The game
+  did not end there.
+- **Id:** `route_<session>_<folder>` (e.g. `route_rd4_T_clear`), since folder
+  names such as `T_t` repeat across runs.
+- **Created:** the `metadata.json` file time, marked as such.
+- **Last target:** from the trace (source `route_trace`), or the completion
+  for a clear.
+- **Tags** are the milestones the route's own replay recorded: "wall top
+  @l0_tick", "crossing @first_qualified_entry", "left target @first break",
+  "clear". This works through a format extractor
+  (`replay_tags.FORMAT_EXTRACTORS`), since no M8 file names the character:
+  the M8 code hard-codes Mario. Character and stage therefore show "?", and
+  nothing is inferred from stage geometry.
+- **Not hidden as tests.** The tests rule hides a missing role only for the
+  standard artifact format.
+- **The viewer opens routes.** They are read with the same row validation as
+  `rl/run_artifacts`, plus `words` == rows. The route runs with its run's
+  pinned config: rd1's frozen `runs/m8_rd/archive/runtime/BattleShip.cfg.json`,
+  found through `archive_meta.base.rd1_root`. Its gameplay settings equal the
+  default. See "MATCH / DESYNC" for the checks.
+- **Coverage:** all 9 routes (rd1 C_t and T_t; rd2 T_L0 and T_t; rd3 T_t; rd4
+  T_clear, T_crossing, T_left_target, T_t). Their recorded digests equal
+  ours. Fed their own recorded replies, all 9 give MATCH: 8-10 checks, none
+  skipped.
 
 ### Character and stage (`replay_task.py`)
 
@@ -688,7 +758,8 @@ only; I recommend no theme package (see the note at the end of this section).
   - targets: "7/10" (bold when all are broken);
   - character;
   - end: a pill. Clear is green, fall muted red, timeout grey. Goal (M7s
-    goal reached) is blue and aborted (aborted or lifecycle failure) amber;
+    goal reached) is blue, aborted (aborted or lifecycle failure) amber, and
+    prefix (an M8 route that stops at an archive cell) indigo;
   - last target: "3008 · 50.1 s"; for a clear, the completion ("446 · 7.43 s",
     green); "–" when no target broke; "?" when unknown (grey);
   - verdict: ✔ MATCH, ✖ DESYNC or · none, from this tool's replays;
@@ -715,7 +786,7 @@ only; I recommend no theme package (see the note at the end of this section).
     tag's answer and source, and sidecars.
   - Buttons: ▶ Play, Check (headless), Copy path, Open folder.
 - **Status bar:** messages (viewer started, check progress and results, scan
-  progress), the index size and last scan time, and **Rescan** on the far
+  progress, and the scan's "not indexed" line, also shown at start-up), the index size and last scan time, and **Rescan** on the far
   right.
 - **How it is drawn.** The table is drawn on a Canvas, visible rows only.
   This lets one cell carry its own colors (`ttk.Treeview` colors whole rows
@@ -790,6 +861,34 @@ and must never be committed.
   at its old size.
 
 ## Verification (2026-09-29, exe sha256 30a3913b...)
+
+### M8 routes and scan report (2026-10-03)
+
+- **Why today's run seemed missing.** `runs/m8_rd_rd4` was already in the
+  index, along with yesterday's `m8_rd` to `m8_rd_rd3`: 9 route folders. Its
+  `m8_rd_route_v1` metadata was not understood, though:
+  - no role, so the tests rule hid the routes by default;
+  - no creation time, so the newest dated episode stayed Oct 1;
+  - no targets, end or character.
+
+  The viewer also refused to open routes (`artifact_schema` missing). The
+  archives themselves are cells, not episodes, and were skipped without a
+  word.
+- **Offline tests:** 30/30. The new ones:
+  - routes load, are checked, give MATCH from their own trace and DESYNC on
+    a changed row; a `words` mismatch is refused; route ids are unique;
+  - the scan report names archives, actions without metadata and
+    unrecognized formats, with stable example paths, and persists it;
+  - route rows have role route, tags, last target and the prefix end; an
+    unrecognized format is listed and not hidden.
+- **Real tree:** 41,207 episodes; the 9 routes are listed and none is
+  hidden. Today's three rd4 clear routes top the default view (T_t clears at
+  tick 2,314, 38.57 s).
+- **Timing:** the rebuild took 418.9 s cold; a warm full rescan takes 51.1 s
+  and an incremental scan 7.2 s.
+- **Not launched:** no BattleShip process was started, so the routes were
+  not replayed live. Their MATCH logic was checked offline against their own
+  recorded replies (9/9).
 
 ### Last target, tests, best per run, Check filtered (2026-09-30)
 

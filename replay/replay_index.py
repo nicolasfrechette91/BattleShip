@@ -43,7 +43,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from replay_episode import REPO_ROOT, TARGETS_TOTAL_DEFAULT, recorded_end, recorded_targets  # noqa: E402
+from replay_episode import (EPISODE_FORMAT, REPO_ROOT, TARGETS_TOTAL_DEFAULT, artifact_format, episode_id_of,  # noqa: E402
+                            is_route, recorded_end, recorded_targets)
 import replay_breaks  # noqa: E402
 from replay_tags import EXTRACTORS, Fact, extractor_for, summary_file_names  # noqa: E402
 from replay_task import UNKNOWN, character_name, task_identity  # noqa: E402
@@ -54,19 +55,22 @@ INDEX_DB = LOCAL_DIR / "index.sqlite"
 LAST_LIST = LOCAL_DIR / "last_list.json"
 VERDICTS_FILE = LOCAL_DIR / "verdicts.jsonl"
 VIEWER = Path(__file__).resolve().parent / "replay.py"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 TICKS_PER_SECOND = 60  # native ticks and the game's time_passed are both 1/60 s
 
 # Directory names that never contain episode artifacts in any runs/ layout (per-process game dirs, runtime
 # copies, logs, checkpoints). Pruned for speed; --no-prune walks everything.
 PRUNE_NAMES = {"logs", "runtime", "runtime_gens", "episodes", "coordination", "checkpoints", "__pycache__"}
 PRUNE_RE = re.compile(r"g\d+_a\d+$")
+# Files that mark a directory as holding run data the index does not list (reported by every scan, so nothing
+# disappears silently): exploration archives (M8 route discovery: cells + bursts).
+ARCHIVE_MARKERS = ("cells.jsonl", "archive_meta.json", "bursts.bin")
 
 EPISODE_COLUMNS = (
     "path", "episode_id", "milestone", "run", "phase", "worker", "role", "run_id", "profile", "observation", "reward",
     "character", "stage", "task_source", "end_kind", "end_detail", "truncation", "rows", "steps", "targets",
     "targets_total", "cleared", "completion_tick", "completion_time", "last_tick", "final_x", "final_y",
-    "prefix_rows", "created", "sidecars", "dir_mtime_ns", "meta_mtime_ns",
+    "prefix_rows", "created", "sidecars", "dir_mtime_ns", "meta_mtime_ns", "format", "created_source",
 )
 
 
@@ -150,6 +154,10 @@ def _float(v: Any) -> Optional[float]:
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
+def _iso_utc(ns: int) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(ns / 1e9))
+
+
 def episode_row(d: Path, meta: Dict[str, Any], names: Iterable[str], dir_mtime: int, meta_mtime: int) -> Dict[str, Any]:
     labels = meta.get("labels") if isinstance(meta.get("labels"), dict) else {}
     terminal = meta.get("terminal") if isinstance(meta.get("terminal"), dict) else {}
@@ -163,9 +171,22 @@ def episode_row(d: Path, meta: Dict[str, Any], names: Iterable[str], dir_mtime: 
     observation = _get(labels, "contracts", "policy_observation_contract") or _get(exp, "policy_observation",
                                                                                     "contract")
     live = final.get("fighter_valid") == 1 and final.get("btt_active") == 1
+    created = _get(meta, "diagnostics", "created_utc") or ""
+    route = meta.get("replay") if is_route(meta) and isinstance(meta.get("replay"), dict) else None
+    if route is not None:  # an M8 route: its own schema (see replay_episode.ROUTE_SCHEMAS)
+        rt = route.get("terminal") if isinstance(route.get("terminal"), dict) else {}
+        clocks = meta.get("completion_clocks") if isinstance(meta.get("completion_clocks"), dict) else (
+            route.get("clear_facts") if isinstance(route.get("clear_facts"), dict) else {})
+        cleared = kind == "clear"
+        labels = {"role": "route", "run_id": meta.get("session"),
+                  "completion_input_tick": clocks.get("completion_input_tick") if cleared else None,
+                  "completion_time_passed": clocks.get("completion_time_passed") if cleared else None,
+                  "cleared": cleared}
+        terminal = {"step_count": rt.get("submitted"), "last_consumed_tick": rt.get("last_consumed_tick")}
+        exp = {"name": f"arm {meta.get('arm')} · claim {meta.get('claim')} · {route.get('label')}"}
     return {
         "path": path,
-        "episode_id": str(meta.get("episode_id") or d.name),
+        "episode_id": episode_id_of(meta, d),
         "milestone": milestone, "run": run, "phase": phase, "worker": worker,
         "role": labels.get("role"), "run_id": labels.get("run_id"),
         "profile": exp.get("name") or exp.get("environment_profile"),
@@ -174,7 +195,7 @@ def episode_row(d: Path, meta: Dict[str, Any], names: Iterable[str], dir_mtime: 
         "character": task.character, "stage": task.stage, "task_source": task.source,
         "end_kind": kind, "end_detail": detail,
         "truncation": labels.get("truncation_reason", terminal.get("truncation_reason")),
-        "rows": _int(meta.get("action_count")),
+        "rows": _int(meta.get("action_count")) if route is None else _int(meta.get("words")),
         "steps": _int(terminal.get("step_count")),
         "targets": recorded_targets(meta),
         "targets_total": _int(_get(labels, "contracts", "targets_total")) or _int(initial.get("targets_remaining"))
@@ -186,9 +207,10 @@ def episode_row(d: Path, meta: Dict[str, Any], names: Iterable[str], dir_mtime: 
         "final_x": _float(final.get("position_x")) if live else None,
         "final_y": _float(final.get("position_y")) if live else None,
         "prefix_rows": _int(_get(labels, "m7h_start", "prefix_length")),
-        "created": _get(meta, "diagnostics", "created_utc") or "",
+        "created": created or _iso_utc(meta_mtime),  # no recorded creation time: the metadata file's time
         "sidecars": ",".join(sorted(n for n in names if n not in ("actions.jsonl", "metadata.json"))),
         "dir_mtime_ns": dir_mtime, "meta_mtime_ns": meta_mtime,
+        "format": artifact_format(meta), "created_source": "metadata" if created else "file time",
     }
 
 
@@ -236,6 +258,8 @@ def scan(*, root: Path = RUNS_DIR, full: bool = False, recent_minutes: float = 5
     horizon_ns = time.time_ns() - int(recent_minutes * 60e9)
     stats = {"episodes_seen": 0, "added_or_updated": 0, "unchanged": 0, "skipped_recent": 0, "skipped_no_metadata": 0,
              "unreadable": 0, "removed": 0, "summaries_read": 0, "dirs_listed": 0}
+    # Not indexed (or indexed without meaning), with one example path each: reported, never silent.
+    stats["examples"] = {}
     seen: set = set()
     summaries_seen: Dict[str, Tuple[int, int, Path]] = {}
     stack: List[Tuple[Path, int]] = [(root, 0)]
@@ -252,6 +276,9 @@ def scan(*, root: Path = RUNS_DIR, full: bool = False, recent_minutes: float = 5
             progress(f"  ... {stats['dirs_listed']} directories, {stats['episodes_seen']} episodes")
             last_report = time.monotonic()
         by_name = {e.name: e for e in entries}
+        if any(m in by_name for m in ARCHIVE_MARKERS) and "actions.jsonl" not in by_name:
+            stats["archives"] = stats.get("archives", 0) + 1
+            _example(stats, "archives", rel(d))
         if "actions.jsonl" in by_name:
             _index_episode(db, d, d_mtime, by_name, cached, horizon_ns, full, stats, seen)
             continue
@@ -298,10 +325,47 @@ def scan(*, root: Path = RUNS_DIR, full: bool = False, recent_minutes: float = 5
             db.execute("DELETE FROM summaries WHERE path = ?", (p,))
     db.execute("INSERT OR REPLACE INTO meta VALUES ('last_scan_utc', ?)",
                (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),))
+    unrecognized = db.execute("SELECT count(*), min(path) FROM episodes WHERE format LIKE 'unrecognized%'").fetchone()
+    stats["unrecognized"] = unrecognized[0]
+    if unrecognized[0]:
+        stats["examples"]["unrecognized"] = unrecognized[1]
+    stats["wall_s"] = round(time.monotonic() - t0, 1)
+    stats["not_indexed"] = not_indexed_text(stats)
+    db.execute("INSERT OR REPLACE INTO meta VALUES ('last_scan_report', ?)", (json.dumps(stats),))
     db.commit()
     db.close()
-    stats["wall_s"] = round(time.monotonic() - t0, 1)
     return stats
+
+
+def _example(stats: Dict[str, Any], key: str, path: str) -> None:
+    """Keep the alphabetically first path as the example (stable whatever the walk order)."""
+    ex = stats["examples"]
+    ex[key] = min(ex[key], path) if key in ex else path
+
+
+def not_indexed_text(stats: Dict[str, Any]) -> str:
+    """One line: what the scan saw but could not list (or list meaningfully), with an example path each."""
+    ex = stats.get("examples", {})
+    parts = []
+    for key, what in (("archives", "exploration archive folders (cells, not episodes)"),
+                      ("skipped_no_metadata", "folders with actions.jsonl but no metadata.json"),
+                      ("unrecognized", "episodes with an unrecognized metadata format (listed, fields unknown)"),
+                      ("skipped_recent", "folders still being written (next scan)"),
+                      ("unreadable", "unreadable folders")):
+        n = stats.get(key, 0)
+        if n:
+            parts.append(f"{n:,} {what}" + (f", e.g. {ex[key]}" if key in ex else ""))
+    return "; ".join(parts)
+
+
+def last_scan_report(db_path: Optional[Path] = None) -> Dict[str, Any]:
+    db = connect(db_path)
+    row = db.execute("SELECT value FROM meta WHERE key='last_scan_report'").fetchone()
+    db.close()
+    try:
+        return json.loads(row[0]) if row else {}
+    except (TypeError, ValueError):
+        return {}
 
 
 def _index_episode(db, d: Path, d_mtime: int, by_name: Dict[str, os.DirEntry], cached, horizon_ns: int,
@@ -309,6 +373,7 @@ def _index_episode(db, d: Path, d_mtime: int, by_name: Dict[str, os.DirEntry], c
     p = rel(d)
     if "metadata.json" not in by_name:
         stats["skipped_no_metadata"] += 1
+        _example(stats, "skipped_no_metadata", p)
         return
     try:
         if not d_mtime:
@@ -320,6 +385,7 @@ def _index_episode(db, d: Path, d_mtime: int, by_name: Dict[str, os.DirEntry], c
         return
     if newest > horizon_ns:
         stats["skipped_recent"] += 1
+        _example(stats, "skipped_recent", p)
         return
     seen.add(p)
     stats["episodes_seen"] += 1
@@ -333,13 +399,14 @@ def _index_episode(db, d: Path, d_mtime: int, by_name: Dict[str, os.DirEntry], c
             raise ValueError("metadata.json is not an object")
     except (OSError, ValueError):
         stats["unreadable"] += 1
+        _example(stats, "unreadable", p)
         seen.discard(p)
         return
     row = episode_row(d, meta, by_name.keys(), d_mtime, meta_mtime)
     db.execute(f"INSERT OR REPLACE INTO episodes VALUES ({', '.join(':' + c for c in EPISODE_COLUMNS)})", row)
     forget(db, p, like=True)  # this episode's own files
     store_breaks(db, replay_breaks.from_episode(d, row["episode_id"], by_name.keys(), rel))
-    ex = extractor_for(row["stage"])
+    ex = extractor_for(row["stage"], row["format"])
     if ex is not None:
         store_facts(db, ex.stage, ex.from_episode(d, meta, by_name.keys(), rel))
     stats["added_or_updated"] += 1
@@ -372,6 +439,8 @@ def end_label(r: Dict[str, Any]) -> str:
         return kind
     if kind == "truncated":
         detail = r.get("end_detail") or ""
+        if "terminal sequence_end" in detail:
+            return "prefix"  # an M8 route that stops at an archive cell: the game did not end
         if "goal_reached" in detail:
             return "goal"
         if "aborted" in detail or "lifecycle_failure" in detail:
@@ -421,7 +490,11 @@ def is_test(r: Dict[str, Any]) -> bool:
     """Test / smoke / equivalence episodes, hidden by default in the browser: roles test and m6_equivalence, no
     role recorded (all in regression and test folders), and every `_`-prefixed milestone folder (the repository's
     smoke / regression / preflight / debug runs, whose roles are ordinary training / evaluation)."""
-    return r["role"] in TEST_ROLES or r["role"] is None or r["milestone"].startswith("_")
+    if r["role"] in TEST_ROLES or r["milestone"].startswith("_"):
+        return True
+    # a run artifact without a role: all in regression / test folders. Other formats (routes have role "route",
+    # unrecognized ones none) are never hidden for lacking a role.
+    return r["role"] is None and r.get("format") == EPISODE_FORMAT
 
 
 def set_last_target(r: Dict[str, Any], sources: Dict[str, List[int]]) -> None:
@@ -464,7 +537,7 @@ def load_rows(db_path: Optional[Path] = None, verdicts_path: Optional[Path] = No
         set_last_target(r, mine_breaks)
         r["created_text"] = created_text(r["created"])
         r["tags"], r["tag_details"], r["tag_sources"] = [], [], []
-        ex = extractor_for(r["stage"])
+        ex = extractor_for(r["stage"], r["format"])
         if ex is not None:
             mine = dict(facts.get((r["episode_id"], ex.stage), {}))
             fact = ex.from_replay(v, r["episode_id"]) if v else None
@@ -617,7 +690,7 @@ def add_filters(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--character", action="append", help="e.g. mario, or ? for not recorded (repeatable)")
     ap.add_argument("--stage", action="append", help="e.g. btt_mario, or ? for not recorded (repeatable)")
     ap.add_argument("--end", action="append",
-                    choices=("clear", "fall", "truncated", "timeout", "goal", "aborted", "unknown"))
+                    choices=("clear", "fall", "truncated", "timeout", "goal", "aborted", "prefix", "unknown"))
     ap.add_argument("--min-targets", type=int)
     ap.add_argument("--max-targets", type=int)
     ap.add_argument("--cleared", action="store_true")
@@ -632,7 +705,8 @@ def cmd_scan(args) -> int:
     print(f"scanning {rel(Path(args.root).resolve())} (read-only){' - full rescan' if args.full else ''} ...")
     stats = scan(root=Path(args.root).resolve(), full=args.full, recent_minutes=args.recent_minutes,
                  prune=not args.no_prune)
-    print("  " + ", ".join(f"{k} {v}" for k, v in stats.items()))
+    print("  " + ", ".join(f"{k} {v}" for k, v in stats.items() if k not in ("examples", "not_indexed")))
+    print(f"  not indexed: {stats['not_indexed'] or 'nothing'}")
     return 0
 
 

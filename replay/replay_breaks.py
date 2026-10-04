@@ -8,6 +8,7 @@ not in metadata.json; the index collects them from files the runs already wrote,
     episodes_log    episodes.jsonl     target_break_ticks of every episode a trainer / evaluator logged
     gate_trace      gate_trace.json.gz per-tick "targets" (remaining) column (M7r evaluations)
     decisions       decisions.json.gz  per-tick signature field "targets" (M7r commit sidecars)
+    route_trace     trace.json.gz      every step reply of the replay that verified an M8 route
     replay          replay/_local/verdicts.jsonl, this tool's MATCH replays (added at load time)
 
 Last target of an episode, first rule that applies:
@@ -32,8 +33,8 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 TICKS_PER_SECOND = 60
 SUMMARY_FILES = ("evaluation.json", "episodes.jsonl")
-EPISODE_FILES = ("gate_trace.json.gz", "decisions.json.gz")
-PRIORITY = ("replay", "evaluation", "episodes_log", "gate_trace", "decisions")
+EPISODE_FILES = ("gate_trace.json.gz", "decisions.json.gz", "trace.json.gz")
+PRIORITY = ("replay", "route_trace", "evaluation", "episodes_log", "gate_trace", "decisions")
 
 Break = Tuple[str, str, str, List[int]]  # (episode_id, source, source_path, ticks)
 
@@ -106,6 +107,15 @@ def from_episode(d: Path, episode_id: str, names: Iterable[str], rel: Callable[[
             # row 0 = the tick-0 observe reply; row t + 1 = the reply after consumed tick t
             out.append((episode_id, "decisions", rel(d / "decisions.json.gz"),
                         _drops((i - 1, s[k]) for i, s in enumerate(doc["signatures"]))))
+        except (OSError, ValueError, KeyError, TypeError, IndexError):
+            pass
+    if "trace.json.gz" in names:
+        try:
+            with gzip.open(d / "trace.json.gz", "rt", encoding="utf-8") as fp:
+                doc = json.load(fp)
+            initial = doc["initial"]["observation"]["targets_remaining"]
+            steps = [(s["consumed_tick"], s["observation"]["targets_remaining"]) for s in doc["steps"]]
+            out.append((episode_id, "route_trace", rel(d / "trace.json.gz"), _drops([(-1, initial)] + steps)))
         except (OSError, ValueError, KeyError, TypeError, IndexError):
             pass
     return out
