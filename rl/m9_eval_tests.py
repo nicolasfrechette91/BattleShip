@@ -554,9 +554,9 @@ def source_guards() -> None:
     files = {f: (RL / f).read_text(encoding="utf-8") for f in ("m9_eval_policy.py", "m9_eval_ckpt.py", "m9_eval_session.py", "m9_eval_snapshot.py")}
     tests_src = (RL / "m9_eval_tests.py").read_text(encoding="utf-8")
     for f, src in files.items():
-        for bad in ("tas_input", ".btti", "fixtures/m7g", "m7g_capture", "replay/recordings"):
+        for bad in ("tas_" + "input", ".bt" + "ti", "fixtures/" + "m7g", "m7g_" + "capture", "replay/recordings"):
             ok(f"{f}: no reference to {bad}", bad not in src)
-        for bad in ("import random", "np.random", "torch.manual_seed", "import secrets", "import uuid", "os.urandom", "rng_seed", "native_rng"):
+        for bad in ("import random", "np.random", "torch.manual_seed", "import secrets", "import uuid", "os.urandom", "rng_" + "seed", "native_" + "rng"):
             ok(f"{f}: no {bad}", bad not in src)
         for bad in (".learn(", "PPO(", "PPO.load", ".backward(", "optimizer.step", "zero_grad", "torch.optim.Adam(", "torch.optim.SGD("):
             ok(f"{f}: no training vocabulary {bad}", bad not in src)
