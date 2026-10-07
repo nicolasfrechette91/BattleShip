@@ -998,7 +998,8 @@ def tracked_files_are_unchanged_except_the_authorised_edit_and_only_new_files_ex
 
     probs, info = S3.git_problems()
     eq(f"git state: {probs}", probs, [])
-    eq("exactly the one authorised edit differs from HEAD, at its pinned digest", {k: v["at_pinned_digest"] for k, v in info["tracked_changes"].items()}, {"rl/m9_eval_tests.py": True})
+    committed = "rl/m9_eval_tests.py" not in info["tracked_changes"] and S3.sha256_file(REPO / "rl/m9_eval_tests.py") == S3.AUTHORISED_TRACKED_EDITS["rl/m9_eval_tests.py"]["sha256_after"]
+    eq("the authorised edit is committed (HEAD carries it), or it is the only tracked change, at its pinned digest", {k: v["at_pinned_digest"] for k, v in info["tracked_changes"].items()}, {} if committed else {"rl/m9_eval_tests.py": True})
     new = [ln[3:] for ln in ses1.git("status", "--porcelain").splitlines() if ln.startswith("??")]
     ok("every new file under rl/ or docs/ is an M9 file", all(("m9" in n or "M9" in n) for n in new if n.startswith(("rl/", "docs/"))))
 

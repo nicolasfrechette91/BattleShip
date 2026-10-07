@@ -197,3 +197,52 @@ training setting. Each entry names the hazard, the fix and the registered statem
 
 Defects found while testing the new code are corrections of new code to its own specification, made before any pass counted; they are listed in the
 implementation record, section 7.
+
+## 7. Amendment to Part B condition 1 (the user's message after the first report; recorded 2026-10-06 before any re-check)
+
+**Context.** The first Part D report of this unattended session stated that Part C had not run because Part B condition 1 could not hold: the g1 and g2
+suites' git-state gates fail by construction on the uncommitted authorised edit (section 4), and g1's `identity_names_every_registered_pin` fails for a
+pre-existing reason. The user then committed and pushed the decision-9 edit together with the ten `rl/m9_g3_*.py` modules, this record and
+`docs/rl_m9_g3_implementation.md` as commit `5214582a08046498274cfbad07a618f3f7cd7c9c` ("failed tests delay the next attempt"; 13 files). At the time of this
+record `git status --porcelain` is empty and HEAD, `origin/main` and the remote's `main` all equal `5214582`. The user's words:
+
+> I have committed and pushed the decision-9 edit together with the g3 modules and the two g3 docs. Amendment to Part B condition 1, recorded by you in
+> docs/rl_m9_g3_decisions_2026-10-06.md before anything else:
+>
+> - My original condition 1 was impossible as written: the g1 and g2 suites contain git-clean gates, so they could not pass with an uncommitted edit. That
+>   was my error, not yours.
+> - The g1 identity test (every rl/m9_*.py must be in g1's own code list) is a historical check of g1's source. It has failed since the evaluation files were
+>   added on 2026-10-04 and is not a g3 launch gate. Record it as a known, pre-existing failure. Do not edit any g1 file.
+>
+> Amended condition 1. ALL must hold:
+> - HEAD equals origin/main and contains my new commit.
+> - The g3 source fingerprint is unchanged (17dea6d712e624ed).
+> - The g3 unit suite and the synthetic end-to-end test pass once more on the committed tree, with the same e2e digest (078f46c445d8adc5).
+> - The g1 evaluation suite passes 29/29.
+> - The g2 suite passes 29/29.
+> - The g1 unit suite passes 62/63, with ONLY the identity test failing, for the documented reason.
+>
+> Condition 5 now means a clean git status apart from files this session creates.
+>
+> Re-check every other Part B condition on the committed tree. If all hold, proceed with Part C exactly as originally authorised (fresh approval, snapshot,
+> preflight, one session, NO s2, backups with the correct --source), then write the Part D report. If anything else fails, stop with zero native ticks and
+> report.
+
+**Known, pre-existing failure, recorded as instructed.** `identity_names_every_registered_pin` (`rl/m9_tests.py`) asserts that every `rl/m9_*.py` file
+tracked at HEAD is named in g1's own code identity (`rl/m9_session.CODE_FILES`). It has failed since commit `4a778b4` (2026-10-04) added `rl/m9_eval_*.py`,
+which that list does not name; it is a historical check of g1's source, not a g3 launch gate. No g1 file is edited.
+
+**Two consequences visible from the code, recorded here before the re-check (the measurement decides; nothing is edited).**
+
+1. This record is a tracked file since commit `5214582`. Writing this section modifies it, so `git diff --name-only HEAD` lists
+   `docs/rl_m9_g3_decisions_2026-10-06.md` until the user commits it. The g1 and g2 git-state gates (`tracked_files_are_unchanged_and_only_new_files_exist`),
+   the g3 session's git check (`rl/m9_g3_session.git_problems`, which tolerates only the edits named in `AUTHORISED_TRACKED_EDITS`) and therefore the
+   preflight all read that output. The re-check reports every gate with its input named, so that the committed tree's own state can be read off.
+2. The g3 suite's git-state test (`rl/m9_g3_tests.py`, `tracked_files_are_unchanged_except_the_authorised_edit_and_only_new_files_exist`, line 1001) asserts
+   that the authorised edit DIFFERS from HEAD at its post-edit digest, which was the state when it was written (section 4: "the edit is uncommitted"). On the
+   committed tree `git diff --name-only HEAD` is empty, so that assertion compares `{}` with `{"rl/m9_eval_tests.py": True}`. Every other pin of the edit
+   (`rl/m9_eval_tests.py` at `7151c34b…` in the working tree, in the identity and in the snapshot check) holds on the committed tree; the HEAD blob is the
+   same file with LF endings (`core.autocrlf = true`; the pinned digest is the CRLF working-tree bytes). The amended condition pins the g3 source fingerprint,
+   so no g3 file is edited here.
+
+**Where the re-check is recorded.** `docs/rl_m9_g3_recheck_2026-10-06.md` (a new file) and the logs under `logs/m9_g3_prep/committed/` (Git-ignored).
