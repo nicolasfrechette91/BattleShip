@@ -1,0 +1,515 @@
+{
+ "task": {
+  "id": "ssb64_us_mario_btt_v1",
+  "character": "mario",
+  "stage": "btt_mario"
+ },
+ "created_utc": "2026-10-07T14:24:00Z",
+ "gate": "m9_g3",
+ "line": "m9_g3_line",
+ "session": 1,
+ "scope": "M9-g3-s1: backward-algorithm robustification under the replenishing controlled frontier rule m9_g3_frontier_v1 (PPO from prefix-replayed start states on the agent's own two verified rd4 clears, sticky actions p = 0.25, observation btt_policy_obs_v3_entities, reward btt_reward_v2, entropy coefficient 0.01; the g2 trigger, frozen strip test and re-checks unchanged; attempts spaced by 20 x 2^(f-1) counted strip outcomes, cap 320, no HELD and no STALLED); the first session of a new resumable line (not an amendment of g2); a fresh policy (seed 0); one set of keyed draws; progress measured as the sustained frontier depth D and the reliable reach R at landing states against g2-s1's pinned tape baseline reused by digest, under the registered rules; no claim of a tick-0 policy",
+ "milestone": "M9",
+ "contract_sha256": "4cd1deaec0f0333b394f0ac85bc0f3c494c117e63eacc0caf5e80e0929b8e040",
+ "line_contract_sha256": "90eac1a6c6682a397fc8e85abdf5b1d8ab3f38b75a80ae08709932286d319a31",
+ "rules": {
+  "frontier": "m9_g3_frontier_v1",
+  "frontier_sha256": "60e174a61c02e1848a25ba7951a5aaf047060a68b9496a8aea82b0d32704b634",
+  "tape": "m9_g2_tape_baseline_v1",
+  "s1": "m9_g3_s1_rule_v1",
+  "s1_sha256": "dea9965a3989bce54a27acc0a33d506664789e4a316f1a0b6aaa512ee66c23a9",
+  "line": "m9_g3_line_rule_v1",
+  "line_sha256": "d9d82885703c016d147878886461156da7050176615bfd923ec66cb446cf1998"
+ },
+ "spacing": {
+  "unit": 20,
+  "cap": 320,
+  "need": {
+   "0": 0,
+   "1": 20,
+   "2": 40,
+   "3": 80,
+   "4": 160,
+   "5": 320,
+   "6": 320,
+   "7": 320
+  }
+ },
+ "line_budget": {
+  "2": 2128,
+  "4": 1966,
+  "6": 1694
+ },
+ "g2_contract_sha256": "8dfd44c6a8b7e31942de0d0ee6bd2784e4fa9b0475182c624cbe2ca07132aab8",
+ "g2_line_contract_sha256": "1aadc7a6b2ff85bd83b8bff80c2b97c3081652e845996546429ba2a483379e12",
+ "g1_contract_sha256": "6958857ed2dfd1c57ed832e739ea3330381a0f1f0a803e58c7c8484c6bae3153",
+ "key_strings": {
+  "train_label": "m9|g3|train|<episode>",
+  "sticky": "<label>|<tick>",
+  "start": "m9|g3|start|<episode>|region|tau|lineage",
+  "probe_label": "m9|g3|probe|<pointer>|<a>|<strip or landing>|<k>",
+  "probe_start": "m9|g3|probe|<pointer>|<a>|strip|<k>|tau|lineage",
+  "probe_action": "m9|g3|probeact|<pointer>|<a>|<part>|<k>|<tick>|<stick or button>",
+  "reach_label": "m9|g2|reach|<landing>|<k>",
+  "tick0_label": "m9|g3|tick0|<k>",
+  "audit_action": "m9|g3|auditact|<sticky or unperturbed>|<landing>|<k>|<tick>|<stick or button>",
+  "verify_pick": "m9|g3|verifypick|<pointer>|<a>|<part>",
+  "artifact_sample": "m9|g3|artifact|<episode>",
+  "p2": "m9|g1|p2|<k>|tau|word (as g1: an integrity check)"
+ },
+ "tape_reuse": {
+  "source": "runs/m9_g2/s1/session/tape_baseline.json",
+  "records": "runs/m9_g2/s1/t0/episodes.jsonl",
+  "file_sha256": "81fa52c21078b2c2e5af9239678918099c6fb407608de085c7dd0c46d98196cd",
+  "content_sha256": "d915fab9205547742e77360ba83f247b7ab304af7a37540ceb9910a2b614a23b",
+  "measured_with_executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+  "keys": {
+   "2128": 200,
+   "1966": 40,
+   "1694": 40,
+   "1473": 40,
+   "1369": 40,
+   "1248": 40
+  },
+  "labels": "m9|g2|reach|<landing>|<k>",
+  "measured_in": "M9-g2-s1 (T0, 2026-10-06), every counted tape clear replayed exactly"
+ },
+ "authorised_tracked_edits": {
+  "rl/m9_eval_tests.py": {
+   "sha256_before": "05c6765f5694eb08b18b081cab4e585ad34d0bbe3813b50c59b4a49f0f03c9d8",
+   "sha256_after": "7151c34bee4c6e9cd20697d902dc8e8e10a8e4eeee67cee93f429acbe12edb84",
+   "what": "decision 9 (the stop review's option a): the six forbidden literals of its own source guard assembled from fragments; two lines; nothing else"
+  }
+ },
+ "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+ "runtime_files": {
+  "BattleShip.o2r": "fe2b307e35c84c40e2e42e570a5e58183d69f8adfad094c8da3d715ffe451d00",
+  "f3d.o2r": "73ab91ef09a30e8aa629d441fede7aac078c3f46d925c90a9562488f0b664408",
+  "gamecontrollerdb.txt": "9d3c6b8dace57e778ca9420180d0533d11e2c9a0077e52878e1032541c76aa00"
+ },
+ "frozen_sha256": {
+  "BattleShip.cfg.json": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+  "imgui.ini": "0d26732173ee8129df8976203c713db5325a05b9785dfffcb75cd4f83c183042"
+ },
+ "archive_pins": {
+  "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+  "frozen_sha256": {
+   "BattleShip.cfg.json": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+   "imgui.ini": "0d26732173ee8129df8976203c713db5325a05b9785dfffcb75cd4f83c183042"
+  },
+  "runtime_files": {
+   "BattleShip.o2r": "fe2b307e35c84c40e2e42e570a5e58183d69f8adfad094c8da3d715ffe451d00",
+   "f3d.o2r": "73ab91ef09a30e8aa629d441fede7aac078c3f46d925c90a9562488f0b664408",
+   "gamecontrollerdb.txt": "9d3c6b8dace57e778ca9420180d0533d11e2c9a0077e52878e1032541c76aa00"
+  }
+ },
+ "flags": {
+  "train": {
+   "SSB64_RL_NO_RENDER": "1",
+   "SSB64_RAPHNET_DISABLE": "1",
+   "SSB64_RL_SPATIAL": "1",
+   "SSB64_RL_ENTITY": "1"
+  },
+  "eval": {
+   "SSB64_RL_NO_RENDER": "1",
+   "SSB64_RAPHNET_DISABLE": "1",
+   "SSB64_RL_SPATIAL": "1",
+   "SSB64_RL_ENTITY": "1",
+   "SSB64_RL_TARGET_DIAG": "1"
+  },
+  "verify": {
+   "SSB64_RL_NO_RENDER": "1",
+   "SSB64_RAPHNET_DISABLE": "1",
+   "SSB64_RL_SPATIAL": "1",
+   "SSB64_RL_ENTITY": "1",
+   "SSB64_RL_TARGET_DIAG": "1",
+   "SSB64_RL_INPUT": "1"
+  }
+ },
+ "lineages": {
+  "T_clear": {
+   "name": "T_clear",
+   "words": 2326,
+   "words_sha256": "87097d6c66d6b7f18b5b041358ed1e9bafcb84a8d72ad16cd2127deecf5db348",
+   "native_action_digest": "5eccd4e2d5d77b25d69a2ae87211c05f8c7349fdeeeed6e094b53a88003907ba",
+   "completion_time_passed": 2325,
+   "completion_input_tick": 2326,
+   "route_dir": "runs/m8_rd_rd4/routes/T_clear",
+   "iteration": 11206,
+   "source_file_sha256": {
+    "actions.jsonl": "d12f87158050f44ed77700e79b428d54da7066c1c7ee0323c0c5d5821b65e609",
+    "metadata.json": "f70cc32e81dd87ec37153747cef7cfca959da6ac976ab0acc54a80d6e3153084",
+    "trace.json.gz": "655ff14dacf0cdf63a3e834ef95eaf4fbba78440c7f9b83014bae3e939e2a86f"
+   },
+   "role": "start states and a backward curriculum only"
+  },
+  "T_t": {
+   "name": "T_t",
+   "words": 2315,
+   "words_sha256": "d3f7aa5dcce49785a2b1cc52b697ab0f12df0e331bb0b38fcd6e44f2394fb848",
+   "native_action_digest": "de1228be4146b720adc3f1272a9e65a8c0dcd7882b83134949f3893adfef8045",
+   "completion_time_passed": 2314,
+   "completion_input_tick": 2315,
+   "route_dir": "runs/m8_rd_rd4/routes/T_t",
+   "iteration": 11286,
+   "source_file_sha256": {
+    "actions.jsonl": "ddcb37736c9edf61e096c3ec90bc75a6e43e929f70e6da5feeee31bb01fdab3d",
+    "metadata.json": "9a250a99608fb5aa501b41bb35f87ebd8fe3e3b78d021341b1146001eb739b8f",
+    "trace.json.gz": "8b5817ead903622a567fec7721d1517795877e52c7610729599327714d7eae6a"
+   },
+   "role": "start states and a backward curriculum only"
+  },
+  "pin_tick0": {
+   "chain": "a93277e7e1af7fdfddb65e5d1ccb91bbb6e51443443cf3ff3f6b3784455648b4",
+   "digest": "2817d8cf3494615505f3a23f7dc34a70a36f2d8e096e54924f84414af0ffd6ec",
+   "key": [
+    0,
+    -9,
+    "G",
+    1023,
+    4
+   ],
+   "lines": "c251d89ab05110b697a48f25f43430b1f3a8b06406fd59317a0e4c534f82da71",
+   "mask": 1023,
+   "obs": [
+    1,
+    64,
+    0,
+    0,
+    1,
+    1,
+    10,
+    1,
+    0.0,
+    -2550.0,
+    0.0,
+    0.0,
+    0.0,
+    -1,
+    0,
+    10,
+    0
+   ]
+  }
+ },
+ "trees": {
+  "rd1": {
+   "files": 166,
+   "bytes": 62448635,
+   "manifest_sha256": "e81226d7f36a28a09966b577bfd95cbee093fbdf91f2714b9d28d3a7046103f4",
+   "increment": "2026-10-02_incr_m8_rd1"
+  },
+  "rd2": {
+   "files": 62,
+   "bytes": 66759098,
+   "manifest_sha256": "6775281e6f1618c5e2304980ca83c78ca049813a53605df791404ec32fd3e9f1",
+   "increment": "2026-10-02_incr_m8_rd2"
+  },
+  "rd3": {
+   "files": 77,
+   "bytes": 114026700,
+   "manifest_sha256": "b6e13ecbc1ef9a76fee105de90fbf09072ae2b450f9f626542f6df355e35f324",
+   "increment": "2026-10-02_incr_m8_rd3"
+  },
+  "rd4": {
+   "files": 93,
+   "bytes": 165147441,
+   "manifest_sha256": "7ff2b29dfad2bcaa26e2567786acc3c84c55a6414501545b0f1c1815480068a8",
+   "increment": "2026-10-03_incr_m8_rd4"
+  },
+  "m9_g1": {
+   "files": 2740,
+   "bytes": 354131925,
+   "manifest_sha256": "92ba5481acbb0ab9c0a17e19dffeb48965e68197feb6a44064524ccdf2419eac",
+   "increment": "2026-10-04_incr_m9_g1"
+  },
+  "m9_g1_eval": {
+   "files": 1393,
+   "bytes": 162003001,
+   "manifest_sha256": "ab3e6c61ffe3cbbb39f39308881283646b92dc857fa27254abe676c0b29f48a0",
+   "increment": "2026-10-04_incr_m9_g1_eval"
+  },
+  "m9_g2_s1": {
+   "files": 9779,
+   "bytes": 988807605,
+   "manifest_sha256": "4ad2c3dc240ef1bbbce9dfe1c924efa9936d0a1ce5db51df099ce4736fd8b45f",
+   "increment": "2026-10-06_incr_m9_g2_s1"
+  }
+ },
+ "caps": {
+  "wall_caps_s": {
+   "open": 60.0,
+   "p1": 240.0,
+   "p2": 120.0,
+   "t0": 240.0,
+   "train": 4800.0,
+   "audit": 1200.0,
+   "verify": 600.0,
+   "close": 300.0
+  },
+  "tick_caps": {
+   "open": 0,
+   "p1": 60000,
+   "p2": 60000,
+   "t0": 60000,
+   "train": 20000000,
+   "audit": 3000000,
+   "verify": 1500000,
+   "close": 0
+  },
+  "transition_cap": 3072000,
+  "global_cap_s": 8700.0,
+  "memory_caps_mb": {
+   "main_private": 3072,
+   "tree_private": 9216,
+   "tree_working_set": 4096,
+   "system_available_min": 1024,
+   "system_commit_free_min": 2048
+  },
+  "max_battleship_processes": 10,
+  "split": [
+   4,
+   6
+  ],
+  "probe_slots": 6
+ },
+ "budget": {
+  "phase_caps_s": {
+   "open": 60.0,
+   "p1": 240.0,
+   "p2": 120.0,
+   "t0": 240.0,
+   "train": 4800.0,
+   "audit": 1200.0,
+   "verify": 600.0,
+   "close": 300.0
+  },
+  "sum_of_caps_s": 7560.0,
+  "pessimistic_total_s": 7780.0,
+  "pessimistic_total_min": 129.7,
+  "global_cap_s": 8700.0,
+  "fits_global_cap_pessimistic": true,
+  "slack_pessimistic_s": 920.0,
+  "expected_total_s": 5730,
+  "expected_phases_s": {
+   "open": 20,
+   "p1": 30,
+   "p2": 40,
+   "t0": 60,
+   "train": 4800,
+   "audit": 300,
+   "verify": 300,
+   "close": 180
+  },
+  "expected_native_ticks": {
+   "t0": 15000,
+   "train": 12000000,
+   "audit": 450000,
+   "verify": 400000
+  },
+  "note": "training ends by its 80-minute wall cap in every projection; T0 is the five-episode drift check (the tape is reused by digest); the session clock starts at the session object and counts the pool spawns; the preflight (unit suite) runs before it"
+ },
+ "ppo": {
+  "policy": "MultiInputPolicy",
+  "net_arch": [
+   64,
+   64
+  ],
+  "activation": "tanh",
+  "learning_rate": 0.0003,
+  "batch_size": 512,
+  "n_epochs": 10,
+  "gamma": 0.999,
+  "gae_lambda": 0.995,
+  "clip_range": 0.2,
+  "ent_coef": 0.01,
+  "vf_coef": 0.5,
+  "max_grad_norm": 0.5,
+  "torch_threads": 1,
+  "device": "cpu",
+  "seed": 0,
+  "rollout_size": 5120,
+  "normalize_observations": false,
+  "normalize_rewards": false,
+  "initialisation": "fresh"
+ },
+ "readiness": {
+  "min_available_mb": 4096,
+  "min_commit_free_mb": 10240,
+  "min_free_gib_c": 5.0,
+  "min_free_gib_d": 5.0
+ },
+ "code": {
+  "rl/m9_g3_contract.py": "3e720ca87c8671c5e3767531d17064ec2d02a20bcaf35534798ce12937990b71",
+  "rl/m9_g3_frontier.py": "21ea11371407925ff2099d88874a9decf7ffb4b764444d03ab50c11d17660552",
+  "rl/m9_g3_rule.py": "4a9e5320da35e4657f470df7faf1830fdaaa94d0c32ff009c2f8fb8d73fb78de",
+  "rl/m9_g3_probe.py": "74c66f7d5d9c75a91ae0eb5f2ff348efc531939a27aa0dca3377c151e74e07a4",
+  "rl/m9_g3_train.py": "1966d200f0ab862ae867d6d4baf2b2d682bb1faf952fa30fa9adc0ae17563b76",
+  "rl/m9_g3_run.py": "b45922251c5fb7d81511ffb6f9ef267225c7e0376ad041edc776a6e7a6b79a4c",
+  "rl/m9_g3_report.py": "c32cd6fdb20e12e77194aa258c96bf236568d19ab136759892b5000e92ac925c",
+  "rl/m9_g3_session.py": "5a8151b11b76e0b20b74fde3830dad42cc02ddc7be9b1e52ea3908f4f8be9355",
+  "rl/m9_g3_snapshot.py": "a7b42245bbf7bed75e3e762cb96807164f915c6a324b4413f855d30e1c6879a1",
+  "rl/m9_g3_tests.py": "4e0e681c6cecc98059f99fb10f4b244838b1b3bdc68678c22ae1322d8475b68c",
+  "rl/m9_eval_tests.py": "7151c34bee4c6e9cd20697d902dc8e8e10a8e4eeee67cee93f429acbe12edb84",
+  "rl/m9_g2_contract.py": "4625a14ab8e4c0da925cc2f4a42eee0145d8c6a8e6877044bdeee4bfe26fbd61",
+  "rl/m9_g2_arena.py": "6cac1b875900921279886c9e17f4fcadf412640cc4b22ecf5ffe8b19cdf79bc2",
+  "rl/m9_g2_frontier.py": "a8985a006ca48339b0f66e70a4ee08b2ae21c24fea1a54731b667a8a93bf6e34",
+  "rl/m9_g2_policy.py": "7f788d9d25f4b036d3efed9431ba41ec21f04ea901b18d907627b062bbd2f93e",
+  "rl/m9_g2_tape.py": "2a10e445e17680474828a69f7358434dc1f63e308896247d82cc9c8bcf53c307",
+  "rl/m9_g2_rule.py": "cb2844749d02f57e8a24c3ce0396b7378232393fa2c0abed9af48c84d04e078d",
+  "rl/m9_g2_probe.py": "0d8fe465460f3efd385272f78002f7a9c6ce5551c35308cfdfb61c135f51556e",
+  "rl/m9_g2_train.py": "78ec7d7a2ad742cf9284409f4b840a86a8578928d0bf7b5da62c4c61b34c7f19",
+  "rl/m9_g2_resume.py": "716d0a5931720e4beb8833695105c50aa9dcacf1a59a609a3f0de549f3fc014a",
+  "rl/m9_g2_run.py": "95f5bd93e46b2446fbcf5a8c9772c40af048da4c6d2029662c7a9ebf72f409eb",
+  "rl/m9_g2_report.py": "9fc1300f843a66defd28c286f39a1f3bf493072519ee614d7931a4ee90940eca",
+  "rl/m9_g2_session.py": "a73afc1490a4d2aaa7d04e87761ccf64ea751bf5647c959f7a84ae9c1a85dab8",
+  "rl/m9_g2_snapshot.py": "b497e32c2b5dd52111cc8be1c15e81595d23b2ff7075a9e663c67ef98bd888d8",
+  "rl/m9_g2_stub.py": "33674a91b8c05940bae8d8a9b4ae3f05e6d4cb51085456e7015e341bb5b2da4c",
+  "rl/m9_g2_tests.py": "c163a4c65db056fb1d46c66cf4fd4ee127be1adb6a365795a65bc91e2a34c0b8",
+  "rl/m9_eval_policy.py": "cec90cf76597c12f2acdd944b54c071cfd508911a22fc4e1f18d720a47196894",
+  "rl/m9_contract.py": "42d06f0204e8340de7a8f69b5465b07329cec9f82f3a4aa247c2b86ff36e4ff0",
+  "rl/m9_artifacts.py": "c82d622e1eb96134849596c0333892d787236902d59dc8ee67978f13118c1de0",
+  "rl/m9_sticky.py": "a1a47718e23080dd0d3363dba1288bee41bd57a0c7016c20aac5e8c787ff5dff",
+  "rl/m9_curriculum.py": "5c0121efd09cc86b2641a3ef38e0c42f18a89737bcc66ff94e562307e21088f8",
+  "rl/m9_rule.py": "4c269d4b53bb9feb00b6aea960aea48778dc49adc0b5d5a5a776ed29c8b4c166",
+  "rl/m9_obs.py": "02813ec489c8c38767a1ff5ccf8ba4dc9426b021d3f3282e63caaf8536e51f06",
+  "rl/m9_lineages.py": "c086e29c96056985863d947b8a8f09eb497300b373e73d0618cf1e5c1ef74ed2",
+  "rl/m9_verify.py": "9fb89ba4eaa34a5a27e6a0920b7e310d59bc740a360c960b4c91171c59f137a9",
+  "rl/m9_worker.py": "f8450aa11b45196a92b24b553d60dca82075a501a195e32a1d0446928fb03d5e",
+  "rl/m9_pool.py": "fae54080198023fc18dde9dcabc75b3d56a0ba76b2d0fd733e4776d8bb5042ac",
+  "rl/m9_vec.py": "c91539185791d1de2bb9ecd4d69eaa0af704f606b738c841ea5e7ed5a3af2ba4",
+  "rl/m9_train.py": "de5344787dfe0024cfe95d1a8ea2b0d450dd3dd4a73e98c3a7684f88f4eac054",
+  "rl/m9_eval.py": "931b6e831d04ebdda3010e0d76b850d2cf0694f07ca0c4a0c5a84c6ce8c041f5",
+  "rl/m9_run.py": "682283f9549cc02b3133df77bc9a379b688ba51b9393cd69b8fc58cd4427fe6a",
+  "rl/m9_claim.py": "ea92b8a2907db538c68d3a76c10221cf01167a4ff715d5c33aeb87598df43e42",
+  "rl/m9_report.py": "e3c4dde00dabe21976733b429ed5058838df6a597dcd42a1cb771b689bca1f2b",
+  "rl/m9_session.py": "aadf58728fedee9bf7b01da973f69307ba6ecdd29289fbac1b1475b6752f42d8",
+  "rl/m9_snapshot.py": "8ee1cc7a8b5260450123bcdc78383b9a6903e4ff89c6e0cbd7841205ed449f39",
+  "rl/m9_stub.py": "c1da40ef7bfe3da9e504f8387789b7083f997c710b56902e7299a98498fbedb3",
+  "rl/m9_testenv.py": "cbc184d6a8ae95f06ab203dd0e0662022ae74cb8d3a68db2be561ff43287ffd5",
+  "rl/m9_tests.py": "22a47721cebd5e0901667e9b5b236f6fe2d30b3be2f8c1b5d5ae12be79b37e3e",
+  "rl/m8_rd_cells.py": "f7bacbeb38cc1d3680b696149181b2b485ea767c196f2d9c10f41111ad8ab1f8",
+  "rl/m8_rd_claims.py": "e7e746412081501baf64c0d00df83c70c00308b603b39b030e71a4b48feb8610",
+  "rl/m8_rd_worker.py": "f9261f8ba206880039bf38a442adc3455695425fcfeec92768ed2472ece15285",
+  "rl/m8_rd2_worker.py": "ae4a9c71deefe0c9e44197afcce94d110195aa07b36c61e18e915898fcea7ea6",
+  "rl/m8_rd_resume.py": "226fe47132efa637ba0f3702127ffbc70a1612fca871e8f9337fa97ffe526fdc",
+  "rl/m8_rd_session.py": "30b276d04dc0015eb2592adf42112c21568d10e5b66960091778edd40d70c52b",
+  "rl/m8_rd3_resume.py": "94c3a1b8e94a45a9af8cee0f5136e388633b29121c7d428bc102e83a8b4ca50f",
+  "rl/m8_rd4_resume.py": "8dc9b921f63c1bcdebccb7eec99fc99bf5796aa0a3bde5706d873167e80f210a",
+  "rl/m8_rd_explore.py": "9a11779acad1cd89fce767d7b6828fc683403a271181ef4142c78f1f152d5ebc",
+  "rl/m8_rd_archive.py": "7ef9c750b111ac413b96ffe74ab77a1cdf86c8691e579443d196b7bced5bf6b7",
+  "rl/m8_rd_stub.py": "d2c8a681dd09a8747e1863626a670027c755a457052f6c17f8997136b36cae1a",
+  "rl/battleship_client.py": "0d119f0297480821791017a2e5caac0e360cfd7f08bb50f74650386d90f07253",
+  "rl/battleship_process.py": "ac3cc658aec825cc128c1030c3cd0ab48645e2711eca065c67698ccb8ad8e705",
+  "rl/m7_standby.py": "6318a595ef774d9f7bfbd79782f11cc0eea9e716eb08f424a208aa6d9e1e3eb3",
+  "rl/m7_runtime.py": "3dc56722c924065356e6134174d5e2c4724c0f495ee8c4e0eed027dfd2d9c452",
+  "rl/m7f_trace.py": "99399e16718a9e5a5f4d4eb3ce6c4b00bb62e6f9483522b03946b52180cb9190",
+  "rl/m7n_crossing.py": "c0d46afb912a727b9f75b96de2021956923de03df82f39ebb4d4d88405e823f0",
+  "rl/m7n_obs.py": "00f671ee0416134d696a8f080ab1a494a662a7e22f4a21f5f65f21c2906d135b",
+  "rl/m7n_entity.py": "21121f4656262c363802d33e7e6112883fe0976fb33aaf0f22c5371fab0d6d53",
+  "rl/m7n_policy.py": "66c750508f1dcf7b36c4776a05c78dcced62db93fb9b25fb103ad13c514eca96",
+  "rl/m7n_status_table.py": "9aaa29ac19910ac174971e37fae630a8eee19548216f586e521940e94d7cdeff",
+  "rl/m7g_spatial.py": "d95269b65648942594c2f9b598629c76dafb1fd839f08babc2621085f0e0b17c",
+  "rl/btt_rewards.py": "15bd68fd664a871c9dbdb7285882ab0219b353899573f777813207afe05dae4e",
+  "rl/btt_learning.py": "4f23ecd086639d6750f0e96e1fa085316cc0cff44dcc60bee913cf6c17b6a8b6",
+  "rl/m7u_gate.py": "b3acb99607c14542d8217b1c19dad0e58715ca70d087f22e7073f8c37a3fd709",
+  "rl/m7u3_gate.py": "53e9dad84313d7a1d245ac8d119a2f5a5ef278c1535cc68410953e746ac5e002",
+  "rl/m7u2_gate.py": "621bf45df9537b4ac96e48842a592abf72553d0b97e1132ed535eee4d3517f07",
+  "rl/m7s_gate.py": "4bff49b4d3c7a882ae3c0bc13f4494ad45832adf07fede69e2517b7e81967859",
+  "rl/m7h_curriculum.py": "12428c0cc6044ae501b5d288d129259d1ea64eb0b5e26586be43376b4fb0ea8e",
+  "rl/run_artifacts.py": "bcab944115d893bf6c447ad285d25f94a73111e2df1b273fdd5efbd1453cac5c",
+  "rl/tools/runs_backup.py": "c4de9b0ab69849341a129e9e99263a28d7fdfccb292e4cfebe8e6221039db71c",
+  "rl/data/m7n_action_classes_v1.json": "ce1a2b4023a1427adbada7562bf7b72d3a64076b6f6ca389a81ee17811ec5efe"
+ },
+ "docs_sha256": {
+  "docs/rl_m9_g3_decisions_2026-10-06.md": "87d31ff5fe153fb660cb6ba018394e24e3455c9afe49e42ca434269dedb0e230",
+  "docs/rl_m9_g3_implementation.md": "d371f92c713c60eaa8942e67570a0f48da4620252788fb21d5a76a21c266b787",
+  "docs/rl_m9_g2_stop_review_2026-10-06.md": "00659b698e10d5a7724ee0afc02e21085a1e6c6023872f066bb98ceea4c9d2d3",
+  "docs/rl_m9_g2_s1_results_2026-10-06.md": "d024d019cc6dd89cc0a9109720858103a5ae6f8a708436cfe7eec7ab27a9f3cc",
+  "docs/rl_m9_g2_proposal_2026-10-04.md": "8f34acd337528f27a572aea953faa54d74d9e44b55dca4f44e70491cc58c0cf1",
+  "docs/rl_m9_g2_decisions_2026-10-05.md": "043164a0dfb812a99cbf2f9a08cf7d601c4d4dce56e11436f5b08f7e386a13af",
+  "docs/rl_m9_g2_implementation.md": "e84650dd52024b96eb20b16f67c939e9cdc5a17cad5fa7b69e92d310d606aca8",
+  "docs/rl_m9_policy_proposal_2026-10-03.md": "639be04735736a8f1bae50b9f5c9b431d34675a7d2287c8d281b1fbb0830240d",
+  "docs/rl_m9_g1_decisions_2026-10-04.md": "0cbe48c6d19aa46891c04191ae063b86a6b79f56887062fc33bb06485fa01737",
+  "docs/rl_m9_g1_implementation.md": "6429e4530331ac68975f44d9d01866364492627801013a8f9c51d54710bb04cb",
+  "docs/rl_m9_g1_results_2026-10-04.md": "4c902d608e6be71b393d5c06ae2e237f40c8f4c2a5dc7a92a6f4ad13de863485",
+  "docs/rl_m9_g1_diagnosis_2026-10-04.md": "153629c0cc8b9232a64818a597ab82c6396d2430389a9e261850a8f9d2259c6d"
+ },
+ "git_head": "ca3cfb69a754b7c3180f9a7996ad1330c217ff7d",
+ "d_records": {
+  "folders": [
+   "2026-09-28",
+   "2026-09-28_incr_m7r",
+   "2026-09-29_incr_m7s",
+   "2026-09-29_incr_m7t_logs",
+   "2026-09-30_incr_m7u",
+   "2026-09-30_incr_m7u2",
+   "2026-09-30_incr_m7u_logs",
+   "2026-10-01_incr_m7u3",
+   "2026-10-01_m7u3_prep",
+   "2026-10-02_incr_m8_rd1",
+   "2026-10-02_incr_m8_rd2",
+   "2026-10-02_incr_m8_rd3",
+   "2026-10-03_incr_m8_rd4",
+   "2026-10-04_incr_m9_g1",
+   "2026-10-04_incr_m9_g1_eval",
+   "2026-10-06_incr_m9_g2_s1"
+  ],
+  "digest": "68b793802bbc0fda79679ba48904fe81c298cd3e2ae32ff7776dc6da02eb1e2b"
+ },
+ "approval": "APPROVED: M9-g3-s1, exactly one detached training session, once (Part C of the unattended session of 2026-10-07): approval with fresh identities, the verified D: source snapshot named below, the preflight, one session as designed (route verification at the open, the reused tape baseline verified by digest and its drift check, training with the replenishing controlled frontier rule, the close audit, verification, the state save), waited to completion; no retries, extensions, repairs, and NO s2; afterwards the D: increment, the unchanged earlier trees, the coverage and the results record",
+ "revision": 1,
+ "authorisation": {
+  "source": "the user's unattended-session message of 2026-10-07 (Part C)",
+  "text": [
+   "I authorise exactly this, once:",
+   "1. Approval with fresh identities, written to a new file.",
+   "2. Final source snapshot to D:\\BattleShip_source_snapshots\\<today's date>_m9_g3_s1, verified by the tool and by an independent PowerShell re-hash.",
+   "3. Preflight passes. If it doesn't, stop; do not re-run it hoping for a different result.",
+   "4. One detached session as designed, waiting for completion. No retries, extensions, repairs, and NO s2. Report whatever outcome is recorded.",
+   "5. Afterwards: - Back up the session's runs and logs (every checkpoint and the saved optimizer/frontier state) to D:\\BattleShip_runs_backup\\<today's date>_incr_m9_g3_s1, verified by the tool and by an independent re-hash. Use the correct --source for every verify. - Confirm all earlier trees are unchanged. - Report total runs/ coverage with 0 uncovered. - Write docs/rl_m9_g3_s1_results_<today's date>.md as a new file."
+  ]
+ },
+ "source_snapshot": {
+  "dest": "D:\\BattleShip_source_snapshots\\2026-10-07_m9_g3_s1",
+  "snapshot_json_sha256": "d6a89a84a5753dc52aa2cc39be952218c3a7f4cf076748f3a108d138723a033f",
+  "result": "PASS",
+  "files": 170,
+  "git_head": "ca3cfb69a754b7c3180f9a7996ad1330c217ff7d",
+  "independent_verification": "tool verify PASS (verify_2026-10-07T141935Z.json: 170 files, 0 mismatches, 0 extra, executable equal) and an independent PowerShell Get-FileHash re-hash (logs/m9_g3_run/independent_snapshot_rehash.ps1, generated by rl/m9_g3_snapshot.py powershell): checked 171, bad 0, exe_ok True, snapshot.json d6a89a84a5753dc52aa2cc39be952218c3a7f4cf076748f3a108d138723a033f"
+ },
+ "backup_coverage_before_approval": {
+  "ok": true,
+  "source_files": 423387,
+  "uncovered": 0,
+  "increments": [
+   "D:\\BattleShip_runs_backup\\2026-09-28_incr_m7r",
+   "D:\\BattleShip_runs_backup\\2026-09-29_incr_m7s",
+   "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u",
+   "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u2",
+   "D:\\BattleShip_runs_backup\\2026-10-01_incr_m7u3",
+   "D:\\BattleShip_runs_backup\\2026-10-02_incr_m8_rd1",
+   "D:\\BattleShip_runs_backup\\2026-10-02_incr_m8_rd2",
+   "D:\\BattleShip_runs_backup\\2026-10-02_incr_m8_rd3",
+   "D:\\BattleShip_runs_backup\\2026-10-03_incr_m8_rd4",
+   "D:\\BattleShip_runs_backup\\2026-10-04_incr_m9_g1",
+   "D:\\BattleShip_runs_backup\\2026-10-04_incr_m9_g1_eval",
+   "D:\\BattleShip_runs_backup\\2026-10-06_incr_m9_g2_s1"
+  ],
+  "skipped": [
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-09-29_incr_m7t_logs",
+    "why": "no top-level verification record"
+   },
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u_logs",
+    "why": "no top-level verification record"
+   },
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-10-01_m7u3_prep",
+    "why": "source C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\logs\\m7u3_prep is not under runs/"
+   }
+  ]
+ },
+ "written_utc": "2026-10-07T14:24:00Z"
+}
