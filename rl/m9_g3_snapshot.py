@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """M9-g3: verified D: source snapshot of the exact code, configuration and documents approved for a g3 session.
 
-    python -B rl/m9_g3_snapshot.py snapshot   --dest D:/BattleShip_source_snapshots/<date>_m9_g3_s1
+    python -B rl/m9_g3_snapshot.py snapshot   --dest D:/BattleShip_source_snapshots/<date>_m9_g3_s1 [--session 1]
+    python -B rl/m9_g3_snapshot.py snapshot   --dest D:/BattleShip_source_snapshots/<date>_m9_g3_s2 --session 2
     python -B rl/m9_g3_snapshot.py verify     --dest ...
     python -B rl/m9_g3_snapshot.py powershell --dest ... --out <file.ps1>     # the independent re-hash script
 
@@ -11,6 +12,11 @@ and writes snapshot.json with result PASS only when all three agree for every fi
 rl/m9_g3_* sources and tests, the g3 decisions and implementation records, the stop review, the g2 and g1 records the session rests on, the authorised
 edit (rl/m9_eval_tests.py, at its pinned digest), the preparation records under logs/m9_g3_prep, and every repository module the session imports. The
 approval record is not in it (it names this snapshot). Nothing is deleted. Nothing is written under the repository.
+
+A session k >= 2 snapshot (`--session 2`; S1 and H14 of the s2 review) adds the records a resumed session rests on (the s1 results record, the s1 launch
+record, the s1 approval, the re-check record, the s2 pre-launch review and the s2 preparation decisions: rl/m9_g3_session.S2_DOC_FILES) and the s2
+preparation logs under logs/m9_g3_s2_prep (a NEW directory: logs/m9_g3_prep holds s1's preparation and is never written again), and computes the
+identity for that session (its resume_inputs block included).
 """
 from __future__ import annotations
 
@@ -31,7 +37,8 @@ sha = snap1.sha
 git = snap1.git
 git_state = snap1.git_state
 utc = snap1.utc
-LOG_DIR = "logs/m9_g3_prep"
+LOG_DIRS = ("logs/m9_g3_prep",)
+S2_LOG_DIRS = ("logs/m9_g3_s2_prep",)                  # k >= 2: the s2 preparation logs and tools (never logs/m9_g3_prep, which is s1's)
 EXTRA = ["docs/rl_m9_g3_decisions_2026-10-06.md", "docs/rl_m9_g3_implementation.md", "docs/rl_m9_g2_stop_review_2026-10-06.md", "docs/rl_m9_g2_s1_results_2026-10-06.md",
          "docs/rl_m9_g2_s1_approval.json", "docs/rl_m9_g2_proposal_2026-10-04.md", "docs/rl_m9_g2_decisions_2026-10-05.md", "docs/rl_m9_g2_implementation.md",
          "docs/rl_m9_policy_proposal_2026-10-03.md", "docs/rl_m9_g1_decisions_2026-10-04.md", "docs/rl_m9_g1_implementation.md", "docs/rl_m9_g1_results_2026-10-04.md",
@@ -44,15 +51,25 @@ MODULES = ["m9_g3_session", "m9_g3_run", "m9_g3_train", "m9_g3_probe", "m9_g3_fr
 EXTERNAL = snap1.EXTERNAL
 
 
-def file_set() -> List[str]:
+def log_dirs(k: int = 1) -> List[str]:
+    return list(LOG_DIRS) + (list(S2_LOG_DIRS) if int(k) >= 2 else [])
+
+
+def file_set(k: int = 1) -> List[str]:
     sys.path.insert(0, str(RL))
     sys.path.insert(0, str(RL / "tools"))
     for m in MODULES:
         importlib.import_module(m)
-    rels = {e for e in EXTRA if (REPO / e).is_file()}
-    logd = REPO / LOG_DIR
-    if logd.is_dir():
-        rels |= {p.relative_to(REPO).as_posix() for p in logd.rglob("*") if p.is_file()}
+    extra = list(EXTRA)
+    if int(k) >= 2:
+        import m9_g3_session as session
+
+        extra += list(session.S2_DOC_FILES)
+    rels = {e for e in extra if (REPO / e).is_file()}
+    for ld in log_dirs(k):
+        logd = REPO / ld
+        if logd.is_dir():
+            rels |= {p.relative_to(REPO).as_posix() for p in logd.rglob("*") if p.is_file()}
     for mod in list(sys.modules.values()):
         f = getattr(mod, "__file__", None)
         if not f:
@@ -66,7 +83,7 @@ def file_set() -> List[str]:
     return sorted(rels)
 
 
-def cmd_snapshot(dest: Path) -> int:
+def cmd_snapshot(dest: Path, k: int = 1) -> int:
     if dest.exists():
         print(f"refused: {dest} exists (never overwritten)")
         return 2
@@ -74,8 +91,8 @@ def cmd_snapshot(dest: Path) -> int:
     sys.path.insert(0, str(RL))
     import m9_g3_session as session
 
-    identity = session.identity()
-    rels = sorted(set(file_set()) | set(identity["code"]) | set(identity["docs_sha256"]))
+    identity = session.identity(int(k))
+    rels = sorted(set(file_set(int(k))) | set(identity["code"]) | set(identity["docs_sha256"]))
     files: List[Dict[str, Any]] = []
     problems: List[str] = []
     for rel in rels:
@@ -103,7 +120,8 @@ def cmd_snapshot(dest: Path) -> int:
             external.append({"path": str(p), "sha256": sha(p), "sha256_copy_reread": sha(dst), "note": "outside the repository"})
     shutil.copy2(Path(__file__), dest / Path(__file__).name)
     exe = REPO / "build-us" / "Release" / "BattleShip.exe"
-    rec = {"task": dict(session.G.TASK), "created_utc": utc(), "tool": "m9_g3_source_snapshot_v1", "tool_sha256": sha(Path(__file__)), "repo": str(REPO), "dest": str(dest),
+    rec = {"task": dict(session.G.TASK), "created_utc": utc(), "tool": "m9_g3_source_snapshot_v1", "tool_sha256": sha(Path(__file__)), "repo": str(REPO), "dest": str(dest), "session": int(k),
+           "log_dirs": log_dirs(int(k)),
            "git_head": git("rev-parse", "HEAD"), "git_status_rl_docs": git("status", "--porcelain", "--", "rl", "docs").splitlines(),
            "authorised_tracked_edits": {k: dict(v) for k, v in session.AUTHORISED_TRACKED_EDITS.items()}, "authorised_edit_mismatch": edit_mismatch,
            "executable": {"path": str(exe), "sha256": sha(exe), "size": exe.stat().st_size, "note": "hashed, not copied (build output)"},
@@ -114,7 +132,7 @@ def cmd_snapshot(dest: Path) -> int:
            "wall_s": round(time.time() - t0, 1),
            "note": "copy on another disk of the same machine; hashes read from the repository before and after the copy, and from the D: copy by reading it back"}
     (dest / "snapshot.json").write_text(json.dumps(rec, indent=1, default=str) + "\n", encoding="utf-8")
-    print(json.dumps({k: rec[k] for k in ("result", "n_files", "bytes", "problems", "identity_code_mismatch", "identity_docs_mismatch", "authorised_edit_mismatch", "git_head", "wall_s")}, default=str))
+    print(json.dumps({kk: rec[kk] for kk in ("session", "result", "n_files", "bytes", "problems", "identity_code_mismatch", "identity_docs_mismatch", "authorised_edit_mismatch", "git_head", "wall_s")}, default=str))
     print(f"snapshot.json sha256 {sha(dest / 'snapshot.json')}")
     return 0 if rec["result"] == "PASS" else 1
 
@@ -124,12 +142,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("command", choices=("snapshot", "verify", "powershell"))
     ap.add_argument("--dest", type=Path, required=True)
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--session", type=int, default=1)
     a = ap.parse_args(argv)
     if not sys.flags.dont_write_bytecode:
         print("refused: run with python -B (no compiled module may be written under rl/)")
         return 2
     if a.command == "snapshot":
-        return cmd_snapshot(a.dest)
+        return cmd_snapshot(a.dest, int(a.session))
     if a.command == "verify":
         return snap1.cmd_verify(a.dest)
     text = snap1.powershell_script(a.dest)

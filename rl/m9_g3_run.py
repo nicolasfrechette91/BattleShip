@@ -34,6 +34,33 @@ G3Hooks = RUN2.G2Hooks
 worker_ticks = RUN2.worker_ticks
 
 
+def predecessor_assertions(cs: Mapping[str, Any], fs: Mapping[str, Any], *, session: int, table_sha256: Optional[str], members: Optional[Mapping[str, Any]] = None) -> List[str]:
+    """H6 of the s2 review (docs/rl_m9_g3_s2_prelaunch_review_2026-10-07.md): a resumed session k accepts only the PREDECESSOR'S FINAL state. The four
+    assertions: (1) the curriculum state is session k-1's, its sessions are 1..k-1 and its num_timesteps equals the final-state counters' (the state of a
+    non-final checkpoint is refused); (2) the final-state record is session k-1's; (3) its line outcome permits a next session; (4) the state's tape digest
+    equals the copied table's content digest (and the copied model's members equal the record's). Pure; zero ticks."""
+    k = int(session)
+    problems: List[str] = []
+    counters = dict(fs.get("counters") or {})
+    if int(cs.get("session", -1)) != k - 1:
+        problems.append(f"the curriculum state is session {cs.get('session')!r}'s, not session {k - 1}'s")
+    if sorted(int(x) for x in (cs.get("sessions") or [])) != list(range(1, k)):
+        problems.append(f"the curriculum state's sessions {cs.get('sessions')!r} are not 1..{k - 1}")
+    if int(cs.get("num_timesteps", -1)) != int(counters.get("num_timesteps", -2)):
+        problems.append(f"the curriculum state's num_timesteps {cs.get('num_timesteps')!r} is not the final state's {counters.get('num_timesteps')!r}: not the final checkpoint's state")
+    if int(fs.get("session", -1)) != k - 1:
+        problems.append(f"the final-state record is session {fs.get('session')!r}'s, not session {k - 1}'s")
+    line = dict(fs.get("line") or {})
+    if line.get("outcome") != "CONTINUE" or not line.get("s2_permitted"):
+        problems.append(f"the predecessor's line outcome {line.get('outcome')!r} (next session permitted: {line.get('s2_permitted')!r}) does not permit session {k}")
+    if table_sha256 is None or cs.get("tape_table_sha256") != table_sha256:
+        problems.append(f"the state's tape digest {str(cs.get('tape_table_sha256'))[:16]} differs from the copied table's {str(table_sha256)[:16]}")
+    rec_members = dict((fs.get("model_zip") or {}).get("members") or {})
+    if members is not None and rec_members and dict(members) != rec_members:
+        problems.append("the copied model's members differ from the final-state record's")
+    return problems
+
+
 @dataclass
 class G3Config(RUN2.G2Config):
     wall_caps_s: Mapping[str, float] = field(default_factory=lambda: dict(G.WALL_CAPS_S))
@@ -50,6 +77,7 @@ class G3Session(RUN2.G2Session):
         self.cfg: G3Config = cfg
         self.drift_records: List[Dict[str, Any]] = []
         self.tape_reuse_record: Optional[Dict[str, Any]] = None
+        self.resume_members: Optional[Dict[str, Any]] = None          # a resumed session: the copied model's member digests (= the predecessor's final members)
 
     # -- recording (the g3 scope) --
 
@@ -95,9 +123,17 @@ class G3Session(RUN2.G2Session):
             self.tape_pinned = A.read_json(self.root / "input" / "tape_baseline.json")
             if TP.table_digest(self.tape_pinned) != self.tape_pinned.get("sha256") or not self.tape_pinned.get("pinned"):
                 raise V.IntegrityStop("the pinned tape table's content digest differs or the table is not pinned", {"sha256": self.tape_pinned.get("sha256")})
+            members = RS.zip_member_digests(self.root / "input" / "model.zip")
+            pred = predecessor_assertions(cs, fs, session=int(cfg.session), table_sha256=self.tape_pinned.get("sha256"), members=members)
+            if pred:
+                raise V.IntegrityStop("resume refused: the saved state is not the predecessor's final state", {"problems": pred})
+            self.resume_members = dict(members)
             self.resumed = True
-            rec["resume"] = {"inputs": copied, "carried_state": self.carried, "saved_counters": fs.get("counters"), "previous_sessions": list(cfg.resume.get("previous_sessions") or []),
-                             "tape_baseline_sha256": self.tape_pinned.get("sha256")}
+            rec["resume"] = {"inputs": copied, "members": dict(members), "carried_state": self.carried, "saved_counters": fs.get("counters"),
+                             "previous_sessions": list(cfg.resume.get("previous_sessions") or []), "tape_baseline_sha256": self.tape_pinned.get("sha256"),
+                             "predecessor": {"session": int(fs.get("session", -1)), "sessions": list(cs.get("sessions") or []), "num_timesteps": cs.get("num_timesteps"), "line": dict(fs.get("line") or {}),
+                                             "assertions": "the curriculum state and the final-state record are session k-1's; the state is the final one (num_timesteps); the line permits a "
+                                                           "next session; the state's tape digest equals the copied table's; the copied model's members equal the record's"}}
         else:
             if cfg.tape_reuse is None:
                 raise V.IntegrityStop("no tape baseline: s1 reuses g2-s1's pinned table by digest (decision 7); nothing is measured", {})
@@ -226,7 +262,7 @@ class G3Session(RUN2.G2Session):
                 stop = TR.train(model, vec, arena, fr, rec, run_dir=run_dir, guard=self.clock.check, now=env.now, session=cfg.session, pool=pool, tables=self.tables, lengths=lengths,
                                 snapshot_of=hooks.snapshot_of, make_policy=hooks.make_probe_policy, log=env.log, transition_cap=cfg.transition_cap, tape_table_sha256=tape_sha,
                                 artifacts_root=(self.root / "artifacts") if cfg.write_artifacts else None, flatten=hooks.flatten, checkpoint_every=cfg.checkpoint_every, resumed=self.resumed,
-                                extra_meta={"split": [n_active, n_staging]})
+                                extra_meta={"split": [n_active, n_staging]}, expect_initial_members=self.resume_members if self.resumed else None)
             except Exception as exc:                                   # noqa: BLE001 - recorded (a software error), then re-raised
                 try:
                     self.put("training_summary", {"valid_end": False, "error": f"{type(exc).__name__}: {str(exc)[:300]}", "split": [n_active, n_staging], "pointer_final": fr.pointer,
@@ -244,7 +280,8 @@ class G3Session(RUN2.G2Session):
                    "spacing_final": fr.spacing_state(), "deferred_triggers": fr.deferred, "attempts_per_pointer": {str(k): v for k, v in sorted(fr.line_failed.items())},
                    "moves": fr.moves, "attempts": [fr._attempt_summary(a) | {"spacing": a.get("spacing")} for a in fr.attempts], "frontier": fr.state(), "recorder": rec.summary(), "arena": sm,
                    "checkpoints": stop.get("checkpoints"), "final_checkpoint": stop.get("final"), "transitions": stop.get("transitions"), "ticks": stop.get("ticks"), "stale_events": arena.stale_events,
-                   "resumed": self.resumed, "resumed_seed": stop.get("resumed_seed"), "entropy_note": "per-rollout entropy and explained variance are in training/rollouts.jsonl"}
+                   "resumed": self.resumed, "resumed_seed": stop.get("resumed_seed"), "initial_members_checked": stop.get("initial_members_checked"),
+                   "entropy_note": "per-rollout entropy and explained variance are in training/rollouts.jsonl"}
         self.put("training_summary", summary)
         A.write_json(run_dir / "checkpoints.json", A.stamp({"checkpoints": stop.get("checkpoints"), "final": stop.get("final")}))
         if stop.get("integrity"):

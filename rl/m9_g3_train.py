@@ -112,7 +112,27 @@ def make_callback_class() -> Any:
     Base = TR2.make_callback_class()
 
     class G3Callback(Base):
-        """g2's callback (checkpoints, the attempt hook at the rollout boundary, the caps); the per-rollout row adds the spacing state and the deferred triggers."""
+        """g2's callback (checkpoints, the attempt hook at the rollout boundary, the caps); the per-rollout row adds the spacing state and the deferred triggers.
+
+        Periodic checkpoints are aligned to the SESSION START (pre-launch hazard fix H2 of the s2 review, docs/rl_m9_g3_s2_prelaunch_review_2026-10-07.md):
+        a resumed session whose saved count is not a multiple of the rollout (s1 ended mid-rollout at 708,712 = 138 x 5,120 + 2,152) would otherwise never
+        reach a boundary with num_timesteps % 102,400 == 0 and would hold no periodic checkpoint at all. CHECKPOINT_EVERY (102,400) and the line contract
+        are unchanged; only the alignment moves from 0 to the session's own start. In s1 (start 0) the two rules coincide."""
+
+        def _on_rollout_start(self) -> None:
+            n = int(self.model.num_timesteps)
+            if n > self.start_timesteps and (n - self.start_timesteps) % self.every == 0:
+                self._checkpoint(n)
+            if self.fr.pending is not None and not self.fr.held() and not self.fr.stalled:      # g2's attempt hook, unchanged (g3 has no HELD and no STALLED: g2's STALLED stop is unreachable)
+                t = self.now()
+                rec = self.attempt(self.rec.episodes, n)
+                self.pause_s += self.now() - t
+                self.attempts.append({k: rec.get(k) for k in ("n", "a", "pointer", "result", "new_pointer", "wall_s", "snapshot")})
+                if rec.get("result") == "MOVED":
+                    A.append_jsonl(self.run_dir / "moves.jsonl", A.stamp({"t_wall_s": round(self.now() - self.t0, 2), "from": rec["pointer"], "to": rec["new_pointer"], "attempt": rec["n"],
+                                                                         "a": rec["a"], "num_timesteps": n, "episodes": self.rec.episodes, "session": self.fr.session}))
+            elif self.fr.pending is not None:
+                self.fr.pending = None
 
         def _on_rollout_end(self) -> None:
             self.rollout += 1
@@ -142,9 +162,12 @@ def make_callback_class() -> Any:
 def train(model: Any, env: Any, arena: AR.G2Arena, frontier: F.Frontier, recorder: G3TrainRecorder, *, run_dir: Path, guard: Callable[[], None], now: Callable[[], float], session: int,
           pool: Any, tables: Mapping[str, Any], lengths: Mapping[str, int], snapshot_of: Callable[[Any], Callable[[Path], Dict[str, Any]]], make_policy: Callable[[Path, str], Any],
           log: Callable[[str], None], transition_cap: int = G.TRANSITION_CAP, tape_table_sha256: Optional[str] = None, artifacts_root: Optional[Path] = None,
-          flatten: Any = None, checkpoint_every: int = G.CHECKPOINT_EVERY, resumed: bool = False, extra_meta: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+          flatten: Any = None, checkpoint_every: int = G.CHECKPOINT_EVERY, resumed: bool = False, extra_meta: Optional[Mapping[str, Any]] = None,
+          expect_initial_members: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
     """Run `model.learn` under the registered caps with the replenishing controlled frontier. `valid_end` is True for the wall cap, the native-tick cap and
-    the transition cap; False for any earlier stop. The final checkpoint (model, optimizer state, curriculum state) is always written."""
+    the transition cap; False for any earlier stop. The final checkpoint (model, optimizer state, curriculum state) is always written. In a resumed session
+    `expect_initial_members` names the predecessor's final policy and optimizer member digests: the initial checkpoint must carry them bit for bit (H12 of
+    the s2 review), checked before the first rollout so that a wrong load costs nothing."""
     import m9_g2_policy as PO
 
     run_dir = Path(run_dir)
@@ -153,7 +176,14 @@ def train(model: Any, env: Any, arena: AR.G2Arena, frontier: F.Frontier, recorde
     flat = flatten if flatten is not None else PO.flatten_obs
 
     def save(m: Any, n: int, why: str) -> Dict[str, Any]:
-        return save_checkpoint(m, frontier, run_dir, n, why, session=session, tape_table_sha256=tape_table_sha256, extra=extra_meta)
+        info = save_checkpoint(m, frontier, run_dir, n, why, session=session, tape_table_sha256=tape_table_sha256, extra=extra_meta)
+        if why == "initial" and expect_initial_members is not None:
+            got = dict(info.get("members_sha256") or {})
+            want = dict(expect_initial_members)
+            if got != want:
+                raise V.IntegrityStop("the resumed model's initial checkpoint members differ from the predecessor's final members", {"got": got, "expected": want, "checkpoint": info.get("checkpoint")})
+            stop["initial_members_equal_predecessor"] = True
+        return info
 
     def attempt(episodes_before: int, num_timesteps: int) -> Dict[str, Any]:
         return PR.run_attempt(frontier=frontier, train_arena=arena, pool=pool, tables=tables, train_budget=arena.budget, lengths=lengths, snapshot=snapshot_of(model), make_policy=make_policy,
@@ -196,10 +226,11 @@ def train(model: Any, env: Any, arena: AR.G2Arena, frontier: F.Frontier, recorde
                  "transitions": int(getattr(env, "transitions", 0)),
                  "ticks": {"prefix": arena.budget.prefix, "policy": arena.budget.policy, "probe": int(getattr(arena.budget, "probe", 0)), "total": arena.budget.consumed, "cap": arena.budget.cap},
                  "pointer_final": frontier.pointer, "spacing_final": frontier.spacing_state(), "deferred_triggers": frontier.deferred, "attempts_per_pointer": {str(k): v for k, v in sorted(frontier.line_failed.items())},
-                 "resumed_seed": getattr(model, "resumed_seed", None)})
+                 "resumed_seed": getattr(model, "resumed_seed", None), "initial_members_checked": expect_initial_members is not None})
     return stop
 
 
 def contract_description() -> Dict[str, Any]:
     return {"contract": TRAIN_CONTRACT, "ppo": dict(G.PPO), "checkpoint_every": G.CHECKPOINT_EVERY, "n_steps": "5,120 / 4", "losses": "PPO only: no imitation, self-imitation or auxiliary loss; "
-            "routes are start states only", "valid_ends": ["wall cap", "native-tick cap", "transition cap"], "attempt_hook": "on_rollout_start, after the previous update; refused inside the spacing"}
+            "routes are start states only", "valid_ends": ["wall cap", "native-tick cap", "transition cap"], "attempt_hook": "on_rollout_start, after the previous update; refused inside the spacing",
+            "checkpoint_alignment": "periodic checkpoints at start_timesteps + j x checkpoint_every, aligned to the session's own start (the s2 review's H2); the initial checkpoint at the start"}
