@@ -20,6 +20,14 @@ predecessor's line outcome, `previous_sessions` read from its line record, its t
 resume configuration with `expect` taken from the APPROVAL (never from the tree) and `previous_sessions` read from the predecessor's session/line.json
 (checked against its final state), and no tape reuse (the table is one of the copied inputs). Session 1's path is unchanged.
 
+Any session k >= 2 (the GENERIC resume path; docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md): the predecessor is session k-1. Its tree facts (files,
+bytes, increment manifest digest) are REGISTERED here for s1 and s2 and, for any later session, READ from its recorded D: increment (`predecessor_tree`:
+exactly one <date>_incr_m9_g3_s<j> folder whose PASS verification record names the tree); either way they are pinned in identity(k) and the approval.
+`trees_for(k)` protects every earlier g3 session tree s1 .. s(k-1) plus the seven older ones. `previous_sessions` is read from s(k-1)'s line record and
+cross-checked along the whole chain (every session's line rows extend its predecessor's; every resumed open recorded exactly its predecessor's rows;
+rl/m9_g3_report.line_chain_problems), at the preflight, at `run` and in `verify-run`. The predecessor's results record and approval are pinned among the
+documents (and required). The line consequence of session k is COMPUTED from the registered line rule (`line_consequence`), never hand-written.
+
 The ONE authorised edit of a tracked file (decision 9: the fragment assembly in rl/m9_eval_tests.py) is pinned below by its digest before and after; the
 preflight tolerates exactly that modified tracked file at exactly that digest and nothing else.
 """
@@ -60,7 +68,14 @@ TREES: Tuple[Tuple[str, Path, Path, Mapping[str, Any]], ...] = tuple(S2.TREES) +
 # the open and the close, with the registered counts, bytes and manifest digest (the s1 results record, section 9)
 G3_S1_INCREMENT = BACKUP_ROOT / "2026-10-07_incr_m9_g3_s1"
 G3_S1_FACTS = {"files": 4935, "bytes": 508_166_787, "increment_manifest_sha256": "d12966c135fdb614f08fab2d63ff0af894d171834ed9f87c802103b9024307a5"}
-PREDECESSOR_TREES: Dict[int, Tuple[str, Path, Path, Mapping[str, Any]]] = {1: ("m9_g3_s1", LINE_ROOT / "s1", G3_S1_INCREMENT, G3_S1_FACTS)}
+# s2 (the s2 results record, section 8; re-verified byte for byte against the increment by the tool and by the independent re-hash on 2026-10-08, the resume-k record)
+G3_S2_INCREMENT = BACKUP_ROOT / "2026-10-08_incr_m9_g3_s2"
+G3_S2_FACTS = {"files": 4478, "bytes": 477_564_684, "increment_manifest_sha256": "a696538766c381ebcfbbb0f8a9b6d98b516d4d585b0c1f41510007e749d1dd0e"}
+# the REGISTERED predecessor trees (facts pinned in this code AND cross-checked against the increment's own record by trees_state); a later g3 session tree is
+# DISCOVERED from its recorded D: increment (predecessor_tree), so that a session k >= 3 needs no preparation round to be prepared by this code
+PREDECESSOR_TREES: Dict[int, Tuple[str, Path, Path, Mapping[str, Any]]] = {1: ("m9_g3_s1", LINE_ROOT / "s1", G3_S1_INCREMENT, G3_S1_FACTS),
+                                                                         2: ("m9_g3_s2", LINE_ROOT / "s2", G3_S2_INCREMENT, G3_S2_FACTS)}
+INCREMENT_NAME_SUFFIX = "_incr_m9_g3_s"                # D:\BattleShip_runs_backup\<date>_incr_m9_g3_s<j>: the naming the s1 and s2 launch sessions used (rl/tools/runs_backup.py backup)
 TAPE_SOURCE = REPO_ROOT / G.TAPE_REUSE["source"]
 TAPE_RECORDS = REPO_ROOT / G.TAPE_REUSE["records"]
 CODE_FILES = ("m9_g3_contract.py", "m9_g3_frontier.py", "m9_g3_rule.py", "m9_g3_probe.py", "m9_g3_train.py", "m9_g3_run.py", "m9_g3_report.py", "m9_g3_session.py", "m9_g3_snapshot.py",
@@ -69,6 +84,8 @@ DOC_FILES = ("docs/rl_m9_g3_decisions_2026-10-06.md", "docs/rl_m9_g3_implementat
 # the records a resumed session rests on (S1 of the s2 review): pinned by identity(k >= 2) and in the s2 source snapshot
 S2_DOC_FILES = ("docs/rl_m9_g3_s1_results_2026-10-07.md", "docs/rl_m9_g3_launch_record_2026-10-07.md", "docs/rl_m9_g3_s1_approval.json", "docs/rl_m9_g3_recheck_2026-10-06.md",
                 "docs/rl_m9_g3_s2_prelaunch_review_2026-10-07.md", "docs/rl_m9_g3_s2_prep_decisions_2026-10-07.md")
+# the generic resume path's own record (k >= 2); every predecessor's approval and results record are added by predecessor_doc_files(k)
+RESUME_K_DOC_FILES = ("docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md",)
 SNAPSHOT_DEST_DEFAULT = Path(r"D:\BattleShip_source_snapshots\2026-10-06_m9_g3_s1")
 # what the s2 approval must state (B12 of the s2 review): the line consequence of session 2 and the pairing of the audits (H9, H11, N1)
 LINE_CONSEQUENCE: Dict[str, str] = {
@@ -101,22 +118,107 @@ def predecessor_root(k: int) -> Path:
     return run_root(int(k) - 1)
 
 
+def results_records(j: int) -> List[str]:
+    """The results record(s) of g3 session j: docs/rl_m9_g3_s<j>_results_<date>.md (exactly one is expected once the session is recorded)."""
+    return sorted(p.relative_to(REPO_ROOT).as_posix() for p in (REPO_ROOT / "docs").glob(f"rl_m9_g3_s{int(j)}_results_*.md") if p.is_file())
+
+
+def predecessor_doc_files(k: int) -> Tuple[str, ...]:
+    """Every earlier session's approval and results record (s1 .. s(k-1)): pinned by identity(k) and in the session-k snapshot."""
+    out: List[str] = []
+    for j in range(1, int(k)):
+        out.append(approval_path(j).relative_to(REPO_ROOT).as_posix())
+        out += results_records(j)
+    return tuple(dict.fromkeys(out))
+
+
+def predecessor_doc_problems(k: int) -> List[str]:
+    """A session k >= 2 requires each predecessor's approval record and exactly one results record (the records the resumed session rests on)."""
+    problems: List[str] = []
+    for j in range(1, int(k)):
+        if not approval_path(j).is_file():
+            problems.append(f"session {j} has no approval record {approval_path(j).relative_to(REPO_ROOT).as_posix()}")
+        rr = results_records(j)
+        if len(rr) != 1:
+            problems.append(f"session {j} has {len(rr)} results record(s) matching docs/rl_m9_g3_s{j}_results_*.md (exactly one expected)")
+    return problems
+
+
 def doc_files(k: int = 1) -> Tuple[str, ...]:
-    return DOC_FILES + (S2_DOC_FILES if int(k) >= 2 else ())
+    if int(k) < 2:
+        return DOC_FILES
+    return tuple(dict.fromkeys(DOC_FILES + S2_DOC_FILES + RESUME_K_DOC_FILES + predecessor_doc_files(k)))
 
 
 def snapshot_dest_default(k: int = 1) -> Path:
     return SNAPSHOT_DEST_DEFAULT if int(k) == 1 else Path(rf"D:\BattleShip_source_snapshots\<date>_m9_g3_s{int(k)}")
 
 
+# -- the predecessor trees (generic k) ----------------------------------------------------------------------------------------------------
+
+
+def increment_dirs_for(j: int) -> List[Path]:
+    """Every folder <date>_incr_m9_g3_s<j> under the backup root (exactly one is expected for a recorded session)."""
+    if not BACKUP_ROOT.is_dir():
+        return []
+    suffix = f"{INCREMENT_NAME_SUFFIX}{int(j)}"
+    return sorted(p for p in BACKUP_ROOT.iterdir() if p.is_dir() and p.name.endswith(suffix))
+
+
+def increment_facts(inc: Path, root: Path) -> Dict[str, Any]:
+    """files, bytes and manifest digest of a g3 session tree READ from its D: increment's verification record (rl/tools/runs_backup.py), with the checks a
+    discovered predecessor needs: the record is PASS, names the tree as its source, and the manifest on disk is at the record's digest. Reads only."""
+    import runs_backup as rb
+
+    out: Dict[str, Any] = {"increment": Path(inc).name, "files": None, "bytes": None, "increment_manifest_sha256": None, "verified_utc": None, "result": None, "problems": []}
+    rec_p = Path(inc) / rb.RECORD
+    if not rec_p.is_file():
+        out["problems"].append(f"{Path(inc).name}: no verification record {rb.RECORD}")
+        return out
+    rec = json.loads(rec_p.read_text(encoding="utf-8"))
+    out.update({"files": rec.get("files"), "bytes": rec.get("bytes"), "increment_manifest_sha256": rec.get("manifest_sha256"), "verified_utc": rec.get("verified_utc"), "result": rec.get("result")})
+    if rec.get("result") != "PASS":
+        out["problems"].append(f"{Path(inc).name}: the verification record is {rec.get('result')!r}, not PASS")
+    src = rec.get("source")
+    if not src or Path(str(src)).resolve() != Path(root).resolve():
+        out["problems"].append(f"{Path(inc).name}: the record's source {src!r} is not {_rel(Path(root))}")
+    man = Path(inc) / rb.MANIFEST
+    if not man.is_file():
+        out["problems"].append(f"{Path(inc).name}: no manifest {rb.MANIFEST}")
+    elif sha256_file(man) != rec.get("manifest_sha256"):
+        out["problems"].append(f"{Path(inc).name}: the manifest on disk differs from the record's digest")
+    if not isinstance(out["files"], int) or not isinstance(out["bytes"], int) or not isinstance(out["increment_manifest_sha256"], str):
+        out["problems"].append(f"{Path(inc).name}: the record carries no files / bytes / manifest digest")
+    return out
+
+
+def predecessor_tree(j: int) -> Optional[Tuple[str, Path, Path, Mapping[str, Any]]]:
+    """The protected-tree entry of g3 session j: the REGISTERED entry (s1, s2), else the one DISCOVERED from its recorded D: increment, with the facts read from
+    the increment's verification record; None when no increment exists or several do (ambiguous): such a session is an unregistered predecessor."""
+    j = int(j)
+    if j in PREDECESSOR_TREES:
+        return PREDECESSOR_TREES[j]
+    incs = increment_dirs_for(j)
+    if len(incs) != 1:
+        return None
+    facts = increment_facts(incs[0], run_root(j))
+    return (f"m9_g3_s{j}", run_root(j), incs[0], {"files": facts["files"], "bytes": facts["bytes"], "increment_manifest_sha256": facts["increment_manifest_sha256"],
+                                                   "source": "discovered from the increment's verification record", "record_problems": list(facts["problems"])})
+
+
 def trees_for(k: int = 1) -> Tuple[Tuple[str, Path, Path, Mapping[str, Any]], ...]:
-    """The protected trees of session k: the seven of s1's design plus every registered earlier g3 session tree (the eighth, runs/m9_g3/s1, for k >= 2)."""
-    return tuple(TREES) + tuple(PREDECESSOR_TREES[j] for j in range(1, int(k)) if j in PREDECESSOR_TREES)
+    """The protected trees of session k: the seven of s1's design plus every earlier g3 session tree s1 .. s(k-1) (registered or discovered from its increment)."""
+    out = list(TREES)
+    for j in range(1, int(k)):
+        t = predecessor_tree(j)
+        if t is not None:
+            out.append(t)
+    return tuple(out)
 
 
 def unregistered_predecessors(k: int = 1) -> List[int]:
-    """Earlier g3 sessions whose tree has no registered increment facts: a session after them cannot be prepared by this code."""
-    return [j for j in range(1, int(k)) if j not in PREDECESSOR_TREES]
+    """Earlier g3 sessions with neither registered facts nor exactly one recorded D: increment: a session after them cannot be prepared by this code."""
+    return [j for j in range(1, int(k)) if predecessor_tree(j) is None]
 
 
 def utc() -> str:
@@ -140,6 +242,11 @@ def trees_state(k: int = 1) -> Dict[str, Any]:
         for ek, ik in (("files", "files"), ("bytes", "bytes"), ("increment_manifest_sha256", "manifest_sha256")):
             if imm.get(ik) != expect[ek]:
                 probs.append(f"the increment's {ik} {imm.get(ik)!r} differs from the registered {expect[ek]!r}")
+        rec = dict(imm.get("increment_record") or {})
+        for ek in ("files", "bytes"):                   # the increment's own verification record must say what is registered (or, for a discovered tree, what it said when read)
+            if rec.get(ek) is not None and rec.get(ek) != expect[ek]:
+                probs.append(f"the increment's verification record says {ek} {rec.get(ek)!r}, the registered value is {expect[ek]!r}")
+        probs += [f"increment record: {p}" for p in list(expect.get("record_problems") or [])]
         out[name] = {"ok": bool(imm.get("ok")) and not probs, "files": imm.get("files"), "bytes": imm.get("bytes"), "manifest_sha256": imm.get("manifest_sha256"), "increment": inc.name, "problems": probs}
     out["ok"] = all(v["ok"] for kk, v in out.items() if kk != "ok")
     return out
@@ -263,10 +370,19 @@ def resume_inputs(k: int) -> Dict[str, Any]:
     else:
         out["previous_sessions"] = None
         out["problems"].append(f"no line record at {_rel(lnp)}")
-    t = PREDECESSOR_TREES.get(k - 1)
+    # the whole chain s1 .. s(k-1): every session's line rows extend its predecessor's, every resumed open recorded its predecessor's rows (generic k)
+    chain_probs, chain = RPT.line_chain_problems({j: run_root(j) for j in range(1, k)}, k)
+    out["chain"] = chain
+    out["problems"] += [f"line chain: {p}" for p in chain_probs]
+    if out["previous_sessions"] is not None and not chain_probs and out["previous_sessions"] != chain.get("rows"):
+        out["problems"].append("previous_sessions differ from the chain's rows")
+    t = predecessor_tree(k - 1)
     out["tree"] = {"name": t[0], "root": _rel(t[1]), "increment": t[2].name, **{kk: v for kk, v in t[3].items()}} if t else None
     if t is None:
-        out["problems"].append(f"session {k - 1}'s tree has no registered increment facts (an unregistered predecessor)")
+        incs = increment_dirs_for(k - 1)
+        out["problems"].append(f"session {k - 1}'s tree has no registered increment facts and {len(incs)} recorded increment(s) under {BACKUP_ROOT} (an unregistered predecessor)")
+    elif t[3].get("record_problems"):
+        out["problems"] += [f"predecessor increment: {p}" for p in t[3]["record_problems"]]
     out["expect"] = {key: files[key]["sha256_now"] for key in ("model_zip", "curriculum_state", "tape_baseline")}
     return out
 
@@ -282,7 +398,7 @@ def predecessor_problems(k: int) -> List[str]:
     if k < 2:
         return []
     ri = resume_inputs(k)
-    problems = list(ri.get("problems") or [])
+    problems = list(ri.get("problems") or []) + predecessor_doc_problems(k)
     if "final_state_sha256" not in ri:
         return problems
     if int(ri.get("session") or -1) != k - 1:
@@ -317,6 +433,7 @@ def identity(k: int = 1) -> Dict[str, Any]:
 
     dr = ses1.d_records_digest()
     pins = G1.archive_pins()
+    trees = trees_for(k)
     ident = {"gate": G.GATE, "line": G.LINE_ID, "session": int(k), "scope": G.SCOPE, "milestone": G.MILESTONE, "task": dict(G.TASK), "contract_sha256": G.contract_digest(),
             "line_contract_sha256": G.line_contract_digest(), "rules": {"frontier": G.FRONTIER_RULE_ID, "frontier_sha256": F.contract_digest(), "tape": G.TAPE_RULE_ID, "s1": G.S1_RULE_ID,
                                                                        "s1_sha256": R.s1_rule_digest(), "line": G.LINE_RULE_ID, "line_sha256": R.line_rule_digest()},
@@ -329,7 +446,8 @@ def identity(k: int = 1) -> Dict[str, Any]:
             "trees": {kk: {x: v[x] for x in ("files", "bytes", "manifest_sha256", "increment")} for kk, v in trees_state(k).items() if kk != "ok"},
             "caps": {"wall_caps_s": dict(G.WALL_CAPS_S), "tick_caps": dict(G.TICK_CAPS), "transition_cap": G.TRANSITION_CAP, "global_cap_s": G.GLOBAL_CAP_S, "memory_caps_mb": dict(G.MEMORY_CAPS_MB),
                      "max_battleship_processes": G.MAX_BATTLESHIP_PROCESSES, "split": list(G.SPLIT), "probe_slots": G.PROBE_SLOTS},
-            "budget": RUN3.budget_projection(), "ppo": dict(G.PPO), "readiness": ses1.READINESS, "code": {f"rl/{f}": sha256_file(RL / f) for f in CODE_FILES if (RL / f).is_file()},
+            "budget": RUN3.budget_projection(protected_trees=len(trees), protected_bytes=sum(int(t[3].get("bytes") or 0) for t in trees)),
+            "ppo": dict(G.PPO), "readiness": ses1.READINESS, "code": {f"rl/{f}": sha256_file(RL / f) for f in CODE_FILES if (RL / f).is_file()},
             "docs_sha256": {f: sha256_file(REPO_ROOT / f) for f in doc_files(k) if (REPO_ROOT / f).is_file()}, "git_head": ses1.git("rev-parse", "HEAD").strip(),
             "d_records": {"folders": dr["folders"], "digest": dr["digest"]}}
     if int(k) >= 2:
@@ -339,6 +457,32 @@ def identity(k: int = 1) -> Dict[str, Any]:
 
 def approval_status(k: int = 1, path: Optional[Path] = None, want: Optional[Mapping[str, Any]] = None) -> Tuple[bool, str]:
     return ses1.approval_status(Path(approval_path(k) if path is None else path), want if want is not None else identity(k))
+
+
+def line_consequence(k: int, previous_sessions: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """What the registered line rule (m9_g3_line_rule_v1) makes of session k's possible outcomes, given the recorded previous rows: B12 of the s2 review made
+    generic, COMPUTED by applying the rule to each hypothetical row (never hand-written), plus the fixed facts of the s2 record (the audit pairing, H9; the
+    naming, N1). Written into the approval of every session k >= 2. Pure; zero ticks."""
+    k = int(k)
+    prev = [dict(r) for r in previous_sessions]
+    before = R.apply_line(prev)
+    hyps: List[Tuple[str, Dict[str, Any]]] = [("NULL (D none)", {"outcome": "NULL", "D": None, "train_fraction": 1.0})]
+    hyps += [(f"INCONCLUSIVE or PASS with D = {lam}", {"outcome": "INCONCLUSIVE", "D": int(lam), "train_fraction": 1.0}) for lam in G.LANDINGS]
+    hyps += [("INCOMPLETE with train_fraction >= 0.5 (counts, D none)", {"outcome": "INCOMPLETE", "D": None, "train_fraction": G.INCOMPLETE_COUNTS_IF_TRAIN_FRACTION}),
+             ("INCOMPLETE with train_fraction < 0.5 (does not count)", {"outcome": "INCOMPLETE", "D": None, "train_fraction": 0.0}),
+             ("INVALID", {"outcome": "INVALID", "D": None, "train_fraction": 1.0})]
+    table: Dict[str, str] = {}
+    for label, row in hyps:
+        table[label] = R.apply_line(prev + [dict(row, k=k, R=None, attempts=0, failed_attempts={})])["outcome"]
+    kk = int(before["k"]) + 1
+    ends = sorted({v for v in table.values() if v != "CONTINUE"})
+    sentence = (f"session {k} (counted k = {kk} if its training reaches {int(G.INCOMPLETE_COUNTS_IF_TRAIN_FRACTION * 100)} % of the wall cap; counted sessions so far "
+                f"{before['counted_sessions']} with depths {before['depths']}) under {G.LINE_RULE_ID}: " + "; ".join(f"{lab} -> {out}" for lab, out in table.items())
+                + f". Line-ending outcomes reachable from this session: {ends}. Budget milestones (counted k: depth at or before): {dict(sorted(G.LINE_BUDGET.items()))}; "
+                f"END_SUCCESS at D <= {G.LINE_SUCCESS_DEPTH}; END_NO_PROGRESS from k = {G.LINE_PROGRESS_FROM_SESSION} when D_k is not earlier than D_(k-2); END_CAP at k = {G.LINE_CAP_SESSIONS}.")
+    return {"session": k, "rule": G.LINE_RULE_ID, "rule_sha256": R.line_rule_digest(), "counted_sessions_before": list(before["counted_sessions"]), "depths_before": list(before["depths"]),
+            "counted_k_if_this_session_counts": kk, "if_this_session_is": table, "line_ending_outcomes_reachable": ends, "end_budget": sentence,
+            "audit_pairing": LINE_CONSEQUENCE["audit_pairing"], "naming": LINE_CONSEQUENCE["naming"], "computed": "by rl/m9_g3_rule.apply_line on the recorded rows plus each hypothetical row"}
 
 
 # -- preflight ----------------------------------------------------------------------------------------------------------------------------
@@ -374,9 +518,11 @@ def preflight(k: int = 1, *, run_unit: bool = True) -> Dict[str, Any]:
         # the resume branch (the s2 review, H1): session k resumes from session k-1's recorded final state; its tree is the eighth protected tree (H4)
         pp = predecessor_problems(k)
         unreg = [j for j in unregistered_predecessors(k) if j != int(k) - 1]
-        rep["predecessor"] = {"session": int(k) - 1, "root": _rel(predecessor_root(k)), "problems": pp, "unregistered_earlier_sessions": unreg}
+        rep["predecessor"] = {"session": int(k) - 1, "root": _rel(predecessor_root(k)), "problems": pp, "unregistered_earlier_sessions": unreg,
+                              "trees": [{"name": t[0], "increment": t[2].name, "source": t[3].get("source", "registered")} for t in trees_for(k) if t[0].startswith("m9_g3_s")],
+                              "docs": list(predecessor_doc_files(k))}
         problems += [f"predecessor: {p}" for p in pp]
-        problems += [f"session {j}'s tree has no registered increment facts" for j in unreg]
+        problems += [f"session {j}'s tree has no registered increment facts and no single recorded increment" for j in unreg]
     if run_unit:
         r, p = _run_unit_suites()
         rep.update(r)
@@ -387,7 +533,7 @@ def preflight(k: int = 1, *, run_unit: bool = True) -> Dict[str, Any]:
     rep["executable_sha256"] = ident["executable_sha256"]
     rep["git_head"] = ident["git_head"]
     if int(k) >= 2:
-        rep["resume_inputs"] = {kk: v for kk, v in dict(ident.get("resume_inputs") or {}).items() if kk in ("predecessor_session", "root", "files", "members_now", "counters", "previous_sessions", "tree", "expect", "problems")}
+        rep["resume_inputs"] = {kk: v for kk, v in dict(ident.get("resume_inputs") or {}).items() if kk in ("predecessor_session", "root", "files", "members_now", "counters", "previous_sessions", "tree", "chain", "expect", "problems")}
     gp, ginfo = git_problems()
     rep["git"] = ginfo
     problems += gp
@@ -430,7 +576,7 @@ def preflight(k: int = 1, *, run_unit: bool = True) -> Dict[str, Any]:
     rd = ses1.readiness()
     rep["readiness"] = rd
     problems += [f"readiness: {p}" for p in rd["problems"]]
-    bp = RUN3.budget_projection()
+    bp = ident["budget"]                                 # the identity's projection for THIS session's trees (the close projected over them, the registered caps unchanged)
     rep["budget"] = bp
     if not bp["fits_global_cap_pessimistic"]:
         problems.append("the pessimistic projection does not fit the 145-minute session cap")
@@ -492,6 +638,7 @@ def cmd_run(k: int = 1) -> int:
         ri = dict(approval.get("resume_inputs") or {})
         expect = {kk: dict(ri.get("expect") or {}).get(kk) for kk in ("model_zip", "curriculum_state", "tape_baseline")}
         prev = RPT.read_previous_sessions(predecessor_root(k))
+        chain_probs, chain = RPT.line_chain_problems({j: run_root(j) for j in range(1, int(k))}, int(k))
         probs: List[str] = []
         if any(v is None for v in expect.values()):
             probs.append("the approval names no resume-input digests (resume_inputs.expect)")
@@ -499,6 +646,9 @@ def cmd_run(k: int = 1) -> int:
             probs.append(f"the approval's resume inputs are session {ri.get('predecessor_session')!r}'s, not session {int(k) - 1}'s")
         if prev != [dict(r) for r in (ri.get("previous_sessions") or [])]:
             probs.append("the approval's previous_sessions differ from the predecessor's line record")
+        probs += [f"line chain: {p}" for p in chain_probs]
+        if not chain_probs and prev != chain.get("rows"):
+            probs.append("the predecessor's line record differs from the chain's rows")
         if probs:
             print(json.dumps({"refused": probs}, indent=1))
             print("refused: the approval's resume inputs are unusable; nothing was launched")
@@ -507,7 +657,8 @@ def cmd_run(k: int = 1) -> int:
         resume = {"final_state": fs, "expect": expect, "previous_sessions": prev}
         tape_reuse = None
         resume_source = {"expect_from": "the approval record (resume_inputs.expect)", "previous_sessions_from": _rel(predecessor_root(k) / "session" / "line.json"),
-                         "final_state_from": _rel(predecessor_root(k) / "session" / "final_state.json"), "tape_reuse": None}
+                         "final_state_from": _rel(predecessor_root(k) / "session" / "final_state.json"), "tape_reuse": None,
+                         "chain_checked": {"sessions": [int(j) for j in range(1, int(k))], "roots": [_rel(run_root(j)) for j in range(1, int(k))], "summary": chain}}
     cfg = RUN3.G3Config(root=root, session=int(k), session_id=f"s{int(k)}", landings=G.LANDINGS, tape_reuse=tape_reuse, tape_source_records=TAPE_RECORDS, resume=resume,
                         open_record={"approval_sha256": sha256_file(ap), "preflight": {kk: pf.get(kk) for kk in ("executable_sha256", "git_head", "git", "readiness", "backup", "approval", "source_snapshot",
                                                                                                                   "unit_suite_m9_g3", "rule_self_test_m9_g3", "trees", "pins", "tape_reuse", "budget", "predecessor")},
@@ -538,7 +689,7 @@ def cmd_run(k: int = 1) -> int:
 def cmd_verify_run(k: int = 1) -> int:
     import m9_g3_report as RPT
 
-    rep = RPT.verify_run(run_root(k), predecessor_root=predecessor_root(k) if int(k) >= 2 else None)
+    rep = RPT.verify_run(run_root(k), predecessor_root=predecessor_root(k) if int(k) >= 2 else None, chain_roots={j: run_root(j) for j in range(1, int(k))} if int(k) >= 2 else None)
     print(json.dumps(A.stamp(rep), indent=1, default=str))
     return 0 if rep["ok"] else 1
 
@@ -565,7 +716,8 @@ def cmd_template(k: int = 1) -> int:
                                 "independent_verification": "<tool verify and an independent PowerShell re-hash>"},
                task=dict(G.TASK), created_utc=utc())
     if int(k) >= 2:
-        rec["line_consequence"] = dict(LINE_CONSEQUENCE)
+        prev = list((ident.get("resume_inputs") or {}).get("previous_sessions") or [])
+        rec["line_consequence"] = line_consequence(k, prev)
     print(json.dumps(rec, indent=1, default=str))
     return 0
 

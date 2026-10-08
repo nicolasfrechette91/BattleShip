@@ -386,14 +386,31 @@ class G3Session(RUN2.G2Session):
         return out
 
 
-def budget_projection(wall_caps: Mapping[str, float] = G.WALL_CAPS_S, global_cap: float = G.GLOBAL_CAP_S) -> Dict[str, Any]:
+# the close phase as MEASURED (reported, never deciding): it hashes every protected tree against its D: increment and is not clock-enforced (`finish` runs with
+# no phase set; WALL_CAPS_S["close"] = 300 s is a projection figure only, unchanged by decision). s2's close took 364.5 s against that figure (eight trees,
+# about 2.4 GB; the s2 results record, section 9); s1's took 88.0 s for seven trees (about 1.9 GB). The s2 rate is used to project a later session's close.
+CLOSE_MEASURED: Dict[str, Dict[str, Any]] = {"s1": {"trees": 7, "bytes": 1_913_324_405, "wall_s": 88.0}, "s2": {"trees": 8, "bytes": 2_421_491_192, "wall_s": 364.5}}
+
+
+def budget_projection(wall_caps: Mapping[str, float] = G.WALL_CAPS_S, global_cap: float = G.GLOBAL_CAP_S, *, protected_trees: int = 7, protected_bytes: Optional[int] = None) -> Dict[str, Any]:
     """The wall budget of one g3 session: every phase cap binding, the pool spawns and a grace per phase (pessimistic), and an expected case from g2-s1's
-    measured phases (T0 replaced by the five-episode drift check; the close hashes seven protected trees). A projection, not a promise."""
+    measured phases (T0 replaced by the five-episode drift check; the close hashes the protected trees). A projection, not a promise. `protected_trees` and
+    `protected_bytes` (the registered bytes of the trees the session's close hashes) feed the close-phase projection from s2's measured rate; the close is not
+    clock-enforced and the registered caps are unchanged, so `pessimistic_total_s` is the registered figure and the projected overrun is reported beside it."""
     phases_sum = sum(wall_caps.values())
     pessimistic = phases_sum + G.POOL_SPAWNS * G.POOL_SPAWN_S + G.WALL_CAP_GRACE_S * len(wall_caps)
     expected = {"open": 20, "p1": 30, "p2": 40, "t0": 60, "train": 4800, "audit": 300, "verify": 300, "close": 180}
+    s2 = CLOSE_MEASURED["s2"]
+    rate_s_per_gb = s2["wall_s"] / (s2["bytes"] / 1e9)
+    projected_close = round(protected_bytes / 1e9 * rate_s_per_gb, 1) if protected_bytes else None
+    overrun = max(0.0, (projected_close or 0.0) - float(wall_caps["close"]))
+    close = {"cap_s": wall_caps["close"], "clock_enforced": False, "measured": dict(CLOSE_MEASURED), "protected_trees": int(protected_trees), "protected_bytes": protected_bytes,
+             "projected_s_at_the_s2_rate": projected_close, "s2_rate_s_per_gb": round(rate_s_per_gb, 1), "projected_overrun_s": round(overrun, 1),
+             "note": "the close hashes every protected tree against its D: increment and runs with no phase cap active (finish sets the clock's phase to None); the 300 s figure is a "
+                     "projection input only and is NOT changed (the resume-k record, 2026-10-08); s2 measured 364.5 s against it; the overrun is reported here, never acted on"}
     return {"phase_caps_s": dict(wall_caps), "sum_of_caps_s": phases_sum, "pessimistic_total_s": pessimistic, "pessimistic_total_min": round(pessimistic / 60, 1), "global_cap_s": global_cap,
             "fits_global_cap_pessimistic": pessimistic <= global_cap, "slack_pessimistic_s": global_cap - pessimistic, "expected_total_s": sum(expected.values()), "expected_phases_s": expected,
-            "expected_native_ticks": {"t0": 15_000, "train": 12_000_000, "audit": 450_000, "verify": 400_000},
+            "expected_native_ticks": {"t0": 15_000, "train": 12_000_000, "audit": 450_000, "verify": 400_000}, "close": close,
+            "pessimistic_total_with_projected_close_s": round(pessimistic + overrun, 1), "fits_global_cap_with_projected_close": pessimistic + overrun <= global_cap,
             "note": "training ends by its 80-minute wall cap in every projection; T0 is the five-episode drift check (the tape is reused by digest); the session clock starts at the session object "
-                    "and counts the pool spawns; the preflight (unit suite) runs before it"}
+                    "and counts the pool spawns; the preflight (unit suite) runs before it; the close phase's measured overrun of its (unenforced) figure is reported under `close`"}

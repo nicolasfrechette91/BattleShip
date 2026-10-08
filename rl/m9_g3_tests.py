@@ -9,8 +9,10 @@ DETERMINISM (g1's and g2's rules, kept). (a) Pure tests use keyed sha256 streams
 the in-process lock-step pool (rl/m9_pool.LocalPool) and a virtual clock against the synthetic world (rl/m9_stub, rl/m9_g2_stub): a run is a pure function of
 its configuration. (c) The real SB3 save / load equivalence is tested on a zero-tick synthetic vector env with the real v3 spaces. (d) No test starts a game
 process; nothing depends on process scheduling or wall-clock duration; a source scan forbids randomness, sleeps and wall-clock reads inside tests. (e) The
-gates (git state with the one authorised edit, the seven protected trees and their D: increments, the eighth tree runs/m9_g3/s1 for session 2, the
-executable and tape pins, the real-model resume round trip on s1's final checkpoint) assert facts fixed once the trees are closed.
+gates (git state with the one authorised edit, the seven protected trees and their D: increments, the eighth tree runs/m9_g3/s1 for session 2 and the ninth
+runs/m9_g3/s2 for session 3, the executable and tape pins, the real-model resume round trip on every registered predecessor's final checkpoint) assert
+facts fixed once the trees are closed. Generic k (docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md): a stub chain s1 -> s2 -> s3, the line-chain
+cross-check with tampering, trees_for(3) and identity(3).
 
 THE SYNTHETIC WORLD IS NOT MARIO. It exercises code paths.
 """
@@ -70,6 +72,19 @@ FORBIDDEN_PATH_PREFIXES = ("tas_" + "input_2/", "rl/" + "fixtures/")       # spl
 SMALL_N_STEPS = 64                                                            # test configuration only: a short synthetic rollout so that attempts fire in a short virtual window
 SMALL_TAPE_KEYS = {2128: 6, 1966: 3, 1694: 3}                                 # test configuration only: the small synthetic tape (the production table has 200 / 40)
 E2E_NEED = 40
+# the registered predecessors' saved states, as recorded (s1: the s1 results record section 9 and the s2 preparation record B4; s2: the s2 results record section 8 and the
+# resume-k preparation record): the real-model resume round trip asserts them for every registered predecessor j, resumed as session j + 1 (seed 1000 + j + 1)
+KNOWN_FINAL_STATES: Dict[int, Dict[str, Any]] = {
+    1: {"model_zip": "669692023c2dacf838d03c94ae608d227b7598377828e7b4d1d36c7d7f3b5db8", "model_bytes": 1110611,
+        "policy.pth": "ffce330386c8c1335441ac22aa34e38c6f0df2aa8635f0f6a9aec4e71dea32ee", "policy.optimizer.pth": "c072b0dbf4a3d21e1f2ea1bab3988bbf61f9df4ff53d10fc993b09ff059af7aa",
+        "curriculum_state": "74adedd8004b6e4900e0bcf98f3b92f6ac3ccd69d2673294ca146a9a34668163", "final_state": "094d3ec734f167deb9aae7c6345820e665519e040596085f0b000acb954f0525",
+        "num_timesteps": 708712, "n_updates": 1380, "adam_step": 13800.0, "next_seed": 1002, "pointer": 2220, "sessions": [1]},
+    2: {"model_zip": "e6d2c7d48b71470bdd9574ee721ba2182c5bc09068febd1154df0bdc6b8f0ad9", "model_bytes": 1112120,
+        "policy.pth": "8afdb8ad01fa99cf7ff7958e449740d062d5eae62dd6b436bbaf7cdb0c8b5913", "policy.optimizer.pth": "18013ea1776240a9f9d574f5590bef08cd6179779eb70ec1ba1316f746b9f27f",
+        "curriculum_state": "cc7480df06b739ca5745b8d23730394f051fd5f58f69c9d0dea92e794f2cbef5", "final_state": "f9cf6c15e4759c8c22b3133f765f7617ebbeba67a2b47242a9508fcdfdcbbd8e",
+        "num_timesteps": 1864900, "n_updates": 3630, "adam_step": 36300.0, "next_seed": 1003, "pointer": 2040, "sessions": [1, 2]},
+}
+ALL_PHASES = {"open": True, "p1": True, "p2": True, "t0": True, "train": True, "audit": True, "verify": True}
 
 
 def test(fn: Callable[[], None]) -> Callable[[], None]:
@@ -961,39 +976,157 @@ def resumed_session_checkpoints_are_aligned_to_the_session_start() -> None:
 
 
 @test
+def stub_chain_of_three_sessions_each_resumed_from_its_predecessor_with_aligned_checkpoints() -> None:
+    """Generic k (the resume-k preparation): a three-session stub line s1 -> s2 -> s3. Every later session is resumed from its predecessor's recorded final
+    state with `expect` from that record, `previous_sessions` read from the predecessor's line record and the chain checked back to s1; the H6 assertions at
+    k = 3 see session 2 with sessions 1..2; the H12 member check holds; the periodic checkpoints are aligned to each session's own start; the line rows
+    extend the chain; verify_run passes with the chain roots; a tampered chain (an altered s1 row, an altered s2 open record, a dropped row) is refused where
+    the predecessor's own records alone would not show it; a resume of s2's state as session 4 is refused at the open."""
+    with tmpdir() as d:
+        tape = synthetic_tape(d)
+        over = {"b0": 2120, "forget_landing": 1966, "forget_when_b_below": 1920}
+        rollout = SMALL_N_STEPS * G.SPLIT[0]
+        roots: Dict[int, Path] = {}
+        s1, o1, _b1, _ = run_small(d / "s1", tape=tape, builder_over=over)
+        roots[1] = d / "s1" / "run"
+        ok("s1 permits s2", o1["line"]["outcome"] == "CONTINUE" and o1["line"]["s2_permitted"])
+        starts: Dict[int, int] = {}
+        for k in (2, 3):
+            pr = roots[k - 1]
+            fs = A.read_json(pr / "session" / "final_state.json")
+            start = int(fs["counters"]["num_timesteps"])
+            starts[k] = start
+            every = next((e for e in (rollout * 2, rollout * 3, rollout * 5, rollout * 7) if start % e != 0), rollout * 2)
+            ok(f"s{k}: decisive, the saved count {start} is not a multiple of the interval {every}", start % every != 0)
+            expect = {"model_zip": fs["model_zip"]["sha256"], "curriculum_state": fs["curriculum_state"]["sha256"], "tape_baseline": fs["tape_baseline"]["sha256"]}
+            cprobs, chain = RPT.line_chain_problems({j: roots[j] for j in range(1, k)}, k)
+            eq(f"s{k}: the chain s1..s{k - 1} is consistent", (cprobs, chain["sessions_checked"]), ([], k - 1))
+            prev = RPT.read_previous_sessions(pr)
+            eq(f"s{k}: previous_sessions = the chain's rows, sessions 1..{k - 1}", (prev, [r["k"] for r in prev]), (chain["rows"], list(range(1, k))))
+            b = SmallBuilder(d / f"s{k}" / "run", model_need=40, **over)
+            cfg = small_cfg(d / f"s{k}" / "run", tape, session=k, resume={"final_state": fs, "expect": expect, "previous_sessions": prev}, tape_reuse=None, checkpoint_every=every)
+            s = RUN3.G3Session(cfg, b.env(), hooks_for(b))
+            o = s.run()
+            root = d / f"s{k}" / "run"
+            roots[k] = root
+            eq(f"s{k} ran every phase", s.phases, ALL_PHASES)
+            opn = A.read_json(root / "session" / "open.json")
+            eq(f"s{k}: the H6 assertions saw session {k - 1} with sessions 1..{k - 1} at its final count", (opn["resume"]["predecessor"]["session"], opn["resume"]["predecessor"]["sessions"], opn["resume"]["predecessor"]["num_timesteps"]),
+               (k - 1, list(range(1, k)), start))
+            eq(f"s{k}: the members at the open are s{k - 1}'s final members", opn["resume"]["members"], fs["model_zip"]["members"])
+            eq(f"s{k}: the open recorded previous_sessions = the chain", opn["resume"]["previous_sessions"], prev)
+            cps = A.read_json(root / "training" / "checkpoints.json")
+            init = [c for c in cps["checkpoints"] if c["why"] == "initial"]
+            eq(f"s{k}: one initial checkpoint at the saved count, carrying s{k - 1}'s final members bit for bit (H12)", ([c["checkpoint"] for c in init], init[0]["members_sha256"]),
+               ([f"ckpt_{start:09d}"], fs["model_zip"]["members"]))
+            per = sorted(int(c["num_timesteps"]) for c in cps["checkpoints"] if c["why"] == "periodic")
+            n_final = int(cps["final"]["num_timesteps"])
+            want = [start + i * every for i in range(1, (n_final - start) // every + 1) if start + i * every < n_final]
+            ok(f"s{k}: trained past at least two intervals", len(want) >= 2)
+            ok(f"s{k}: periodic checkpoints at start + i x every: {per} (want {want})", per == want or per == want + [n_final])
+            ok(f"s{k}: every periodic checkpoint lies on a rollout boundary of this session", all((n - start) % rollout == 0 for n in per))
+            ts = A.read_json(root / "session" / "training_summary.json")
+            eq(f"s{k}: the session seed 1000 + k, the start and the member check", (ts["resumed_seed"], ts["stop"]["start_timesteps"], ts["initial_members_checked"]), (1000 + k, start, True))
+            ln = A.read_json(root / "session" / "line.json")
+            eq(f"s{k}: the line rows extend the chain by this session's row", (ln["sessions"][:-1], ln["sessions"][-1]["k"], len(ln["sessions"]), ln["k"]), (prev, k, k, k))
+            ok(f"s{k} permits s{k + 1}", o["line"]["outcome"] == "CONTINUE" and ln["s2_permitted"])
+            cs = A.read_json(root / "training" / "checkpoints" / "final" / "curriculum_state.json")
+            eq(f"s{k}: the final state carries sessions 1..{k} and the next seed", (cs["sessions"], A.read_json(root / "session" / "final_state.json")["next_session_seed"]), (list(range(1, k + 1)), 1000 + k + 1))
+            vr = RPT.verify_run(root, chain_roots={j: roots[j] for j in range(1, k)})
+            ok(f"s{k} verify-run ok with the chain roots: {vr['problems'][:3]}", vr["ok"])
+            eq(f"s{k} verify-run checked the chain back to s1", (vr["resume_checks"]["chain"]["ok"], vr["resume_checks"]["chain"]["sessions_checked"], vr["resume_checks"]["cross_checked"]), (True, k - 1, True))
+        ok("the three sessions' saved counts increased along the chain", starts[2] < starts[3] < int(A.read_json(roots[3] / "session" / "final_state.json")["counters"]["num_timesteps"]))
+        # H6 at k = 4 on s3's state holds; s2's state is refused for session 4 (sessions 1..2 are not 1..3) and for session 2
+        fs3 = A.read_json(roots[3] / "session" / "final_state.json")
+        cs3 = A.read_json(roots[3] / "training" / "checkpoints" / "final" / "curriculum_state.json")
+        tb3 = A.read_json(roots[3] / "input" / "tape_baseline.json")
+        eq("s3's final state would be accepted by a session 4", RUN3.predecessor_assertions(cs3, fs3, session=4, table_sha256=tb3["sha256"], members=fs3["model_zip"]["members"]), [])
+        ok("s3's final state is refused for a session 3 or 5", RUN3.predecessor_assertions(cs3, fs3, session=3, table_sha256=tb3["sha256"]) and RUN3.predecessor_assertions(cs3, fs3, session=5, table_sha256=tb3["sha256"]))
+        fs2 = A.read_json(roots[2] / "session" / "final_state.json")
+        expect2 = {"model_zip": fs2["model_zip"]["sha256"], "curriculum_state": fs2["curriculum_state"]["sha256"], "tape_baseline": fs2["tape_baseline"]["sha256"]}
+        b4 = SmallBuilder(d / "s4" / "run", model_need=40, **over)
+        o4 = RUN3.G3Session(small_cfg(d / "s4" / "run", tape, session=4, resume={"final_state": fs2, "expect": expect2, "previous_sessions": RPT.read_previous_sessions(roots[2])}, tape_reuse=None),
+                            b4.env(), hooks_for(b4)).run()
+        eq("resuming s2's state as session 4 is refused at the open with nothing trained", (o4["outcome"], o4["stop"]["phase"], (d / "s4" / "run" / "training").exists()), ("INVALID", "open", False))
+        ok("the refusal names the session", any("not session 3" in r for r in o4["reasons"]))
+        # a tampered chain: the predecessor's OWN records stay self-consistent, the chain check catches it
+        chain3 = {1: roots[1], 2: roots[2]}
+        ln1 = roots[1] / "session" / "line.json"
+        orig1 = ln1.read_bytes()
+        t = A.read_json(ln1)
+        t["sessions"][0]["train_fraction"] = 0.1
+        A.write_json(ln1, t)
+        ok("an altered s1 row breaks the chain (s2's rows no longer extend s1's)", any("do not extend" in p for p in RPT.line_chain_problems(chain3, 3)[0]))
+        ok("verify-run of s3 refuses the tampered chain", not RPT.verify_run(roots[3], chain_roots=chain3)["ok"])
+        ok("s2's own records alone still read as consistent (what the chain check adds)", RPT.read_previous_sessions(roots[2]) == A.read_json(roots[2] / "session" / "line.json")["sessions"])
+        ln1.write_bytes(orig1)
+        eq("restored", RPT.line_chain_problems(chain3, 3)[0], [])
+        op2 = roots[2] / "session" / "open.json"
+        orig2 = op2.read_bytes()
+        t = A.read_json(op2)
+        t["resume"]["previous_sessions"][0]["attempts"] = 99
+        A.write_json(op2, t)
+        ok("an altered open record of s2 is caught against s1's rows", any("recorded at its open" in p for p in RPT.line_chain_problems(chain3, 3)[0]))
+        op2.write_bytes(orig2)
+        ln2 = roots[2] / "session" / "line.json"
+        orig2l = ln2.read_bytes()
+        t = A.read_json(ln2)
+        t["sessions"] = t["sessions"][1:]
+        A.write_json(ln2, t)
+        ok("a dropped s1 row in s2's line record is caught by the chain check", any("expected 2" in p or "not sessions 1..2" in p for p in RPT.line_chain_problems(chain3, 3)[0]))
+        ok("the predecessor's own records would have passed (the line rule reproduces CONTINUE from the single row)", RPT.previous_sessions_problems(t["sessions"], t, fs2) == [])
+        ln2.write_bytes(orig2l)
+        eq("restored", RPT.line_chain_problems(chain3, 3)[0], [])
+        ok("verify-run of s3 passes again", RPT.verify_run(roots[3], chain_roots=chain3)["ok"])
+
+
+@test
 def real_model_resume_round_trip_on_the_predecessors_final_checkpoint() -> None:
-    """The real resume path as far as it goes without a game (the s2 review, section 1.4 item 6): resume_ppo on s1's actual model.zip with a DummyVecEnv
-    of the production observation and action spaces; continuity at num_timesteps 708,712, 1,380 updates and Adam step 13,800 on 12 parameters; the session
-    seed 1002; the re-saved policy and optimizer members bit-equal to s1's final members (ffce3303..., c072b0db...). A torch load, zero native ticks."""
+    """The real resume path as far as it goes without a game (the s2 review, section 1.4 item 6; generic k): for EVERY registered predecessor j, resume_ppo on its
+    actual final model.zip with a DummyVecEnv of the production observation and action spaces, resumed as session j + 1: continuity (num_timesteps, the updates,
+    the Adam step on 12 parameters), the session seed 1000 + j + 1, the re-saved policy and optimizer members bit-equal to the recorded final members, stable
+    over a second round trip. s1: 708,712 / 1,380 / 13,800 / seed 1002 / ffce3303... c072b0db...; s2: 1,864,900 / 3,630 / 36,300 / seed 1003 / 8afdb8ad...
+    18013ea1.... A torch load, zero native ticks."""
     import torch
     from stable_baselines3.common.vec_env import DummyVecEnv
 
     import m9_g3_session as S3
 
-    pr = S3.predecessor_root(2)
-    fs = A.read_json(pr / "session" / "final_state.json")
-    mz = pr / "training" / "checkpoints" / "final" / "model.zip"
-    eq("s1's final model.zip at its recorded digest", (RS.sha256_file(mz), mz.stat().st_size), (fs["model_zip"]["sha256"], fs["model_zip"]["bytes"]))
-    ok("the registered s1 digests", fs["model_zip"]["sha256"].startswith("669692023c2dacf8") and fs["model_zip"]["members"]["policy.pth"].startswith("ffce330386c8c133")
-       and fs["model_zip"]["members"]["policy.optimizer.pth"].startswith("c072b0dbf4a3d21e"))
-    saved = RS.saved_counters(mz)
-    eq("the counters read from the zip equal the final-state record", saved, fs["counters"])
-    eq("708,712 transitions, 1,380 updates, seed 0, Adam step 13,800 on 12 parameters", (saved["num_timesteps"], saved["n_updates"], saved["seed"], saved["adam_params"], set(saved["adam_steps"].values())),
-       (708712, 1380, 0, 12, {13800.0}))
+    eq("every registered predecessor has its known facts here", sorted(S3.PREDECESSOR_TREES), sorted(KNOWN_FINAL_STATES))
     torch.set_num_threads(1)
-    m = TR.resume_ppo(mz, DummyVecEnv([lambda: ZeroEnv() for _ in range(4)]), 4, 2)
-    eq("continuity after PPO.load and the session seed", (m.num_timesteps, m._n_updates, m.resumed_seed, m.n_steps * 4), (708712, 1380, 1002, G.ROLLOUT_SIZE))
-    eq("the live Adam steps", (set(RS.live_counters(m)["adam_steps"].values()), RS.live_counters(m)["adam_params"]), ({13800.0}, 12))
-    with zipfile.ZipFile(mz) as z:
-        sd = torch.load(io.BytesIO(z.read("policy.pth")), map_location="cpu", weights_only=True)
-    eq("the loaded policy tensors equal the member", RS.tensors_equal(PO.state_dict_of(m), sd), [])
-    with tmpdir() as d:
-        m.save(str(d / "resaved.zip"))
-        eq("the re-saved members are bit-equal to s1's final members (H12's premise for the real model)", RS.zip_member_digests(d / "resaved.zip"), fs["model_zip"]["members"])
-        m2 = TR.resume_ppo(d / "resaved.zip", DummyVecEnv([lambda: ZeroEnv() for _ in range(4)]), 4, 2)
-        m2.save(str(d / "resaved2.zip"))
-        eq("a second round trip is stable", RS.zip_member_digests(d / "resaved2.zip"), fs["model_zip"]["members"])
-    raises("a vector of the wrong size is refused (n_steps x n_envs != 5,120)", RS.ResumeError, lambda: TR.resume_ppo(mz, DummyVecEnv([lambda: ZeroEnv() for _ in range(2)]), 2, 2))
+    for j, want in sorted(KNOWN_FINAL_STATES.items()):
+        k = j + 1
+        pr = S3.predecessor_root(k)
+        eq(f"s{j}: predecessor_root({k}) is the registered tree", pr, S3.PREDECESSOR_TREES[j][1])
+        fs = A.read_json(pr / "session" / "final_state.json")
+        eq(f"s{j}: final_state.json at its recorded digest", RS.sha256_file(pr / "session" / "final_state.json"), want["final_state"])
+        mz = pr / "training" / "checkpoints" / "final" / "model.zip"
+        eq(f"s{j}: final model.zip at its recorded digest and size", (RS.sha256_file(mz), mz.stat().st_size, fs["model_zip"]["sha256"], fs["model_zip"]["bytes"]), (want["model_zip"], want["model_bytes"], want["model_zip"], want["model_bytes"]))
+        members = {"policy.pth": want["policy.pth"], "policy.optimizer.pth": want["policy.optimizer.pth"]}
+        eq(f"s{j}: the recorded members and the members in the zip", (fs["model_zip"]["members"], RS.zip_member_digests(mz)), (members, members))
+        csp = pr / "training" / "checkpoints" / "final" / "curriculum_state.json"
+        eq(f"s{j}: curriculum_state.json at its recorded digest", (RS.sha256_file(csp), fs["curriculum_state"]["sha256"]), (want["curriculum_state"], want["curriculum_state"]))
+        cs = A.read_json(csp)
+        eq(f"s{j}: the state's pointer, sessions and count", (cs["pointer"], cs["sessions"], cs["num_timesteps"], cs["session"]), (want["pointer"], want["sessions"], want["num_timesteps"], j))
+        saved = RS.saved_counters(mz)
+        eq(f"s{j}: the counters read from the zip equal the final-state record", saved, fs["counters"])
+        eq(f"s{j}: {want['num_timesteps']:,} transitions, {want['n_updates']:,} updates, seed 0, Adam step {want['adam_step']:,.0f} on 12 parameters",
+           (saved["num_timesteps"], saved["n_updates"], saved["seed"], saved["adam_params"], set(saved["adam_steps"].values())), (want["num_timesteps"], want["n_updates"], 0, 12, {want["adam_step"]}))
+        eq(f"s{j}: the recorded next session seed", fs["next_session_seed"], want["next_seed"])
+        m = TR.resume_ppo(mz, DummyVecEnv([lambda: ZeroEnv() for _ in range(4)]), 4, k)
+        eq(f"s{j} -> s{k}: continuity after PPO.load and the session seed", (m.num_timesteps, m._n_updates, m.resumed_seed, m.n_steps * 4), (want["num_timesteps"], want["n_updates"], want["next_seed"], G.ROLLOUT_SIZE))
+        eq(f"s{j}: the live Adam steps", (set(RS.live_counters(m)["adam_steps"].values()), RS.live_counters(m)["adam_params"]), ({want["adam_step"]}, 12))
+        with zipfile.ZipFile(mz) as z:
+            sd = torch.load(io.BytesIO(z.read("policy.pth")), map_location="cpu", weights_only=True)
+        eq(f"s{j}: the loaded policy tensors equal the member", RS.tensors_equal(PO.state_dict_of(m), sd), [])
+        with tmpdir() as d:
+            m.save(str(d / "resaved.zip"))
+            eq(f"s{j}: the re-saved members are bit-equal to the final members (H12's premise for the real model)", RS.zip_member_digests(d / "resaved.zip"), members)
+            m2 = TR.resume_ppo(d / "resaved.zip", DummyVecEnv([lambda: ZeroEnv() for _ in range(4)]), 4, k)
+            m2.save(str(d / "resaved2.zip"))
+            eq(f"s{j}: a second round trip is stable", RS.zip_member_digests(d / "resaved2.zip"), members)
+    mz1 = S3.PREDECESSOR_TREES[1][1] / "training" / "checkpoints" / "final" / "model.zip"
+    raises("a vector of the wrong size is refused (n_steps x n_envs != 5,120)", RS.ResumeError, lambda: TR.resume_ppo(mz1, DummyVecEnv([lambda: ZeroEnv() for _ in range(2)]), 2, 2))
 
 
 @test
@@ -1023,8 +1156,7 @@ def resume_inputs_and_previous_sessions_are_read_from_the_predecessors_records()
     eq("the file sizes", {k: v["bytes"] for k, v in ri["files"].items()}, {"model_zip": 1110611, "curriculum_state": 6496, "tape_baseline": 7768})
     eq("the predecessor check passes on s1", S3.predecessor_problems(2), [])
     eq("session 1 has no predecessor check", S3.predecessor_problems(1), [])
-    ok("a missing predecessor is named", any("no final-state record" in p for p in S3.predecessor_problems(3)))
-    eq("unregistered predecessors", (S3.unregistered_predecessors(2), S3.unregistered_predecessors(3)), ([], [2]))
+    eq("session 3's predecessor (s2) is registered and recorded, so session 3 has no predecessor problem either", (S3.predecessor_problems(3), S3.unregistered_predecessors(2)), ([], []))
     cs = A.read_json(pr / "training" / "checkpoints" / "final" / "curriculum_state.json")
     tb = A.read_json(pr / "input" / "tape_baseline.json")
     eq("the four predecessor assertions hold on s1's final state", RUN3.predecessor_assertions(cs, fs, session=2, table_sha256=tb["sha256"], members=fs["model_zip"]["members"]), [])
@@ -1033,6 +1165,82 @@ def resume_inputs_and_previous_sessions_are_read_from_the_predecessors_records()
     ok("a line that does not permit a next session is refused", RUN3.predecessor_assertions(cs, dict(fs, line=dict(fs["line"], s2_permitted=False)), session=2, table_sha256=tb["sha256"]))
     ok("a tape digest mismatch is refused", RUN3.predecessor_assertions(cs, fs, session=2, table_sha256="0" * 64))
     ok("differing members are refused", RUN3.predecessor_assertions(cs, fs, session=2, table_sha256=tb["sha256"], members={"policy.pth": "0" * 64, "policy.optimizer.pth": "0" * 64}))
+    # generic k: session 3 from s2's records (the resume-k preparation, docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md)
+    pr2 = S3.predecessor_root(3)
+    eq("predecessor_root(3) is the registered runs/m9_g3/s2", pr2, S3.PREDECESSOR_TREES[2][1])
+    prev2 = RPT.read_previous_sessions(pr2)
+    eq("s2's rows as recorded: s1's row, then s2's", ([r["k"] for r in prev2], prev2[0], {kk: prev2[1][kk] for kk in ("outcome", "D", "R", "train_fraction", "attempts", "failed_attempts")}),
+       ([1, 2], prev[0], {"outcome": "INCONCLUSIVE", "D": 2128, "R": None, "train_fraction": 0.9988, "attempts": 22, "failed_attempts": {"2040": 5, "2060": 3, "2140": 2, "2160": 1, "2180": 1, "2200": 1, "2220": 4, "2240": 1, "2280": 4}}))
+    cp, chain = RPT.line_chain_problems({1: pr, 2: pr2}, 3)
+    eq("the chain s1 -> s2 is consistent and ends in s2's rows", (cp, chain["sessions_checked"], chain["rows"], [s["k"] for s in chain["sessions"]]), ([], 2, prev2, [1, 2]))
+    eq("the chain for session 2 is s1 alone", (RPT.line_chain_problems({1: pr}, 2)[0], RPT.line_chain_problems({1: pr}, 2)[1]["rows"]), ([], prev))
+    ok("a chain missing a session is caught", RPT.line_chain_problems({2: pr2}, 3)[0])
+    ok("a chain whose roots are swapped is caught", RPT.line_chain_problems({1: pr2, 2: pr}, 3)[0])
+    ri3 = S3.resume_inputs(3)
+    eq("no problem with s2's inputs", ri3["problems"], [])
+    eq("expect: s2's final state at the recorded digests", ri3["expect"], {"model_zip": KNOWN_FINAL_STATES[2]["model_zip"], "curriculum_state": KNOWN_FINAL_STATES[2]["curriculum_state"], "tape_baseline": "81fa52c21078b2c2e5af9239678918099c6fb407608de085c7dd0c46d98196cd"})
+    eq("the members, now and recorded", (ri3["members_now"], ri3["members_now"] == ri3["members_recorded"]), ({"policy.pth": KNOWN_FINAL_STATES[2]["policy.pth"], "policy.optimizer.pth": KNOWN_FINAL_STATES[2]["policy.optimizer.pth"]}, True))
+    eq("the counters, the next seed, the line, previous_sessions, the final-state digest", (ri3["counters"]["num_timesteps"], ri3["counters"]["n_updates"], set(ri3["counters"]["adam_steps"].values()), ri3["counters"]["adam_params"], ri3["next_session_seed"],
+                                                                                            ri3["line"]["outcome"], ri3["line"]["s2_permitted"], ri3["previous_sessions"], ri3["final_state_sha256"]),
+       (1864900, 3630, {36300.0}, 12, 1003, "CONTINUE", True, prev2, KNOWN_FINAL_STATES[2]["final_state"]))
+    eq("the predecessor tree's registered facts (s2, the ninth tree)", (ri3["tree"]["name"], ri3["tree"]["files"], ri3["tree"]["bytes"], ri3["tree"]["increment_manifest_sha256"], ri3["tree"]["increment"]),
+       ("m9_g3_s2", 4478, 477564684, "a696538766c381ebcfbbb0f8a9b6d98b516d4d585b0c1f41510007e749d1dd0e", "2026-10-08_incr_m9_g3_s2"))
+    eq("the file sizes", {kk: v["bytes"] for kk, v in ri3["files"].items()}, {"model_zip": 1112120, "curriculum_state": 11560, "tape_baseline": 7768})
+    eq("the chain in the identity", (ri3["chain"]["sessions_checked"], ri3["chain"]["rows"]), (2, prev2))
+    eq("the predecessor check passes on s2 (session 3)", S3.predecessor_problems(3), [])
+    ok("a missing predecessor is named (session 4)", any("no final-state record" in p for p in S3.predecessor_problems(4)))
+    eq("unregistered predecessors", (S3.unregistered_predecessors(3), S3.unregistered_predecessors(4)), ([], [3]))
+    eq("session 3's tree is not discoverable yet (no increment), session 2's increment is unique", (S3.predecessor_tree(3), [p.name for p in S3.increment_dirs_for(2)], S3.predecessor_tree(2)[2].name), (None, ["2026-10-08_incr_m9_g3_s2"], "2026-10-08_incr_m9_g3_s2"))
+    for j, inc in ((1, S3.G3_S1_INCREMENT), (2, S3.G3_S2_INCREMENT)):
+        facts = S3.increment_facts(inc, S3.run_root(j))
+        eq(f"s{j}: the registered facts equal the increment's own verification record", ({kk: facts[kk] for kk in ("files", "bytes", "increment_manifest_sha256")}, facts["problems"], facts["result"]),
+           (dict(S3.PREDECESSOR_TREES[j][3]), [], "PASS"))
+    ok("an increment record naming another tree is refused", S3.increment_facts(S3.G3_S2_INCREMENT, S3.run_root(1))["problems"])
+    eq("the predecessor documents of session 3", S3.predecessor_doc_files(3), ("docs/rl_m9_g3_s1_approval.json", "docs/rl_m9_g3_s1_results_2026-10-07.md", "docs/rl_m9_g3_s2_approval.json", "docs/rl_m9_g3_s2_results_2026-10-08.md"))
+    eq("no document problem for sessions 2 and 3; session 4 lacks s3's two records", (S3.predecessor_doc_problems(2), S3.predecessor_doc_problems(3), len(S3.predecessor_doc_problems(4))), ([], [], 2))
+    ok("doc_files(3) carries the s2 records, the resume-k record and the s1 set", {"docs/rl_m9_g3_s2_approval.json", "docs/rl_m9_g3_s2_results_2026-10-08.md", "docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md"} <= set(S3.doc_files(3))
+       and set(S3.doc_files(2)) <= set(S3.doc_files(3)) and set(S3.doc_files(1)) <= set(S3.doc_files(2)))
+    cs2 = A.read_json(pr2 / "training" / "checkpoints" / "final" / "curriculum_state.json")
+    fs2 = A.read_json(pr2 / "session" / "final_state.json")
+    tb2 = A.read_json(pr2 / "input" / "tape_baseline.json")
+    eq("the H6 assertions hold on s2's final state for session 3 (sessions 1..2, the final count 1,864,900)", RUN3.predecessor_assertions(cs2, fs2, session=3, table_sha256=tb2["sha256"], members=fs2["model_zip"]["members"]), [])
+    ok("s2's state is refused for a session 2 or 4", RUN3.predecessor_assertions(cs2, fs2, session=2, table_sha256=tb2["sha256"]) and RUN3.predecessor_assertions(cs2, fs2, session=4, table_sha256=tb2["sha256"]))
+    ok("a non-final s2 checkpoint's state is refused", RUN3.predecessor_assertions(dict(cs2, num_timesteps=1835112), fs2, session=3, table_sha256=tb2["sha256"]))
+    # the line consequence, computed from the registered rule (never hand-written)
+    lc2, lc3 = S3.line_consequence(2, prev), S3.line_consequence(3, prev2)
+    t2, t3 = lc2["if_this_session_is"], lc3["if_this_session_is"]
+    eq("session 2 was the END_BUDGET_2128 session (as the s2 approval stated by hand)", (t2["NULL (D none)"], t2["INCONCLUSIVE or PASS with D = 2128"], t2["INCOMPLETE with train_fraction >= 0.5 (counts, D none)"], t2["INCOMPLETE with train_fraction < 0.5 (does not count)"], t2["INVALID"]),
+       ("END_BUDGET_2128", "CONTINUE", "END_BUDGET_2128", "CONTINUE", "SUSPENDED"))
+    eq("session 3: no budget milestone; END_SUCCESS at 1,473; INVALID suspends; the rule digest", (t3["NULL (D none)"], t3["INCONCLUSIVE or PASS with D = 1694"], t3["INCONCLUSIVE or PASS with D = 1473"], t3["INVALID"], lc3["counted_k_if_this_session_counts"], lc3["line_ending_outcomes_reachable"], lc3["rule_sha256"]),
+       ("CONTINUE", "CONTINUE", "END_SUCCESS", "SUSPENDED", 3, ["END_SUCCESS", "SUSPENDED"], R.line_rule_digest()))
+    lc4 = S3.line_consequence(4, prev2 + [dict(prev2[1], k=3, outcome="NULL", D=None)])
+    eq("session 4 after a NULL s3 would be the END_BUDGET_1966 session", (lc4["if_this_session_is"]["INCONCLUSIVE or PASS with D = 2128"], lc4["if_this_session_is"]["INCONCLUSIVE or PASS with D = 1966"], lc4["counted_k_if_this_session_counts"]), ("END_BUDGET_1966", "CONTINUE", 4))
+    ok("the consequence carries the fixed facts (the audit pairing, the naming)", lc3["audit_pairing"] == S3.LINE_CONSEQUENCE["audit_pairing"] and lc3["naming"] == S3.LINE_CONSEQUENCE["naming"] and "m9_g3_line_rule_v1" in lc3["end_budget"])
+    # a tampered chain on copies of the real records: the predecessor's own records stay self-consistent, the chain check catches it
+    with tmpdir() as d:
+        for j, src in ((1, pr), (2, pr2)):
+            (d / f"s{j}" / "session").mkdir(parents=True)
+            for n in ("line.json", "final_state.json", "open.json"):
+                shutil.copyfile(src / "session" / n, d / f"s{j}" / "session" / n)
+        roots = {1: d / "s1", 2: d / "s2"}
+        eq("the copied chain is consistent", RPT.line_chain_problems(roots, 3)[0], [])
+        t = A.read_json(d / "s1" / "session" / "line.json")
+        t["sessions"][0]["train_fraction"] = 0.1
+        A.write_json(d / "s1" / "session" / "line.json", t)
+        ok("an altered s1 row breaks the chain (s2's rows no longer extend s1's)", any("do not extend" in p for p in RPT.line_chain_problems(roots, 3)[0]))
+        shutil.copyfile(pr / "session" / "line.json", d / "s1" / "session" / "line.json")
+        t = A.read_json(d / "s2" / "session" / "open.json")
+        t["resume"]["previous_sessions"][0]["attempts"] = 99
+        A.write_json(d / "s2" / "session" / "open.json", t)
+        ok("an altered s2 open record is caught against s1's rows", any("recorded at its open" in p for p in RPT.line_chain_problems(roots, 3)[0]))
+        shutil.copyfile(pr2 / "session" / "open.json", d / "s2" / "session" / "open.json")
+        t = A.read_json(d / "s2" / "session" / "line.json")
+        t["sessions"] = t["sessions"][1:]
+        A.write_json(d / "s2" / "session" / "line.json", t)
+        ok("a dropped s1 row in s2's line record is caught by the chain check, though s2's own records read as consistent",
+           RPT.line_chain_problems(roots, 3)[0] and RPT.previous_sessions_problems(t["sessions"], t, fs2) == [] and RPT.read_previous_sessions(d / "s2") == t["sessions"])
+        shutil.copyfile(pr2 / "session" / "line.json", d / "s2" / "session" / "line.json")
+        eq("restored", RPT.line_chain_problems(roots, 3)[0], [])
 
 
 @test
@@ -1164,9 +1372,13 @@ def identity_approval_write_guard_and_the_reused_tape() -> None:
     ok("the session's own tree is not protected", S3.run_root(1).resolve() not in roots and S3.LINE_ROOT.resolve() not in roots)
     eq("the seven protected trees of session 1", [t[0] for t in S3.trees_for(1)], ["rd1", "rd2", "rd3", "rd4", "m9_g1", "m9_g1_eval", "m9_g2_s1"])
     eq("the eighth protected tree of session 2 is runs/m9_g3/s1 (H4)", [t[0] for t in S3.trees_for(2)], ["rd1", "rd2", "rd3", "rd4", "m9_g1", "m9_g1_eval", "m9_g2_s1", "m9_g3_s1"])
+    eq("the ninth protected tree of session 3 is runs/m9_g3/s2 (generic k: every earlier g3 session tree)", [t[0] for t in S3.trees_for(3)], ["rd1", "rd2", "rd3", "rd4", "m9_g1", "m9_g1_eval", "m9_g2_s1", "m9_g3_s1", "m9_g3_s2"])
+    eq("session 4 adds no tree until s3's increment is recorded", [t[0] for t in S3.trees_for(4)], [t[0] for t in S3.trees_for(3)])
     eq("TREES itself stays the seven of s1's design", [t[0] for t in S3.TREES], ["rd1", "rd2", "rd3", "rd4", "m9_g1", "m9_g1_eval", "m9_g2_s1"])
     roots2 = {p.resolve() for p in S3.write_guard_roots(2)}
     ok("session 2's write guard covers runs/m9_g3/s1 and not its own tree", (REPO / "runs" / "m9_g3" / "s1").resolve() in roots2 and S3.run_root(2).resolve() not in roots2)
+    roots3 = {p.resolve() for p in S3.write_guard_roots(3)}
+    ok("session 3's write guard covers runs/m9_g3/s1 and s2 and not its own tree", (REPO / "runs" / "m9_g3" / "s1").resolve() in roots3 and (REPO / "runs" / "m9_g3" / "s2").resolve() in roots3 and S3.run_root(3).resolve() not in roots3)
     ok("every code file of the identity exists", all((RL / f).is_file() for f in S3.CODE_FILES))
     eq("the reused tape passes its checks", S3.tape_reuse_problems(), [])
     ident = S3.identity(1)
@@ -1187,24 +1399,41 @@ def identity_approval_write_guard_and_the_reused_tape() -> None:
     bp = RUN3.budget_projection()
     ok("the budget fits with no trimming", bp["fits_global_cap_pessimistic"])
     ok("session 1's identity carries no resume inputs", "resume_inputs" not in ident)
-    # session 2: the identity pins the resume inputs (H5) and the eight trees; the approval must name them
-    ident2 = S3.identity(2)
-    ri = ident2["resume_inputs"]
-    eq("identity(2): session, the eight trees, the s1 records among the docs", (ident2["session"], sorted(ident2["trees"]), all(f in ident2["docs_sha256"] for f in ("docs/rl_m9_g3_s1_results_2026-10-07.md", "docs/rl_m9_g3_launch_record_2026-10-07.md", "docs/rl_m9_g3_s1_approval.json"))),
-       (2, sorted(["rd1", "rd2", "rd3", "rd4", "m9_g1", "m9_g1_eval", "m9_g2_s1", "m9_g3_s1"]), True))
-    eq("identity(2) pins s1's final model, its members, the state, the tape, the counters and previous_sessions", (ri["expect"]["model_zip"][:16], ri["members_now"]["policy.pth"][:16], ri["members_now"]["policy.optimizer.pth"][:16], ri["expect"]["curriculum_state"][:16], ri["expect"]["tape_baseline"][:16],
-                                                                                                                 ri["counters"]["num_timesteps"], ri["previous_sessions"][0]["k"], ri["tree"]["files"], ri["problems"]),
+    eq("session 1's budget projects the close over the seven trees", (ident["budget"]["close"]["protected_trees"], ident["budget"]["pessimistic_total_s"]), (7, 7780.0))
+    # session 2 (the s2 launch path, kept): the resume inputs pin s1's final state
+    ri2 = S3.resume_inputs(2)
+    eq("resume_inputs(2) pins s1's final model, its members, the state, the tape, the counters, previous_sessions and the eighth tree", (ri2["expect"]["model_zip"][:16], ri2["members_now"]["policy.pth"][:16], ri2["members_now"]["policy.optimizer.pth"][:16], ri2["expect"]["curriculum_state"][:16],
+                                                                                                                                      ri2["expect"]["tape_baseline"][:16], ri2["counters"]["num_timesteps"], ri2["previous_sessions"][0]["k"], ri2["tree"]["files"], ri2["problems"]),
        ("669692023c2dacf8", "ffce330386c8c133", "c072b0dbf4a3d21e", "74adedd8004b6e49", "81fa52c21078b2c2", 708712, 1, 4935, []))
+    # session 3 (the generic path): the identity pins the resume inputs of s2, the chain, the nine trees and every predecessor's records; the approval must name them
+    ident3 = S3.identity(3)
+    ri = ident3["resume_inputs"]
+    eq("identity(3): session, the nine trees, the s1 and s2 records among the docs", (ident3["session"], sorted(ident3["trees"]), all(f in ident3["docs_sha256"] for f in ("docs/rl_m9_g3_s1_results_2026-10-07.md", "docs/rl_m9_g3_launch_record_2026-10-07.md", "docs/rl_m9_g3_s1_approval.json",
+                                                                                                                                                                      "docs/rl_m9_g3_s2_approval.json", "docs/rl_m9_g3_s2_results_2026-10-08.md", "docs/rl_m9_g3_s2_prep_decisions_2026-10-07.md"))),
+       (3, sorted(["rd1", "rd2", "rd3", "rd4", "m9_g1", "m9_g1_eval", "m9_g2_s1", "m9_g3_s1", "m9_g3_s2"]), True))
+    eq("identity(3) pins s2's final model, its members, the state, the tape, the counters, previous_sessions (two rows), the chain and s2's tree", (ri["expect"]["model_zip"][:16], ri["members_now"]["policy.pth"][:16], ri["members_now"]["policy.optimizer.pth"][:16], ri["expect"]["curriculum_state"][:16],
+                                                                                                                                                  ri["expect"]["tape_baseline"][:16], ri["counters"]["num_timesteps"], [r["k"] for r in ri["previous_sessions"]], ri["chain"]["sessions_checked"], ri["tree"]["files"], ri["problems"]),
+       ("e6d2c7d48b71470b", "8afdb8ad01fa99cf", "18013ea1776240a9", "cc7480df06b739ca", "81fa52c21078b2c2", 1864900, [1, 2], 2, 4478, []))
+    eq("the identity's trees carry s2's measured facts", (ident3["trees"]["m9_g3_s2"]["files"], ident3["trees"]["m9_g3_s2"]["bytes"], ident3["trees"]["m9_g3_s2"]["manifest_sha256"][:16], ident3["trees"]["m9_g3_s2"]["increment"]), (4478, 477564684, "a696538766c381eb", "2026-10-08_incr_m9_g3_s2"))
+    eq("session 3's budget: the registered caps unchanged, the close projected over nine trees at the s2 rate, reported not enforced", (ident3["budget"]["pessimistic_total_s"], ident3["budget"]["close"]["cap_s"], ident3["budget"]["close"]["clock_enforced"], ident3["budget"]["close"]["protected_trees"],
+                                                                                                                                      ident3["budget"]["close"]["protected_bytes"] > 2_421_491_192, ident3["budget"]["fits_global_cap_pessimistic"], ident3["budget"]["fits_global_cap_with_projected_close"]),
+       (7780.0, 300.0, False, 9, True, True, True))
     with tmpdir() as d:
-        A.write_json(d / "a2.json", A.stamp(dict(ident2, approval="APPROVED: test", source_snapshot={})))
-        okk, why = S3.approval_status(2, d / "a2.json", ident2)
-        ok(f"a matching session-2 record is approved ({why})", okk)
-        A.write_json(d / "b2.json", A.stamp(dict(ident2, approval="APPROVED: test", resume_inputs=dict(ri, expect=dict(ri["expect"], model_zip="0" * 64)))))
-        okk, why = S3.approval_status(2, d / "b2.json", ident2)
+        A.write_json(d / "a3.json", A.stamp(dict(ident3, approval="APPROVED: test", source_snapshot={})))
+        okk, why = S3.approval_status(3, d / "a3.json", ident3)
+        ok(f"a matching session-3 record is approved ({why})", okk)
+        A.write_json(d / "b3.json", A.stamp(dict(ident3, approval="APPROVED: test", resume_inputs=dict(ri, expect=dict(ri["expect"], model_zip="0" * 64)))))
+        okk, why = S3.approval_status(3, d / "b3.json", ident3)
         ok("a record naming other resume inputs is refused", not okk and "resume_inputs" in why)
-        A.write_json(d / "c2.json", A.stamp(dict(ident2, approval="APPROVED: test", session=1)))
-        okk, why = S3.approval_status(2, d / "c2.json", ident2)
-        ok("a session-1 record is refused for session 2", not okk and "session" in why)
+        A.write_json(d / "c3.json", A.stamp(dict(ident3, approval="APPROVED: test", session=2)))
+        okk, why = S3.approval_status(3, d / "c3.json", ident3)
+        ok("a session-2 record is refused for session 3", not okk and "session" in why)
+        A.write_json(d / "d3.json", A.stamp(dict(ident3, approval="APPROVED: test", resume_inputs=dict(ri, tree=dict(ri["tree"], files=1)))))
+        okk, why = S3.approval_status(3, d / "d3.json", ident3)
+        ok("a record naming other predecessor tree facts is refused", not okk and "resume_inputs" in why)
+        A.write_json(d / "e3.json", A.stamp(dict(ident3, approval="APPROVED: test", resume_inputs=dict(ri, previous_sessions=ri["previous_sessions"][:1]))))
+        okk, why = S3.approval_status(3, d / "e3.json", ident3)
+        ok("a record naming a shorter previous_sessions is refused", not okk and "resume_inputs" in why)
 
 
 @test
@@ -1212,13 +1441,17 @@ def the_protected_trees_equal_their_increments_and_the_pins_hold() -> None:
     import m9_g3_session as S3
     import m9_session as G1
 
-    st = S3.trees_state(2)
-    eq("the eight trees of session 2 equal their D: increments byte for byte", {k: v["ok"] for k, v in st.items() if k != "ok"},
-       {"rd1": True, "rd2": True, "rd3": True, "rd4": True, "m9_g1": True, "m9_g1_eval": True, "m9_g2_s1": True, "m9_g3_s1": True})
+    st = S3.trees_state(3)
+    eq("the nine trees of session 3 equal their D: increments byte for byte", {k: v["ok"] for k, v in st.items() if k != "ok"},
+       {"rd1": True, "rd2": True, "rd3": True, "rd4": True, "m9_g1": True, "m9_g1_eval": True, "m9_g2_s1": True, "m9_g3_s1": True, "m9_g3_s2": True})
+    eq("no problem on any tree", {k: v["problems"] for k, v in st.items() if k != "ok"}, {k: [] for k in st if k != "ok"})
     eq("the g2-s1 tree's registered facts", (st["m9_g2_s1"]["files"], st["m9_g2_s1"]["bytes"], st["m9_g2_s1"]["manifest_sha256"][:16]), (9779, 988807605, "4ad2c3dc240ef1bb"))
     eq("the g3-s1 tree's registered facts (the eighth tree, H4)", (st["m9_g3_s1"]["files"], st["m9_g3_s1"]["bytes"], st["m9_g3_s1"]["manifest_sha256"], st["m9_g3_s1"]["increment"]),
        (4935, 508166787, "d12966c135fdb614f08fab2d63ff0af894d171834ed9f87c802103b9024307a5", "2026-10-07_incr_m9_g3_s1"))
-    eq("session 1's trees are the seven", sorted(t[0] for t in S3.trees_for(1)), sorted(k for k in st if k not in ("ok", "m9_g3_s1")))
+    eq("the g3-s2 tree's registered facts (the ninth tree, generic k)", (st["m9_g3_s2"]["files"], st["m9_g3_s2"]["bytes"], st["m9_g3_s2"]["manifest_sha256"], st["m9_g3_s2"]["increment"]),
+       (4478, 477564684, "a696538766c381ebcfbbb0f8a9b6d98b516d4d585b0c1f41510007e749d1dd0e", "2026-10-08_incr_m9_g3_s2"))
+    eq("session 1's trees are the seven, session 2's the eight", (sorted(t[0] for t in S3.trees_for(1)), sorted(t[0] for t in S3.trees_for(2))),
+       (sorted(k for k in st if k not in ("ok", "m9_g3_s1", "m9_g3_s2")), sorted(k for k in st if k not in ("ok", "m9_g3_s2"))))
     eq("pins (executable, runtime files, frozen configuration) equal the archive's", G1.pins_problems(), [])
 
 
@@ -1241,20 +1474,25 @@ def metadata_is_enforced_by_the_writers() -> None:
 def snapshot_tool_roundtrip() -> None:
     with tmpdir() as d:
         dest = d / "snap"
-        r = subprocess.run([sys.executable, "-B", str(RL / "m9_g3_snapshot.py"), "snapshot", "--dest", str(dest), "--session", "2"], capture_output=True, text=True, cwd=str(REPO))
+        r = subprocess.run([sys.executable, "-B", str(RL / "m9_g3_snapshot.py"), "snapshot", "--dest", str(dest), "--session", "3"], capture_output=True, text=True, cwd=str(REPO))
         eq(f"snapshot exit code ({r.stdout[-300:]} {r.stderr[-300:]})", r.returncode, 0)
         rec = json.loads((dest / "snapshot.json").read_text(encoding="utf-8"))
         eq("PASS", (rec["result"], rec["problems"], rec["identity_code_mismatch"], rec["identity_docs_mismatch"], rec["authorised_edit_mismatch"]), ("PASS", [], [], [], []))
         A.check({k: rec[k] for k in ("task", "created_utc")})
-        eq("a session-2 snapshot with the s2 preparation logs in its set", (rec["session"], rec["identity"]["session"], rec["log_dirs"]), (2, 2, ["logs/m9_g3_prep", "logs/m9_g3_s2_prep"]))
+        eq("a session-3 snapshot with the s1 and s2 preparation logs, the resume tools, the resume-k logs and its own Part B logs in its set", (rec["session"], rec["identity"]["session"], rec["log_dirs"]),
+           (3, 3, ["logs/m9_g3_prep", "logs/m9_g3_s2_prep", "logs/m9_g3_resume_tools", "logs/m9_g3_resume_k_prep", "logs/m9_g3_s3_prep"]))
         paths = {f["path"] for f in rec["files"]}
         for f in ("rl/m9_g3_run.py", "rl/m9_g3_probe.py", "rl/m9_g3_tests.py", "rl/m9_g2_run.py", "rl/m9_run.py", "rl/m9_worker.py", "rl/m8_rd_worker.py", "rl/m7n_obs.py", "rl/m9_eval_tests.py",
                   "docs/rl_m9_g2_stop_review_2026-10-06.md", "docs/rl_m9_g3_s1_results_2026-10-07.md", "docs/rl_m9_g3_launch_record_2026-10-07.md", "docs/rl_m9_g3_s1_approval.json",
-                  "docs/rl_m9_g3_s2_prelaunch_review_2026-10-07.md"):
+                  "docs/rl_m9_g3_s2_prelaunch_review_2026-10-07.md", "docs/rl_m9_g3_s2_prep_decisions_2026-10-07.md", "docs/rl_m9_g3_s2_approval.json", "docs/rl_m9_g3_s2_results_2026-10-08.md",
+                  "docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md", "logs/m9_g3_resume_tools/write_approval.py", "logs/m9_g3_resume_tools/launch_detached.ps1", "logs/m9_g3_resume_tools/wait_session.py",
+                  "logs/m9_g3_resume_tools/three_passes.py"):
             ok(f"snapshot has {f}", f in paths)
         import m9_g3_snapshot as SN
 
-        ok("the session-1 file set is inside the session-2 one", set(SN.file_set(1)) <= set(SN.file_set(2)) and "docs/rl_m9_g3_s1_results_2026-10-07.md" not in SN.file_set(1))
+        ok("the session-1 file set is inside the session-2 one, which is inside the session-3 one", set(SN.file_set(1)) <= set(SN.file_set(2)) <= set(SN.file_set(3)) and "docs/rl_m9_g3_s1_results_2026-10-07.md" not in SN.file_set(1)
+           and "docs/rl_m9_g3_s2_results_2026-10-08.md" not in SN.file_set(2))
+        eq("the log directories per session", (SN.log_dirs(1), SN.log_dirs(2)), (["logs/m9_g3_prep"], ["logs/m9_g3_prep", "logs/m9_g3_s2_prep"]))
         r = subprocess.run([sys.executable, "-B", str(RL / "m9_g3_snapshot.py"), "verify", "--dest", str(dest)], capture_output=True, text=True, cwd=str(REPO))
         eq("verify exit code", r.returncode, 0)
         ps = subprocess.run([sys.executable, "-B", str(RL / "m9_g3_snapshot.py"), "powershell", "--dest", str(dest)], capture_output=True, text=True, cwd=str(REPO)).stdout

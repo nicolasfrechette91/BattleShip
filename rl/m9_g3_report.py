@@ -14,13 +14,15 @@ A RESUMED session (k >= 2; the s2 review, docs/rl_m9_g3_s2_prelaunch_review_2026
 the predecessor's session/line.json and checks it against its session/final_state.json (H3; the launch path never hand-builds it); `verify_run` cross-checks
 the list recorded at the open against the predecessor's records and the session's own line rows, checks the copied inputs against the predecessor's
 final state (H10: resume.inputs stands in for the tape_reuse record of an s1 open), and checks that the initial checkpoint's policy and optimizer members
-equal the predecessor's final members (H12).
+equal the predecessor's final members (H12). Generic k (docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md): `line_chain_problems` checks the whole chain
+s1 .. s(k-1) (every session's line rows extend its predecessor's; every resumed open recorded its predecessor's rows), used by the preflight, by `run`
+and by `verify_run` (`chain_roots`).
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import m9_artifacts as A
 import m9_contract as C
@@ -90,13 +92,66 @@ def read_previous_sessions(predecessor_root: Path) -> List[Dict[str, Any]]:
     return rows
 
 
-def _resume_checks(out: Dict[str, Any], root: Path, res: Mapping[str, Any], session_k: int, line_rec: Optional[Mapping[str, Any]], pred_root: Path, cps: Path) -> List[str]:
+def line_chain_problems(roots: Mapping[int, Path], k: int) -> Tuple[List[str], Dict[str, Any]]:
+    """The whole chain s1 .. s(k-1) a session k >= 2 rests on (generic k; docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md): for every earlier session j,
+    read from `roots[j]`: its line record holds exactly j rows, sessions 1..j in order, extending session j-1's rows; the rows are consistent with its final
+    state and the registered line rule reproduces its recorded outcome (previous_sessions_problems); the recorded outcome permitted a next session; a
+    resumed session (j >= 2) recorded exactly session j-1's rows at its open. Returns (problems, summary) where summary["rows"] are session k-1's rows, i.e.
+    session k's previous_sessions. Pure file reads; zero ticks."""
+    problems: List[str] = []
+    summary: Dict[str, Any] = {"sessions_checked": 0, "sessions": [], "rows": None, "roots": {str(j): str(roots[j]) for j in sorted(roots)}}
+    prev_rows: List[Dict[str, Any]] = []
+    for j in range(1, int(k)):
+        root = roots.get(j)
+        sd = Path(root) / "session" if root is not None else None
+        if sd is None or not (sd / "line.json").is_file() or not (sd / "final_state.json").is_file():
+            problems.append(f"session {j}: no line or final-state record under {root}")
+            summary["rows"] = None
+            return problems, summary
+        ln = _read(sd / "line.json")
+        fs = _read(sd / "final_state.json")
+        rows = [dict(r) for r in (ln.get("sessions") or [])]
+        if len(rows) != j:
+            problems.append(f"session {j}: {len(rows)} line rows, expected {j}")
+        if [int(r.get("k", -1)) for r in rows] != list(range(1, j + 1)):
+            problems.append(f"session {j}: the line rows are not sessions 1..{j} in order")
+        if j >= 2 and rows[:-1] != prev_rows:
+            problems.append(f"session {j}: its line rows do not extend session {j - 1}'s rows")
+        if int(fs.get("session", -1)) != j:
+            problems.append(f"session {j}: the final-state record is session {fs.get('session')!r}'s")
+        problems += [f"session {j}: {p}" for p in previous_sessions_problems(rows, ln, fs)]
+        if j >= 2:
+            opn = _read(sd / "open.json") if (sd / "open.json").is_file() else None
+            rec_prev = [dict(r) for r in (((opn or {}).get("resume") or {}).get("previous_sessions") or [])]
+            if opn is None:
+                problems.append(f"session {j}: no open record")
+            elif rec_prev != prev_rows:
+                problems.append(f"session {j}: the previous_sessions recorded at its open differ from session {j - 1}'s line rows")
+        summary["sessions"].append({"k": j, "rows": len(rows), "outcome": ln.get("outcome"), "next_permitted": bool(ln.get("s2_permitted")),
+                                    "last_row": {kk: rows[-1].get(kk) for kk in ("k", "outcome", "D", "R", "train_fraction")} if rows else None})
+        summary["sessions_checked"] = j
+        prev_rows = rows
+    summary["rows"] = prev_rows
+    return problems, summary
+
+
+def _resume_checks(out: Dict[str, Any], root: Path, res: Mapping[str, Any], session_k: int, line_rec: Optional[Mapping[str, Any]], pred_root: Path, cps: Path,
+                   chain_roots: Optional[Mapping[int, Path]] = None) -> List[str]:
     """verify_run's checks of a resumed session (H3 / H10 / H12 of the s2 review): the previous_sessions recorded at the open equal the predecessor's line
     record and that record is consistent with its final state; the copied inputs recorded at the open and on disk equal the predecessor's final state; the
-    session's own line rows are previous_sessions + [this session]; the initial checkpoint (at the saved count) carries the predecessor's final members."""
+    session's own line rows are previous_sessions + [this session]; the initial checkpoint (at the saved count) carries the predecessor's final members;
+    and (generic k) the whole chain s1 .. s(k-1) is consistent (line_chain_problems over `chain_roots`)."""
     problems: List[str] = []
     rec_prev = [dict(r) for r in (res.get("previous_sessions") or [])]
     chk: Dict[str, Any] = {"session": session_k, "predecessor_root": str(pred_root), "previous_sessions_recorded": len(rec_prev), "cross_checked": False}
+    roots: Dict[int, Path] = {j: Path(root).parent / f"s{j}" for j in range(1, session_k)}          # the siblings by default ...
+    roots.update({int(j): Path(p) for j, p in dict(chain_roots or {}).items()})                   # ... overridden by the given chain roots ...
+    roots[session_k - 1] = Path(pred_root)                                                          # ... and the predecessor root, which verify_run resolved first
+    cprobs, chain = line_chain_problems(roots, session_k)
+    chk["chain"] = dict(chain, ok=not cprobs, problems=cprobs[:5])
+    problems += [f"line chain: {p}" for p in cprobs[:5]]
+    if not cprobs and chain.get("rows") != rec_prev:
+        problems.append("the previous_sessions recorded at the open differ from the chain's rows")
     if not (pred_root / "session" / "line.json").is_file() or not (pred_root / "session" / "final_state.json").is_file():
         problems.append(f"no predecessor records under {pred_root} to cross-check previous_sessions and the inputs")
     else:
@@ -149,7 +204,9 @@ def _resume_checks(out: Dict[str, Any], root: Path, res: Mapping[str, Any], sess
     return problems
 
 
-def verify_run(root: Path, predecessor_root: Optional[Path] = None) -> Dict[str, Any]:
+def verify_run(root: Path, predecessor_root: Optional[Path] = None, chain_roots: Optional[Mapping[int, Path]] = None) -> Dict[str, Any]:
+    """`predecessor_root`: session k-1's tree (default: the sibling s<k-1>); `chain_roots`: {j: tree} for every earlier session j < k (default: the siblings
+    s<j>), cross-checked as a chain for a resumed session."""
     root = Path(root)
     problems: List[str] = []
     out: Dict[str, Any] = {"root": str(root), "report": REPORT_CONTRACT}
@@ -207,7 +264,8 @@ def verify_run(root: Path, predecessor_root: Optional[Path] = None) -> Dict[str,
     ln = _read(sd / "line.json") if (sd / "line.json").is_file() else None
     res = dict(opn.get("resume") or {})
     if res or session_k >= 2:
-        problems += _resume_checks(out, root, res, session_k, ln, Path(predecessor_root) if predecessor_root is not None else root.parent / f"s{session_k - 1}", cps)
+        pred = Path(predecessor_root) if predecessor_root is not None else Path(dict(chain_roots or {}).get(session_k - 1) or root.parent / f"s{session_k - 1}")
+        problems += _resume_checks(out, root, res, session_k, ln, pred, cps, chain_roots=chain_roots)
     if tables:
         for name, rows in (("training", tr_rows), ("probes", pr_rows), ("drift", dr_rows), ("audit", au_rows)):
             ps = check_records(rows, tables)

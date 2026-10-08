@@ -17,6 +17,11 @@ A session k >= 2 snapshot (`--session 2`; S1 and H14 of the s2 review) adds the 
 record, the s1 approval, the re-check record, the s2 pre-launch review and the s2 preparation decisions: rl/m9_g3_session.S2_DOC_FILES) and the s2
 preparation logs under logs/m9_g3_s2_prep (a NEW directory: logs/m9_g3_prep holds s1's preparation and is never written again), and computes the
 identity for that session (its resume_inputs block included).
+
+Generic k >= 3 (`--session k`; docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md): the document set is rl/m9_g3_session.doc_files(k), which adds the
+resume-k preparation record and EVERY predecessor's approval and results record (s1 .. s(k-1)); the log set adds the generic resume tools
+(logs/m9_g3_resume_tools), the resume-k preparation logs (logs/m9_g3_resume_k_prep) and the session's own Part B logs (logs/m9_g3_s<k>_prep), all of which
+must be written BEFORE the snapshot and never again until the session ends (the s2 lesson, B10).
 """
 from __future__ import annotations
 
@@ -39,6 +44,7 @@ git_state = snap1.git_state
 utc = snap1.utc
 LOG_DIRS = ("logs/m9_g3_prep",)
 S2_LOG_DIRS = ("logs/m9_g3_s2_prep",)                  # k >= 2: the s2 preparation logs and tools (never logs/m9_g3_prep, which is s1's)
+RESUME_LOG_DIRS = ("logs/m9_g3_resume_tools", "logs/m9_g3_resume_k_prep")   # k >= 3: the generic resume tools and the resume-k preparation logs; plus logs/m9_g3_s<k>_prep (the session's Part B)
 EXTRA = ["docs/rl_m9_g3_decisions_2026-10-06.md", "docs/rl_m9_g3_implementation.md", "docs/rl_m9_g2_stop_review_2026-10-06.md", "docs/rl_m9_g2_s1_results_2026-10-06.md",
          "docs/rl_m9_g2_s1_approval.json", "docs/rl_m9_g2_proposal_2026-10-04.md", "docs/rl_m9_g2_decisions_2026-10-05.md", "docs/rl_m9_g2_implementation.md",
          "docs/rl_m9_policy_proposal_2026-10-03.md", "docs/rl_m9_g1_decisions_2026-10-04.md", "docs/rl_m9_g1_implementation.md", "docs/rl_m9_g1_results_2026-10-04.md",
@@ -52,7 +58,13 @@ EXTERNAL = snap1.EXTERNAL
 
 
 def log_dirs(k: int = 1) -> List[str]:
-    return list(LOG_DIRS) + (list(S2_LOG_DIRS) if int(k) >= 2 else [])
+    k = int(k)
+    out = list(LOG_DIRS)
+    if k >= 2:
+        out += list(S2_LOG_DIRS)
+    if k >= 3:
+        out += list(RESUME_LOG_DIRS) + [f"logs/m9_g3_s{k}_prep"]
+    return out
 
 
 def file_set(k: int = 1) -> List[str]:
@@ -64,7 +76,7 @@ def file_set(k: int = 1) -> List[str]:
     if int(k) >= 2:
         import m9_g3_session as session
 
-        extra += list(session.S2_DOC_FILES)
+        extra += list(session.doc_files(int(k)))
     rels = {e for e in extra if (REPO / e).is_file()}
     for ld in log_dirs(k):
         logd = REPO / ld
