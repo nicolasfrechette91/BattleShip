@@ -12,7 +12,9 @@ process; nothing depends on process scheduling or wall-clock duration; a source 
 gates (git state with the one authorised edit, the seven protected trees and their D: increments, the eighth tree runs/m9_g3/s1 for session 2 and the ninth
 runs/m9_g3/s2 for session 3, the executable and tape pins, the real-model resume round trip on every registered predecessor's final checkpoint) assert
 facts fixed once the trees are closed. Generic k (docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md): a stub chain s1 -> s2 -> s3, the line-chain
-cross-check with tampering, trees_for(3) and identity(3).
+cross-check with tampering, trees_for(3) and identity(3). (f) The line's LATER progression (a later session's approval, tree, increment and results record)
+is never asserted on the live repository, so the suite holds at every stage of the line: the refusals on missing records, the exact results-record rule
+and the discovered trees are checked for k = 2 .. 5 on temporary layouts (progression_layout; docs/rl_m9_g3_progression_fix_2026-10-08.md).
 
 THE SYNTHETIC WORLD IS NOT MARIO. It exercises code paths.
 """
@@ -1129,6 +1131,167 @@ def real_model_resume_round_trip_on_the_predecessors_final_checkpoint() -> None:
     raises("a vector of the wrong size is refused (n_steps x n_envs != 5,120)", RS.ResumeError, lambda: TR.resume_ppo(mz1, DummyVecEnv([lambda: ZeroEnv() for _ in range(2)]), 2, 2))
 
 
+# -- the line's progression on temporary layouts (docs/rl_m9_g3_progression_fix_2026-10-08.md) ---------------------------------------------------------
+
+LAYOUT_DATE = "2026-10-09"
+
+
+@contextlib.contextmanager
+def progression_layout(d: Path):
+    """A temporary stand-in for the line's progression: rl/m9_g3_session's docs/ (REPO_ROOT), runs/m9_g3/ (LINE_ROOT) and D: backup root (BACKUP_ROOT) are
+    rebound to directories under d for the duration and restored afterwards, so that a refusal on missing records is checked on a state the test builds,
+    never on the live repository's progression (which advances by an approval, a tree, an increment and a results record per session). The registered
+    predecessors s1 and s2 keep their registered entries (none of their files is read here)."""
+    import m9_g3_session as S3
+
+    saved = (S3.REPO_ROOT, S3.LINE_ROOT, S3.BACKUP_ROOT)
+    for sub in ("docs", "runs/m9_g3", "backup"):
+        (d / sub).mkdir(parents=True, exist_ok=True)
+    S3.REPO_ROOT, S3.LINE_ROOT, S3.BACKUP_ROOT = d, d / "runs" / "m9_g3", d / "backup"
+    try:
+        yield S3
+    finally:
+        S3.REPO_ROOT, S3.LINE_ROOT, S3.BACKUP_ROOT = saved
+
+
+def layout_results_text(j: int, date: str = LAYOUT_DATE) -> str:
+    return f"# M9-g3-s{j} results ({date})\n\n## 1. What was run\n\nA temporary test layout, not a record.\n"
+
+
+def layout_increment(S3: Any, j: int, *, result: str = "PASS", name: Optional[str] = None) -> Path:
+    """One D: increment folder of session j in the layout: a manifest and a verification record (rl/tools/runs_backup.py's file names) naming session j's tree."""
+    import runs_backup as rb
+
+    inc = S3.BACKUP_ROOT / (name or f"{LAYOUT_DATE}_incr_m9_g3_s{j}")
+    inc.mkdir(parents=True)
+    (inc / rb.MANIFEST).write_bytes(f"test layout manifest of session {j}\n".encode())
+    rec = {"result": result, "source": str(S3.run_root(j)), "files": 2, "bytes": 100 + j, "manifest_sha256": RS.sha256_file(inc / rb.MANIFEST), "verified_utc": f"{LAYOUT_DATE}T00:00:00Z"}
+    (inc / rb.RECORD).write_text(json.dumps(rec), encoding="utf-8")
+    return inc
+
+
+def layout_record(S3: Any, j: int, *, approval: bool = False, results: bool = False, tree: bool = False, increment: bool = False) -> None:
+    """Session j's records in the layout, each on request: its approval, its results record, its tree (a final-state record) and its D: increment."""
+    if approval:
+        A.write_json(S3.approval_path(j), A.stamp({"session": j, "approval": "APPROVED: a temporary test layout"}))
+    if results:
+        (S3.REPO_ROOT / "docs" / f"rl_m9_g3_s{j}_results_{LAYOUT_DATE}.md").write_text(layout_results_text(j), encoding="utf-8")
+    if tree:
+        A.write_json(S3.run_root(j) / "session" / "final_state.json", A.stamp({"session": j}))
+    if increment:
+        layout_increment(S3, j)
+
+
+def progression_on_temporary_layouts() -> None:
+    """Generic k (k = 2 .. 5): sessions 1 .. k-1 recorded, then session k at the three stages of the line: before its approval exists, once its approval is
+    written (its full preflight runs this suite then), once it has completed (its tree, exactly one PASS increment, its results record). Session k's own view
+    never changes; session k+1's view: the predecessor documents, the missing predecessor named, the unregistered predecessor, the discovered tree and
+    trees_for(k+1). A registered session (s2) is never discovered from an increment; an ambiguous or failed increment of a later session is refused."""
+    for k in (2, 3, 4, 5):
+        with tmpdir() as d, progression_layout(d) as S3:
+            registered = k in S3.PREDECESSOR_TREES
+            for j in range(1, k):
+                layout_record(S3, j, approval=True, results=True, tree=True, increment=j not in S3.PREDECESSOR_TREES)
+            mine = [t[0] for t in S3.TREES] + [f"m9_g3_s{j}" for j in range(1, k)]
+            with_k = mine + [f"m9_g3_s{k}"]
+
+            def own_view(stage: str) -> None:
+                eq(f"k={k}, {stage}: session {k}'s own view (documents, predecessors, trees) does not depend on session {k}'s stage",
+                   (S3.predecessor_doc_problems(k), S3.unregistered_predecessors(k), [t[0] for t in S3.trees_for(k)]), ([], [], mine))
+
+            def next_view(stage: str, docs: int, done: bool) -> None:
+                p = S3.predecessor_doc_problems(k + 1)
+                eq(f"k={k}, {stage}: session {k + 1} lacks {docs} of session {k}'s records", (len(p), all(x.startswith(f"session {k}") for x in p)), (docs, True))
+                eq(f"k={k}, {stage}: session {k}'s final state is {'present' if done else 'named as missing'} for session {k + 1}",
+                   any("no final-state record" in x for x in S3.predecessor_problems(k + 1)), not done)
+                t = S3.predecessor_tree(k)
+                if registered:
+                    eq(f"k={k}, {stage}: a registered session keeps its registered entry and is protected at every stage",
+                       (S3.unregistered_predecessors(k + 1), t, [x[0] for x in S3.trees_for(k + 1)]), ([], S3.PREDECESSOR_TREES[k], with_k))
+                elif not done:
+                    eq(f"k={k}, {stage}: session {k} is an unregistered predecessor of session {k + 1}, with no tree, adding no protected tree",
+                       (S3.unregistered_predecessors(k + 1), t, [x[0] for x in S3.trees_for(k + 1)]), ([k], None, mine))
+                else:
+                    eq(f"k={k}, {stage}: session {k}'s tree discovered from its increment's record and protected for session {k + 1}",
+                       (S3.unregistered_predecessors(k + 1), t[0], t[1], t[2].name, t[3]["files"], t[3]["record_problems"], [x[0] for x in S3.trees_for(k + 1)]),
+                       ([], f"m9_g3_s{k}", S3.run_root(k), f"{LAYOUT_DATE}_incr_m9_g3_s{k}", 2, [], with_k))
+
+            own_view("before its approval")
+            next_view("before its approval", 2, False)
+            layout_record(S3, k, approval=True)
+            own_view("approval written")
+            next_view("approval written", 1, False)
+            layout_record(S3, k, results=True, tree=True, increment=not registered)
+            own_view("completed")
+            next_view("completed", 0, True)
+            eq(f"k={k}, completed: session {k + 1} pins session {k}'s approval and results record last", S3.predecessor_doc_files(k + 1)[-2:],
+               (f"docs/rl_m9_g3_s{k}_approval.json", f"docs/rl_m9_g3_s{k}_results_{LAYOUT_DATE}.md"))
+            if registered:
+                continue
+            second = layout_increment(S3, k, name=f"2026-10-10_incr_m9_g3_s{k}")
+            eq(f"k={k}: two increments make session {k} ambiguous: unregistered, no tree, nothing added", (S3.predecessor_tree(k), S3.unregistered_predecessors(k + 1), [x[0] for x in S3.trees_for(k + 1)]),
+               (None, [k], mine))
+            shutil.rmtree(second)
+            import runs_backup as rb
+
+            rec_p = S3.BACKUP_ROOT / f"{LAYOUT_DATE}_incr_m9_g3_s{k}" / rb.RECORD
+            good = rec_p.read_bytes()
+            for label, change in (("a FAIL record", {"result": "FAIL"}), ("a record naming another tree", {"source": str(S3.run_root(k + 1))}), ("a record whose manifest digest differs", {"manifest_sha256": "0" * 64})):
+                rec_p.write_text(json.dumps(dict(json.loads(good), **change)), encoding="utf-8")
+                ok(f"k={k}: {label} is a record problem of the discovered tree", S3.predecessor_tree(k)[3]["record_problems"])
+            rec_p.write_bytes(good)
+            eq(f"k={k}: restored", S3.predecessor_tree(k)[3]["record_problems"], [])
+
+
+def results_record_rule_on_temporary_layouts() -> None:
+    """The exact results-record rule: only docs/rl_m9_g3_s<j>_results_<YYYY-MM-DD>.md with complete content is discovered; a draft or a partial name beside it,
+    a directory, a second record or a partial file is refused (a preflight problem) and never pinned; a draft alone is never taken for the record."""
+    with tmpdir() as d, progression_layout(d) as S3:
+        for j in (1, 2, 3):
+            layout_record(S3, j, approval=True, results=True)
+        docs = d / "docs"
+        name = f"rl_m9_g3_s3_results_{LAYOUT_DATE}.md"
+        rec = f"docs/{name}"
+        eq("the record is discovered by its registered name, nothing refused", (S3.results_record_scan(3), S3.results_records(3), S3.predecessor_doc_problems(4)), ({"records": [rec], "refused": []}, [rec], []))
+        complete = layout_results_text(3).encode("utf-8")
+        for bad in ("rl_m9_g3_s3_results_draft.md", f"rl_m9_g3_s3_results_{LAYOUT_DATE}_draft.md", f"rl_m9_g3_s3_results_{LAYOUT_DATE}.md.tmp", f"rl_m9_g3_s3_results_{LAYOUT_DATE}.md~",
+                    "rl_m9_g3_s3_results_2026-10-9.md", "rl_m9_g3_s3_results_2026-13-01.md", "rl_m9_g3_s3_results_2026-02-30.md", "rl_m9_g3_s3_results_.md", "rl_m9_g3_s3_results.md",
+                    "RL_M9_G3_S3_RESULTS_2026-10-10.md", "rl_m9_g3_s3_results_2026-10-10.MD"):
+            (docs / bad).write_bytes(complete)
+            scan = S3.results_record_scan(3)
+            probs = S3.predecessor_doc_problems(4)
+            eq(f"{bad}: refused beside the record, which stays the only one discovered and pinned", (scan["records"], [r.split(":")[0] for r in scan["refused"]], any(bad in p for p in probs), f"docs/{bad}" in S3.predecessor_doc_files(4)),
+               ([rec], [f"docs/{bad}"], True, False))
+            (docs / bad).unlink()
+        (docs / "rl_m9_g3_s3_results_2026-10-10.md").mkdir()
+        scan = S3.results_record_scan(3)
+        eq("a directory with the registered name is refused", (scan["records"], [r.startswith("docs/rl_m9_g3_s3_results_2026-10-10.md: not a regular file") for r in scan["refused"]]), ([rec], [True]))
+        (docs / "rl_m9_g3_s3_results_2026-10-10.md").rmdir()
+        (docs / "rl_m9_g3_s3_results_2026-10-10.md").write_bytes(layout_results_text(3, "2026-10-10").encode("utf-8"))
+        eq("a second complete record: two discovered, the preflight refuses", (len(S3.results_records(3)), any("has 2 complete results record(s)" in p for p in S3.predecessor_doc_problems(4))), (2, True))
+        (docs / "rl_m9_g3_s3_results_2026-10-10.md").unlink()
+        (docs / name).unlink()
+        (docs / "rl_m9_g3_s3_results_draft.md").write_bytes(complete)
+        probs = S3.predecessor_doc_problems(4)
+        eq("a draft alone is never taken for the record: none discovered, the draft refused, the preflight names both", (S3.results_records(3), len(S3.results_record_scan(3)["refused"]),
+                                                                                                                       any("0 complete results record(s)" in p for p in probs), any("results_draft.md" in p for p in probs)), ([], 1, True, True))
+        (docs / "rl_m9_g3_s3_results_draft.md").unlink()
+        title = f"# M9-g3-s3 results ({LAYOUT_DATE})"
+        for label, content in (("empty", b""), ("no final newline", (title + "\n\n## 1. What was run\n\ntext").encode()), ("a NUL byte", (title + "\n\n## 1\n\x00\n").encode()),
+                               ("not UTF-8", title.encode() + b"\n\n## 1\n\xff\xfe\n"), ("s2's record copied under s3's name", layout_results_text(2).encode()),
+                               ("a title whose date differs from the name's", layout_results_text(3, "2026-10-10").encode()), ("the title alone", (title + "\n").encode()),
+                               ("no title", b"## 1. What was run\n\ntext\n")):
+            (docs / name).write_bytes(content)
+            scan = S3.results_record_scan(3)
+            eq(f"a partial record ({label}) is refused, not discovered, and the preflight refuses", (scan["records"], [r.startswith(f"{rec}: a partial file") for r in scan["refused"]], bool(S3.predecessor_doc_problems(4))),
+               ([], [True], True))
+        for label, content in (("CRLF line ends", layout_results_text(3).replace("\n", "\r\n").encode()), ("a UTF-8 byte-order mark", b"\xef\xbb\xbf" + complete)):
+            (docs / name).write_bytes(content)
+            eq(f"a complete record with {label} is discovered", S3.results_record_scan(3), {"records": [rec], "refused": []})
+        (docs / "rl_m9_g3_s31_results_2026-10-10.md").write_bytes(layout_results_text(31, "2026-10-10").encode("utf-8"))
+        eq("session 31's record is not session 3's", (S3.results_records(3), S3.results_records(31)), ([rec], ["docs/rl_m9_g3_s31_results_2026-10-10.md"]))
+
+
 @test
 def resume_inputs_and_previous_sessions_are_read_from_the_predecessors_records() -> None:
     """H3 / H5 of the s2 review: previous_sessions is read from runs/m9_g3/s1/session/line.json and checked against final_state.json; the identity's
@@ -1188,16 +1351,21 @@ def resume_inputs_and_previous_sessions_are_read_from_the_predecessors_records()
     eq("the file sizes", {kk: v["bytes"] for kk, v in ri3["files"].items()}, {"model_zip": 1112120, "curriculum_state": 11560, "tape_baseline": 7768})
     eq("the chain in the identity", (ri3["chain"]["sessions_checked"], ri3["chain"]["rows"]), (2, prev2))
     eq("the predecessor check passes on s2 (session 3)", S3.predecessor_problems(3), [])
-    ok("a missing predecessor is named (session 4)", any("no final-state record" in p for p in S3.predecessor_problems(4)))
-    eq("unregistered predecessors", (S3.unregistered_predecessors(3), S3.unregistered_predecessors(4)), ([], [3]))
-    eq("session 3's tree is not discoverable yet (no increment), session 2's increment is unique", (S3.predecessor_tree(3), [p.name for p in S3.increment_dirs_for(2)], S3.predecessor_tree(2)[2].name), (None, ["2026-10-08_incr_m9_g3_s2"], "2026-10-08_incr_m9_g3_s2"))
+    # the line's LATER progression (session 3's approval, tree, increment and results record, and every later session's) is never asserted on the live
+    # repository: it advances at every stage of the line. Only stage-independent facts are read here; the refusals on missing records are checked on
+    # temporary layouts at the end of this test, for any k (docs/rl_m9_g3_progression_fix_2026-10-08.md)
+    eq("no earlier session is unregistered for session 3", S3.unregistered_predecessors(3), [])
+    eq("session 4's unregistered predecessors follow s3's increment, whatever the stage", S3.unregistered_predecessors(4), [3] if S3.predecessor_tree(3) is None else [])
+    eq("session 2's increment is unique and its registered entry is used", ([p.name for p in S3.increment_dirs_for(2)], S3.predecessor_tree(2)[2].name), (["2026-10-08_incr_m9_g3_s2"], "2026-10-08_incr_m9_g3_s2"))
     for j, inc in ((1, S3.G3_S1_INCREMENT), (2, S3.G3_S2_INCREMENT)):
         facts = S3.increment_facts(inc, S3.run_root(j))
         eq(f"s{j}: the registered facts equal the increment's own verification record", ({kk: facts[kk] for kk in ("files", "bytes", "increment_manifest_sha256")}, facts["problems"], facts["result"]),
            (dict(S3.PREDECESSOR_TREES[j][3]), [], "PASS"))
     ok("an increment record naming another tree is refused", S3.increment_facts(S3.G3_S2_INCREMENT, S3.run_root(1))["problems"])
     eq("the predecessor documents of session 3", S3.predecessor_doc_files(3), ("docs/rl_m9_g3_s1_approval.json", "docs/rl_m9_g3_s1_results_2026-10-07.md", "docs/rl_m9_g3_s2_approval.json", "docs/rl_m9_g3_s2_results_2026-10-08.md"))
-    eq("no document problem for sessions 2 and 3; session 4 lacks s3's two records", (S3.predecessor_doc_problems(2), S3.predecessor_doc_problems(3), len(S3.predecessor_doc_problems(4))), ([], [], 2))
+    eq("no document problem for sessions 2 and 3 (s1's and s2's records are fixed once recorded)", (S3.predecessor_doc_problems(2), S3.predecessor_doc_problems(3)), ([], []))
+    eq("s1's and s2's results records are found by the exact rule, nothing refused", (S3.results_record_scan(1), S3.results_record_scan(2)),
+       ({"records": ["docs/rl_m9_g3_s1_results_2026-10-07.md"], "refused": []}, {"records": ["docs/rl_m9_g3_s2_results_2026-10-08.md"], "refused": []}))
     ok("doc_files(3) carries the s2 records, the resume-k record and the s1 set", {"docs/rl_m9_g3_s2_approval.json", "docs/rl_m9_g3_s2_results_2026-10-08.md", "docs/rl_m9_g3_resume_k_prep_decisions_2026-10-08.md"} <= set(S3.doc_files(3))
        and set(S3.doc_files(2)) <= set(S3.doc_files(3)) and set(S3.doc_files(1)) <= set(S3.doc_files(2)))
     cs2 = A.read_json(pr2 / "training" / "checkpoints" / "final" / "curriculum_state.json")
@@ -1241,6 +1409,9 @@ def resume_inputs_and_previous_sessions_are_read_from_the_predecessors_records()
            RPT.line_chain_problems(roots, 3)[0] and RPT.previous_sessions_problems(t["sessions"], t, fs2) == [] and RPT.read_previous_sessions(d / "s2") == t["sessions"])
         shutil.copyfile(pr2 / "session" / "line.json", d / "s2" / "session" / "line.json")
         eq("restored", RPT.line_chain_problems(roots, 3)[0], [])
+    # the progression and the exact results-record rule on temporary layouts (never the live repository's progression)
+    progression_on_temporary_layouts()
+    results_record_rule_on_temporary_layouts()
 
 
 @test
@@ -1373,7 +1544,8 @@ def identity_approval_write_guard_and_the_reused_tape() -> None:
     eq("the seven protected trees of session 1", [t[0] for t in S3.trees_for(1)], ["rd1", "rd2", "rd3", "rd4", "m9_g1", "m9_g1_eval", "m9_g2_s1"])
     eq("the eighth protected tree of session 2 is runs/m9_g3/s1 (H4)", [t[0] for t in S3.trees_for(2)], ["rd1", "rd2", "rd3", "rd4", "m9_g1", "m9_g1_eval", "m9_g2_s1", "m9_g3_s1"])
     eq("the ninth protected tree of session 3 is runs/m9_g3/s2 (generic k: every earlier g3 session tree)", [t[0] for t in S3.trees_for(3)], ["rd1", "rd2", "rd3", "rd4", "m9_g1", "m9_g1_eval", "m9_g2_s1", "m9_g3_s1", "m9_g3_s2"])
-    eq("session 4 adds no tree until s3's increment is recorded", [t[0] for t in S3.trees_for(4)], [t[0] for t in S3.trees_for(3)])
+    eq("session 4's trees: session 3's nine, then s3's tree once its increment is recorded (whatever the stage; the stages are checked on temporary layouts)",
+       [t[0] for t in S3.trees_for(4)], [t[0] for t in S3.trees_for(3)] + ([] if S3.predecessor_tree(3) is None else ["m9_g3_s3"]))
     eq("TREES itself stays the seven of s1's design", [t[0] for t in S3.TREES], ["rd1", "rd2", "rd3", "rd4", "m9_g1", "m9_g1_eval", "m9_g2_s1"])
     roots2 = {p.resolve() for p in S3.write_guard_roots(2)}
     ok("session 2's write guard covers runs/m9_g3/s1 and not its own tree", (REPO / "runs" / "m9_g3" / "s1").resolve() in roots2 and S3.run_root(2).resolve() not in roots2)
@@ -1497,8 +1669,40 @@ def snapshot_tool_roundtrip() -> None:
         eq("verify exit code", r.returncode, 0)
         ps = subprocess.run([sys.executable, "-B", str(RL / "m9_g3_snapshot.py"), "powershell", "--dest", str(dest)], capture_output=True, text=True, cwd=str(REPO)).stdout
         ok("the independent re-hash script is generated", "Get-FileHash" in ps and str(dest) in ps)
-        r = subprocess.run([sys.executable, "-B", str(RL / "m9_g3_snapshot.py"), "snapshot", "--dest", str(dest)], capture_output=True, text=True, cwd=str(REPO))
-        eq("an existing snapshot is never overwritten", r.returncode, 2)
+        r = subprocess.run([sys.executable, "-B", str(RL / "m9_g3_snapshot.py"), "snapshot", "--dest", str(dest), "--session", "3"], capture_output=True, text=True, cwd=str(REPO))
+        eq("an existing snapshot is never overwritten", (r.returncode, "exists (never overwritten)" in r.stdout), (2, True))
+        # --session has no default (docs/rl_m9_g3_progression_fix_2026-10-08.md): a snapshot, and every command of rl/m9_g3_session.py, refuses without it
+        r = subprocess.run([sys.executable, "-B", str(RL / "m9_g3_snapshot.py"), "snapshot", "--dest", str(d / "no_session")], capture_output=True, text=True, cwd=str(REPO))
+        eq("a snapshot without --session is refused by the parser and writes nothing", (r.returncode, "--session" in r.stderr, (d / "no_session").exists()), (2, True, False))
+        import m9_g3_session as S3
+
+        # the dispatch targets are stubbed for the check, so that a parser that stopped refusing could never start a preflight, a run or a verification
+        targets = {"status": "cmd_status", "preflight": "preflight", "approval-template": "cmd_template", "run": "cmd_run", "verify-run": "cmd_verify_run", "report": "cmd_report"}
+        saved = {n: getattr(S3, n) for n in targets.values()}
+        seen: List[Tuple[str, int]] = []
+
+        def stub(n: str) -> Callable[..., Any]:
+            def f(k: int, **_kw: Any) -> Any:
+                seen.append((n, int(k)))
+                return {"ok": True} if n == "preflight" else 0
+            return f
+
+        try:
+            for n in targets.values():
+                setattr(S3, n, stub(n))
+            for cmd in targets:
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    e = raises(f"m9_g3_session.py {cmd} without --session is refused", SystemExit, lambda: S3.main([cmd]))
+                eq(f"m9_g3_session.py {cmd} without --session: the parser's exit code and message", (e.code, "--session" in err.getvalue()), (2, True))
+            eq("nothing was dispatched without --session", seen, [])
+            with contextlib.redirect_stdout(io.StringIO()):
+                for cmd in targets:
+                    S3.main([cmd, "--session", "7"])
+            eq("with --session 7 every command is dispatched for session 7", seen, [(n, 7) for n in targets.values()])
+        finally:
+            for n, f in saved.items():
+                setattr(S3, n, f)
 
 
 # =====================================================================================================================================

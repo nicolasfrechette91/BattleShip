@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """M9-g3 session driver: one session of the g3 line (the replenishing controlled frontier).
 
-    python -B rl/m9_g3_session.py status [--session 1]
-    python -B rl/m9_g3_session.py preflight [--skip-unit] [--session 1]   # no game: tests, pins, the seven protected trees, the reused tape, D: coverage, readiness, budget, approval
-    python -B rl/m9_g3_session.py approval-template [--session 1]         # prints the record a reviewer would write (never writes it)
-    python -B rl/m9_g3_session.py run [--session 1]                       # refused unless the preflight passes, including the approval
-    python -B rl/m9_g3_session.py verify-run [--session 1]                # read-only post-run verification of the recorded session
-    python -B rl/m9_g3_session.py report [--session 1]                    # the reported readings of the recorded session
+    python -B rl/m9_g3_session.py status --session k
+    python -B rl/m9_g3_session.py preflight [--skip-unit] --session k     # no game: tests, pins, the seven protected trees, the reused tape, D: coverage, readiness, budget, approval
+    python -B rl/m9_g3_session.py approval-template --session k           # prints the record a reviewer would write (never writes it)
+    python -B rl/m9_g3_session.py run --session k                         # refused unless the preflight passes, including the approval
+    python -B rl/m9_g3_session.py verify-run --session k                  # read-only post-run verification of the recorded session
+    python -B rl/m9_g3_session.py report --session k                      # the reported readings of the recorded session
+
+--session is REQUIRED by every command (no default; docs/rl_m9_g3_progression_fix_2026-10-08.md): a forgotten flag used to select session 1 silently.
 
 Design: docs/rl_m9_g2_stop_review_2026-10-06.md (section 3) as decided in docs/rl_m9_g3_decisions_2026-10-06.md. The session writes only runs/m9_g3/s<k>/;
 the four M8 trees, runs/m9_g1, runs/m9_g1_eval, runs/m9_g2/s1 and every other g3 session tree are read-only and must stay byte-identical to their D:
@@ -34,8 +36,10 @@ preflight tolerates exactly that modified tracked file at exactly that digest an
 from __future__ import annotations
 
 import argparse
+import calendar
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -118,9 +122,65 @@ def predecessor_root(k: int) -> Path:
     return run_root(int(k) - 1)
 
 
+# the registered name of g3 session j's results record, EXACTLY: docs/rl_m9_g3_s<j>_results_<YYYY-MM-DD>.md (a calendar date). The former glob
+# rl_m9_g3_s<j>_results_*.md also matched drafts; any other entry of docs/ whose name begins with rl_m9_g3_s<j>_results (any case) is now refused, never
+# discovered (docs/rl_m9_g3_progression_fix_2026-10-08.md)
+RESULTS_RECORD_NAME = re.compile(r"rl_m9_g3_s(?P<j>[1-9][0-9]*)_results_(?P<date>(?P<y>[0-9]{4})-(?P<m>[0-9]{2})-(?P<d>[0-9]{2}))\.md")
+
+
+def _results_record_incomplete(p: Path, j: int, date: str) -> Optional[str]:
+    """Why a results record with the registered name is a partial file (None when complete): it must be non-empty UTF-8 (a leading BOM tolerated) without a NUL
+    byte, end with a newline, open with the title `# M9-g3-s<j> results (<date>)` carrying the name's session and date (s1's and s2's records do), and
+    contain a `## ` section after it."""
+    raw = p.read_bytes()
+    if not raw:
+        return "it is empty"
+    if b"\x00" in raw:
+        return "it contains a NUL byte"
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return "it is not UTF-8"
+    if not text.endswith("\n"):
+        return "it does not end with a newline"
+    lines = text.splitlines()
+    title = f"# M9-g3-s{int(j)} results ({date})"
+    if not lines or not lines[0].startswith(title):
+        return f"its first line is not the title {title!r}"
+    if not any(ln.startswith("## ") for ln in lines[1:]):
+        return "no '## ' section follows the title"
+    return None
+
+
+def results_record_scan(j: int) -> Dict[str, Any]:
+    """Exact discovery of g3 session j's results record in docs/ (not recursive). `records`: the regular files named exactly rl_m9_g3_s<j>_results_<YYYY-MM-DD>.md
+    whose content is complete (_results_record_incomplete). `refused`: every other entry whose name begins with rl_m9_g3_s<j>_results in any case (a draft,
+    a partial or misspelt name, an invalid date, a directory, a link) and every record with that name whose content is partial. Reads only."""
+    j = int(j)
+    prefix = f"rl_m9_g3_s{j}_results"
+    docs = REPO_ROOT / "docs"
+    records: List[str] = []
+    refused: List[str] = []
+    for p in sorted(docs.iterdir(), key=lambda q: q.name) if docs.is_dir() else []:
+        if not p.name.casefold().startswith(prefix.casefold()):
+            continue
+        m = RESULTS_RECORD_NAME.fullmatch(p.name)
+        if m is None or int(m["j"]) != j or not (1 <= int(m["m"]) <= 12 and 1 <= int(m["d"]) <= calendar.monthrange(int(m["y"]), int(m["m"]))[1]):
+            refused.append(f"docs/{p.name}: not the registered name docs/{prefix}_<YYYY-MM-DD>.md (a draft or a partial name; keep it outside docs/)")
+        elif p.is_symlink() or not p.is_file():
+            refused.append(f"docs/{p.name}: not a regular file")
+        else:
+            why = _results_record_incomplete(p, j, m["date"])
+            if why:
+                refused.append(f"docs/{p.name}: a partial file ({why})")
+            else:
+                records.append(f"docs/{p.name}")
+    return {"records": records, "refused": refused}
+
+
 def results_records(j: int) -> List[str]:
-    """The results record(s) of g3 session j: docs/rl_m9_g3_s<j>_results_<date>.md (exactly one is expected once the session is recorded)."""
-    return sorted(p.relative_to(REPO_ROOT).as_posix() for p in (REPO_ROOT / "docs").glob(f"rl_m9_g3_s{int(j)}_results_*.md") if p.is_file())
+    """The results record(s) of g3 session j found by the exact rule (results_record_scan); exactly one is expected once the session is recorded."""
+    return list(results_record_scan(j)["records"])
 
 
 def predecessor_doc_files(k: int) -> Tuple[str, ...]:
@@ -133,14 +193,16 @@ def predecessor_doc_files(k: int) -> Tuple[str, ...]:
 
 
 def predecessor_doc_problems(k: int) -> List[str]:
-    """A session k >= 2 requires each predecessor's approval record and exactly one results record (the records the resumed session rests on)."""
+    """A session k >= 2 requires each predecessor's approval record and exactly one results record (the records the resumed session rests on), found by the
+    exact rule; a draft, a partial file or a second record of any predecessor is a refusal."""
     problems: List[str] = []
     for j in range(1, int(k)):
         if not approval_path(j).is_file():
             problems.append(f"session {j} has no approval record {approval_path(j).relative_to(REPO_ROOT).as_posix()}")
-        rr = results_records(j)
-        if len(rr) != 1:
-            problems.append(f"session {j} has {len(rr)} results record(s) matching docs/rl_m9_g3_s{j}_results_*.md (exactly one expected)")
+        scan = results_record_scan(j)
+        problems += [f"session {j}: refused {r}" for r in scan["refused"]]
+        if len(scan["records"]) != 1:
+            problems.append(f"session {j} has {len(scan['records'])} complete results record(s) named docs/rl_m9_g3_s{j}_results_<YYYY-MM-DD>.md (exactly one expected)")
     return problems
 
 
@@ -727,7 +789,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     for n in ("status", "verify-run", "approval-template", "run", "report", "preflight"):
         p = sub.add_parser(n)
-        p.add_argument("--session", type=int, default=1)
+        p.add_argument("--session", type=int, required=True, help="k: the g3 session (required, no default)")
         if n == "preflight":
             p.add_argument("--skip-unit", action="store_true")
     a = ap.parse_args(argv)

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """M9-g3: verified D: source snapshot of the exact code, configuration and documents approved for a g3 session.
 
-    python -B rl/m9_g3_snapshot.py snapshot   --dest D:/BattleShip_source_snapshots/<date>_m9_g3_s1 [--session 1]
-    python -B rl/m9_g3_snapshot.py snapshot   --dest D:/BattleShip_source_snapshots/<date>_m9_g3_s2 --session 2
+    python -B rl/m9_g3_snapshot.py snapshot   --dest D:/BattleShip_source_snapshots/<date>_m9_g3_s<k> --session k     # --session is required (no default)
     python -B rl/m9_g3_snapshot.py verify     --dest ...
     python -B rl/m9_g3_snapshot.py powershell --dest ... --out <file.ps1>     # the independent re-hash script
 
@@ -154,8 +153,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("command", choices=("snapshot", "verify", "powershell"))
     ap.add_argument("--dest", type=Path, required=True)
     ap.add_argument("--out", type=Path, default=None)
-    ap.add_argument("--session", type=int, default=1)
+    ap.add_argument("--session", type=int, default=None, help="k: required by `snapshot` (no default); not used by verify and powershell")
     a = ap.parse_args(argv)
+    if a.command == "snapshot" and a.session is None:
+        ap.error("the snapshot command requires --session k (no default: a forgotten flag used to take a session-1 snapshot)")
     if not sys.flags.dont_write_bytecode:
         print("refused: run with python -B (no compiled module may be written under rl/)")
         return 2
