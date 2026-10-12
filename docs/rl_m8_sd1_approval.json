@@ -1,0 +1,1085 @@
+{
+ "task": {
+  "id": "ssb64_us_mario_btt_v1",
+  "character": "mario",
+  "stage": "btt_mario"
+ },
+ "created_utc": "2026-10-12T02:49:00Z",
+ "gate": "m8_sd1",
+ "scope": "M8-sd1: first time-directed continuation of archive m8_rd_a1 (rd1, rd2, rd3 and rd4 as closed) under m8_rd_select_v4 (m8_rd_select_v3 with two registered changes: the length-factor scale and a record bound on eligibility); one session, one set of keyed draws; no control arm; a search for trajectories, not a policy result, not a learning result, not a comparison of v4 with v3",
+ "milestone": "M8",
+ "archive_id": "m8_rd_a1",
+ "session": "sd1",
+ "line": "sd",
+ "rule": "m8_sd1_rule_v1",
+ "rule_sha256": "8267341f2af80dc1d1f086edf1114ea8a2b8bb68e31a08de8bf9fb7fe5b567a2",
+ "claims_contract": "m8_sd1_claims_v1",
+ "claims_digest": "758d465b4235252fa77b207e813116ed24a956af3652fa524289addc27b26d1e",
+ "artifacts_contract": "m8_sd1_artifacts_v1",
+ "artifacts_digest": "bb5f0133eb8427536591885e75f63d2ffb82014182b5e7c3a60abf7ef02e7624",
+ "contracts": {
+  "m8_rd_cell_v1": "a1187d555888ab4abcd325ec914dd7395e80453130b2ee21a5faf2590ef830d2",
+  "m8_rd_select_v1": "e6945dfeac85d8f4b63efd45cfd42ffd158e30c076ac124d673ac6f05463a506",
+  "m8_rd_explore_v1": "d7d3c9ae358f72648293652e2a7e90c8f76195ad8766efc4d708f97812f080f7",
+  "m8_rd_claims_v1": "3dbd7da58d3afe9e357b81a98a543ec69cebbf586df022b7d555bed205e15c68",
+  "track1_btt_s9_b8_v1": "aab45c265f74ab093ea7e11ad2ecec9930f6f14e24652d67ed5fee3049dc30ac",
+  "btt_action_class_table_v2": "070d6b8f00d1ef9e19aa07e081e2dda40aa5a2523de50d81c9c03e78597d9b73",
+  "m8_rd_select_v2": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1",
+  "m8_rd_select_v3": "fd69a0332de9db28d8ad4d77f3bd8884a14fa5a095d66dba5acfc8a34ed0f300",
+  "m8_rd_select_v4": "eb08059242eef123cce478fe7cfa2d2fa916b360438f0c1407fe16799ade3d28"
+ },
+ "key_strings": {
+  "select_rd1": "m8_rd|<archive_id>|select|<iteration> (iterations 0..2174, rd1)",
+  "select_rd2": "m8_rd|<archive_id>_v2|select|<iteration> (iterations 2175..6211, rd2)",
+  "select_rd3": "m8_rd|<archive_id>_rd3|select|<iteration> (iterations 6212..10405, rd3)",
+  "select_rd4": "m8_rd|<archive_id>_rd4|select|<iteration> (iterations 10406..13885, rd4)",
+  "select_sd1": "m8_rd|<archive_id>_sd1|select|<iteration> (iterations from 13886)",
+  "explore_sd1": "m8_rd|<archive_id>_sd1|explore|<iteration>|<decision index>",
+  "identity_open": "m8_rd|<archive_id>|identity_open|sd1|<cell id>",
+  "identity_close": "m8_rd|<archive_id>|identity_close|sd1|<cell id>"
+ },
+ "draws_sha256": "b248d9f076607bf64672d42593d6845f51a3f708fbf8cc82c56a39e02a142f6e",
+ "sd1_session_event_digest": "eb08059242eef123cce478fe7cfa2d2fa916b360438f0c1407fe16799ade3d28",
+ "select_v4_changed_from": {
+  "m8_rd_select_v3": "fd69a0332de9db28d8ad4d77f3bd8884a14fa5a095d66dba5acfc8a34ed0f300"
+ },
+ "select_v4_registered_changes": [
+  "contract",
+  "cell_weight",
+  "length_scale",
+  "eligibility",
+  "draws",
+  "record_reference",
+  "margin"
+ ],
+ "select_v4_changes": [
+  "length_scale 900 -> 120",
+  "eligibility + E7 (L + 1 <= T_rec - M)"
+ ],
+ "length_scale_v4": 120.0,
+ "record_reference": {
+  "completion_input_tick": 2315,
+  "completion_time_passed": 2314,
+  "native_action_digest": "de1228be4146b720adc3f1272a9e65a8c0dcd7882b83134949f3893adfef8045",
+  "words": 2315,
+  "cid": 239,
+  "iteration": 11286,
+  "kind": "t",
+  "session": "rd4",
+  "source": "sessions/rd4/verification/replays.jsonl: exact clear replay of candidate 239 (kind t, iteration 11286) of rd4"
+ },
+ "margin": 24,
+ "progress_bar": 2291,
+ "tiers": {
+  "5_percent": 2199,
+  "10_percent": 2083,
+  "round_2000": 2000
+ },
+ "inherited_descriptive_rule": "every clear-event trajectory of rd4's registry that no rd4 replay verified; replayed after the pool; reported only",
+ "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+ "runtime_files": {
+  "BattleShip.o2r": "fe2b307e35c84c40e2e42e570a5e58183d69f8adfad094c8da3d715ffe451d00",
+  "f3d.o2r": "73ab91ef09a30e8aa629d441fede7aac078c3f46d925c90a9562488f0b664408",
+  "gamecontrollerdb.txt": "9d3c6b8dace57e778ca9420180d0533d11e2c9a0077e52878e1032541c76aa00"
+ },
+ "flags": {
+  "explore": {
+   "SSB64_RL_NO_RENDER": "1",
+   "SSB64_RAPHNET_DISABLE": "1",
+   "SSB64_RL_SPATIAL": "1"
+  },
+  "verify": {
+   "SSB64_RL_NO_RENDER": "1",
+   "SSB64_RAPHNET_DISABLE": "1",
+   "SSB64_RL_SPATIAL": "1",
+   "SSB64_RL_ENTITY": "1",
+   "SSB64_RL_TARGET_DIAG": "1",
+   "SSB64_RL_INPUT": "1"
+  }
+ },
+ "p1": {
+  "m7d_s0v1_det_fall": {
+   "words": 3361,
+   "artifact_actions_sha256": "0a8ef46e308cb79636b0b3ab4e785dbe1527c4767fbfd4f00d411e078a86dff4",
+   "artifact_metadata_sha256": "c138ef72748e2ac241f3708cec3c459d92adc1215ede75d9a3b0eadc2f3c06f4",
+   "trace_sha256": "70c9c0026dadd0c4777d7740c5797afaef6d3930a52b73b2b0711623e04aa889",
+   "native_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+   "recorded_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+   "trace_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+   "consumed_ticks_ok": true,
+   "trace_submitted": 3361,
+   "trace_flags": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_INPUT": "1",
+    "SSB64_RL_ENTITY": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   }
+  },
+  "m7d_s0v1_fall6_double": {
+   "words": 2560,
+   "artifact_actions_sha256": "e8191e99b1aebe4d1b9368e6b0cdcb4cdf02fe065c7dde187b8c96a589339a95",
+   "artifact_metadata_sha256": "7340ab9d7d97d6633728067f3c2390f86da914704e40d3cd3bf2a0f585e3802e",
+   "trace_sha256": "20211fcbef77b79087340654a9c9b8c626e080dc56f2020a78a021353c0de6be",
+   "native_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+   "recorded_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+   "trace_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+   "consumed_ticks_ok": true,
+   "trace_submitted": 2560,
+   "trace_flags": {
+    "SSB64_RL_NO_RENDER": "1",
+    "SSB64_RAPHNET_DISABLE": "1",
+    "SSB64_RL_INPUT": "1",
+    "SSB64_RL_ENTITY": "1",
+    "SSB64_RL_SPATIAL": "1",
+    "SSB64_RL_TARGET_DIAG": "1"
+   }
+  }
+ },
+ "caps": {
+  "exploration_tick_cap": 6000000,
+  "min_exploration_ticks": 2000000,
+  "open_tick_cap": 70000,
+  "replay_tick_cap": 400000,
+  "wall_caps_s": {
+   "p1": 240.0,
+   "T": 3000.0,
+   "verify": 360.0
+  },
+  "global_cap_s": 3600.0,
+  "checkpoint_every_s": 300.0,
+  "memory_caps_mb": {
+   "main_private": 3072,
+   "tree_private": 9216,
+   "tree_working_set": 4096,
+   "system_available_min": 1024,
+   "system_commit_free_min": 2048
+  },
+  "memory_sample_s": 5.0,
+  "max_battleship_processes": 10,
+  "lifecycle_failure_limit": 3,
+  "verify_threads": 3,
+  "identity_k": 16,
+  "job_timeout_s": 900.0,
+  "wall_cap_grace_s": 20.0
+ },
+ "workers": 5,
+ "burst_words": 120,
+ "horizon": 3600,
+ "readiness": {
+  "min_available_mb": 4096,
+  "min_commit_free_mb": 10240,
+  "min_free_gib_c": 5.0,
+  "min_free_gib_d": 5.0
+ },
+ "base": {
+  "rd1_rd2_rd3": {
+   "rd1_and_rd2": {
+    "rd1": {
+     "rd1_archive_files_sha256": {
+      "archive_meta.json": "9817466714521ee70976e27ce09e9cd50ffc658a5fedfb050d88247264dd48ad",
+      "cells.jsonl": "639d7710cab27d78feb5cd276e6f2e058dda8c4e91baddd3950b251072fa90db",
+      "bursts.bin": "d409799224a313650657d1096add9dcb41b49e6a6867111be1ce725e334bd0bf",
+      "bursts.idx.jsonl": "eb18f5674b27ef0cae924624d82e38f6787033bdae5c6569e32accb51d917121",
+      "events.jsonl": "02a271c7bc5b624dc4da3a982185214d6039de4661faf21baf576b18d4c4d6dd"
+     },
+     "rd1_close_record_sha256": "b1c13cf9a4fced57db7a8ca231e59afe193e38a2d586f42aa9293efadd9919f8",
+     "rd1_increment": "2026-10-02_incr_m8_rd1",
+     "rd1_increment_manifest_sha256": "e81226d7f36a28a09966b577bfd95cbee093fbdf91f2714b9d28d3a7046103f4",
+     "rd1_checkpoint_seq": 7,
+     "pin_tick0_digest": "2817d8cf3494615505f3a23f7dc34a70a36f2d8e096e54924f84414af0ffd6ec",
+     "lines_sha256": "c251d89ab05110b697a48f25f43430b1f3a8b06406fd59317a0e4c534f82da71",
+     "rd1_pins": {
+      "approval_sha256": "c141e2068123467ff8ea57589e792a7bcc18eae8cf2dbe3e87b4fd3c10b5c23d",
+      "archive_id": "m8_rd_a1",
+      "contracts": {
+       "btt_action_class_table_v2": "070d6b8f00d1ef9e19aa07e081e2dda40aa5a2523de50d81c9c03e78597d9b73",
+       "m8_rd_cell_v1": "a1187d555888ab4abcd325ec914dd7395e80453130b2ee21a5faf2590ef830d2",
+       "m8_rd_claims_v1": "3dbd7da58d3afe9e357b81a98a543ec69cebbf586df022b7d555bed205e15c68",
+       "m8_rd_explore_v1": "d7d3c9ae358f72648293652e2a7e90c8f76195ad8766efc4d708f97812f080f7",
+       "m8_rd_select_v1": "e6945dfeac85d8f4b63efd45cfd42ffd158e30c076ac124d673ac6f05463a506",
+       "track1_btt_s9_b8_v1": "aab45c265f74ab093ea7e11ad2ecec9930f6f14e24652d67ed5fee3049dc30ac"
+      },
+      "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+      "flags": {
+       "explore": {
+        "SSB64_RAPHNET_DISABLE": "1",
+        "SSB64_RL_NO_RENDER": "1",
+        "SSB64_RL_SPATIAL": "1"
+       },
+       "verify": {
+        "SSB64_RAPHNET_DISABLE": "1",
+        "SSB64_RL_ENTITY": "1",
+        "SSB64_RL_INPUT": "1",
+        "SSB64_RL_NO_RENDER": "1",
+        "SSB64_RL_SPATIAL": "1",
+        "SSB64_RL_TARGET_DIAG": "1"
+       }
+      },
+      "frozen_sha256": {
+       "BattleShip.cfg.json": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+       "imgui.ini": "0d26732173ee8129df8976203c713db5325a05b9785dfffcb75cd4f83c183042"
+      },
+      "git_head": "6a30c88695e013e11ef28a55c5f2c944a6d69468",
+      "p1": {
+       "m7d_s0v1_det_fall": {
+        "artifact_actions_sha256": "0a8ef46e308cb79636b0b3ab4e785dbe1527c4767fbfd4f00d411e078a86dff4",
+        "artifact_metadata_sha256": "c138ef72748e2ac241f3708cec3c459d92adc1215ede75d9a3b0eadc2f3c06f4",
+        "consumed_ticks_ok": true,
+        "native_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+        "recorded_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+        "trace_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+        "trace_flags": {
+         "SSB64_RAPHNET_DISABLE": "1",
+         "SSB64_RL_ENTITY": "1",
+         "SSB64_RL_INPUT": "1",
+         "SSB64_RL_NO_RENDER": "1",
+         "SSB64_RL_SPATIAL": "1",
+         "SSB64_RL_TARGET_DIAG": "1"
+        },
+        "trace_sha256": "70c9c0026dadd0c4777d7740c5797afaef6d3930a52b73b2b0711623e04aa889",
+        "trace_submitted": 3361,
+        "words": 3361
+       },
+       "m7d_s0v1_fall6_double": {
+        "artifact_actions_sha256": "e8191e99b1aebe4d1b9368e6b0cdcb4cdf02fe065c7dde187b8c96a589339a95",
+        "artifact_metadata_sha256": "7340ab9d7d97d6633728067f3c2390f86da914704e40d3cd3bf2a0f585e3802e",
+        "consumed_ticks_ok": true,
+        "native_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+        "recorded_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+        "trace_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+        "trace_flags": {
+         "SSB64_RAPHNET_DISABLE": "1",
+         "SSB64_RL_ENTITY": "1",
+         "SSB64_RL_INPUT": "1",
+         "SSB64_RL_NO_RENDER": "1",
+         "SSB64_RL_SPATIAL": "1",
+         "SSB64_RL_TARGET_DIAG": "1"
+        },
+        "trace_sha256": "20211fcbef77b79087340654a9c9b8c626e080dc56f2020a78a021353c0de6be",
+        "trace_submitted": 2560,
+        "words": 2560
+       }
+      },
+      "rule_sha256": "e0bbfe212d3c0079bd8f5da1f1d923a180d1d260260a69217ba6c20b770071ef",
+      "runtime_files": {
+       "BattleShip.o2r": "fe2b307e35c84c40e2e42e570a5e58183d69f8adfad094c8da3d715ffe451d00",
+       "f3d.o2r": "73ab91ef09a30e8aa629d441fede7aac078c3f46d925c90a9562488f0b664408",
+       "gamecontrollerdb.txt": "9d3c6b8dace57e778ca9420180d0533d11e2c9a0077e52878e1032541c76aa00"
+      }
+     },
+     "rd1_first_rd2_iteration": 2175
+    },
+    "rd2_archive_files_sha256": {
+     "archive_meta.json": "6710653035ae469fa4559d493e7d8bf22da3e464bb4aafe47b50ff41f35126c1",
+     "cells.jsonl": "25cdc2a3a78d3acde154a1ed7ccdbea68891ade4251ac74e7604569b8327b14f",
+     "bursts.bin": "d1ca9af304eabf8a5ff38e6f03b82adcc9ae152a5b7f66bacc7f409534cd8a86",
+     "bursts.idx.jsonl": "01a2e825ad80e9b8c61ed139156b7b34420f088adf81c186ce3d8f7e6c52e0ff",
+     "events.jsonl": "95b04b02059b088e4cc684081f0fbfeedf07366bab3119560ed38dc1d264e1f0"
+    },
+    "rd2_close_record_sha256": "efa313eda15c767e8ee4f2bfb07b8aeeae9891b61ecc4c611288c4dee76fce49",
+    "rd2_increment": "2026-10-02_incr_m8_rd2",
+    "rd2_increment_manifest_sha256": "6775281e6f1618c5e2304980ca83c78ca049813a53605df791404ec32fd3e9f1",
+    "rd2_checkpoint_seq": 20,
+    "rd2_session_event": {
+     "ev": "session",
+     "name": "rd2",
+     "select": "m8_rd_select_v2",
+     "digest": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1",
+     "first_iteration": 2175
+    },
+    "rd2_pins": {
+     "approval_sha256": "5cc76d522a9b284a5af5844676b42c61b5c9d00c9354c0a3b995eaa10f76f626",
+     "archive_id": "m8_rd_a1",
+     "contracts": {
+      "btt_action_class_table_v2": "070d6b8f00d1ef9e19aa07e081e2dda40aa5a2523de50d81c9c03e78597d9b73",
+      "m8_rd_cell_v1": "a1187d555888ab4abcd325ec914dd7395e80453130b2ee21a5faf2590ef830d2",
+      "m8_rd_claims_v1": "3dbd7da58d3afe9e357b81a98a543ec69cebbf586df022b7d555bed205e15c68",
+      "m8_rd_explore_v1": "d7d3c9ae358f72648293652e2a7e90c8f76195ad8766efc4d708f97812f080f7",
+      "m8_rd_select_v1": "e6945dfeac85d8f4b63efd45cfd42ffd158e30c076ac124d673ac6f05463a506",
+      "m8_rd_select_v2": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1",
+      "track1_btt_s9_b8_v1": "aab45c265f74ab093ea7e11ad2ecec9930f6f14e24652d67ed5fee3049dc30ac"
+     },
+     "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+     "flags": {
+      "explore": {
+       "SSB64_RAPHNET_DISABLE": "1",
+       "SSB64_RL_NO_RENDER": "1",
+       "SSB64_RL_SPATIAL": "1"
+      },
+      "verify": {
+       "SSB64_RAPHNET_DISABLE": "1",
+       "SSB64_RL_ENTITY": "1",
+       "SSB64_RL_INPUT": "1",
+       "SSB64_RL_NO_RENDER": "1",
+       "SSB64_RL_SPATIAL": "1",
+       "SSB64_RL_TARGET_DIAG": "1"
+      }
+     },
+     "frozen_sha256": {
+      "BattleShip.cfg.json": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+      "imgui.ini": "0d26732173ee8129df8976203c713db5325a05b9785dfffcb75cd4f83c183042"
+     },
+     "git_head": "1e0f847dd6d54f197263c92b4107907ca0d239d5",
+     "p1": {
+      "m7d_s0v1_det_fall": {
+       "artifact_actions_sha256": "0a8ef46e308cb79636b0b3ab4e785dbe1527c4767fbfd4f00d411e078a86dff4",
+       "artifact_metadata_sha256": "c138ef72748e2ac241f3708cec3c459d92adc1215ede75d9a3b0eadc2f3c06f4",
+       "consumed_ticks_ok": true,
+       "native_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+       "recorded_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+       "trace_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+       "trace_flags": {
+        "SSB64_RAPHNET_DISABLE": "1",
+        "SSB64_RL_ENTITY": "1",
+        "SSB64_RL_INPUT": "1",
+        "SSB64_RL_NO_RENDER": "1",
+        "SSB64_RL_SPATIAL": "1",
+        "SSB64_RL_TARGET_DIAG": "1"
+       },
+       "trace_sha256": "70c9c0026dadd0c4777d7740c5797afaef6d3930a52b73b2b0711623e04aa889",
+       "trace_submitted": 3361,
+       "words": 3361
+      },
+      "m7d_s0v1_fall6_double": {
+       "artifact_actions_sha256": "e8191e99b1aebe4d1b9368e6b0cdcb4cdf02fe065c7dde187b8c96a589339a95",
+       "artifact_metadata_sha256": "7340ab9d7d97d6633728067f3c2390f86da914704e40d3cd3bf2a0f585e3802e",
+       "consumed_ticks_ok": true,
+       "native_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+       "recorded_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+       "trace_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+       "trace_flags": {
+        "SSB64_RAPHNET_DISABLE": "1",
+        "SSB64_RL_ENTITY": "1",
+        "SSB64_RL_INPUT": "1",
+        "SSB64_RL_NO_RENDER": "1",
+        "SSB64_RL_SPATIAL": "1",
+        "SSB64_RL_TARGET_DIAG": "1"
+       },
+       "trace_sha256": "20211fcbef77b79087340654a9c9b8c626e080dc56f2020a78a021353c0de6be",
+       "trace_submitted": 2560,
+       "words": 2560
+      }
+     },
+     "rule_sha256": "f9779faac95feede6e3d7f64abc0360b9f5b1bbf587d3943f1c1a0193def457e",
+     "runtime_files": {
+      "BattleShip.o2r": "fe2b307e35c84c40e2e42e570a5e58183d69f8adfad094c8da3d715ffe451d00",
+      "f3d.o2r": "73ab91ef09a30e8aa629d441fede7aac078c3f46d925c90a9562488f0b664408",
+      "gamecontrollerdb.txt": "9d3c6b8dace57e778ca9420180d0533d11e2c9a0077e52878e1032541c76aa00"
+     }
+    },
+    "pin_tick0_digest": "2817d8cf3494615505f3a23f7dc34a70a36f2d8e096e54924f84414af0ffd6ec",
+    "lines_sha256": "c251d89ab05110b697a48f25f43430b1f3a8b06406fd59317a0e4c534f82da71",
+    "rd2_first_iteration": 2175,
+    "first_rd3_iteration": 6212
+   },
+   "rd3_archive_files_sha256": {
+    "archive_meta.json": "074d6600e894657befb6435500a6d2bb57d160ad2dd9b42531b284edcea22130",
+    "cells.jsonl": "35530c94e64a76c19e6319102c0b43014650546acaed759f60ab8ea42f23ea49",
+    "bursts.bin": "bb0936928c8dba2b43b85994c6916bbb2e712133a24837850c3bfae06d82cfb6",
+    "bursts.idx.jsonl": "4f81d917d120b02b9f0a78ed756cc3c3a1be5482c5002cfa0280a6c71cb88d25",
+    "events.jsonl": "cd40cd895ca276575476fb81408305931f4c34bd77a9ae1f3de571c42f9055df"
+   },
+   "rd3_close_record_sha256": "299875c89a2f5797abc93a6eb4b0e3026fd9f0de7de26496392c65cb1b214559",
+   "rd3_increment": "2026-10-02_incr_m8_rd3",
+   "rd3_increment_manifest_sha256": "b6e13ecbc1ef9a76fee105de90fbf09072ae2b450f9f626542f6df355e35f324",
+   "rd3_checkpoint_seq": 32,
+   "rd3_session_events": [
+    {
+     "ev": "session",
+     "name": "rd2",
+     "select": "m8_rd_select_v2",
+     "digest": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1",
+     "first_iteration": 2175
+    },
+    {
+     "ev": "session",
+     "name": "rd3",
+     "select": "m8_rd_select_v2",
+     "digest": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1",
+     "first_iteration": 6212,
+     "draw_suffix": "_rd3"
+    }
+   ],
+   "rd3_pins": {
+    "approval_sha256": "ab0c60ada7b34bfe8c3310bd68769757852a2dfe0b4f3b7998c9cc9dbd7033b5",
+    "archive_id": "m8_rd_a1",
+    "contracts": {
+     "btt_action_class_table_v2": "070d6b8f00d1ef9e19aa07e081e2dda40aa5a2523de50d81c9c03e78597d9b73",
+     "m8_rd_cell_v1": "a1187d555888ab4abcd325ec914dd7395e80453130b2ee21a5faf2590ef830d2",
+     "m8_rd_claims_v1": "3dbd7da58d3afe9e357b81a98a543ec69cebbf586df022b7d555bed205e15c68",
+     "m8_rd_explore_v1": "d7d3c9ae358f72648293652e2a7e90c8f76195ad8766efc4d708f97812f080f7",
+     "m8_rd_select_v1": "e6945dfeac85d8f4b63efd45cfd42ffd158e30c076ac124d673ac6f05463a506",
+     "m8_rd_select_v2": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1",
+     "track1_btt_s9_b8_v1": "aab45c265f74ab093ea7e11ad2ecec9930f6f14e24652d67ed5fee3049dc30ac"
+    },
+    "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+    "flags": {
+     "explore": {
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RL_SPATIAL": "1"
+     },
+     "verify": {
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_INPUT": "1",
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     }
+    },
+    "frozen_sha256": {
+     "BattleShip.cfg.json": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+     "imgui.ini": "0d26732173ee8129df8976203c713db5325a05b9785dfffcb75cd4f83c183042"
+    },
+    "git_head": "bde29cfb223ae75e10972be8041c10d4f9fd83ea",
+    "p1": {
+     "m7d_s0v1_det_fall": {
+      "artifact_actions_sha256": "0a8ef46e308cb79636b0b3ab4e785dbe1527c4767fbfd4f00d411e078a86dff4",
+      "artifact_metadata_sha256": "c138ef72748e2ac241f3708cec3c459d92adc1215ede75d9a3b0eadc2f3c06f4",
+      "consumed_ticks_ok": true,
+      "native_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+      "recorded_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+      "trace_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+      "trace_flags": {
+       "SSB64_RAPHNET_DISABLE": "1",
+       "SSB64_RL_ENTITY": "1",
+       "SSB64_RL_INPUT": "1",
+       "SSB64_RL_NO_RENDER": "1",
+       "SSB64_RL_SPATIAL": "1",
+       "SSB64_RL_TARGET_DIAG": "1"
+      },
+      "trace_sha256": "70c9c0026dadd0c4777d7740c5797afaef6d3930a52b73b2b0711623e04aa889",
+      "trace_submitted": 3361,
+      "words": 3361
+     },
+     "m7d_s0v1_fall6_double": {
+      "artifact_actions_sha256": "e8191e99b1aebe4d1b9368e6b0cdcb4cdf02fe065c7dde187b8c96a589339a95",
+      "artifact_metadata_sha256": "7340ab9d7d97d6633728067f3c2390f86da914704e40d3cd3bf2a0f585e3802e",
+      "consumed_ticks_ok": true,
+      "native_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+      "recorded_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+      "trace_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+      "trace_flags": {
+       "SSB64_RAPHNET_DISABLE": "1",
+       "SSB64_RL_ENTITY": "1",
+       "SSB64_RL_INPUT": "1",
+       "SSB64_RL_NO_RENDER": "1",
+       "SSB64_RL_SPATIAL": "1",
+       "SSB64_RL_TARGET_DIAG": "1"
+      },
+      "trace_sha256": "20211fcbef77b79087340654a9c9b8c626e080dc56f2020a78a021353c0de6be",
+      "trace_submitted": 2560,
+      "words": 2560
+     }
+    },
+    "rule_sha256": "fae00396494b8e966dc84e9a1e54af140143a52a6e624e14110dadaed76e0279",
+    "runtime_files": {
+     "BattleShip.o2r": "fe2b307e35c84c40e2e42e570a5e58183d69f8adfad094c8da3d715ffe451d00",
+     "f3d.o2r": "73ab91ef09a30e8aa629d441fede7aac078c3f46d925c90a9562488f0b664408",
+     "gamecontrollerdb.txt": "9d3c6b8dace57e778ca9420180d0533d11e2c9a0077e52878e1032541c76aa00"
+    }
+   },
+   "pin_tick0_digest": "2817d8cf3494615505f3a23f7dc34a70a36f2d8e096e54924f84414af0ffd6ec",
+   "lines_sha256": "c251d89ab05110b697a48f25f43430b1f3a8b06406fd59317a0e4c534f82da71",
+   "rd3_first_iteration": 6212,
+   "first_rd4_iteration": 10406,
+   "inherited": {
+    "wall_top_cell_ids": [
+     18318,
+     18767
+    ],
+    "cells_left_of_boundary": 54,
+    "grounded_cells_on_left_floor": 0,
+    "cells_with_a_left_target_broken": 0,
+    "max_level": 7
+   }
+  },
+  "rd4_archive_files_sha256": {
+   "archive_meta.json": "883828b4ede805836fb9681b58418a4703ac9db5d5184260a79c504374dd7f9f",
+   "cells.jsonl": "d348e721ddf6e4a888257cdc2b5ded4afa5a0c5452b12dbcf5a6dc840fcd9cf4",
+   "bursts.bin": "3e3a18a042d3a0a8c7bb8a1442872949758798a67312bbb002c19938055ced70",
+   "bursts.idx.jsonl": "5426c827230a3b3c3b26b66b133c91c938570bce22b18e607e8b33d3098e2cbb",
+   "events.jsonl": "0a317045f426d9ef073eb99ef874d328fa38065b40b66caa7d4dfaac1702282f"
+  },
+  "rd4_close_record_sha256": "30cf5763dfe720f31a5ca994b7790029c2be208953f6e527020442d5e94ada5e",
+  "rd4_increment": "2026-10-03_incr_m8_rd4",
+  "rd4_increment_manifest_sha256": "7ff2b29dfad2bcaa26e2567786acc3c84c55a6414501545b0f1c1815480068a8",
+  "rd4_checkpoint_seq": 45,
+  "rd4_session_events": [
+   {
+    "ev": "session",
+    "name": "rd2",
+    "select": "m8_rd_select_v2",
+    "digest": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1",
+    "first_iteration": 2175
+   },
+   {
+    "ev": "session",
+    "name": "rd3",
+    "select": "m8_rd_select_v2",
+    "digest": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1",
+    "first_iteration": 6212,
+    "draw_suffix": "_rd3"
+   },
+   {
+    "ev": "session",
+    "name": "rd4",
+    "select": "m8_rd_select_v3",
+    "digest": "fd69a0332de9db28d8ad4d77f3bd8884a14fa5a095d66dba5acfc8a34ed0f300",
+    "first_iteration": 10406,
+    "draw_suffix": "_rd4",
+    "changed_from": {
+     "select": "m8_rd_select_v2",
+     "digest": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1",
+     "change": "cell weight count term: (1 + seen)^-1/2 replaces (1 + chosen)^-1/2 + (1 + seen)^-1/2"
+    }
+   }
+  ],
+  "rd4_pins": {
+   "approval_sha256": "8eb3109ee8cbeb941de8e5029f49c9c71bb9a9af1a162546edbda8e4531beecf",
+   "archive_id": "m8_rd_a1",
+   "contracts": {
+    "btt_action_class_table_v2": "070d6b8f00d1ef9e19aa07e081e2dda40aa5a2523de50d81c9c03e78597d9b73",
+    "m8_rd_cell_v1": "a1187d555888ab4abcd325ec914dd7395e80453130b2ee21a5faf2590ef830d2",
+    "m8_rd_claims_v1": "3dbd7da58d3afe9e357b81a98a543ec69cebbf586df022b7d555bed205e15c68",
+    "m8_rd_explore_v1": "d7d3c9ae358f72648293652e2a7e90c8f76195ad8766efc4d708f97812f080f7",
+    "m8_rd_select_v1": "e6945dfeac85d8f4b63efd45cfd42ffd158e30c076ac124d673ac6f05463a506",
+    "m8_rd_select_v2": "a7d1953b7de76040ccb052703ec565100791c944f2d8a176ea189cb134c1c9d1",
+    "m8_rd_select_v3": "fd69a0332de9db28d8ad4d77f3bd8884a14fa5a095d66dba5acfc8a34ed0f300",
+    "track1_btt_s9_b8_v1": "aab45c265f74ab093ea7e11ad2ecec9930f6f14e24652d67ed5fee3049dc30ac"
+   },
+   "executable_sha256": "30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee",
+   "flags": {
+    "explore": {
+     "SSB64_RAPHNET_DISABLE": "1",
+     "SSB64_RL_NO_RENDER": "1",
+     "SSB64_RL_SPATIAL": "1"
+    },
+    "verify": {
+     "SSB64_RAPHNET_DISABLE": "1",
+     "SSB64_RL_ENTITY": "1",
+     "SSB64_RL_INPUT": "1",
+     "SSB64_RL_NO_RENDER": "1",
+     "SSB64_RL_SPATIAL": "1",
+     "SSB64_RL_TARGET_DIAG": "1"
+    }
+   },
+   "frozen_sha256": {
+    "BattleShip.cfg.json": "1b29d91b80051a135352bc7aaf26b49c749d7efee49fe71177396ffce2348409",
+    "imgui.ini": "0d26732173ee8129df8976203c713db5325a05b9785dfffcb75cd4f83c183042"
+   },
+   "git_head": "bdc7344fca8d1386f0aea83bc4c0c41b9bffe663",
+   "p1": {
+    "m7d_s0v1_det_fall": {
+     "artifact_actions_sha256": "0a8ef46e308cb79636b0b3ab4e785dbe1527c4767fbfd4f00d411e078a86dff4",
+     "artifact_metadata_sha256": "c138ef72748e2ac241f3708cec3c459d92adc1215ede75d9a3b0eadc2f3c06f4",
+     "consumed_ticks_ok": true,
+     "native_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+     "recorded_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+     "trace_action_digest": "f6ac1593cb1e71aa12bbbdd5d1f4341f9b1364d06cb18e23158a7084748c5883",
+     "trace_flags": {
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_INPUT": "1",
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "trace_sha256": "70c9c0026dadd0c4777d7740c5797afaef6d3930a52b73b2b0711623e04aa889",
+     "trace_submitted": 3361,
+     "words": 3361
+    },
+    "m7d_s0v1_fall6_double": {
+     "artifact_actions_sha256": "e8191e99b1aebe4d1b9368e6b0cdcb4cdf02fe065c7dde187b8c96a589339a95",
+     "artifact_metadata_sha256": "7340ab9d7d97d6633728067f3c2390f86da914704e40d3cd3bf2a0f585e3802e",
+     "consumed_ticks_ok": true,
+     "native_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+     "recorded_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+     "trace_action_digest": "0766f0f30e29b3b055b4b1d0b72ec1b704d11ba162f096ff7d559d98f9e434cf",
+     "trace_flags": {
+      "SSB64_RAPHNET_DISABLE": "1",
+      "SSB64_RL_ENTITY": "1",
+      "SSB64_RL_INPUT": "1",
+      "SSB64_RL_NO_RENDER": "1",
+      "SSB64_RL_SPATIAL": "1",
+      "SSB64_RL_TARGET_DIAG": "1"
+     },
+     "trace_sha256": "20211fcbef77b79087340654a9c9b8c626e080dc56f2020a78a021353c0de6be",
+     "trace_submitted": 2560,
+     "words": 2560
+    }
+   },
+   "rule_sha256": "246813eebb7c75590e7548e5c1606687012042bb023bb01a932acdcdfd00bbe3",
+   "runtime_files": {
+    "BattleShip.o2r": "fe2b307e35c84c40e2e42e570a5e58183d69f8adfad094c8da3d715ffe451d00",
+    "f3d.o2r": "73ab91ef09a30e8aa629d441fede7aac078c3f46d925c90a9562488f0b664408",
+    "gamecontrollerdb.txt": "9d3c6b8dace57e778ca9420180d0533d11e2c9a0077e52878e1032541c76aa00"
+   }
+  },
+  "pin_tick0_digest": "2817d8cf3494615505f3a23f7dc34a70a36f2d8e096e54924f84414af0ffd6ec",
+  "lines_sha256": "c251d89ab05110b697a48f25f43430b1f3a8b06406fd59317a0e4c534f82da71",
+  "rd4_first_iteration": 10406,
+  "first_sd1_iteration": 13886,
+  "inherited_record": {
+   "best_verified": {
+    "completion_input_tick": 2315,
+    "completion_time_passed": 2314,
+    "native_action_digest": "de1228be4146b720adc3f1272a9e65a8c0dcd7882b83134949f3893adfef8045",
+    "words": 2315,
+    "cid": 239,
+    "iteration": 11286,
+    "kind": "t",
+    "session": "rd4",
+    "source": "sessions/rd4/verification/replays.jsonl: exact clear replay of candidate 239 (kind t, iteration 11286) of rd4"
+   },
+   "verified_clears": [
+    {
+     "cid": 239,
+     "iteration": 11286,
+     "kind": "t",
+     "completion_input_tick": 2315,
+     "completion_time_passed": 2314,
+     "native_action_digest": "de1228be4146b720adc3f1272a9e65a8c0dcd7882b83134949f3893adfef8045",
+     "words": 2315
+    },
+    {
+     "cid": 194,
+     "iteration": 11206,
+     "kind": "left",
+     "completion_input_tick": 2326,
+     "completion_time_passed": 2325,
+     "native_action_digest": "5eccd4e2d5d77b25d69a2ae87211c05f8c7349fdeeeed6e094b53a88003907ba",
+     "words": 2326
+    }
+   ],
+   "clear_event_candidates": 10,
+   "clear_trajectories_registered": 5,
+   "unverified_clear_trajectories": [
+    {
+     "iteration": 12559,
+     "first_clear": 2324
+    },
+    {
+     "iteration": 12823,
+     "first_clear": 2341
+    },
+    {
+     "iteration": 12146,
+     "first_clear": 2348
+    }
+   ],
+   "levels": {
+    "0": {
+     "cells": 1766,
+     "min_L": 0
+    },
+    "1": {
+     "cells": 2767,
+     "min_L": 26
+    },
+    "2": {
+     "cells": 3297,
+     "min_L": 91
+    },
+    "3": {
+     "cells": 4591,
+     "min_L": 152
+    },
+    "4": {
+     "cells": 5418,
+     "min_L": 254
+    },
+    "5": {
+     "cells": 4845,
+     "min_L": 584
+    },
+    "6": {
+     "cells": 4274,
+     "min_L": 931
+    },
+    "7": {
+     "cells": 5107,
+     "min_L": 1339
+    },
+    "8": {
+     "cells": 2342,
+     "min_L": 1838
+    },
+    "9": {
+     "cells": 2901,
+     "min_L": 1898
+    },
+    "10": {
+     "cells": 4,
+     "min_L": 2315
+    }
+   },
+   "level_10_L": [
+    2315,
+    2324,
+    2326,
+    2348
+   ],
+   "top_eligible_level": {
+    "level": 9,
+    "min_L": 1898,
+    "min_cell": 30042
+   },
+   "left_floor_grounded": {
+    "cells": 15,
+    "min_L": 1911
+   },
+   "claim_facts": {
+    "wall_top_cell_ids": [
+     18318,
+     18767,
+     26944
+    ],
+    "cells_left_of_boundary": null,
+    "grounded_cells_on_left_floor": 15,
+    "cells_with_a_left_target_broken": null,
+    "max_level": 10
+   },
+   "rd4_outcome": "PROGRESS",
+   "rd4_m": 4,
+   "rd5_permitted": true
+  },
+  "rd4_line": {
+   "rd5_permitted": true,
+   "status": "MILESTONE_VERIFIED",
+   "line_ends": false,
+   "source": "sessions/rd4/rule.json",
+   "missing": false
+  }
+ },
+ "open_overlay": {
+  "rd4_closing_sha256": "c6b8d52db89c217e47078d61c0cde19531107dc675fec9106f3d5fc835a5cbfe",
+  "v4_sha256": "a5d0af34a00b115e3a545826fe787355da5ef6594185b72ffaa30586cc2c176c",
+  "v4_counts_sha256": "153a5c1cc5efee1ddaf687a473086915e811a9aa30d12d79f3543f7d76c291ec",
+  "expected_v4_counts": {
+   "cells": 37312,
+   "eligible_v1": 30506,
+   "descent_among_v1_eligible": 5053,
+   "bound_among_v1_eligible": 3796,
+   "union": 8050,
+   "eligible_v2": 22456,
+   "eligible_v3": 23539,
+   "eligible_v4": 23253,
+   "bound_L": 2290,
+   "record_bound_cells": 323,
+   "record_bound_among_v3_eligible": 286,
+   "record_bound_by_level": {
+    "0": 0,
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 0,
+    "7": 0,
+    "8": 26,
+    "9": 293,
+    "10": 4
+   },
+   "record_bound_among_v3_eligible_by_level": {
+    "0": 0,
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 0,
+    "7": 0,
+    "8": 2,
+    "9": 284,
+    "10": 0
+   },
+   "eligible_v4_by_level": {
+    "0": 935,
+    "1": 2061,
+    "2": 2412,
+    "3": 2999,
+    "4": 2862,
+    "5": 2907,
+    "6": 2124,
+    "7": 3477,
+    "8": 929,
+    "9": 2547,
+    "10": 0
+   },
+   "shortest_L_by_level": {
+    "0": 0,
+    "1": 26,
+    "2": 91,
+    "3": 152,
+    "4": 254,
+    "5": 584,
+    "6": 931,
+    "7": 1339,
+    "8": 1838,
+    "9": 1898,
+    "10": 2315
+   },
+   "shortest_eligible_L_by_level": {
+    "0": 0,
+    "1": 26,
+    "2": 91,
+    "3": 152,
+    "4": 254,
+    "5": 584,
+    "6": 931,
+    "7": 1339,
+    "8": 1838,
+    "9": 1898,
+    "10": null
+   }
+  },
+  "expected_rd4_counts": {
+   "cells": 37312,
+   "eligible_v1": 30506,
+   "descent_among_v1_eligible": 5053,
+   "bound_among_v1_eligible": 3796,
+   "union": 8050,
+   "eligible_v2": 22456,
+   "launch_capable_cells": 857,
+   "grounded_cells": 629,
+   "step_contact_cells": 97,
+   "still_eligible": {
+    "launch_capable": 770,
+    "step_contact": 97,
+    "grounded": 629
+   }
+  }
+ },
+ "budgets": {
+  "exploration": "50 min or 6,000,000 native ticks, valid from 2,000,000",
+  "open": "70,000 ticks / 4 min (P1, 16 identity replays, the record re-verified)",
+  "verification": "400,000 ticks / 6 min (the pool fastest first, the inherited descriptive replays, 16 close identity replays)",
+  "hard_cap": "60 min from P1"
+ },
+ "code": {
+  "rl/m8_rd_cells.py": "f7bacbeb38cc1d3680b696149181b2b485ea767c196f2d9c10f41111ad8ab1f8",
+  "rl/m8_rd_explore.py": "9a11779acad1cd89fce767d7b6828fc683403a271181ef4142c78f1f152d5ebc",
+  "rl/m8_rd_archive.py": "7ef9c750b111ac413b96ffe74ab77a1cdf86c8691e579443d196b7bced5bf6b7",
+  "rl/m8_rd_claims.py": "e7e746412081501baf64c0d00df83c70c00308b603b39b030e71a4b48feb8610",
+  "rl/m8_rd_rule.py": "2946b40d05e001ff686e75ea7839eb9fc3ff0920bdefe0e1133f4dc5b80379f1",
+  "rl/m8_rd_worker.py": "f9261f8ba206880039bf38a442adc3455695425fcfeec92768ed2472ece15285",
+  "rl/m8_rd_run.py": "c7c4c6ec36519b5d987b2e33e595c3696eee479ef5c3b4a2ef5bfc35b2a1bd5b",
+  "rl/m8_rd_finish.py": "e378455d51ec17b1c9b606cb9b8d4c4acf3cf219523133f793de628f925dc093",
+  "rl/m8_rd_session.py": "30b276d04dc0015eb2592adf42112c21568d10e5b66960091778edd40d70c52b",
+  "rl/m8_rd_report.py": "bbdc15d2a97ab85296b5a80c99ce10bac4bc57e66ef9f9a0eab2153ea71369ff",
+  "rl/m8_rd_snapshot.py": "85d5dae6508401887ccfbe172cfdc74551e6db3a48f2e679d8f3d66c341b65b3",
+  "rl/m8_rd_stub.py": "d2c8a681dd09a8747e1863626a670027c755a457052f6c17f8997136b36cae1a",
+  "rl/m8_rd_fakegame.py": "b905baf5eec6ec21ee381a796683c28e2088fe87e1f88f4d462f423424006d82",
+  "rl/m8_rd_tests.py": "6235a3d0aafd5d00edf23cb1135ca49ccd9c06e4cce6f84eb798a5d1b19905e9",
+  "rl/battleship_client.py": "0d119f0297480821791017a2e5caac0e360cfd7f08bb50f74650386d90f07253",
+  "rl/battleship_process.py": "ac3cc658aec825cc128c1030c3cd0ab48645e2711eca065c67698ccb8ad8e705",
+  "rl/m7_standby.py": "6318a595ef774d9f7bfbd79782f11cc0eea9e716eb08f424a208aa6d9e1e3eb3",
+  "rl/m7_runtime.py": "3dc56722c924065356e6134174d5e2c4724c0f495ee8c4e0eed027dfd2d9c452",
+  "rl/m7f_trace.py": "99399e16718a9e5a5f4d4eb3ce6c4b00bb62e6f9483522b03946b52180cb9190",
+  "rl/m7n_crossing.py": "c0d46afb912a727b9f75b96de2021956923de03df82f39ebb4d4d88405e823f0",
+  "rl/m7g_fixture.py": "880e641e22609ae7aa3da7b339fecae5eee69bc5c6e9cf4237413f0db6e1770b",
+  "rl/btt_reward_v3.py": "04589be48921a9e4bda6a6c1f13f1a35f26bd89ccb50d544a959adf878cdeaa4",
+  "rl/btt_rewards.py": "15bd68fd664a871c9dbdb7285882ab0219b353899573f777813207afe05dae4e",
+  "rl/m7q_status_table.py": "c6ee3de5d8f75e3e61c264d2dfc1586093539e4bca67e5ee74dbf3a2806b6423",
+  "rl/m7n_status_table.py": "9aaa29ac19910ac174971e37fae630a8eee19548216f586e521940e94d7cdeff",
+  "rl/m7g_spatial.py": "d95269b65648942594c2f9b598629c76dafb1fd839f08babc2621085f0e0b17c",
+  "rl/m7h_curriculum.py": "12428c0cc6044ae501b5d288d129259d1ea64eb0b5e26586be43376b4fb0ea8e",
+  "rl/m7u_gate.py": "b3acb99607c14542d8217b1c19dad0e58715ca70d087f22e7073f8c37a3fd709",
+  "rl/m7u2_gate.py": "621bf45df9537b4ac96e48842a592abf72553d0b97e1132ed535eee4d3517f07",
+  "rl/m7s_gate.py": "4bff49b4d3c7a882ae3c0bc13f4494ad45832adf07fede69e2517b7e81967859",
+  "rl/m7u3_gate.py": "53e9dad84313d7a1d245ac8d119a2f5a5ef278c1535cc68410953e746ac5e002",
+  "rl/tools/runs_backup.py": "c4de9b0ab69849341a129e9e99263a28d7fdfccb292e4cfebe8e6221039db71c",
+  "rl/data/m7n_action_classes_v2.json": "ba4307e6b8848f324096156674dd28d45c637f34e1aa53e345c5ed5d2f4af4a8",
+  "rl/m8_rd_select2.py": "3872ada2e44f81397dea646748234bac470f636273daa5e6f106e298b95a00ca",
+  "rl/m8_rd_resume.py": "226fe47132efa637ba0f3702127ffbc70a1612fca871e8f9337fa97ffe526fdc",
+  "rl/m8_rd2_worker.py": "ae4a9c71deefe0c9e44197afcce94d110195aa07b36c61e18e915898fcea7ea6",
+  "rl/m8_rd2_run.py": "04344887e9bf444ea19f7d25ae8061f7b1ea95149d8658f943d2302b5b20eee0",
+  "rl/m8_rd2_session.py": "4462abe8d602f408f910fac1e153c7dc3c18362b6567b9e2160d86eb11e5c81e",
+  "rl/m8_rd2_rule.py": "8ada75ed35fe31e55a89d330cc425e57b8b15bca8e20cd2812ff4be6f8fc9193",
+  "rl/m8_rd2_report.py": "226536444ad2545ed555ff29caba1f283ab7e1488d81f3784f6b7a5096db2bc5",
+  "rl/m8_rd2_snapshot.py": "958807451147a77fc58679894ee193717b8fbabd2b1986d7500f101d1233c65e",
+  "rl/m8_rd2_tests.py": "d6ea352f36d64e2a1a8df9fcbae6e1d17af329b21c5ee795bd249012a2889155",
+  "rl/m8_rd3_select.py": "e00f7f462e9fe396e5e587c0f00c7e48690fdd6a24876a74fdcfc77612c79809",
+  "rl/m8_rd3_resume.py": "94c3a1b8e94a45a9af8cee0f5136e388633b29121c7d428bc102e83a8b4ca50f",
+  "rl/m8_rd3_run.py": "8e66735da1033653f8e380411f3fe834ae0fd8c797e4686ea364ad2df70610df",
+  "rl/m8_rd3_session.py": "1a2f18d8fc1e8cc2cabe4bbb85530bf89ac19eeb914db39728b09788ff5da4ba",
+  "rl/m8_rd3_rule.py": "87a14e108389a9500f8c7b7a235ebdc76eed54ba98bafcf6e09ae22e2f109250",
+  "rl/m8_rd3_report.py": "52cd9d2419b20387026b6a8fec0820aa44f684d72404e849d386bf4bed0be2e1",
+  "rl/m8_rd3_snapshot.py": "33f224193f9a0a91a4d97c813fc297a6ce6c2f6f83ea8c8c22565898400cf5aa",
+  "rl/m8_rd3_tests.py": "912bea05758f23c47e613f11e2b3b4f927a952d0a4ad2fd2977949a635e7fa28",
+  "rl/m8_rd4_select.py": "64e15acb427f54eff557a556b99102a4686e6b04969ab8472d2069ba6c8c0f10",
+  "rl/m8_rd4_resume.py": "8dc9b921f63c1bcdebccb7eec99fc99bf5796aa0a3bde5706d873167e80f210a",
+  "rl/m8_rd4_claims.py": "07f08420fca54fa9d883d5bf4818ccd23d6299abff4b1b3fdc23e25fc6ba32ce",
+  "rl/m8_rd4_run.py": "421662b46d11085adbf0f9a306e8caf1b3d165591a6314c8a4dc75b6c7752fe5",
+  "rl/m8_rd4_session.py": "a08b3867e3a9afbd7476e2e22385d96f9e362e0a237738125b5c716d002407f0",
+  "rl/m8_rd4_rule.py": "a6a437a4b0dbe96484d45ee1ae497eede08fa0387ab5aaa1ffe7eb71b99fc3b9",
+  "rl/m8_rd4_report.py": "cd3b66046902574481b2a5ee3b066e7c6842bd5ace6b34b45de05238efb7faf3",
+  "rl/m8_rd4_snapshot.py": "fda15a488bb80be4cc0285088c09ccae4a642e09f3bb38b10de6d1a7d04dc1a5",
+  "rl/m8_rd4_tests.py": "e950e1cba346b1a844cc623c784c43fc4f05196c3181466ce3e44da3f336b51a",
+  "rl/m8_sd1_artifacts.py": "e4324b3286687653106025efa311bafa7959a9cc40b5aa40a250d9df4acc8a5e",
+  "rl/m8_sd1_select.py": "5163df041ac3ab57785fa2be03dcd4e3c6f0893b908ae402a8858aaaa5f294d9",
+  "rl/m8_sd1_rule.py": "c66e4dad0f6634d0b31d7823f706e091e633aa332d8bb48a779af755ce631b4c",
+  "rl/m8_sd1_claims.py": "a2d0d7d233dbb9ff7020b1444cb9bdc91527209bfe24629dd393e3fed44cac1c",
+  "rl/m8_sd1_resume.py": "2289b5f1c602518db93aac80a0a965f42823a6d9b848a3b7351a8e147f0f3995",
+  "rl/m8_sd1_report.py": "994c761b05f98561fa4241cbb5132bab94b0da9f00c462ca33573b02bbf91eb3",
+  "rl/m8_sd1_run.py": "9c9dcd3fdb23d5638303ba7125e94e748d6fb9ab27779a66da795519d7eeea15",
+  "rl/m8_sd1_session.py": "8ef1ebaa9f262c8cb42106d6e0be1820c67b56db01e82471e1305f076a8e714a",
+  "rl/m8_sd1_snapshot.py": "2458b41219a7cc5628bd2804a6d41523410d0cab24c07be82e0df8206ac63557",
+  "rl/m8_sd1_tests.py": "18574f1fd8d0e3f89f618f46cb6393aadf16d999b422a789373717b4c7ad5141",
+  "rl/m9_artifacts.py": "c82d622e1eb96134849596c0333892d787236902d59dc8ee67978f13118c1de0",
+  "rl/m9_contract.py": "42d06f0204e8340de7a8f69b5465b07329cec9f82f3a4aa247c2b86ff36e4ff0",
+  "tools/m8_sd1/launch_detached.ps1": "9e9f1fa1acf1e38c8fecdc6061c62c9f4370cbf3160125462a3c65722c07fc7a",
+  "tools/m8_sd1/wait_session.py": "278d49797982f6462ddc7cac2617832bca4f1c05ed4a62acae6c58f1aa73ca8d",
+  "tools/m8_sd1/write_approval.py": "68ce999583bbcb023c9f542805f5dabda610a195daaa3b2ff272dfe3787f2b1e",
+  "tools/m8_sd1/three_passes.py": "630c83fe6d961f4c54f440dbbf38fc8e50d117f7bf4b30654cfcb4f0330e596a",
+  "tools/m8_sd1/independent_increment_check.ps1": "98abb0b9e3ba12c715856b5f1fc0f32298bd17f9ba8bb5d322b3abc7a7b9c310"
+ },
+ "source_fingerprint": "f7fadda5ec11b3dd",
+ "docs_sha256": {
+  "docs/rl_m8_rd_proposal_2026-10-01.md": "e34672c8d59da959c7496d37c66af1580df9c98ff3256949806144e3f64c2683",
+  "docs/rl_m8_rd_amendment_2026-10-02.md": "3a78f041452a4c24b6747e1b35d3aff3bc92ca34080b4665976b937f955e7c67",
+  "docs/rl_m8_rd_implementation.md": "a699d4dc5de82369bbde1f62345a4c5e5e99fc9b71882d3ed9a3fbb46188fa02",
+  "docs/rl_m8_rd1_results_2026-10-02.md": "59a2d9f76c6a7f3c4290c69ca90e3a8a92de713eb9510beed756392c8bc4a917",
+  "docs/rl_m8_rd1_diagnosis_2026-10-02.md": "e9a6ba06907f3a6ff8972c983eaf9c2750d2ba6f36e2505b938234c238a917cb",
+  "docs/rl_m8_rd_continuation_proposal_2026-10-02.md": "d3e9a176cefc7e6637be107153fd2a859f6599285593938813ec87a472716306",
+  "docs/rl_m8_rd2_decisions_2026-10-02.md": "9e4c1171f5c691cd414521f5989d52370f717304ecbae476b14499ff53de42c6",
+  "docs/rl_m8_rd2_implementation.md": "3230bb64f3da5eb192c0297d74f2172eb5f85b14cc17b829b993ff40cf710fba",
+  "docs/rl_m8_rd2_results_2026-10-02.md": "bee1be6fb51cf8675e917297cd4fbba18f7022664273777958adc668c1c529f7",
+  "docs/rl_m8_rd3_decisions_2026-10-02.md": "d34bcaa902b0ca67ef1911ff27fefad8a2d4b46802b110024525b1b7d92af24f",
+  "docs/rl_m8_rd3_implementation.md": "cf927f9260090ce76810547529caf3a2bb664901cd7a7eb859b3957943d74681",
+  "docs/rl_m8_rd3_results_2026-10-02.md": "7504df9414980f023362a27bcb800e500304bc2111ee53071b2e4a7d313f1a2f",
+  "docs/rl_m8_rd3_stop_review_2026-10-03.md": "c5691181ea484dc7709cc654b1b3e3d88c51fe2ce1754f2129cee5dd28849b7d",
+  "docs/rl_m8_rd4_decisions_2026-10-03.md": "9593e0162cd4d0ebd967fac22c2107f3446a6d9aba2ddf354f39ac35d33cab46",
+  "docs/rl_m8_rd4_implementation.md": "f5b877f2c03a57db6cc4c8f7b33ac923a02f530ee60acebc120dc842791cdcd2",
+  "docs/rl_m8_rd4_results_2026-10-03.md": "7f920dca1a586f06233a4b3997350313c59d8b925b0255030e4c21da74e59419",
+  "docs/rl_m8_sd1_proposal_2026-10-07.md": "a28658d173d7d80950ff26bc2055a1200de8b7073907440c6dc186965cb3321d",
+  "docs/rl_m8_sd1_prep_2026-10-11.md": "e2e0b02c288eea610efcaf43668f42ce972794f0d4ac65d336f2ae96b5a8a337"
+ },
+ "git_head": "7009c9e36d52e2ec4ed0ff83095794a2c2c4f0fd",
+ "d_records": {
+  "folders": [
+   "2026-09-28",
+   "2026-09-28_incr_m7r",
+   "2026-09-29_incr_m7s",
+   "2026-09-29_incr_m7t_logs",
+   "2026-09-30_incr_m7u",
+   "2026-09-30_incr_m7u2",
+   "2026-09-30_incr_m7u_logs",
+   "2026-10-01_incr_m7u3",
+   "2026-10-01_m7u3_prep",
+   "2026-10-02_incr_m8_rd1",
+   "2026-10-02_incr_m8_rd2",
+   "2026-10-02_incr_m8_rd3",
+   "2026-10-03_incr_m8_rd4",
+   "2026-10-04_incr_m9_g1",
+   "2026-10-04_incr_m9_g1_eval",
+   "2026-10-06_incr_m9_g2_s1",
+   "2026-10-07_incr_m9_g3_s1",
+   "2026-10-08_incr_m9_g3_s2",
+   "2026-10-09_incr_m9_g3_s3",
+   "2026-10-09_incr_m9_g3_s4",
+   "2026-10-09_incr_m9_g3_s5",
+   "2026-10-10_incr_m9_g3_s6"
+  ],
+  "digest": "20b634a0ab53cf27ed4f47dc57a469810e10cb26f668816e630b031dd2ec7889"
+ },
+ "approval": "APPROVED: M8-sd1, exactly one detached speed-search session, once (Part C of the launch session of 2026-10-11): approval with fresh identities (the record reference 2315 / 2314 pinned, the margin 24, the progress bar 2291, the nine contract digests, both overlay digests, the inherited record facts of rd4's closed tree, the source fingerprint), the verified D: source snapshot named below, the preflight (the four earlier trees against their increments, the open protocol R1-R5, the D: coverage, readiness), one session as designed (the open: P1, 16 identity replays and the record re-verified in full; exploration under m8_rd_select_v4 from iteration 13,886; the clear pool replayed fastest first and the inherited descriptive replays after it; the close checks; the decision under m8_sd1_rule_v1), waited to completion; no retries, extensions, repairs, and NO sd2 and NO rd5; afterwards the D: increment, the unchanged earlier trees, the coverage and the results record",
+ "revision": 1,
+ "authorisation": {
+  "source": "the user's message of 2026-10-11 (Part C)",
+  "authorised_on": "2026-10-11",
+  "text": [
+   "Session date: 2026-10-11 (the local date when Part B started; <the session date> below = 2026-10-11). Source: the user's launch message of 2026-10-11, Part C, quoted verbatim:",
+   "",
+   "=== PART C: THE sd1 SESSION (only if Part B passed) ===",
+   "",
+   "I authorise exactly this, once:",
+   "1. Snapshot first: m8_sd1_snapshot.py to D:/BattleShip_source_snapshots/<the session date>_m8_sd1, verified by the tool and by an independent PowerShell re-hash invoked from Git Bash.",
+   "2. Approval second: tools/m8_sd1/write_approval.py, quoting this Part C authorisation verbatim with the session date in its authorisation file, writing the new docs/rl_m8_sd1_approval.json. From here until the launch, the S2 rule applies.",
+   "3. The full preflight, ONCE. If it fails for any reason, stop; do not re-run it.",
+   "4. One detached session via tools/m8_sd1/launch_detached.ps1. Within two minutes of the launch (S7), confirm the recorded pid is alive and that session_stdout.txt contains no \"refused\". If it does, stop and report; do not relaunch. Then wait with tools/m8_sd1/wait_session.py, using a 3.5-hour limit if its parser offers a time argument (N7); its timeout only ends the waiter, never the session. Do not close the terminal that launched it. No retries, extensions, repairs, and NO sd2.",
+   "5. Afterwards:",
+   "   - verify-run and report to logs/m8_sd1_run/, then the copies into runs/m8_rd_sd1/launch/ and derived/ (N4 rule).",
+   "   - Back up runs/m8_rd_sd1 to D:/BattleShip_runs_backup/<the session date>_incr_m8_sd1 (exactly this naming pattern), verified by the tool with --source runs/m8_rd_sd1 and by the independent re-hash.",
+   "   - Confirm the four earlier M8 trees and every other earlier tree unchanged by the independent re-hash only (S3).",
+   "   - Report total runs/ coverage with 0 uncovered.",
+   "   - Write the results record as a new file named exactly docs/rl_m8_sd1_results_<YYYY-MM-DD>.md (the session date). Its FIRST line must be \"# M8-sd1 results (<same date>)\", a \"##\" section must follow, and the file must end with a newline; check it with check-results-record. In it, also document: the per-level integrity facts pinned as literals in m8_sd1_resume.py (N1: archive structure, read back and compared, never used for selection) and the maximum number of game processes recorded, including any transient 11th during the record's open replay (N2).",
+   "",
+   "All absolute constraints apply. In particular:",
+   "- No native RNG seed inspection, logging, control, comparison or hashing.",
+   "- Process restart resets the episode.",
+   "- The exact submit/consume/input tick contract.",
+   "- Canonical controller words as replay truth, with no hidden actions.",
+   "- The routes used are the agent's own.",
+   "- Human recordings and the TAS are validation-only and never read.",
+   "- No hardcoded routes or waypoints.",
+   "- Non-PORT decomp/byte-matching behaviour is preserved."
+  ]
+ },
+ "source_snapshot": {
+  "dest": "D:\\BattleShip_source_snapshots\\2026-10-11_m8_sd1",
+  "snapshot_json_sha256": "110bbdd469d46d9db13addf717b80629ef3e616f9b8c779673223ddaab076b0b",
+  "result": "PASS",
+  "files": 159,
+  "git_head": "7009c9e36d52e2ec4ed0ff83095794a2c2c4f0fd",
+  "source_fingerprint": "f7fadda5ec11b3dd",
+  "tool": "m8_sd1_source_snapshot_v1",
+  "independent_verification": "tool verify (rl/m8_sd1_snapshot.py verify) PASS at 2026-10-12T02:41:21Z: 159 files, 0 mismatches, 0 extra files, 0 external mismatches, executable equal; independent PowerShell Get-FileHash re-hash invoked from Git Bash (rl/m8_sd1_snapshot.py powershell -> logs/m8_sd1_run/independent_snapshot_rehash.ps1, no repository module): checked=160 bad=0 exe=30a3913b32c4435369c8bbfa5c54ccd63bb5d398802c5c918969fd0eb1b666ee exe_ok=True result=PASS snapshot_json=110bbdd469d46d9db13addf717b80629ef3e616f9b8c779673223ddaab076b0b"
+ },
+ "line_consequence": {
+  "line": "sd1 is one session; after PROGRESS or RECORD_BELOW_MARGIN an sd2 under the same design with the new record reference may be proposed (its own authorisation); after NO_SHORTER_CLEAR an sd2 may be proposed only with a stated reason read from the diagnostics; an INCOMPLETE session counts as sd1 once exploration has started; INVALID is a repair and a new approval and whether it counts is the user's decision; no third session without a review; sd1 neither consumes nor grants rd5",
+  "if_this_session_is": {
+   "PROGRESS": "the best verified clear (completion_input_tick <= 2,291) is the archive's new record reference; an sd2 under the same design may be proposed (its own authorisation)",
+   "RECORD_BELOW_MARGIN": "the best verified clear (2,291 < completion_input_tick < 2,315) is the new reference, not progress; an sd2 may be proposed (its own authorisation)",
+   "NO_SHORTER_CLEAR": "the reference stays 2,315; an sd2 may be proposed only with a stated reason read from the diagnostics",
+   "INCOMPLETE": "counts as sd1 once exploration started (a repeat is sd2, with its reason stated); does not count before exploration started (repair and a new approval, then sd1 again)",
+   "INVALID": "repair and a new approval; whether it counts is the user's decision (recorded as None)"
+  },
+  "rd_line": "unchanged: sd1 neither consumes nor grants rd5",
+  "third_session": "none without a review"
+ },
+ "backup_coverage_before_approval": {
+  "ok": true,
+  "source_files": 446554,
+  "uncovered": 0,
+  "increments": [
+   "D:\\BattleShip_runs_backup\\2026-09-28_incr_m7r",
+   "D:\\BattleShip_runs_backup\\2026-09-29_incr_m7s",
+   "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u",
+   "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u2",
+   "D:\\BattleShip_runs_backup\\2026-10-01_incr_m7u3",
+   "D:\\BattleShip_runs_backup\\2026-10-02_incr_m8_rd1",
+   "D:\\BattleShip_runs_backup\\2026-10-02_incr_m8_rd2",
+   "D:\\BattleShip_runs_backup\\2026-10-02_incr_m8_rd3",
+   "D:\\BattleShip_runs_backup\\2026-10-03_incr_m8_rd4",
+   "D:\\BattleShip_runs_backup\\2026-10-04_incr_m9_g1",
+   "D:\\BattleShip_runs_backup\\2026-10-04_incr_m9_g1_eval",
+   "D:\\BattleShip_runs_backup\\2026-10-06_incr_m9_g2_s1",
+   "D:\\BattleShip_runs_backup\\2026-10-07_incr_m9_g3_s1",
+   "D:\\BattleShip_runs_backup\\2026-10-08_incr_m9_g3_s2",
+   "D:\\BattleShip_runs_backup\\2026-10-09_incr_m9_g3_s3",
+   "D:\\BattleShip_runs_backup\\2026-10-09_incr_m9_g3_s4",
+   "D:\\BattleShip_runs_backup\\2026-10-09_incr_m9_g3_s5",
+   "D:\\BattleShip_runs_backup\\2026-10-10_incr_m9_g3_s6"
+  ],
+  "skipped": [
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-09-29_incr_m7t_logs",
+    "why": "no top-level verification record"
+   },
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-09-30_incr_m7u_logs",
+    "why": "no top-level verification record"
+   },
+   {
+    "dest": "D:\\BattleShip_runs_backup\\2026-10-01_m7u3_prep",
+    "why": "source C:\\Users\\kill_\\Bureau\\gitRepo\\Smash_pc_port\\BattleShip\\logs\\m7u3_prep is not under runs/"
+   }
+  ]
+ },
+ "written_utc": "2026-10-12T02:49:00Z"
+}
