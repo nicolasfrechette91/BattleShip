@@ -7,9 +7,13 @@ script: never paste a whole section into a terminal.
 **State when written:** `HEAD` = `origin/main` = the remote's `main` = `162e48bce077373d620e27b311c838f0fe338a57` ("Make training resume generic for
 any later session (M9-g3)"); `git status` was clean before this file was added.
 
-> **STOP: read this before session 3.** As committed at `162e48b`, session 3 **cannot pass its full preflight** (step S13), and the step S9 commit
-> rule applies to this very file. See [section 1.4](#14-blockers-found-while-writing-this-runbook). Do Part B if you like (it is zero-tick and it
-> will pass), but do **not** take the snapshot or write the approval (steps S11 and S12) until blocker 1 is fixed in a separate preparation session.
+**Updated 2026-10-13.** Section 1.4, the fingerprint in section 1.5 and step S3, the note before step S3.0, steps S2 and S20, the note before
+step S11, the "Blocker 2" bullet of section 3.5 and pitfalls P7, P9 and P14 now match `docs/rl_m9_g3_progression_fix_2026-10-08.md`, which
+superseded them. Section 9 (the M8 speed-discovery sessions) is new. Everything else is as written on 2026-10-08.
+
+> **Resolved: the session-3 blockers.** As committed at `162e48b`, session 3 could not pass its full preflight (step S13). The progression fix
+> (`docs/rl_m9_g3_progression_fix_2026-10-08.md`, commit `d86e05f`) fixed this; the g3 source fingerprint is now `15ddbb84932aa658`. See
+> [section 1.4](#14-blockers-found-while-writing-this-runbook).
 
 ## How each statement was checked
 
@@ -34,6 +38,7 @@ The full ledger of commands and how each was checked is in [Appendix A](#appendi
 6. [Known pitfalls](#6-known-pitfalls)
 7. [Model and cost guidance](#7-model-and-cost-guidance)
 8. [After every session: review checklist and decision log](#8-after-every-session-review-checklist-and-decision-log)
+9. [The M8 speed-discovery sessions (sd1, sd2)](#9-the-m8-speed-discovery-sessions-sd1-sd2)
 
 ---
 
@@ -76,30 +81,31 @@ No session cleared from tick 0 (g3-s2: 0 of 20 sticky, deterministic no clear). 
 "Earlier" means a smaller tick number (further back from the end of the route). D only takes landing values: 2,128, 1,966, 1,694, 1,473, 1,369,
 1,248. The frontier pointer (2,040 now) is a training quantity, **not** D (section 5.1).
 
-### 1.4 Blockers found while writing this runbook
+### 1.4 Blockers found while writing this runbook (all resolved)
 
-1. **Session 3 cannot pass its full preflight as committed (blocker).** `rl/m9_g3_tests.py` line 1196, inside the unit test
-   `resume_inputs_and_previous_sessions_are_read_from_the_predecessors_records`, asserts `len(S3.predecessor_doc_problems(4)) == 2` ("session 4 lacks
-   s3's two records"). Today the count is 2 [ran]. The moment `docs/rl_m9_g3_s3_approval.json` exists, the count becomes 1: I simulated that in
-   memory, without writing a file, by pointing `approval_path(3)` at an existing approval, and got `len = 1` [ran]. The full preflight (step S13)
-   and the preflight inside `run` (step S14) both run the whole g3 unit suite (`_run_unit_suites` in `rl/m9_g3_session.py` [code]). That suite would
-   then report 28/29 and the preflight would refuse with `unit_suite_m9_g3 failed`. **The fix needs an edit to a tracked test file.** That means a
-   separate preparation session, a commit, a new g3 source fingerprint (no longer `64259b59b3e09d50`) and a new Part B. None of that is in this
-   runbook's scope.
-2. **The same test file also pins "s3 not recorded yet" in four more places** (lines 1191, 1192, 1193 and 1376: `predecessor_problems(4)` names a
-   missing final state; `unregistered_predecessors(4) == [3]`; `predecessor_tree(3) is None`; `trees_for(4) == trees_for(3)`). These hold while s3
-   is being launched. They become false once s3's tree and increment exist, so **session 4's Part B will fail too** unless those tests are made
-   generic. The resume-k record's claim "B13: generic k >= 4, no preparation round" therefore does not hold for the unit suite as committed. [code]
-3. **This runbook trips the git gates until you commit it.** The g1, g2 and g3 git-state tests require every new file under `rl/` or `docs/` to have
-   `m9` or `M9` in its name (`rl/m9_g3_tests.py` line 1361; the same line in `rl/m9_tests.py` and `rl/m9_g2_tests.py` [code]). `docs/rl_runbook.md`
-   does not. While it is untracked, the three passes and the full preflight fail. Commit it (and stage nothing afterwards) before any Part B, or
-   rename it with `m9` in the name. See pitfall P1.
+All three are resolved. Blockers 1 and 2 were fixed by `docs/rl_m9_g3_progression_fix_2026-10-08.md` (commit `d86e05f`, g3 source fingerprint
+**`15ddbb84932aa658`**); blocker 3 was resolved by committing this runbook (`985daec`). The original findings are kept below for the record.
+
+1. **Session 3 could not pass its full preflight as committed at `162e48b` (fixed).** `rl/m9_g3_tests.py` line 1196, inside the unit test
+   `resume_inputs_and_previous_sessions_are_read_from_the_predecessors_records`, asserted `len(S3.predecessor_doc_problems(4)) == 2` ("session 4 lacks
+   s3's two records"). Once `docs/rl_m9_g3_s3_approval.json` existed, the count became 1, the g3 unit suite reported 28/29 and the full preflight
+   (step S13) and the preflight inside `run` (step S14) would have refused with `unit_suite_m9_g3 failed`. **Fix:** no unit test asserts the line's
+   later progression on the live repository any more; the refusals on missing records are checked on temporary layouts for k = 2 to 5, at the three
+   stages of session k (before its approval, after its approval, after it completed). The test count stays **29**; the e2e digest is unchanged
+   (`078f46c445d8adc5`) [record: progression fix sections 0 and 2.1].
+2. **The same test file also pinned "s3 not recorded yet" in four more places (fixed)** (lines 1191, 1192, 1193 and 1376: `predecessor_problems(4)`
+   names a missing final state; `unregistered_predecessors(4) == [3]`; `predecessor_tree(3) is None`; `trees_for(4) == trees_for(3)`). They became false
+   once s3's tree and increment existed, so session 4's Part B would have failed too. **Fix:** the same as blocker 1; the resume-k record's "B13:
+   generic k >= 4, no preparation round" now holds for the unit suite [record: progression fix sections 2.1, 6 and 10].
+3. **This runbook tripped the git gates until it was committed (resolved by `985daec`).** The g1, g2 and g3 git-state tests require every new file
+   under `rl/` or `docs/` to have `m9` or `M9` in its name (`rl/m9_g3_tests.py` line 1361; the same line in `rl/m9_tests.py` and `rl/m9_g2_tests.py`
+   [code]). The rule still applies to any new non-M9 file: commit it (and stage nothing afterwards) before any Part B. See pitfall P1.
 
 ### 1.5 Session 3 readiness today (everything else)
 
 | item | today |
 | --- | --- |
-| resume-k tooling committed | yes, `162e48b`; g3 source fingerprint **`64259b59b3e09d50`** [ran] |
+| resume-k tooling committed | yes, `162e48b`; g3 source fingerprint then **`64259b59b3e09d50`** [ran]; since the progression fix (`d86e05f`) **`15ddbb84932aa658`** [record: progression fix section 10] |
 | registered digests | all unchanged [ran]: g3 contract `4cd1deae...`, line contract `90eac1a6...`, frontier `60e174a6...`, s1 rule `dea9965a...`, line rule `d9d82885...`, g2 `8dfd44c6...` / `1aadc7a6...`, g1 `6958857e...` |
 | rule self-test | PASS [ran] |
 | session 3 | permitted by the line rule; **not authorised**; `runs/m9_g3/s3` absent; no approval (`status --session 3` [ran]) |
@@ -143,7 +149,9 @@ written for **k = 3**. Section 3.5 says what changes for k >= 4.
 Git Bash `>` writes plain bytes, so the JSON outputs stay readable by Python. Windows PowerShell's `>` may add a byte-order mark or write UTF-16,
 which Python's JSON loader rejects (**UNVERIFIED** on this machine). Use a PowerShell window only where section 4 says so.
 
-**Every `rl/m9_g3_session.py` and `rl/m9_g3_snapshot.py` subcommand defaults to `--session 1`** [help]. Always pass `--session $K`.
+**`--session` is required** by every `rl/m9_g3_session.py` subcommand and by `rl/m9_g3_snapshot.py snapshot`; there is no default, and a command
+without it is refused by the parser (exit 2). `rl/m9_g3_snapshot.py verify` and `powershell` do not use it. Always pass `--session $K`
+[record: progression fix section 2.2].
 
 ### 3.0 Set the variables (every new terminal)
 
@@ -169,7 +177,7 @@ approval will compute them for you, section 5.4).
 machine.
 
 **S2. Commit any document you have written** (this runbook, a decision log, corrections) and push. After this step, **edit no tracked file and stage
-nothing** until the session is over and recorded. Fix blocker 1 (section 1.4) first, in its own preparation session.
+nothing** until the session is over and recorded. (Blocker 1 of section 1.4 is fixed since `d86e05f`.)
 
 ### 3.2 Phase 1: Part B (zero native ticks)
 
@@ -186,8 +194,9 @@ git diff --check
 python -B -X utf8 -c "import sys; from pathlib import Path; sys.path.insert(0, 'logs/m9_g3_resume_tools'); import three_passes as t; print(t.fingerprint(Path('.').resolve()))"
 ```
 
-Holds when: the three hashes are equal; the three `git` listings print nothing; the fingerprint is the expected one (k = 3 at `162e48b`:
-`64259b59b3e09d50` [ran]; after the blocker-1 fix, the value that fix's record pins). Save what you saw, for example
+Holds when: the three hashes are equal; the three `git` listings print nothing; the fingerprint is the expected one: **`15ddbb84932aa658`**, the
+value the progression fix pins for the committed `rl/m9_g3_*.py` and every later g3 session used (it was `64259b59b3e09d50` at `162e48b`, before
+the fix) [record: progression fix sections 4 and 10]. Save what you saw, for example
 `git status --porcelain --untracked-files=all > "$PREP/git_status_b0.txt"`.
 
 **S4. B1 part 1: the three passes (about 2 hours; nothing else running).**
@@ -295,8 +304,8 @@ session-k snapshot's file set [ran: `m9_g3_snapshot.log_dirs(3)`].
 
 ### 3.3 Phase 2: snapshot, approval, the single full preflight, launch, wait
 
-> Blocked for k = 3 at `162e48b`: step S13 will refuse once S12 has written the approval (section 1.4, blocker 1). Do not start S11 until the
-> test is fixed.
+> Resolved: at `162e48b`, step S13 would have refused once S12 had written the approval (section 1.4, blocker 1). The progression fix
+> (`d86e05f`) removed that test dependency; S11 to S15 hold as written.
 
 **S11. B10: the source snapshot (a few minutes), verified twice.**
 
@@ -437,9 +446,11 @@ Holds when:
 Add the independent re-hash of every earlier tree with the loop in Appendix B, written to `"$RUNLOG/post_trees_independent_check.txt"`.
 
 **S20. The results record, written by hand: `docs/rl_m9_g3_s<k>_results_<date>.md`.** There is **no tool** for this. Session k+1's preflight requires
-**exactly one** file matching `docs/rl_m9_g3_s<k>_results_*.md` and pins its sha256 [code: `predecessor_doc_problems`, `doc_files`]. Never leave a
-draft with a matching name (pitfall P9), and never edit it after session k+1's snapshot. Copy the structure of
-`docs/rl_m9_g3_s2_results_2026-10-08.md`:
+**exactly one** complete record named exactly `docs/rl_m9_g3_s<k>_results_<YYYY-MM-DD>.md` (a real calendar date) and pins its sha256 [code:
+`predecessor_doc_problems`, `doc_files`; record: progression fix section 2.3]. The record must start with the title line
+`# M9-g3-s<k> results (<the date of its file name>)`, contain a `## ` section, be UTF-8 without a NUL byte and end with a newline. Any other entry of
+`docs/` whose name begins with `rl_m9_g3_s<k>_results` (a draft, `.tmp`, `~`, another case) is refused (pitfall P9). Never edit the record after
+session k+1's snapshot. Copy the structure of `docs/rl_m9_g3_s2_results_2026-10-08.md`:
 
 1. the outcome and the line outcome with their rule ids and digests;
 2. what was run: HEAD, fingerprint, snapshot and approval sha256, preflight, pid, session clock;
@@ -475,7 +486,8 @@ Only the approval and the results record should be new; `runs/` and `logs/` are 
 - **B0:** the fingerprint must equal the value the previous results record pinned (it changes only if code changed, for example the blocker fix).
 - **The predecessor** is discovered from its increment (S18), not registered in code. Check `unregistered_predecessors(K) == []` (the S19 one-liner
   with k = K-1) before Part B.
-- **Blocker 2 (section 1.4):** the g3 unit suite pins "s3 not recorded" today and will fail at s4's Part B until it is generalised.
+- **Blocker 2 (section 1.4):** fixed by the progression fix (`d86e05f`); the g3 unit suite passes at every stage of the line, so no preparation
+  round is needed for k >= 4 [record: progression fix sections 6 and 10].
 - **The line consequence** is computed for you in the approval (section 5.4). For k = 4 it is the END_BUDGET_1966 session: D_4 must be <= 1,966.
 - `three_passes.py` refuses an output directory inside `logs/m9_g3_prep`, `logs/m9_g3_s2_prep` or `logs/m9_g3_resume_tools`, but **not** inside
   `logs/m9_g3_resume_k_prep`. Keep its output under `logs/m9_g3_s<k>_prep/` [code].
@@ -640,14 +652,14 @@ So the line's real test is session 4: **depth 1,966 by k = 4**, from today's D =
 | P4 | **Backup verify needs the correct `--source`** | `rl/tools/runs_backup.py` defaults `--source` to all of `runs/` [code]. In g2-s1, a verify without it compared against `runs/` and overwrote the increment's `verification.json` with FAIL; re-running with `--source` restored PASS [record: `docs/rl_m9_g2_s1_results_2026-10-06.md` line 124] | Always `--source runs/m9_g3/s<k>`, from the repository root. A FAIL record or a wrong `source` also breaks session k+1's discovery (S18) |
 | P5 | **Never write logs into a tree being snapshotted or copied** | The snapshot set includes `logs/m9_g3_s<k>_prep/**` and earlier prep and tool folders. A file changed there after the snapshot makes `snapshot_status` refuse [code]. In the s2 preparation, a g1 suite writing into the snapshot set made the g3 suite's snapshot round trip fail [record]. A file written into `runs/` after the backup makes coverage "uncovered", and the next preflight refuses [code] | Part B logs before the snapshot, later logs in `logs/m9_g3_s<k>_run/`; `verify-run` and `report` outputs never into `runs/`; S17 copies before S18, and nothing into `runs/` after |
 | P6 | **Never run two sessions that edit files or run gates at the same time** | During the s2 review a second session staged two docs mid-chain and the g2 gate failed [record]. Two suites writing logs at once broke a pass [record] | One AI session at most, none during gates; run the suites one after another |
-| P7 | **`--session` defaults to 1** | Every `m9_g3_session.py` subcommand and `m9_g3_snapshot.py` [help]. Without it, `preflight` refuses (s1 exists), `verify-run` checks s1, and the snapshot is a session-1 one, which `write_approval.py` refuses | Always pass `--session $K` |
+| P7 | **`--session` is required (fixed: it used to default to 1)** | Until the progression fix (`d86e05f`), every `m9_g3_session.py` subcommand and `m9_g3_snapshot.py` defaulted to `--session 1`. Now every `m9_g3_session.py` subcommand and `m9_g3_snapshot.py snapshot` require it: without it the parser exits 2 and nothing is read or written; `verify` and `powershell` of the snapshot tool do not use it [record: progression fix section 2.2] | Always pass `--session $K` |
 | P8 | **Approvals are tied to HEAD and to what they pin** | `approval_status` compares the whole identity: `git_head`, code digests, the pinned docs (`doc_files(k)`: the g3 decision and implementation records, the s2 review and preparation records, the resume-k record, every earlier approval and results record), the protected trees, and the D: folders' top-level files (`d_records`) [code]. `write_approval.py` refuses a snapshot taken at another HEAD | Between S11 and S14: **no commit, no edit of a pinned doc, no `runs_backup.py verify` on any existing increment** (it rewrites `verification.json`). Commit the approval only after the session. An approval is used once |
-| P9 | **The results-record glob** | Session k+1 needs exactly one `docs/rl_m9_g3_s<k>_results_*.md` [code] | Drafts must not match (for example, keep drafts outside `docs/` until final) |
+| P9 | **The exact results-record rule (it replaced a glob)** | Session k+1 needs exactly one complete `docs/rl_m9_g3_s<k>_results_<YYYY-MM-DD>.md`, titled `# M9-g3-s<k> results (<date>)`, with a `## ` section and a final newline. A draft or any other name beginning with `rl_m9_g3_s<k>_results` (any case) is **refused**, never taken as the record; two complete records are refused too [record: progression fix section 2.3] | Keep drafts outside `docs/` until final; write the record once, by the exact rule (step S20) |
 | P10 | **Memory refusals** | The preflight refuses below 4,096 MB available or 10,240 MB free commit; the session ends INCOMPLETE below 1,024 MB or 2,048 MB [code] | Section 4. A refusal is a stop and a logged decision, never a reason to lower a threshold |
 | P11 | **The launcher never relaunches** | It refuses while `logs/m9_g3_s<k>_run/session_stdout.txt` or `session_stderr.txt` exists, even if `run` refused before creating `runs/m9_g3/s<k>` [code] | Read why it stopped. Any retry is your explicit, logged decision (and P8 still applies) |
 | P12 | **One increment folder per session** | Discovery needs exactly one folder ending in `_incr_m9_g3_s<k>` [code] | Re-run a failed backup into the **same** `$INCR`. Never create a second dated folder for the same session |
 | P13 | **Shell details** | Git Bash: `tasklist //FI ...` (double slash) [ran]. Windows PowerShell `>`: BOM or UTF-16 risk for JSON (**UNVERIFIED** here) | Use the forms in this runbook |
-| P14 | **Session k+1's unit suite pins "s3 not recorded"** | Blockers 1 and 2 in section 1.4 [code, ran] | Fix in a preparation session before S11 for s3, and before Part B for s4 |
+| P14 | **Session k+1's unit suite pinned "s3 not recorded" (fixed)** | Blockers 1 and 2 in section 1.4, fixed by the progression fix (`d86e05f`): the progression is now checked on temporary layouts, the count stays 29 and the e2e digest `078f46c445d8adc5` is unchanged [record: progression fix sections 0 and 2.1] | Nothing to do; B0 expects the fingerprint `15ddbb84932aa658` |
 
 ---
 
@@ -721,6 +733,94 @@ only between sessions and commit before Part B. An untracked non-M9 file in `doc
 - Follow-ups: <...>
 - Commit: <hash, once committed>
 ```
+
+---
+
+## 9. The M8 speed-discovery sessions (sd1, sd2)
+
+Added 2026-10-13. Every statement is taken from the records named in it [record]. The step-by-step procedure for running a session of this kind
+without an AI session, with the exact commands, is `docs/rl_by_hand_session_checklist.md`.
+
+### 9.1 What they are
+
+A speed-discovery session is an **archive search for shorter verified clears**, not training. It continues the route-discovery archive `m8_rd_a1`
+(rd1 to rd4) with the selection `m8_rd_select_v4`, explores for 50 minutes or 6,000,000 native ticks (valid from 2,000,000), and then replays the
+fastest clear candidates from tick 0 in fresh processes until one is exact. The measure is the exact replay's `completion_input_tick` against the
+record reference T_rec and the PROGRESS bar T_rec - 24. Outcomes, first match wins: INVALID > INCOMPLETE > PROGRESS (at or below the bar) >
+RECORD_BELOW_MARGIN (below T_rec) > NO_SHORTER_CLEAR. Each record says of itself: "a search for trajectories, not a policy result, not a learning
+result" [record: `docs/rl_m8_sd2_prep_2026-10-12.md` sections 0, 4 and 5].
+
+| session | reference -> best verified clear (`completion_input_tick` / `completion_time_passed`) | outcome; line status | records |
+| --- | --- | --- | --- |
+| sd1 (2026-10-11) | 2,315 -> **2,086 / 2,085** (cid 901); bar 2,291 | PROGRESS; `SD2_PROPOSABLE_NEW_REFERENCE` | proposal `docs/rl_m8_sd1_proposal_2026-10-07.md`, preparation `docs/rl_m8_sd1_prep_2026-10-11.md`, approval `docs/rl_m8_sd1_approval.json`, results `docs/rl_m8_sd1_results_2026-10-11.md` |
+| sd2 (2026-10-12) | 2,086 -> **1,885 / 1,884** (cid 1360); bar 2,062; also 1,929 (cid 1243) and 1,964 (cid 1009) | PROGRESS; `SD3_AFTER_REVIEW_NEW_REFERENCE` (any sd3 only after a written review) | proposal `docs/rl_m8_sd2_proposal_2026-10-12.md`, preparation `docs/rl_m8_sd2_prep_2026-10-12.md`, approval `docs/rl_m8_sd2_approval.json`, results `docs/rl_m8_sd2_results_2026-10-12.md`, review `docs/rl_m8_sd2_review_2026-10-13.md` |
+
+sd1's written review is not in the repository; the sd2 proposal carries the list of launch paths sd1 never exercised (its section 5.4, U1 to U11).
+
+### 9.2 Code, tools and registered values
+
+| item | sd1 | sd2 |
+| --- | --- | --- |
+| modules | ten `rl/m8_sd1_*.py` | ten `rl/m8_sd2_*.py` (subclassing sd1's) |
+| launch tools (tracked) | `tools/m8_sd1/`: `launch_detached.ps1`, `wait_session.py`, `write_approval.py`, `three_passes.py`, `independent_increment_check.ps1` | `tools/m8_sd2/`: the same five plus `check_launch.py`, `copy_launch_evidence.py`, `post_run_checks.py`, `machine_sampler.py` |
+| source fingerprint (`rl/m8_sdN_*.py` + `tools/m8_sdN/*`) | `f7fadda5ec11b3dd` | `b22c0af8f833b205` |
+| unit / e2e | 87 / 87; `4cadf507c1c4fbc9` | 101 / 101; `2adc51de5cf46121` |
+| rule | `m8_sd1_rule_v1` `8267341f2af80dc1...` | `m8_sd2_rule_v1` `d1220a8b2706367f...` |
+| session CLI (`python -B -X utf8 rl/m8_sdN_session.py <cmd>`) | `status`, `open-check`, `preflight [--skip-unit]`, `approval-template`, `run`, `verify-run`, `report`, `check-results-record --path`, `fingerprint` | the same |
+
+Every sd2 tool accepts only `--session sd2` (the launcher only `-Session sd2`), and every sd1 tool only sd1: a later session needs its own module
+set and tool folder, written in a preparation session [code: the tools' argument parsers].
+
+### 9.3 Names
+
+| item | sd1 | sd2 |
+| --- | --- | --- |
+| run tree (Git-ignored) | `runs/m8_rd_sd1/` | `runs/m8_rd_sd2/` |
+| logs (Git-ignored) | `logs/m8_sd1_prep/`, `logs/m8_sd1_run/` | `logs/m8_sd2_prep/`, `logs/m8_sd2_run/` (Part B under `partB/`) |
+| source snapshot | `D:\BattleShip_source_snapshots\2026-10-11_m8_sd1` | `D:\BattleShip_source_snapshots\2026-10-12_m8_sd2` |
+| D: increment | `D:\BattleShip_runs_backup\2026-10-11_incr_m8_sd1` | `D:\BattleShip_runs_backup\2026-10-12_incr_m8_rd_sd2` |
+| approval | `docs/rl_m8_sd1_approval.json` | `docs/rl_m8_sd2_approval.json` |
+| results record and its first line | `docs/rl_m8_sd1_results_2026-10-11.md`, `# M8-sd1 results (2026-10-11)` | `docs/rl_m8_sd2_results_2026-10-12.md`, `# M8-sd2 results (2026-10-12)` |
+
+**The increment names differ on purpose.** sd2's preparation record named the increment `<date>_incr_m8_sd2`, but `tools/m8_sd2/post_run_checks.py`
+looks for the one folder ending in `_incr_m8_rd_sd2` and refuses otherwise. The launch used `_incr_m8_rd_sd2` (amendment A1 of the launch prompt;
+`docs/rl_m8_sd2_results_2026-10-12.md` section 14). A future tool must name the folder it expects, and the prompt must use that name.
+
+**One date.** Every dated name uses the local date when Part B started, even when the session crosses midnight (both sd sessions did).
+
+### 9.4 How they differ from a g3 session (sections 3 to 5)
+
+- **No `--session k` number.** Each sd session is its own module set; there is no resume of a policy, no training, no landing audit, no D or R.
+- **The protected trees** are the earlier M8 trees (for sd2: rd1, rd2, rd3, rd4 and sd1), checked by the session's R1 at the open and at the close.
+- **Part B** is the sd suite's three passes plus every earlier suite and the seven rule self-tests, then `approval-template` (not `status`: `status`
+  prints only four fields) for the registered digests (sd2 amendment A2).
+- **The two-minute launch check** (`tools/m8_sd2/check_launch.py`): exit 0 continue, 3 only late (report and continue), 1 or 2 stop. sd1 had no such tool.
+- **The evidence copy** is a tool in sd2 (`copy_launch_evidence.py`, replacing step S17's hand commands); sd1 copied with hand-written helper scripts (`docs/rl_m8_sd1_results_2026-10-11.md` section 11).
+- **The post-run checks** are a tool in sd2 (`post_run_checks.py --tool-verify`, replacing the loops of steps S18 and S19); sd1 re-hashed eighteen
+  named increments by hand.
+- **The S3 rule** is the same: the tool's verify (`rl/tools/runs_backup.py verify`) runs only on the new increment, with `--source runs/m8_rd_sdN`;
+  every earlier increment is checked by the independent re-hash only.
+- **A run that stops before exploration** is `NOT_STARTED` (it does not count) and is repeated only by the written procedure
+  (`docs/rl_m8_sd2_prep_2026-10-12.md` section 5); see the checklist.
+
+### 9.5 Known issues
+
+1. **`post_run_checks.py` reports a false FAIL on the base backup.** The base backup `D:\BattleShip_runs_backup\2026-09-28` names all of `runs/` as
+   its source, so the tool compares today's `runs/` with it and counts every file added since (69,450 at sd2) as missing. `bad = 0` and
+   `extra_in_backup = 0` mean the evidence is intact. Expect exit 1 with every other row PASS; the fix belongs in the next session's tool
+   (`docs/rl_m8_sd2_review_2026-10-13.md` section 1). The base row alone took 2 h 37 min at sd2.
+2. **The session clock.** The recorded `elapsed_s` includes the close checks, but the 60-minute hard cap covers only the open, exploration and
+   verification phases. sd2 recorded 3,596.9 s; its capped phases took 3,055.7 s (section 2.1 of the review).
+3. **The M9 git-state gates.** The g1, g2 and g3 unit suites fail their git-state test while any new non-M9 file under `rl/` or `docs/` is untracked
+   (pitfall P1): commit an sd preparation before its Part B.
+4. **sd1's reader on sd1's own tree.** sd1's `verified_clears_of` raises on sd1's tree (its inherited replay rows and header rows); sd2 has its own
+   reader (`verified_clears_of6`).
+
+### 9.6 Where the line stands (2026-10-13)
+
+The record reference is 1,885 / 1,884 (cid 1360, `runs/m8_rd_sd2/routes/T_clear_best`). The line rule allows an sd3 only after a written review; that
+review is `docs/rl_m8_sd2_review_2026-10-13.md`. It recommends pausing the line and, if it resumes, a v5 selection proposal evaluated offline on the
+ledger first; it puts the chance of PROGRESS for a same-design sd3 at 10 to 20 %. rd5 is permitted by the rd line and was never started.
 
 ---
 
