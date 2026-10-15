@@ -17,6 +17,7 @@ libultraship or build change.
 | `replay_task.py` | Character and stage of an episode, from what the run recorded ("?" otherwise) |
 | `replay_tags.py` | Per-stage tag extractors (Mario Break the Targets: left entry, crossing) |
 | `replay_breaks.py` | Recorded per-target break ticks and the "last target" rule |
+| `replay_lab.py` | The fast-route lab (`C:\BattleShip_lab`, unregistered) as an extra read-only source: verified clears as rows, their exact words as episodes, the `lab.lock` refusal (see "Fast-route lab clears") |
 | `replay_widgets.py` | Tk pieces shared by the viewer panel and the browser (tooltips, text shortening, colors) |
 | `replay_episode.py` | Artifact loading, expected outcome, per-step tracking, MATCH/DESYNC comparison |
 | `replay_game.py` | BattleShip process launch in a private runtime, replay engine (pause/step/speed/restart/jump) |
@@ -67,8 +68,17 @@ replay\replay_index check 1              headless MATCH/DESYNC for row 1
 replay\replay_index gui                  the browser, double-click to play
 ```
 
+```
+replay\replay_index list -m LAB          the fast-route lab's verified clears (LAB (unregistered)), fastest first
+replay\replay_index play 1 --play        row 1 of that list: the fastest lab clear, from its exact words
+replay\replay_index --lab-root D:\lab gui   another lab root (the option goes before the subcommand); --no-lab: none
+replay\replay_index sources              the tracked folders (runs/, the lab, added folders) with episode counts
+replay\replay_index sources --add D:\old_runs     track another folder of episode artifacts (read-only); --remove PATH
+```
+
 `show`, `play` and `check` also accept an episode id, a unique id suffix
-(e.g. `44619208`) or a path.
+(e.g. `44619208`) or a path. A lab clear's path is its r1 trace file (see
+"Fast-route lab clears").
 
 - **List filters:** `--milestone/-m`, `--run`, `--role`, `--character`
   (`?` = not recorded), `--stage`, `--end clear|fall|timeout|goal|aborted|
@@ -468,9 +478,9 @@ already showed visible and no-render trajectories are identical.
 
 ## Index
 
-- **Location:** `_local/index.sqlite`, schema 4. An older cache is dropped and
-  rebuilt by the next scan: a full re-read, 51 s with a warm disk cache and
-  about 7 min cold.
+- **Location:** `_local/index.sqlite`, schema 5 (5: M9 artifacts, below). An
+  older cache is dropped and rebuilt by the next scan: a full re-read, about
+  a minute with a warm disk cache and about 7 min cold.
 - **Walk:** the scan walks `runs/` read-only. It prunes junctions and
   directories that never hold artifacts (`logs`, `runtime`, `runtime_gens`,
   `gNNNN_aN`, `episodes`, `coordination`, `checkpoints`; `--no-prune`
@@ -549,6 +559,122 @@ Route-discovery runs write verified routes in their own schema,
   T_clear, T_crossing, T_left_target, T_t). Their recorded digests equal
   ours. Fed their own recorded replies, all 9 give MATCH: 8-10 checks, none
   skipped.
+
+### Added folders (`_local/sources.json`)
+
+Folders of episode artifacts outside `runs/` can be tracked without any code
+change: the browser's **Sources…** dialog (or `replay_index sources --add
+PATH`) registers them in `_local/sources.json`, and every scan (`Rescan`,
+the start-up refresh, `replay_index scan` without `--root`) walks `runs/`
+and then each added folder, read-only.
+
+- **Labelling:** an added folder's episodes get the milestone
+  `<folder name> (added)` and, as the run, the path inside the folder, as if
+  the folder were `runs/<folder name>/` (so a copy of another checkout's
+  `runs/` lists its milestones as runs). Their path is the absolute path.
+- **Refused:** `runs/` or anything under it (always indexed), this
+  repository or any folder holding `runs/`, and a fast-route lab root
+  (`verifications.jsonl`: the lab is read through `--lab-root`).
+- **Remove** (dialog, or `sources --remove PATH`) unregisters the folder and
+  drops its episodes, summaries, facts and break ticks from the index. The
+  folder itself is never touched: nothing is written into added folders.
+- **Missing on disk:** a registered folder that no longer exists keeps its
+  rows; the scan counts it in `missing_sources` and the "not indexed" line
+  says so. Remove it to drop the rows.
+- **Verdicts** of replays of such episodes are found although
+  `record_verdict` keys them by the OS path (backslashes): `load_verdicts`
+  also keys by the posix form the index uses.
+- `replay_index sources` lists the tracked folders (runs/, the lab root, the
+  added ones) with their episode counts.
+
+### M9 artifacts (`runs/m9_*`)
+
+The M9 tooling (`rl/m9_*`) writes standard artifacts (schema 1,
+`rlaction_native_v1`, complete tick-0 sequences) whose metadata records the
+facts elsewhere than the M7 trainer's labels. Until schema 5 the index read
+only the M7 fields, so all 17,852 M9 episodes had no role (hidden by the
+tests rule, since roleless artifacts had only ever been in `_` regression
+and test folders) and their 15,593 clears showed as timeouts with no
+completion. Read now, M7 fields first, then these (`replay_episode.py`
+`recorded_*` helpers, shared by the index and the viewer):
+
+| Fact | M7 runs | M9 artifacts |
+| --- | --- | --- |
+| role | `labels.role` | `labels.phase`: train, eval, ckeval, audit, probe, t0, t0_drift, p4 |
+| profile | `labels.experiment.name` | `labels.m9_kind`: train, fine, sticky, det, tape, probe_strip, reach, … |
+| end | `labels.cleared` / `termination_reason` / `end_reason` | `terminal.end_reason`: clear, fall, horizon |
+| completion clocks | `labels.completion_*` | `terminal.completion` (the native result record) |
+| steps, last tick | `terminal.step_count`, `last_consumed_tick` | `actions_with_result`, `terminal.ticks - 1` |
+| digest | `labels.native_action_digest` | `m9.native_action_digest` (the same contract; equal to ours on 40 sampled) |
+| prefix rows | `labels.m7h_start.prefix_length` | `m9.prefix_words` |
+
+- `cleared` is now 1 whenever the end is a clear (for M7 runs this is the
+  same as the flag).
+- The role filter (browser and `list --role`) offers the recorded roles
+  instead of a fixed training / evaluation pair.
+- M9 artifacts record no observations, so a replay skips the two
+  observation checks and runs the other eight.
+
+### Fast-route lab clears (`LAB (unregistered)`, `C:\BattleShip_lab`)
+
+The fast-route lab (`tools/frs/*.py`) works outside the checkout, at
+`C:\BattleShip_lab` by decision. Its runs are exploratory and unregistered:
+nothing of them is under `runs/` or in the index. `replay_lab.py` reads them
+as an extra source, read-only, so their verified clears can be watched.
+
+- **Root:** `replay_index --lab-root PATH` (before the subcommand), else the
+  `BATTLESHIP_LAB_ROOT` environment variable (empty = off), else
+  `C:\BattleShip_lab` when it exists; `--no-lab` lists none. The `.pyw`
+  launchers use the variable or the default.
+- **What is read:** every `<root>/<run>/run/verifications.jsonl` (the lab's
+  verification log, one row per clear candidate it replayed) and, per clear,
+  its r1 trace `run/traces/clear_n<n>_c<cid>_k<k>_r1.json.gz` (every reply
+  of the first verifying replay). Nothing else is opened. Nothing is
+  written, linked or junctioned under the lab root or under `runs/`.
+- **What is listed:** rows with `kind clear` and `verdict VERIFIED` (two
+  exact fresh-process replays from tick 0 with equal record chains), in the
+  crossing-search record shape (words plus the dispatch `n` / cell `cid` /
+  iteration `k` identity that names the trace), with an r1 trace; one row
+  per distinct word sequence (the same words verified again are merged, and
+  the card says how often). Milestone `LAB (unregistered)`, role `lab`, run
+  = the lab run folder (`crossing_2026-10-15`), character "?" (the lab
+  records none), end clear, 10/10, last target = the completion
+  (`completion_input_tick - 1 · completion_time_passed`), created = the
+  verification time. The default sort puts the fastest first.
+- **Reported, never silent:** clears without an r1 trace, verified clears in
+  an older record shape (`smoke_2026-10-14`, `trail_probe_2026-10-14`: no
+  dispatch identity, other trace names), unparsable lines (a row still being
+  written) and the repeat finds are counted in
+  `replay_lab.scan_lab()["text"]`.
+- **The episode path is the r1 trace file,** the one per-clear file the lab
+  writes, so Copy path, `show`, `play`, the Explorer entry and `replay.py`
+  work without creating anything. Open folder opens `traces/`.
+- **Playing from the exact words.** The row holds the clear's whole tick-0
+  word sequence (`words_hex`, one Track 1 word per native tick). Loading
+  decodes it with the lab's own alphabet (`rl/m8_rd_cells.TRIPLES`,
+  `btt_s9_b8_v1`: stick index × 8 + button) and refuses the clear unless the
+  decoded `native_action_digest` equals the recorded `words_digest`. The
+  episode is described in the M8 route shape (schema `frs_lab_clear_v1`,
+  viewer-side only, `replay_episode.ROUTE_SCHEMAS`): end clear, steps =
+  `completion_input_tick`, last consumed tick one less, targets = the
+  recorded breaks, both completion clocks, and the tick-0 and final
+  observations from the trace, so a replay runs the full 10 checks (see
+  "MATCH / DESYNC"). The game runs with the lab's frozen config,
+  `<root>/import/exe/BattleShip.cfg.json` (its sha256 is recorded in
+  `import/frozen_runtime.json`); the lab's executable copy is the same
+  build as `build-us/Release/BattleShip.exe` (sha256 30a3913b...).
+- **Id:** `lab_<run>_n<n>_c<cid>_k<k>`, e.g.
+  `lab_crossing_2026-10-15_n28613_c13926_k1` (the fastest, 1,429 input
+  ticks).
+- **Verdicts** of this tool's replays of lab clears go to
+  `_local/verdicts.jsonl` like any other, keyed by the trace path.
+- **`lab.lock`.** While `<root>/lab.lock` exists a lab run is active and no
+  game replay is started: `replay.py` exits with code 2 before loading
+  anything (the `.pyw` opener shows the message), every
+  `GameProcess.launch` raises (viewer, Restart, Jump, `--check`, the markers
+  pre-pass, Check filtered), and the browser's Play, Check and Check
+  filtered only set a status line. The browser hands its lab root to the
+  viewer through `BATTLESHIP_LAB_ROOT`.
 
 ### Character and stage (`replay_task.py`)
 
@@ -718,7 +844,8 @@ only; I recommend no theme package (see the note at the end of this section).
 
 - **Filters** apply as they change; the search applies 150 ms after typing
   stops, and Esc clears it.
-  - Filters: milestone, character (`?` = not recorded), role, end, min
+  - Filters: milestone, character (`?` = not recorded), role (the recorded
+    roles: training, evaluation, route, lab, the M9 phases), end, min
     targets, verdict, and a search over path, run id, profile and tags.
   - A stage filter appears only when some character has more than one
     stage.
@@ -741,6 +868,12 @@ only; I recommend no theme package (see the note at the end of this section).
   episodes pass the filters: "12", or "12 of 40" when filters hide some. The
   count reads "N runs (best of M episodes)".
 - **The count** reads "N of M episodes (K tests hidden)".
+- **Lab clears** (`replay_lab.py`): with a lab root configured, the title
+  ends with "+ LAB (unregistered) <root>", the index line adds "lab: N
+  verified clears", the Milestone filter offers `LAB (unregistered)`, and
+  Play, Check and Check filtered only set a status line while
+  `<root>/lab.lock` exists (a lab run is active). Open folder opens the
+  clear's `traces/` folder. See "Fast-route lab clears".
 - **Check filtered…** replays every listed episode headless, in the
   background, one BattleShip process at a time:
   - above 50 episodes it asks first, with an estimate (about 4.5 s each);
@@ -766,9 +899,9 @@ only; I recommend no theme package (see the note at the end of this section).
   - role, milestone;
   - run: shortened in the middle, with the full episode path as a tooltip;
   - Episodes, in "Best per run" only;
-  - tags: narrow, since only 4 episodes have any; a tooltip shows them when
-    cut;
   - created: local time, e.g. "Sep 27 03:22".
+  - There is no Tags column (removed 2026-10-15: a handful of episodes have
+    any). Tags stay in the details card and in the search.
 - **Sorting:** the default is targets descending, then last-target tick
   ascending, with unknowns last. Click a heading to sort by it (again to
   reverse); ties keep the default order. Drag a heading edge to resize.
@@ -786,8 +919,15 @@ only; I recommend no theme package (see the note at the end of this section).
     tag's answer and source, and sidecars.
   - Buttons: ▶ Play, Check (headless), Copy path, Open folder.
 - **Status bar:** messages (viewer started, check progress and results, scan
-  progress, and the scan's "not indexed" line, also shown at start-up), the index size and last scan time, and **Rescan** on the far
+  progress, and the scan's "not indexed" line, also shown at start-up), the index size and last scan time, **Sources…** and **Rescan** on the far
   right.
+- **Sources…** lists the tracked folders with their episode counts: `runs/`
+  (built in), the lab root (from `--lab-root` / `BATTLESHIP_LAB_ROOT`) and
+  the added folders, flagged when missing on disk. **Add folder…** opens a
+  directory chooser, registers the folder and refreshes the index with it;
+  **Remove** (added folders only, after a confirmation) drops its episodes
+  from the index. The title ends with "+ N added folders". See "Added
+  folders" under "Index".
 - **How it is drawn.** The table is drawn on a Canvas, visible rows only.
   This lets one cell carry its own colors (`ttk.Treeview` colors whole rows
   only), and all ~39k rows stay listed without the old 5,000-row cap.
@@ -799,8 +939,9 @@ only; I recommend no theme package (see the note at the end of this section).
 
 | Path | Contents |
 | --- | --- |
-| `index.sqlite` | The cache (~42 MB, schema 2) |
+| `index.sqlite` | The cache (~70 MB, schema 5) |
 | `verdicts.jsonl` | One line per finished replay |
+| `sources.json` | The added folders (see "Added folders") |
 | `last_list.json` | Row numbers of the last `list` |
 | `viewer_state.json` | Window positions |
 | `launcher.log` (+ `.log.1`) | Output of the `.pyw` launchers |
@@ -861,6 +1002,91 @@ and must never be committed.
   at its old size.
 
 ## Verification (2026-09-29, exe sha256 30a3913b...)
+
+### Added folders, Sources dialog (2026-10-15)
+
+- `python -B replay\replay_tests.py`: 34/34
+  (`added_folders_are_tracked_scanned_and_removable` added: refusals,
+  sources.json round trip, labelled scan, verdict lookup with a backslash
+  key, dialog list / Remove / Add folder through the withdrawn browser, a
+  folder gone from disk, nothing written into the scanned folders).
+- Real browser, constructed withdrawn with a temporary `sources.json` and a
+  temporary folder holding a backdated copy of `runs/m9_g1/artifacts/fine-2100-06`:
+  Sources listed `runs` (59,066 episodes) and `C:\BattleShip_lab` (291);
+  Add folder registered the copy, the refresh (runs/ incremental plus the
+  folder) took 13 s, the title gained "+ 1 added folder", the dialog listed
+  the folder with 1 episode, the row showed milestone `copied_runs (added)`,
+  run `m9_copy`, clear "2350 · 39.17 s", and the Milestone filter offered
+  it; Remove dropped 1 episode, the title and dialog went back, the index
+  total stayed 59,066 with no row left under the temp folder, and no
+  `_local/sources.json` was created (the real one does not exist yet).
+- A freshly written copy (not backdated) was reported as "1 folders still
+  being written (next scan)" and listed on the next scan: the existing
+  5-minute rule, unchanged.
+- `replay_index sources` lists runs/ and the lab with counts;
+  `sources --add` refuses `runs/m9_g1` (under runs/), `C:\BattleShip_lab`
+  (lab records) and the repository root (holds runs/).
+- The "unrecognized" count is a whole-index number and was summed per root
+  in the merged report (8 instead of 4); fixed, 4 after a scan with an added
+  folder.
+- `git diff --check` clean; every changed file LF.
+
+### M9 artifacts and the Tags column (2026-10-15)
+
+- `python -B replay\replay_tests.py`: 33/33 (`m9_artifacts_are_runs_with_clears`
+  added; `recorded_end_kinds` and the browser test extended).
+- Full rebuild under schema 5 (`replay_index scan --full`): 59,066
+  episodes, 86,945 directories, 410 s with a cold disk cache.
+- Before: 18,944 episodes hidden as tests, all 17,852 M9 episodes roleless,
+  15,593 of them "truncated (end_reason=clear)" with no completion. After:
+  1,092 hidden (the real tests); the M9 episodes carry the roles train, eval,
+  ckeval, audit, probe, t0, t0_drift and p4 and their profiles (train, fine,
+  sticky, …); 15,593 M9 clears with completion clocks, the fastest at 1,925
+  input ticks (`m9_g3/s6/artifacts/train-0019097`, "1924 · 32.07 s"). The
+  End filter "clear" lists 15,894 rows (291 lab, 15,593 M9, 10 M8 routes),
+  fastest first.
+- Browser constructed withdrawn on the real index plus the lab: no Tags
+  column; the role filter offers the 20 recorded roles; "58,265 of 59,357
+  episodes (1,092 tests hidden)".
+- `replay.py runs\m9_g1\artifacts\fine-2100-06 --check`: MATCH, 8 checks
+  (digest from `m9.native_action_digest`, clocks, end clear, steps 2351,
+  clear tick 2350, 10 targets, completion 2350 / 2351), 2 skipped (no
+  recorded observations), 2,351 rows stepped in 1.6 s, exit code 0; the
+  header shows prefix rows 2100.
+- `git diff --check` clean; every changed file LF.
+
+### Fast-route lab source (2026-10-15)
+
+- `python -B replay\replay_tests.py`: 32/32 (the 30 existing tests plus
+  `lab_source_lists_and_plays_verified_clears` and
+  `lab_lock_refuses_game_replays`, both on a synthetic lab root in a temp
+  directory).
+- Real lab, read-only (`C:\BattleShip_lab` idle: no `lab.lock`, no
+  BattleShip process): `replay_lab.scan_lab()` lists 291 verified clears
+  from 3 lab runs in 0.34 s (298 verified rows in `crossing_2026-10-15`, 7
+  repeat finds of the same words merged; the 2 clears of `smoke_2026-10-14`
+  and `trail_probe_2026-10-14` are in another record shape and are counted,
+  not listed). `replay_index list -m LAB` puts
+  `lab_crossing_2026-10-15_n28613_c13926_k1` first (last target
+  "1428 · 23.80 s"); `--no-lab` lists none; `--lab-root C:\does_not_exist`
+  is refused.
+- `replay.py <that clear's r1 trace> --check`: 1,429 rows decoded from
+  `words_hex`, decoded digest == recorded `words_digest`, config base
+  `C:\BattleShip_lab\import\exe\BattleShip.cfg.json` (gameplay cvars equal
+  the default), launched in 2.1 s, 1,429 rows stepped in 0.9 s, **MATCH**:
+  10 checks, none skipped (digest, tick-0 observation, clocks, end clear,
+  steps 1429, clear tick 1428, 10 targets, completion 1428 / 1429, final
+  observation). Exit code 0; the verdict is in `_local/verdicts.jsonl` and
+  shows on the row. Fed its own trace offline, the same clear is MATCH with
+  break ticks 27, 94, 245, 481, 662, 760, 847, 1287, 1355, 1428 (the
+  recorded `breaks_r1`, consumed tick vs input tick).
+- Browser constructed withdrawn on the real index plus the lab: title
+  "Replay browser - runs/  +  LAB (unregistered) C:\BattleShip_lab", the
+  index line ends with "lab: 291 verified clears", the Milestone filter
+  offers `LAB (unregistered)`, and the card shows the lab fields (lab,
+  verified, found, level / start tick, gain, words digest, verifications).
+- Not run: a windowed replay of a lab clear. `git diff --check` clean; every
+  changed file is LF.
 
 ### M8 routes and scan report (2026-10-03)
 

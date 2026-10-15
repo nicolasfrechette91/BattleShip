@@ -20,9 +20,11 @@ import replay_windowless  # noqa: E402
 def main() -> int:
     import replay_browser
     import replay_index
+    import replay_lab
 
     first_build = not replay_index.INDEX_DB.exists()
-    app = replay_browser.Browser(replay_index.load_rows, replay_index.scan)
+    lab = replay_lab.lab_root()  # the fast-route lab (BATTLESHIP_LAB_ROOT, else C:\BattleShip_lab when it exists)
+    app = replay_browser.Browser(lambda: replay_index.load_rows_and_lab(lab), replay_index.scan_all, lab_root=lab)
     app.rescan(first_time=first_build)
     app.root.mainloop()
     return 0

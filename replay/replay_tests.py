@@ -106,6 +106,7 @@ def recorded_end_kinds() -> None:
     assert recorded_end({"labels": {"termination_reason": "native_failure", "end_reason": "fall"}})[0] == "fall"
     assert recorded_end({"labels": {"end_reason": "horizon", "truncation_reason": "max_episode_steps"}})[0] == "truncated"
     assert recorded_end({"labels": {"end_reason": "horizon", "truncation_reason": "goal_reached"}})[0] == "truncated"
+    assert recorded_end({"terminal": {"end_reason": "clear", "ticks": 2351}}) == ("clear", "end_reason=clear")  # M9
     assert recorded_end({})[0] == "unknown"
 
 
@@ -952,6 +953,9 @@ def browser_filters_sort_and_card() -> None:
             assert [r["last_target_text"] for r in b.view[:4]] == ["446 · 7.43 s", "2500 · 41.7 s", "3000 · 50.0 s",
                                                                    "?"]
             assert b.count.get() == "5 of 7 episodes (2 tests hidden)" and not b.stage_box.winfo_manager()
+            assert "tags" not in [c[0] for c in rbw.COLUMNS]  # tags stay in the card and the search only
+            roles = b.combos["role"].cget("values")  # the recorded roles, not a fixed list
+            assert roles[0] == "any" and {"training", "evaluation", "test"} <= set(roles), roles
             b.show_tests.set(True)
             b.apply()
             assert {r["episode_id"] for r in b.view} >= {test.name, smoke.name} and b.count.get() == "7 of 7 episodes"
@@ -1215,6 +1219,375 @@ def scan_reports_what_it_does_not_index() -> None:
                   if r["episode_id"] == "route_rd3_T_t")
         assert (r3["end_label"], r3["last_target_text"], r3["last_target_source"]) == ("prefix", "2 · 0.0 s",
                                                                                        "route_trace")
+
+
+# -- added folders (sources.json): extra read-only roots scanned like runs/ ---------------------------------------
+
+
+@test
+def added_folders_are_tracked_scanned_and_removable() -> None:
+    """A folder of episode artifacts outside runs/ can be added (sources.json), is scanned read-only with its name
+    as the milestone and the path inside it as the run, its verdicts are found although record_verdict keys them
+    with backslashes, and removing it drops its episodes from the index; runs/, folders holding runs/ and lab
+    folders are refused; a folder gone from disk keeps its rows and is reported. The browser's Sources dialog
+    lists runs/ and the added folders with counts; Remove and Add folder work through it."""
+    import shutil
+
+    import replay_browser as rbw
+
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp).resolve()
+        runs = base / "runs"
+        fall_episode(runs / "m7x" / "r1" / "artifacts" / "episode_20260929T000000Z_aaaaaaaa")
+        extra = base / "old_runs"
+        a = fall_episode(extra / "m7y" / "artifacts" / "episode_20260929T000000Z_bbbbbbbb")
+        c = fall_episode(extra / "m7z" / "episode_20260929T000000Z_cccccccc")
+        lab = base / "labx" / "run"
+        lab.mkdir(parents=True)
+        (lab / "verifications.jsonl").write_text("", encoding="utf-8")
+        age(base)
+        sources, db, verdicts = base / "sources.json", base / "i.sqlite", base / "v.jsonl"
+        for bad, text in ((base / "nothing", "not a directory"), (ri.REPO_ROOT, "holds runs/"),
+                          (base / "labx", "lab records"), (lab, "lab records")):
+            try:
+                ri.add_source(bad, sources)
+                raise AssertionError(f"{bad} must be refused")
+            except ri.SourceError as exc:
+                assert text in str(exc), exc
+        assert ri.load_sources(sources) == []
+        assert ri.add_source(extra, sources) == extra and ri.add_source(str(extra), sources) == extra  # once
+        assert ri.load_sources(sources) == [extra] and json.loads(sources.read_text(encoding="utf-8"))["version"] == 1
+        with open(verdicts, "w", encoding="utf-8", newline="\n") as fp:  # keyed as record_verdict writes it
+            fp.write(json.dumps({"episode_dir": str(a), "verdict": "MATCH", "mode": "headless"}) + "\n")
+        stats = ri.scan_all(runs_root=runs, sources_path=sources, db_path=db, progress=lambda m: None)
+        assert (stats["episodes_seen"], stats["sources"], stats["missing_sources"]) == (3, 1, 0), stats
+        rows = {r["episode_id"]: r for r in ri.load_rows(db_path=db, verdicts_path=verdicts)}
+        assert (rows[a.name]["milestone"], rows[a.name]["run"], rows[a.name]["path"]) == ("old_runs (added)", "m7y",
+                                                                                          a.as_posix())
+        assert (rows[c.name]["milestone"], rows[c.name]["run"]) == ("old_runs (added)", "m7z")
+        assert rows[a.name]["replay"] == "MATCH" and not rows[a.name]["is_test"]
+        assert rows["episode_20260929T000000Z_aaaaaaaa"]["milestone"] == "m7x"
+        entries = ri.source_entries(list(rows.values()), None, sources_path=sources)
+        assert [(e["kind"].split(",")[0], e["count"], e["removable"], e["missing"]) for e in entries] == [
+            ("runs/ (built in", 1, False, False), ("added folder", 2, True, False)], entries
+
+        b = rbw.Browser(lambda: ri.load_rows(db_path=db, verdicts_path=verdicts),
+                        lambda **kw: ri.scan_all(runs_root=runs, sources_path=sources, db_path=db,
+                                                 progress=lambda m: None),
+                        sources_path=sources, db_path=db)
+        b.root.withdraw()
+        try:
+            assert b.root.title().endswith("+  1 added folder") and len(b.rows) == 3, b.root.title()
+            d = b.open_sources(visible=False)
+            assert b.open_sources(visible=False) is d and d.listbox.size() == 2
+            assert str(d.remove_btn.cget("state")) == "disabled"
+            d.listbox.selection_set(1)
+            d._selection_changed()
+            assert str(d.remove_btn.cget("state")) == "normal" and d.selected()["removable"]
+            assert b.remove_folder(extra, confirm=False) == 2
+            assert ri.load_sources(sources) == [] and len(b.rows) == 1 and d.listbox.size() == 1
+            assert "added" not in b.root.title() and b.status.get().startswith("removed ")
+            assert b.add_folder(base / "labx") is None and b.status.get().startswith("not added:")
+            assert b.add_folder(extra) == extra and b.root.title().endswith("+  1 added folder")
+            deadline = time.time() + 10  # the refresh runs in a thread and posts its result to the Tk queue:
+            while b._scanning and time.time() < deadline:  # drain it here (no event pumping: other tests' stale
+                b._drain() if not b._events.empty() else time.sleep(0.02)  # timers would fire) ...
+            for after_id in b.root.tk.call("after", "info"):  # ... and cancel the poll rescan() scheduled
+                b.root.after_cancel(after_id)
+            assert not b._scanning and len(b.rows) == 3 and d.listbox.size() == 2, b.status.get()
+            d.close()
+            assert not d.alive() and b.open_sources(visible=False) is not d
+        finally:
+            b.root.destroy()
+        shutil.rmtree(extra)  # the folder disappears: its rows stay, the scan reports it
+        stats = ri.scan_all(runs_root=runs, sources_path=sources, db_path=db, progress=lambda m: None)
+        assert stats["missing_sources"] == 1 and "1 added folders not found" in stats["not_indexed"], stats
+        assert len(ri.load_rows(db_path=db, verdicts_path=verdicts)) == 3
+        assert ri.remove_source(extra, sources, db) == 2 and len(ri.load_rows(db_path=db, verdicts_path=verdicts)) == 1
+        assert not (base / "labx" / "sources.json").exists() and sorted(p.name for p in runs.rglob("*.json")) == [
+            "metadata.json"]  # nothing written into the scanned folders
+
+
+# -- M9 artifacts: the role is labels.phase, the end is terminal.end_reason with terminal.completion ---------------
+
+
+def write_m9_episode(d: Path, *, phase: str, kind: str, end_reason: str, rows: int, targets: int,
+                     prefix: Optional[int] = None) -> Path:
+    """An M9 artifact (rl/m9_* tooling): a standard artifact (schema 1, rlaction_native_v1) whose metadata has no
+    labels.role, cleared flag, completion labels or observations, but labels.phase + labels.m9_kind, terminal
+    {end_reason, ticks, targets_broken, completion (the native result record of a clear)} and m9
+    {native_action_digest, prefix_words}."""
+    from replay_episode import Row
+
+    d.mkdir(parents=True)
+    acts = rows_of(rows)
+    with open(d / "actions.jsonl", "w", encoding="utf-8", newline="\n") as fp:
+        for r in acts:
+            fp.write(json.dumps(r) + "\n")
+    digest = action_digest([Row(r["sequence_index"], r["buttons"], r["stick_x"], r["stick_y"], r["consumed_tick"])
+                            for r in acts])
+    completion = ({"result_schema": 1, "outcome": "clear", "targets_broken": targets,
+                   "completion_time_passed": rows - 1, "completion_input_tick": rows} if end_reason == "clear" else {})
+    meta = {"artifact_schema": 1, "format": "battleship_btt_episode", "action_contract": "rlaction_native_v1",
+            "episode_id": d.name, "action_count": rows, "actions_with_result": rows, "status": end_reason,
+            "labels": {"experiment": {"task_id": "ssb64_us_mario_btt_v1", "gate": "m9_g1", "milestone": "M9"},
+                       "m9_kind": kind, "phase": phase},
+            "terminal": {"end_reason": end_reason, "ticks": rows, "targets_broken": targets, "completion": completion},
+            "m9": {"native_action_digest": digest, "prefix_words": prefix, "kind": kind},
+            "initial_observation": None, "final_observation": None,
+            "diagnostics": {"created_utc": "2026-10-07T16:48:37Z", "wall_s": None}}
+    with open(d / "metadata.json", "w", encoding="utf-8", newline="\n") as fp:
+        json.dump(meta, fp)
+    return d
+
+
+@test
+def m9_artifacts_are_runs_with_clears() -> None:
+    """M9 artifacts record no labels.role, cleared flag or completion labels: the role is labels.phase (so the
+    tests rule does not hide them), the profile labels.m9_kind, the end terminal.end_reason (clear | fall |
+    horizon) with a clear's clocks in terminal.completion, steps and last tick from actions_with_result and
+    terminal.ticks, the digest and prefix under m9. The viewer expects the same facts."""
+    from replay_episode import episode_summary, expected_outcome
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "runs"
+        clear = write_m9_episode(root / "m9_g1" / "artifacts" / "fine-2100-06", phase="eval", kind="fine",
+                                 end_reason="clear", rows=5, targets=10, prefix=2)
+        horizon = write_m9_episode(root / "m9_g3" / "s2" / "artifacts" / "train-0000042", phase="train", kind="train",
+                                   end_reason="horizon", rows=6, targets=9)
+        fall = write_m9_episode(root / "m9_g3" / "s2" / "artifacts" / "audit_sticky-2128-03", phase="audit",
+                                kind="audit_sticky", end_reason="fall", rows=4, targets=8)
+        age(root)
+        db = Path(tmp) / "i.sqlite"
+        ri.scan(root=root, db_path=db, progress=lambda m: None)
+        rows = {r["episode_id"]: r for r in ri.load_rows(db_path=db, verdicts_path=Path(tmp) / "v.jsonl")}
+        c = rows["fine-2100-06"]
+        assert (c["role"], c["profile"], c["end_label"], c["cleared"], c["is_test"]) == ("eval", "fine", "clear", 1,
+                                                                                         False), c
+        assert (c["completion_tick"], c["completion_time"], c["steps"], c["last_tick"], c["prefix_rows"]) == (5, 4, 5, 4, 2)
+        assert (c["character_name"], c["stage"], c["targets"], c["format"]) == ("Mario", "btt_mario", 10,
+                                                                                 "battleship_btt_episode")
+        assert (c["last_target_text"], c["last_target_source"], c["time_text"]) == ("4 · 0.07 s", "completion", "0.07 s")
+        assert (c["milestone"], c["run"], c["created_text"] != "") == ("m9_g1", "", True)
+        h = rows["train-0000042"]
+        assert (h["role"], h["profile"], h["end_label"], h["cleared"], h["completion_tick"], h["is_test"]) == (
+            "train", "train", "timeout", 0, None, False)
+        assert (h["steps"], h["last_tick"], h["prefix_rows"], h["time_text"], h["run"]) == (6, 5, None, "5 · 0.1 s", "s2")
+        f = rows["audit_sticky-2128-03"]
+        assert (f["role"], f["profile"], f["end_label"], f["last_tick"], f["targets"]) == ("audit", "audit_sticky",
+                                                                                           "fall", 3, 8)
+        assert not any(r["is_test"] for r in rows.values())
+        ep = load_episode(clear)
+        e = expected_outcome(ep)
+        assert (e.end_kind, e.steps, e.last_consumed_tick, e.targets_broken, e.completion_input_tick,
+                e.completion_time_passed) == ("clear", 5, 4, 10, 5, 4)
+        assert e.recorded_digest == e.file_digest and e.initial_observation is None and e.final_observation is None
+        s = episode_summary(ep)
+        assert (s["role"], s["profile"], s["prefix_rows"], s["end"], s["character"]) == ("eval", "fine", 2, "clear",
+                                                                                         "mario")
+        assert recorded_end(load_episode(horizon).metadata) == ("truncated", "end_reason=horizon")
+        assert recorded_end(load_episode(fall).metadata) == ("fall", "end_reason=fall")
+
+
+# -- replay_lab: the fast-route lab as a read-only source ----------------------------------------------------------
+
+
+def write_lab_clear(run_dir: Path, *, n: int, cid: int, k: int, words: List[int], verdict: str = "VERIFIED",
+                    digest: Optional[str] = None, trace: bool = True) -> Dict[str, Any]:
+    """One lab verification row (appended to run_dir/verifications.jsonl, the lab's own format) for a tick-0 word
+    sequence that clears on its last word, plus its r1 trace: the initial reply and one reply per word, the last
+    one EpisodeEnded with 0 targets left (10 targets, breaking evenly)."""
+    import gzip
+
+    from m8_rd_cells import words_digest
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    seq = bytes(words)
+    t = len(seq)
+    remaining = [10 - (i + 1) * 10 // t for i in range(t)]
+    breaks = [[i, target] for i in range(t) for target in range(remaining[i - 1] if i else 10, remaining[i], -1)]
+    row = {"mode": "lab", "kind": "clear", "n": n, "cid": cid, "k": k, "level": 9, "start_tick": 1, "lead": 5,
+           "words": t, "words_hex": seq.hex(), "words_digest": digest or words_digest(seq), "verdict": verdict,
+           "reasons": [], "completion_input_tick": t, "completion_time_passed": t - 1, "chain_r1": "ab" * 32,
+           "chain_r2": "ab" * 32, "clocks_r1": [t, t - 1], "clocks_r2": [t, t - 1], "breaks_r1": breaks,
+           "breaks_r2": breaks, "gain_vs_reference": 1885 - t, "reference_completion_input_tick": 1885,
+           "utc": "2026-10-15T20:19:45Z", "phase": "search"}
+    with open(run_dir / "verifications.jsonl", "a", encoding="utf-8", newline="\n") as fp:
+        fp.write(json.dumps(row, separators=(",", ":")) + "\n")
+    if trace:
+        (run_dir / "traces").mkdir(exist_ok=True)
+        steps = [{"consumed_tick": i, "state_name": "EpisodeEnded" if i == t - 1 else "WaitingForAction",
+                  "step_count": i + 1, "observation": obs(input_tick=i + 1, time_passed=i, targets_remaining=remaining[i],
+                                                         game_status=5 if i == t - 1 else 1)} for i in range(t)]
+        with gzip.open(run_dir / "traces" / f"clear_n{n}_c{cid}_k{k}_r1.json.gz", "wt", encoding="utf-8") as fp:
+            json.dump({"label": f"clear_n{n}_c{cid}_k{k}_r1", "initial": {"observation": obs()}, "steps": steps,
+                       "submitted": t, "action_digest": row["words_digest"]}, fp)
+    return row
+
+
+@test
+def lab_source_lists_and_plays_verified_clears() -> None:
+    """The lab's verified clears (verifications.jsonl + r1 traces, read-only) are browser rows labelled
+    LAB (unregistered), fastest first, one per distinct word sequence; a clear loads from its trace path with
+    rows decoded from its exact words (digest-checked), its expected outcome is the recorded verification, and
+    feeding that replay gives MATCH; a tampered digest, an unverified row and a stranger file are refused."""
+    import replay_browser as rbw
+    import replay_lab
+    from m8_rd_cells import TRIPLES
+    from replay_episode import (ReplayTracker, artifact_format, episode_summary, expected_outcome, is_route,
+                                load_route_trace, resolve_episode_dir)
+    from replay_game import recorded_runtime_config
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve() / "lab"
+        crossing = root / "crossing_x" / "run"
+        config = root / "import" / "exe" / "BattleShip.cfg.json"
+        config.parent.mkdir(parents=True)
+        config.write_text("{}", encoding="utf-8")
+        write_lab_clear(crossing, n=5, cid=2, k=0, words=[0x33, 0x3F, 0x00, 0x2F])  # 4 words
+        fast = write_lab_clear(crossing, n=7, cid=3, k=1, words=[0x33, 0x3F, 0x05])  # 3 words: the fastest
+        write_lab_clear(crossing, n=9, cid=3, k=2, words=[0x33, 0x3F, 0x05])  # the same words, found again
+        write_lab_clear(crossing, n=11, cid=4, k=0, words=[1, 2], verdict="MISMATCH")  # not verified: never listed
+        write_lab_clear(crossing, n=13, cid=5, k=0, words=[1, 2, 3], digest="0" * 64)  # recorded digest != its words
+        with open(crossing / "verifications.jsonl", "a", encoding="utf-8", newline="\n") as fp:
+            fp.write('{"mode":"lab","kind":"seed","n":12}\n{"mode":"lab","kind":"clear","n":99')  # other kind; partial
+        smoke = root / "smoke_x" / "run"
+        write_lab_clear(smoke, n=1, cid=0, k=0, words=[0x33, 0x3F], trace=False)  # verified, but no r1 trace
+        with open(smoke / "verifications.jsonl", "a", encoding="utf-8", newline="\n") as fp:  # an older record shape
+            fp.write(json.dumps({"mode": "lab", "kind": "clear", "verdict": "VERIFIED", "words": 2, "words_hex": "333f",
+                                 "completion_input_tick": 2}) + "\n")
+        (root / "frontier_x" / "run").mkdir(parents=True)  # a lab run without verifications
+        with open(Path(tmp) / "v.jsonl", "w", encoding="utf-8", newline="\n") as fp:  # this tool's own replay of one
+            fp.write(json.dumps({"episode_dir": str(crossing / "traces" / "clear_n5_c2_k0_r1.json.gz"),
+                                 "verdict": "MATCH", "mode": "headless"}) + "\n")
+
+        scan = replay_lab.scan_lab(root, ri.load_verdicts(Path(tmp) / "v.jsonl"))
+        assert (scan["runs"], scan["verified"], scan["distinct"], scan["listed"], scan["no_trace"],
+                scan["unaddressable"], scan["unparsable"]) == (2, 5, 4, 3, 1, 1, 1), scan
+        rows = scan["rows"]
+        assert [r["episode_id"] for r in rows] == [  # fastest first (3, 3, 4 words), then by dispatch
+            "lab_crossing_x_n7_c3_k1", "lab_crossing_x_n13_c5_k0", "lab_crossing_x_n5_c2_k0"]
+        by_id = {r["episode_id"]: r for r in rows}
+        r = rows[0]
+        assert r["milestone"] == replay_lab.LAB_LABEL == "LAB (unregistered)" and r["role"] == "lab" and r["lab"]
+        assert (r["format"], r["end_label"], r["cleared"], r["targets"], r["targets_total"]) == (
+            "frs_lab_clear_v1", "clear", 1, 10, 10)
+        assert (r["completion_tick"], r["completion_time"], r["steps"], r["rows"], r["last_tick"]) == (3, 2, 3, 3, 2)
+        assert (r["last_target_text"], r["last_target_source"], r["time_text"]) == ("2 · 0.03 s", "completion", "0.03 s")
+        trace = crossing / "traces" / "clear_n7_c3_k1_r1.json.gz"
+        assert r["path"] == trace.as_posix() and not r["is_test"] and r["character_name"] == "?"
+        assert (r["run"], r["run_id"], r["worker"], r["created_text"] != "") == ("crossing_x", "crossing_x", None, True)
+        assert r["profile"].startswith("LAB (unregistered)") and ri.matches_text(r, "lab (unreg")
+        details = dict(r["tag_details"])
+        assert details["found"] == "dispatch 7, cell 3, k 1; the same words were verified 2 times", details
+        assert details["gain"] == "1882 input ticks faster than the reference (1885)" and r["tags"] == []
+        slow = by_id["lab_crossing_x_n5_c2_k0"]
+        assert (slow["replay"], slow["replay_mode"], r["replay"]) == ("MATCH", "headless", None)
+        assert "3 verified clears in 2 lab runs" in scan["text"] and "1 without an r1 trace" in scan["text"]
+        assert "1 repeat finds" in scan["text"] and "1 unparsable" in scan["text"], scan["text"]
+        assert "1 verified clears in another record shape" in scan["text"], scan["text"]
+        assert replay_lab.scan_lab(root / "missing")["rows"] == [] and replay_lab.lab_runs(root / "missing") == []
+        db = Path(tmp) / "i.sqlite"
+        merged = ri.load_rows_and_lab(root, db_path=db, verdicts_path=Path(tmp) / "v.jsonl")
+        assert [x["episode_id"] for x in merged] == [x["episode_id"] for x in rows]  # an empty index + the lab
+        assert ri.load_rows_and_lab(None, db_path=db, verdicts_path=Path(tmp) / "v.jsonl") == []
+        best = rbw.best_per_run(rows, rows)
+        assert len(best) == 1 and best[0] is r and best[0]["run_count_text"] == "3"
+
+        assert replay_lab.is_lab_trace(trace) and not replay_lab.is_lab_trace(crossing / "verifications.jsonl")
+        assert resolve_episode_dir(trace) == trace
+        ep = load_episode(trace)
+        assert ep.episode_id == "lab_crossing_x_n7_c3_k1" and is_route(ep.metadata) and ep.directory == trace
+        assert artifact_format(ep.metadata) == "frs_lab_clear_v1" and ep.metadata["runtime_config"] == str(config)
+        assert [(x.buttons, x.stick_x, x.stick_y, x.consumed_tick) for x in ep.rows] == [
+            (*TRIPLES[w], i) for i, w in enumerate([0x33, 0x3F, 0x05])]
+        assert ep.rows[0].stick_x == -80 and ep.rows[0].stick_y == -80 and ep.rows[0].buttons == 0x0008  # word 0x33
+        assert recorded_end(ep.metadata) == ("clear", "lab claim clear, terminal clear")
+        assert recorded_runtime_config(ep) == config
+        e = expected_outcome(ep)
+        assert (e.end_kind, e.steps, e.last_consumed_tick, e.targets_broken, e.completion_input_tick,
+                e.completion_time_passed) == ("clear", 3, 2, 10, 3, 2)
+        assert e.recorded_digest == e.file_digest == fast["words_digest"] and e.initial_observation and e.final_observation
+        s = episode_summary(ep)
+        assert (s["role"], s["run_id"], s["profile"]) == ("lab", "crossing_x", "LAB (unregistered) clear n7 c3 k1")
+        tr = ReplayTracker(ep)
+        doc = load_route_trace(ep.directory)
+        tr.feed_initial(doc["initial"]["observation"])
+        for row, step in zip(ep.replay_rows, doc["steps"]):
+            tr.feed_step(row, step["state_name"], step["step_count"], step["consumed_tick"], step["observation"])
+            if tr.ended:
+                break
+        v = compare(tr)
+        assert v.match and not v.skipped and tr.end_kind == "clear" and len(v.checks) == 10, v.lines()
+        assert tr.trajectory.target_break_ticks == [0, 0, 0, 1, 1, 1, 2, 2, 2, 2]
+        for bad, text in ((crossing / "traces" / "clear_n13_c5_k0_r1.json.gz", "not the verified words"),
+                          (crossing / "traces" / "clear_n11_c4_k0_r1.json.gz", "not VERIFIED"),
+                          (crossing / "verifications.jsonl", "not an episode directory")):
+            try:
+                load_episode(bad)
+                raise AssertionError(f"{bad.name} must be refused")
+            except EpisodeError as exc:
+                assert text in str(exc), exc
+        assert sorted(p.name for p in root.rglob("*") if p.is_file() and p.suffix not in (".jsonl", ".gz", ".json")) == []
+
+
+@test
+def lab_lock_refuses_game_replays() -> None:
+    """While <lab root>/lab.lock exists no game replay starts: the viewer exits with the usage code before loading
+    anything, every GameProcess.launch raises (no session files), and the browser's Play / Check set a status and
+    spawn nothing. The root comes from the override, else BATTLESHIP_LAB_ROOT (empty = off)."""
+    import replay
+    import replay_browser as rbw
+    import replay_lab
+    from replay_game import GameProcess, ReplayRuntimeError
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve() / "lab"
+        root.mkdir()
+        assert replay_lab.lab_root(root) == root and replay_lab.lab_root(root / "missing") is None
+        assert replay_lab.lab_lock(root) is None
+        previous = os.environ.get(replay_lab.ROOT_ENV)
+        try:
+            os.environ[replay_lab.ROOT_ENV] = str(root)
+            assert replay_lab.lab_root() == root and replay_lab.lab_lock() is None
+            (root / "lab.lock").write_text("pid 1\n", encoding="utf-8")
+            assert replay_lab.lab_lock() == replay_lab.lab_lock(root) == root / "lab.lock"
+            import contextlib
+            import io
+
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                codes = replay.main([str(root / "nothing"), "--check"]), replay.main([str(root / "nothing")])
+            assert codes == (2, 2) and err.getvalue().count("a lab run is active") == 2, (codes, err.getvalue())
+            game = GameProcess(root / "BattleShip.exe", root / "session", headless=True, base_config=root / "cfg.json")
+            try:
+                game.launch()
+                raise AssertionError("launch must refuse while lab.lock exists")
+            except ReplayRuntimeError as exc:
+                assert "lab run is active" in str(exc) and "lab.lock" in str(exc), exc
+            assert not (root / "session").exists() and game.process is None
+            run = root / "crossing_x" / "run"
+            write_lab_clear(run, n=1, cid=1, k=0, words=[0x33, 0x3F])
+            b = rbw.Browser(lambda: replay_lab.rows(root), lambda **kw: {}, lab_root=root,
+                            sources_path=root / "sources.json")
+            b.root.withdraw()
+            try:
+                assert b.root.title().endswith(f"LAB (unregistered) {root}") and b.index_info.get().endswith(
+                    "lab: 1 verified clears"), (b.root.title(), b.index_info.get())
+                b.table.select(0)
+                assert b.selected()["episode_id"] == "lab_crossing_x_n1_c1_k0"
+                assert b._spawn([], capture=False) is None and b.children == []
+                assert b.status.get().startswith("replay refused: a lab run is active"), b.status.get()
+                b.check_filtered()
+                assert b.batch is None and b.status.get().startswith("replay refused")
+            finally:
+                b.root.destroy()
+            os.environ[replay_lab.ROOT_ENV] = ""
+            assert replay_lab.lab_root() is None and replay_lab.lab_lock() is None  # empty = the lab is off
+        finally:
+            if previous is None:
+                os.environ.pop(replay_lab.ROOT_ENV, None)
+            else:
+                os.environ[replay_lab.ROOT_ENV] = previous
 
 
 def main() -> int:

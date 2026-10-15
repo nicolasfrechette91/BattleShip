@@ -36,8 +36,11 @@ METADATA_FILE = "metadata.json"
 ACTIONS_FILE = "actions.jsonl"
 EPISODE_FORMAT = "battleship_btt_episode"  # rl/run_artifacts.py, artifact_schema 1
 # M8 route discovery routes (runs/m8_rd*/routes/<name>/): a verified tick-0 action sequence with its own metadata
-# schema (no labels / terminal / observations) and the replay that verified it in trace.json.gz.
-ROUTE_SCHEMAS = ("m8_rd_route_v1",)
+# schema (no labels / terminal / observations) and the replay that verified it in trace.json.gz. A fast-route lab
+# clear (replay_lab.py, LAB (unregistered)) is described in the same shape, viewer-side only, from the lab's
+# verification record; its trace is the lab's own r1 trace file, which also addresses the clear.
+LAB_SCHEMA = "frs_lab_clear_v1"
+ROUTE_SCHEMAS = ("m8_rd_route_v1", LAB_SCHEMA)
 ROUTE_TRACE = "trace.json.gz"
 NATIVE_ACTION_CONTRACT = "rlaction_native_v1"
 
@@ -133,10 +136,16 @@ class Episode:
 
 
 def resolve_episode_dir(path: os.PathLike | str) -> Path:
-    """Accept an episode directory or its actions.jsonl / metadata.json."""
+    """Accept an episode directory or its actions.jsonl / metadata.json, or a lab clear's trace file (replay_lab.py:
+    the one per-clear file the lab writes; returned as is)."""
     p = Path(path).expanduser()
     if p.is_file() and p.name in (ACTIONS_FILE, METADATA_FILE):
         p = p.parent
+    if p.is_file():
+        import replay_lab  # it imports this module
+
+        if replay_lab.is_lab_trace(p):
+            return p.resolve()
     if not p.is_dir():
         raise EpisodeError(f"not an episode directory or actions.jsonl: {path}")
     if not (p / ACTIONS_FILE).is_file():
@@ -148,6 +157,11 @@ def resolve_episode_dir(path: os.PathLike | str) -> Path:
 
 def is_route(metadata: Mapping[str, Any]) -> bool:
     return metadata.get("schema") in ROUTE_SCHEMAS
+
+
+def is_lab(metadata: Mapping[str, Any]) -> bool:
+    """A fast-route lab clear (replay_lab.py), one of the route schemas."""
+    return metadata.get("schema") == LAB_SCHEMA
 
 
 def episode_id_of(metadata: Mapping[str, Any], directory: Path) -> str:
@@ -196,9 +210,11 @@ def _route_rows(directory: Path, metadata: Mapping[str, Any]) -> List["Row"]:
 
 
 def load_route_trace(directory: Path) -> Optional[Dict[str, Any]]:
-    """The route's verifying replay (initial reply, every step reply, native result), or None."""
+    """The route's verifying replay (initial reply, every step reply, native result), or None. `directory` is the
+    route folder (its trace.json.gz), or the trace file itself (a lab clear, whose Episode.directory it is)."""
+    p = Path(directory)
     try:
-        with gzip.open(Path(directory) / ROUTE_TRACE, "rt", encoding="utf-8") as fp:
+        with gzip.open(p if p.is_file() else p / ROUTE_TRACE, "rt", encoding="utf-8") as fp:
             doc = json.load(fp)
         return doc if isinstance(doc, dict) else None
     except (OSError, ValueError):
@@ -206,22 +222,29 @@ def load_route_trace(directory: Path) -> Optional[Dict[str, Any]]:
 
 
 def load_episode(path: os.PathLike | str) -> Episode:
-    """Read and validate an artifact with the project's own reader (rl/run_artifacts.read_artifact), or an M8
-    route (ROUTE_SCHEMAS) with the same row validation."""
+    """Read and validate an artifact with the project's own reader (rl/run_artifacts.read_artifact), an M8 route
+    (ROUTE_SCHEMAS) with the same row validation, or a lab clear from its trace file (replay_lab.load_clear: the
+    verified words, digest-checked)."""
     from run_artifacts import ArtifactError, read_artifact  # imported lazily: it pulls in gymnasium when present
 
     directory = resolve_episode_dir(path)
-    metadata = load_json(directory / METADATA_FILE)
-    if isinstance(metadata, dict) and is_route(metadata):
-        rows = _route_rows(directory, metadata)
+    if directory.is_file():  # a lab clear's trace file
+        import replay_lab
+
+        lab = replay_lab.load_clear(directory)
+        metadata, rows = lab.metadata, lab.rows
     else:
-        try:
-            art = read_artifact(directory)
-        except ArtifactError as exc:
-            raise EpisodeError(str(exc)) from exc
-        metadata = art.metadata
-        rows = [Row(a.sequence_index, int(a.buttons), int(a.stick_x), int(a.stick_y), a.consumed_tick)
-                for a in art.actions]
+        metadata = load_json(directory / METADATA_FILE)
+        if isinstance(metadata, dict) and is_route(metadata):
+            rows = _route_rows(directory, metadata)
+        else:
+            try:
+                art = read_artifact(directory)
+            except ArtifactError as exc:
+                raise EpisodeError(str(exc)) from exc
+            metadata = art.metadata
+            rows = [Row(a.sequence_index, int(a.buttons), int(a.stick_x), int(a.stick_y), a.consumed_tick)
+                    for a in art.actions]
     for r in rows:
         if r.consumed_tick is not None and r.consumed_tick != r.sequence_index:
             raise EpisodeError(
@@ -284,14 +307,15 @@ def recorded_end(metadata: Mapping[str, Any]) -> Tuple[str, str]:
     if is_route(metadata):
         k = (_route(metadata).get("terminal") or {}).get("kind")
         kind = {"clear": "clear", "fall": "fall"}.get(k, "truncated" if k else "unknown")
-        return kind, f"route claim {metadata.get('claim')}, terminal {k}" if k else "not recorded"
+        what = "lab" if is_lab(metadata) else "route"
+        return kind, f"{what} claim {metadata.get('claim')}, terminal {k}" if k else "not recorded"
     labels = metadata.get("labels") if isinstance(metadata.get("labels"), dict) else {}
     terminal = metadata.get("terminal") if isinstance(metadata.get("terminal"), dict) else {}
     termination = labels.get("termination_reason", terminal.get("termination_reason"))
     truncation = labels.get("truncation_reason", terminal.get("truncation_reason"))
     end_reason = labels.get("end_reason", terminal.get("end_reason"))
     cleared = labels.get("cleared", terminal.get("cleared"))
-    if cleared is True or termination == "native_clear":
+    if cleared is True or termination == "native_clear" or end_reason == "clear":  # end_reason clear: M9 artifacts
         kind = "clear"
     elif termination == "native_failure" or end_reason == "fall":
         kind = "fall"
@@ -315,6 +339,88 @@ def recorded_targets(metadata: Mapping[str, Any]) -> Optional[int]:
     if targets is None and not labels.get("m7h_start"):
         targets = _int_or_none(labels.get("targets_broken"))
     return targets
+
+
+# M9 artifacts (runs/m9_*: rl/m9_* tooling) are standard artifacts whose metadata records things elsewhere than the
+# M7 trainer's labels: the end in terminal.end_reason (clear | fall | horizon) with the native result record in
+# terminal.completion, the count of consumed actions in terminal.ticks / actions_with_result, the digest and the
+# prefix length under `m9`, and the role as labels.phase (train, eval, ckeval, audit, probe, t0, t0_drift, p4) with
+# the artifact kind as labels.m9_kind. The helpers below read the M7 fields first, then these.
+
+
+def _labels(metadata: Mapping[str, Any]) -> Dict[str, Any]:
+    labels = metadata.get("labels")
+    return labels if isinstance(labels, dict) else {}
+
+
+def _terminal(metadata: Mapping[str, Any]) -> Dict[str, Any]:
+    terminal = metadata.get("terminal")
+    return terminal if isinstance(terminal, dict) else {}
+
+
+def _m9(metadata: Mapping[str, Any]) -> Dict[str, Any]:
+    m9 = metadata.get("m9")
+    return m9 if isinstance(m9, dict) else {}
+
+
+def recorded_role(metadata: Mapping[str, Any]) -> Optional[str]:
+    """labels.role (M7 runs), else labels.phase of an M9 artifact (one with labels.m9_kind)."""
+    labels = _labels(metadata)
+    role = labels.get("role")
+    if role is None and isinstance(labels.get("m9_kind"), str) and isinstance(labels.get("phase"), str):
+        role = labels["phase"]
+    return role if isinstance(role, str) else None
+
+
+def recorded_profile(metadata: Mapping[str, Any]) -> Optional[str]:
+    """labels.experiment.name / environment_profile (M7 runs), else labels.m9_kind (M9 artifacts)."""
+    labels = _labels(metadata)
+    exp = labels.get("experiment") if isinstance(labels.get("experiment"), dict) else {}
+    profile = exp.get("name") or exp.get("environment_profile") or labels.get("m9_kind")
+    return profile if isinstance(profile, str) else None
+
+
+def recorded_steps(metadata: Mapping[str, Any]) -> Optional[int]:
+    """terminal.step_count, else actions_with_result (M9: every action that got a result)."""
+    steps = _int_or_none(_terminal(metadata).get("step_count"))
+    return steps if steps is not None else _int_or_none(metadata.get("actions_with_result"))
+
+
+def recorded_last_tick(metadata: Mapping[str, Any]) -> Optional[int]:
+    """terminal.last_consumed_tick, else terminal.ticks - 1 (M9: ticks = consumed inputs, from tick 0)."""
+    terminal = _terminal(metadata)
+    last = _int_or_none(terminal.get("last_consumed_tick"))
+    if last is None:
+        ticks = _int_or_none(terminal.get("ticks"))
+        last = ticks - 1 if ticks is not None and ticks > 0 else None
+    return last
+
+
+def recorded_digest(metadata: Mapping[str, Any]) -> Optional[str]:
+    """labels.native_action_digest, else m9.native_action_digest (the same contract: all rows, prefix included)."""
+    digest = _labels(metadata).get("native_action_digest")
+    if not isinstance(digest, str):
+        digest = _m9(metadata).get("native_action_digest")
+    return digest if isinstance(digest, str) else None
+
+
+def recorded_prefix(metadata: Mapping[str, Any]) -> Optional[int]:
+    """Rows replayed as the start state: labels.m7h_start.prefix_length (M7h/M7m), else m9.prefix_words."""
+    start = _labels(metadata).get("m7h_start")
+    prefix = _int_or_none(start.get("prefix_length")) if isinstance(start, dict) else None
+    return prefix if prefix is not None else _int_or_none(_m9(metadata).get("prefix_words"))
+
+
+def completion_clocks(metadata: Mapping[str, Any]) -> Tuple[Optional[int], Optional[int]]:
+    """(completion_time_passed, completion_input_tick) of a clear: labels (M7 runs), else terminal.completion (M9:
+    the native result record). Two distinct clocks, never collapsed."""
+    labels = _labels(metadata)
+    passed, tick = _int_or_none(labels.get("completion_time_passed")), _int_or_none(labels.get("completion_input_tick"))
+    if passed is None and tick is None:
+        c = _terminal(metadata).get("completion")
+        c = c if isinstance(c, dict) else {}
+        passed, tick = _int_or_none(c.get("completion_time_passed")), _int_or_none(c.get("completion_input_tick"))
+    return passed, tick
 
 
 def route_expected(ep: Episode) -> Expected:
@@ -347,23 +453,22 @@ def route_expected(ep: Episode) -> Expected:
 def expected_outcome(ep: Episode) -> Expected:
     if is_route(ep.metadata):
         return route_expected(ep)
-    m, labels = ep.metadata, ep.labels
-    terminal = m.get("terminal") if isinstance(m.get("terminal"), dict) else {}
+    m = ep.metadata
     kind, detail = recorded_end(m)
     targets = recorded_targets(m)
+    passed, tick = completion_clocks(m)
     return Expected(
         end_kind=kind,
         end_detail=detail,
         rows_to_replay=len(ep.replay_rows),
-        steps=_int_or_none(terminal.get("step_count")),
-        last_consumed_tick=_int_or_none(terminal.get("last_consumed_tick")),
+        steps=recorded_steps(m),
+        last_consumed_tick=recorded_last_tick(m),
         targets_broken=targets,
-        completion_time_passed=_int_or_none(labels.get("completion_time_passed")),
-        completion_input_tick=_int_or_none(labels.get("completion_input_tick")),
+        completion_time_passed=passed,
+        completion_input_tick=tick,
         initial_observation=m.get("initial_observation") if isinstance(m.get("initial_observation"), dict) else None,
         final_observation=m.get("final_observation") if isinstance(m.get("final_observation"), dict) else None,
-        recorded_digest=labels.get("native_action_digest") if isinstance(labels.get("native_action_digest"), str)
-        else None,
+        recorded_digest=recorded_digest(m),
         file_digest=action_digest(ep.rows),
     )
 
@@ -603,7 +708,6 @@ def episode_summary(ep: Episode) -> Dict[str, Any]:
     exp = labels.get("experiment") if isinstance(labels.get("experiment"), dict) else {}
     contracts = labels.get("contracts") if isinstance(labels.get("contracts"), dict) else {}
     e = expected_outcome(ep)
-    start = labels.get("m7h_start") if isinstance(labels.get("m7h_start"), dict) else None
     observation = contracts.get("policy_observation_contract")
     if not observation and isinstance(exp.get("policy_observation"), dict):
         observation = exp["policy_observation"].get("contract")
@@ -614,15 +718,16 @@ def episode_summary(ep: Episode) -> Dict[str, Any]:
         "character": task.character,  # None when not recorded (shown as "?"); never assumed
         "stage": task.stage,
         "task_source": task.source,
-        "role": "route" if route is not None else labels.get("role"),
+        "role": ("lab" if is_lab(ep.metadata) else "route") if route is not None else recorded_role(ep.metadata),
         "run_id": ep.metadata.get("session") if route is not None else labels.get("run_id"),
-        "profile": (f"arm {ep.metadata.get('arm')}, claim {ep.metadata.get('claim')}, {route.get('label')}"
-                    if route is not None else exp.get("name") or exp.get("environment_profile")),
+        "profile": (route.get("label") if is_lab(ep.metadata) else
+                    f"arm {ep.metadata.get('arm')}, claim {ep.metadata.get('claim')}, {route.get('label')}"
+                    if route is not None else recorded_profile(ep.metadata)),
         "observation": observation,
         "reward": labels.get("reward_contract"),
         "rows": len(ep.rows),
         "rows_to_replay": e.rows_to_replay,
-        "prefix_rows": start.get("prefix_length") if start else None,
+        "prefix_rows": recorded_prefix(ep.metadata),
         "end": e.end_kind,
         "end_detail": e.end_detail,
         "targets_broken": e.targets_broken,

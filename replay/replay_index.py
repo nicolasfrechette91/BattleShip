@@ -7,10 +7,11 @@
     python replay/replay_index.py play N|EPISODE_ID|PATH [viewer options...]
     python replay/replay_index.py check N|EPISODE_ID|PATH          (headless MATCH/DESYNC)
     python replay/replay_index.py gui                               (browser)
+    python replay/replay_index.py sources [--add PATH | --remove PATH]   (tracked folders: runs/, the lab, added ones)
     replay\\replay_index.cmd ...                                     (Windows wrapper)
 
-N is a row number of the last `list`. The cache is replay/_local/index.sqlite (schema 2; an older cache is dropped
-and rebuilt by the next scan). A rescan re-reads only episode directories whose mtime changed, plus run-level
+N is a row number of the last `list`. The cache is replay/_local/index.sqlite (SCHEMA_VERSION; an older cache is
+dropped and rebuilt by the next scan). A rescan re-reads only episode directories whose mtime changed, plus run-level
 summary files whose mtime/size changed. Episode directories modified in the last few minutes, or without
 metadata.json, are skipped: they may still be being written.
 
@@ -43,9 +44,11 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from replay_episode import (EPISODE_FORMAT, REPO_ROOT, TARGETS_TOTAL_DEFAULT, artifact_format, episode_id_of,  # noqa: E402
-                            is_route, recorded_end, recorded_targets)
+from replay_episode import (EPISODE_FORMAT, REPO_ROOT, TARGETS_TOTAL_DEFAULT, artifact_format, completion_clocks,  # noqa: E402
+                            episode_id_of, is_route, recorded_end, recorded_last_tick, recorded_prefix,
+                            recorded_profile, recorded_role, recorded_steps, recorded_targets)
 import replay_breaks  # noqa: E402
+import replay_lab  # noqa: E402  the fast-route lab as an extra read-only source (LAB (unregistered))
 from replay_tags import EXTRACTORS, Fact, extractor_for, summary_file_names  # noqa: E402
 from replay_task import UNKNOWN, character_name, task_identity  # noqa: E402
 
@@ -54,8 +57,9 @@ LOCAL_DIR = REPO_ROOT / "replay" / "_local"
 INDEX_DB = LOCAL_DIR / "index.sqlite"
 LAST_LIST = LOCAL_DIR / "last_list.json"
 VERDICTS_FILE = LOCAL_DIR / "verdicts.jsonl"
+SOURCES_FILE = LOCAL_DIR / "sources.json"  # added folders: extra read-only roots scanned like runs/ (see "sources")
 VIEWER = Path(__file__).resolve().parent / "replay.py"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5  # 5: M9 artifacts (role = labels.phase, end_reason clear, terminal.completion clocks)
 TICKS_PER_SECOND = 60  # native ticks and the game's time_passed are both 1/60 s
 
 # Directory names that never contain episode artifacts in any runs/ layout (per-process game dirs, runtime
@@ -158,7 +162,10 @@ def _iso_utc(ns: int) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(ns / 1e9))
 
 
-def episode_row(d: Path, meta: Dict[str, Any], names: Iterable[str], dir_mtime: int, meta_mtime: int) -> Dict[str, Any]:
+def episode_row(d: Path, meta: Dict[str, Any], names: Iterable[str], dir_mtime: int, meta_mtime: int,
+                root: Optional[Path] = None, label: Optional[str] = None) -> Dict[str, Any]:
+    """The index row of one episode. With `label` (an added folder scanned as an extra root), the milestone is that
+    label and the run is the path inside the folder, as if the folder were runs/<label>/."""
     labels = meta.get("labels") if isinstance(meta.get("labels"), dict) else {}
     terminal = meta.get("terminal") if isinstance(meta.get("terminal"), dict) else {}
     exp = labels.get("experiment") if isinstance(labels.get("experiment"), dict) else {}
@@ -167,46 +174,57 @@ def episode_row(d: Path, meta: Dict[str, Any], names: Iterable[str], dir_mtime: 
     kind, detail = recorded_end(meta)
     task = task_identity(meta)
     path = rel(d)
-    milestone, run, phase, worker = split_location(path)
+    located = path
+    if label is not None and root is not None:
+        try:
+            located = f"runs/{label}/{Path(d).relative_to(root).as_posix()}"
+        except ValueError:
+            pass
+    milestone, run, phase, worker = split_location(located)
     observation = _get(labels, "contracts", "policy_observation_contract") or _get(exp, "policy_observation",
                                                                                     "contract")
     live = final.get("fighter_valid") == 1 and final.get("btt_active") == 1
     created = _get(meta, "diagnostics", "created_utc") or ""
     route = meta.get("replay") if is_route(meta) and isinstance(meta.get("replay"), dict) else None
+    # Recorded facts, read from the M7 labels or the M9 fields (replay_episode helpers): role, profile, steps,
+    # last consumed tick, completion clocks (two distinct clocks) and prefix rows.
+    role, profile, steps, last_tick = recorded_role(meta), recorded_profile(meta), recorded_steps(meta), \
+        recorded_last_tick(meta)
+    completion_time, completion_tick = completion_clocks(meta)
+    run_id, prefix_rows = labels.get("run_id"), recorded_prefix(meta)
     if route is not None:  # an M8 route: its own schema (see replay_episode.ROUTE_SCHEMAS)
         rt = route.get("terminal") if isinstance(route.get("terminal"), dict) else {}
         clocks = meta.get("completion_clocks") if isinstance(meta.get("completion_clocks"), dict) else (
             route.get("clear_facts") if isinstance(route.get("clear_facts"), dict) else {})
         cleared = kind == "clear"
-        labels = {"role": "route", "run_id": meta.get("session"),
-                  "completion_input_tick": clocks.get("completion_input_tick") if cleared else None,
-                  "completion_time_passed": clocks.get("completion_time_passed") if cleared else None,
-                  "cleared": cleared}
-        terminal = {"step_count": rt.get("submitted"), "last_consumed_tick": rt.get("last_consumed_tick")}
-        exp = {"name": f"arm {meta.get('arm')} · claim {meta.get('claim')} · {route.get('label')}"}
+        role, run_id = "route", meta.get("session")
+        completion_tick = _int(clocks.get("completion_input_tick")) if cleared else None
+        completion_time = _int(clocks.get("completion_time_passed")) if cleared else None
+        steps, last_tick = _int(rt.get("submitted")), _int(rt.get("last_consumed_tick"))
+        profile = f"arm {meta.get('arm')} · claim {meta.get('claim')} · {route.get('label')}"
     return {
         "path": path,
         "episode_id": episode_id_of(meta, d),
         "milestone": milestone, "run": run, "phase": phase, "worker": worker,
-        "role": labels.get("role"), "run_id": labels.get("run_id"),
-        "profile": exp.get("name") or exp.get("environment_profile"),
+        "role": role, "run_id": run_id,
+        "profile": profile,
         "observation": observation,
         "reward": labels.get("reward_contract"),
         "character": task.character, "stage": task.stage, "task_source": task.source,
         "end_kind": kind, "end_detail": detail,
         "truncation": labels.get("truncation_reason", terminal.get("truncation_reason")),
         "rows": _int(meta.get("action_count")) if route is None else _int(meta.get("words")),
-        "steps": _int(terminal.get("step_count")),
+        "steps": steps,
         "targets": recorded_targets(meta),
         "targets_total": _int(_get(labels, "contracts", "targets_total")) or _int(initial.get("targets_remaining"))
         or TARGETS_TOTAL_DEFAULT,
-        "cleared": 1 if labels.get("cleared", terminal.get("cleared")) is True else 0,
-        "completion_tick": _int(labels.get("completion_input_tick")),
-        "completion_time": _int(labels.get("completion_time_passed")),
-        "last_tick": _int(terminal.get("last_consumed_tick")),
+        "cleared": 1 if kind == "clear" else 0,
+        "completion_tick": completion_tick if kind == "clear" else None,
+        "completion_time": completion_time if kind == "clear" else None,
+        "last_tick": last_tick,
         "final_x": _float(final.get("position_x")) if live else None,
         "final_y": _float(final.get("position_y")) if live else None,
-        "prefix_rows": _int(_get(labels, "m7h_start", "prefix_length")),
+        "prefix_rows": prefix_rows,
         "created": created or _iso_utc(meta_mtime),  # no recorded creation time: the metadata file's time
         "sidecars": ",".join(sorted(n for n in names if n not in ("actions.jsonl", "metadata.json"))),
         "dir_mtime_ns": dir_mtime, "meta_mtime_ns": meta_mtime,
@@ -247,8 +265,9 @@ def _is_link(entry: os.DirEntry) -> bool:
 
 
 def scan(*, root: Path = RUNS_DIR, full: bool = False, recent_minutes: float = 5.0, prune: bool = True,
-         progress=print, db_path: Optional[Path] = None) -> Dict[str, Any]:
-    """Walk runs/ (read-only) and bring the index up to date. Returns counts."""
+         progress=print, db_path: Optional[Path] = None, label: Optional[str] = None) -> Dict[str, Any]:
+    """Walk one root (runs/, or an added folder with its `label` as the milestone) read-only and bring the index
+    up to date for it; episodes under other roots are untouched. Returns counts."""
     t0 = time.monotonic()
     db = connect(db_path)
     cached = {r["path"]: (r["dir_mtime_ns"], r["meta_mtime_ns"])
@@ -280,7 +299,7 @@ def scan(*, root: Path = RUNS_DIR, full: bool = False, recent_minutes: float = 5
             stats["archives"] = stats.get("archives", 0) + 1
             _example(stats, "archives", rel(d))
         if "actions.jsonl" in by_name:
-            _index_episode(db, d, d_mtime, by_name, cached, horizon_ns, full, stats, seen)
+            _index_episode(db, d, d_mtime, by_name, cached, horizon_ns, full, stats, seen, root, label)
             continue
         artifacts_dir = d.name.startswith("artifacts")
         for e in entries:
@@ -369,7 +388,8 @@ def last_scan_report(db_path: Optional[Path] = None) -> Dict[str, Any]:
 
 
 def _index_episode(db, d: Path, d_mtime: int, by_name: Dict[str, os.DirEntry], cached, horizon_ns: int,
-                   full: bool, stats: Dict[str, Any], seen: set) -> None:
+                   full: bool, stats: Dict[str, Any], seen: set, root: Optional[Path] = None,
+                   label: Optional[str] = None) -> None:
     p = rel(d)
     if "metadata.json" not in by_name:
         stats["skipped_no_metadata"] += 1
@@ -402,7 +422,7 @@ def _index_episode(db, d: Path, d_mtime: int, by_name: Dict[str, os.DirEntry], c
         _example(stats, "unreadable", p)
         seen.discard(p)
         return
-    row = episode_row(d, meta, by_name.keys(), d_mtime, meta_mtime)
+    row = episode_row(d, meta, by_name.keys(), d_mtime, meta_mtime, root, label)
     db.execute(f"INSERT OR REPLACE INTO episodes VALUES ({', '.join(':' + c for c in EPISODE_COLUMNS)})", row)
     forget(db, p, like=True)  # this episode's own files
     store_breaks(db, replay_breaks.from_episode(d, row["episode_id"], by_name.keys(), rel))
@@ -412,11 +432,135 @@ def _index_episode(db, d: Path, d_mtime: int, by_name: Dict[str, os.DirEntry], c
     stats["added_or_updated"] += 1
 
 
+# -- added folders (extra read-only roots, replay/_local/sources.json) ---------------------------------------------
+
+
+class SourceError(ValueError):
+    """A folder that cannot be added as a source, with the reason."""
+
+
+def load_sources(path: Optional[Path] = None) -> List[Path]:
+    """The added folders, in file order (absolute paths); no or unreadable file = none."""
+    try:
+        doc = json.loads(Path(path or SOURCES_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    folders = doc.get("folders") if isinstance(doc, dict) else None
+    return [Path(p) for p in folders if isinstance(p, str)] if isinstance(folders, list) else []
+
+
+def save_sources(folders: List[Path], path: Optional[Path] = None) -> None:
+    p = Path(path or SOURCES_FILE)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", encoding="utf-8", newline="\n") as fp:
+        json.dump({"version": 1, "folders": [str(f) for f in folders]}, fp, indent=1)
+
+
+def source_label(root: Path) -> str:
+    """The milestone shown for an added folder's episodes."""
+    return f"{Path(root).name} (added)"
+
+
+def _holds_lab_records(p: Path) -> bool:
+    if (p / replay_lab.VERIFICATIONS).is_file() or (p / "run" / replay_lab.VERIFICATIONS).is_file():
+        return True
+    try:
+        return any((c / "run" / replay_lab.VERIFICATIONS).is_file() for c in p.iterdir() if c.is_dir())
+    except OSError:
+        return False
+
+
+def check_source(folder: os.PathLike | str) -> Path:
+    """The folder to add, resolved, or a SourceError: not a directory; runs/ or a folder under it (always indexed);
+    this repository or any folder holding runs/; a fast-route lab root (verifications.jsonl: replay_lab.py reads
+    those, --lab-root / BATTLESHIP_LAB_ROOT)."""
+    p = Path(folder).expanduser().resolve()
+    if not p.is_dir():
+        raise SourceError(f"not a directory: {p}")
+    if p == RUNS_DIR or RUNS_DIR in p.parents:
+        raise SourceError(f"{p} is under runs/, which is always indexed")
+    if p in RUNS_DIR.parents:
+        raise SourceError(f"{p} holds runs/ itself; add a folder of episode artifacts instead")
+    if _holds_lab_records(p):
+        raise SourceError(f"{p} holds fast-route lab records ({replay_lab.VERIFICATIONS}): the lab is read through "
+                          f"--lab-root / {replay_lab.ROOT_ENV}, not as an added folder")
+    return p
+
+
+def add_source(folder: os.PathLike | str, path: Optional[Path] = None) -> Path:
+    """Register a folder (check_source) in sources.json; already registered = no change. The caller scans it."""
+    p = check_source(folder)
+    folders = load_sources(path)
+    if p not in folders:
+        save_sources(folders + [p], path)
+    return p
+
+
+def remove_source(folder: os.PathLike | str, path: Optional[Path] = None, db_path: Optional[Path] = None) -> int:
+    """Unregister a folder (it need not exist any more) and drop its episodes from the index. Returns that count."""
+    p = Path(folder).expanduser().resolve()
+    save_sources([f for f in load_sources(path) if f != p], path)
+    return drop_root(p, db_path)
+
+
+def drop_root(root: Path, db_path: Optional[Path] = None) -> int:
+    """Delete every indexed episode, summary file, fact and break tick under a root. Returns the episodes dropped."""
+    db = connect(db_path)
+    low, high = rel(root) + "/", rel(root) + "0"  # '/' + 1 == '0': exactly the paths under root/
+    n = db.execute("SELECT count(*) FROM episodes WHERE path >= ? AND path < ?", (low, high)).fetchone()[0]
+    db.execute("DELETE FROM episodes WHERE path >= ? AND path < ?", (low, high))
+    db.execute("DELETE FROM summaries WHERE path >= ? AND path < ?", (low, high))
+    for table in ("facts", "breaks"):
+        db.execute(f"DELETE FROM {table} WHERE source_path >= ? AND source_path < ?", (low, high))
+    db.commit()
+    db.close()
+    return n
+
+
+def scan_all(*, runs_root: Path = RUNS_DIR, sources: Optional[List[Path]] = None, sources_path: Optional[Path] = None,
+             full: bool = False, recent_minutes: float = 5.0, prune: bool = True, progress=print,
+             db_path: Optional[Path] = None) -> Dict[str, Any]:
+    """scan() runs/ and then every added folder (sources, else sources.json), each with its own label, and merge
+    the counts; an added folder that no longer exists is counted in `missing_sources` and its rows are kept."""
+    roots = [(Path(runs_root), None)] + [(Path(s), source_label(s))
+                                         for s in (load_sources(sources_path) if sources is None else sources)]
+    merged: Dict[str, Any] = {"examples": {}, "missing_sources": 0, "sources": len(roots) - 1}
+    for root, label in roots:
+        if label is not None and not root.is_dir():
+            merged["missing_sources"] += 1
+            _example(merged, "missing_sources", str(root))
+            continue
+        if label is not None:
+            progress(f"  added folder {root} as {label}")
+        stats = scan(root=root, full=full, recent_minutes=recent_minutes, prune=prune, progress=progress,
+                     db_path=db_path, label=label)
+        for key, value in stats.items():
+            if key == "examples":
+                for k, v in value.items():
+                    _example(merged, k, v)
+            elif key == "unrecognized":  # a whole-index count, the same after every root: not summed
+                merged[key] = value
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                merged[key] = round(merged.get(key, 0) + value, 1) if isinstance(value, float) else \
+                    merged.get(key, 0) + value
+    merged["not_indexed"] = not_indexed_text(merged)
+    if merged["missing_sources"]:
+        merged["not_indexed"] = "; ".join(filter(None, [merged["not_indexed"], (
+            f"{merged['missing_sources']} added folders not found, e.g. {merged['examples']['missing_sources']} "
+            "(rows kept; remove the folder in Sources to drop them)")]))
+    db = connect(db_path)
+    db.execute("INSERT OR REPLACE INTO meta VALUES ('last_scan_report', ?)", (json.dumps(merged),))
+    db.commit()
+    db.close()
+    return merged
+
+
 # -- query --------------------------------------------------------------------------------------------------------
 
 
 def load_verdicts(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
-    """Latest replay verdict per episode directory (this tool's own replays)."""
+    """Latest replay verdict per episode directory (this tool's own replays), keyed as recorded and, for a
+    directory outside the repository (an added folder, the lab), also by its posix form, the index's path."""
     out: Dict[str, Dict[str, Any]] = {}
     try:
         with open(path or VERDICTS_FILE, encoding="utf-8") as fp:
@@ -427,6 +571,7 @@ def load_verdicts(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
                     continue
                 if isinstance(v, dict) and v.get("episode_dir"):
                     out[v["episode_dir"]] = v
+                    out[Path(v["episode_dir"]).as_posix()] = v
     except OSError:
         pass
     return out
@@ -546,6 +691,16 @@ def load_rows(db_path: Optional[Path] = None, verdicts_path: Optional[Path] = No
             r["tags"], r["tag_details"] = ex.resolve(mine)
             r["tag_sources"] = sorted(mine)
         r["tag_text"] = " · ".join(r["tags"])
+    return rows
+
+
+def load_rows_and_lab(lab_root: Optional[Path], db_path: Optional[Path] = None,
+                      verdicts_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """load_rows() plus the fast-route lab's verified clears (replay_lab.py, milestone LAB (unregistered)) when a
+    lab root is given (None = no lab; replay_lab.lab_root() resolves the option, variable and default)."""
+    rows = load_rows(db_path, verdicts_path)
+    if lab_root is not None:
+        rows.extend(replay_lab.rows(lab_root, load_verdicts(verdicts_path)))
     return rows
 
 
@@ -686,7 +841,7 @@ def run_viewer(path: Path, extra: List[str]) -> int:
 def add_filters(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--milestone", "-m", action="append", help="runs/<milestone> prefix, e.g. m7p (repeatable)")
     ap.add_argument("--run", help="substring of the run path, e.g. geo4_s1/final")
-    ap.add_argument("--role", choices=("training", "evaluation"))
+    ap.add_argument("--role", help="training, evaluation, route, lab, or an M9 phase (train, eval, ckeval, audit, ...)")
     ap.add_argument("--character", action="append", help="e.g. mario, or ? for not recorded (repeatable)")
     ap.add_argument("--stage", action="append", help="e.g. btt_mario, or ? for not recorded (repeatable)")
     ap.add_argument("--end", action="append",
@@ -702,18 +857,67 @@ def add_filters(ap: argparse.ArgumentParser) -> None:
 
 
 def cmd_scan(args) -> int:
-    print(f"scanning {rel(Path(args.root).resolve())} (read-only){' - full rescan' if args.full else ''} ...")
-    stats = scan(root=Path(args.root).resolve(), full=args.full, recent_minutes=args.recent_minutes,
-                 prune=not args.no_prune)
+    if args.root:
+        print(f"scanning {rel(Path(args.root).resolve())} (read-only){' - full rescan' if args.full else ''} ...")
+        stats = scan(root=Path(args.root).resolve(), full=args.full, recent_minutes=args.recent_minutes,
+                     prune=not args.no_prune)
+    else:
+        n = len(load_sources())
+        print(f"scanning runs/{f' and {n} added folders' if n else ''} (read-only)"
+              f"{' - full rescan' if args.full else ''} ...")
+        stats = scan_all(full=args.full, recent_minutes=args.recent_minutes, prune=not args.no_prune)
     print("  " + ", ".join(f"{k} {v}" for k, v in stats.items() if k not in ("examples", "not_indexed")))
     print(f"  not indexed: {stats['not_indexed'] or 'nothing'}")
     return 0
 
 
+def source_entries(rows: List[Dict[str, Any]], lab_root: Optional[Path], sources: Optional[List[Path]] = None,
+                   sources_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """What the browser lists: runs/ (built in), the lab root (option / variable) and each added folder, with its
+    episode count among `rows`, whether it can be removed here, and whether it is missing from disk."""
+    sources = load_sources(sources_path) if sources is None else sources
+    added = []
+    for s in sources:
+        prefix = rel(s) + "/"
+        added.append({"path": str(s), "kind": f"added folder, milestone {source_label(s)}", "removable": True,
+                      "missing": not s.is_dir(), "count": sum(1 for r in rows if r["path"].startswith(prefix))})
+    lab = sum(1 for r in rows if r.get("lab"))
+    # runs/ = every row that is neither the lab's nor an added folder's (its paths are relative, runs/..., in the
+    # repository; absolute for a scan root elsewhere)
+    out = [{"path": str(RUNS_DIR), "kind": "runs/ (built in, always indexed)", "removable": False, "missing": False,
+            "count": len(rows) - lab - sum(e["count"] for e in added)}]
+    if lab_root is not None:
+        out.append({"path": str(lab_root), "kind": f"{replay_lab.LAB_LABEL}, --lab-root / {replay_lab.ROOT_ENV}",
+                    "removable": False, "missing": not Path(lab_root).is_dir(), "count": lab})
+    return out + added
+
+
+def cmd_sources(args) -> int:
+    if args.add:
+        try:
+            p = add_source(args.add)
+        except SourceError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"added {p} (milestone {source_label(p)}); scanning it (read-only) ...")
+        stats = scan(root=p, label=source_label(p), recent_minutes=args.recent_minutes)
+        print(f"  {stats['episodes_seen']} episodes, {stats['added_or_updated']} new/updated, {stats['wall_s']} s"
+              + (f"; not indexed: {stats['not_indexed']}" if stats["not_indexed"] else ""))
+    if args.remove:
+        n = remove_source(args.remove)
+        print(f"removed {Path(args.remove).expanduser().resolve()}: {n} episodes dropped from the index")
+    rows = load_rows_and_lab(args.lab) if not (args.add or args.remove) else []
+    for e in source_entries(rows, args.lab):
+        flag = "  (missing on disk)" if e["missing"] else ""
+        count = f"  {e['count']:,} episodes" if rows else ""
+        print(f"  {e['path']}{count}{flag}\n      {e['kind']}")
+    return 0
+
+
 def cmd_list(args) -> int:
     if args.scan or not INDEX_DB.exists():
-        cmd_scan(argparse.Namespace(root=RUNS_DIR, full=False, recent_minutes=args.recent_minutes, no_prune=False))
-    rows = sort_rows(filter_rows(load_rows(), args), args.sort, args.reverse)
+        cmd_scan(argparse.Namespace(root=None, full=False, recent_minutes=args.recent_minutes, no_prune=False))
+    rows = sort_rows(filter_rows(load_rows_and_lab(args.lab), args), args.sort, args.reverse)
     total = len(rows)
     if args.limit:
         rows = rows[:args.limit]
@@ -733,7 +937,7 @@ def cmd_list(args) -> int:
 def cmd_show(args) -> int:
     path = resolve_target(args.target)
     p = rel(path)
-    rows = [r for r in load_rows() if r["path"] == p]
+    rows = [r for r in load_rows_and_lab(args.lab) if r["path"] == p]
     if not rows:
         print(f"{p} is not indexed (run `scan`)")
         return 1
@@ -765,18 +969,22 @@ def cmd_check(args, extra: List[str]) -> int:
 def cmd_gui(args) -> int:
     import replay_browser
 
-    return replay_browser.main(load_rows, scan)
+    return replay_browser.main(lambda: load_rows_and_lab(args.lab), scan_all, lab_root=args.lab)
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Index / browse episode artifacts under runs/ for the replay viewer.",
                                  epilog=__doc__.split("\n\n", 2)[2], formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--lab-root", metavar="PATH",
+                    help=f"fast-route lab root whose verified clears are listed as {replay_lab.LAB_LABEL}, read-only "
+                         f"(default: ${replay_lab.ROOT_ENV}, else {replay_lab.DEFAULT_ROOT} when it exists)")
+    ap.add_argument("--no-lab", action="store_true", help="list no lab clears")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("scan", help="update the cached index (incremental)")
     s.add_argument("--full", action="store_true", help="re-read every episode and summary file")
     s.add_argument("--recent-minutes", type=float, default=5.0, help="skip episodes modified this recently (default 5)")
     s.add_argument("--no-prune", action="store_true", help="also walk logs/runtime/episodes/... directories")
-    s.add_argument("--root", default=str(RUNS_DIR), help="scan only this subtree (default runs/)")
+    s.add_argument("--root", default=None, help="scan only this subtree (default: runs/ and every added folder)")
     lp = sub.add_parser("list", help="filter + sort the index")
     add_filters(lp)
     lp.add_argument("--sort", default=DEFAULT_SORT,
@@ -793,9 +1001,16 @@ def main(argv=None) -> int:
         p = sub.add_parser(name, help=helptext)
         p.add_argument("target", help="row number of the last list, episode id (or unique suffix), or path")
     sub.add_parser("gui", help="table browser")
+    so = sub.add_parser("sources", help="list the tracked folders; --add / --remove an extra folder (read-only)")
+    so.add_argument("--add", metavar="PATH", help="register a folder of episode artifacts and scan it")
+    so.add_argument("--remove", metavar="PATH", help="unregister a folder and drop its episodes from the index")
+    so.add_argument("--recent-minutes", type=float, default=5.0)
     args, extra = ap.parse_known_args(argv)
     if extra and args.cmd not in ("play", "check"):
         ap.error(f"unrecognized arguments: {' '.join(extra)}")
+    args.lab = None if args.no_lab else replay_lab.lab_root(args.lab_root)  # the lab root to list, or None
+    if args.lab_root and args.lab is None and not args.no_lab:
+        ap.error(f"--lab-root {args.lab_root}: not a directory")
     if args.cmd == "scan":
         return cmd_scan(args)
     if args.cmd == "list":
@@ -806,6 +1021,8 @@ def main(argv=None) -> int:
         return cmd_play(args, extra)
     if args.cmd == "check":
         return cmd_check(args, extra)
+    if args.cmd == "sources":
+        return cmd_sources(args)
     return cmd_gui(args)
 
 

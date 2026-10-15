@@ -51,6 +51,7 @@ from replay_game import (DEFAULT_EXE, SPEEDS, Geometry, ReplayEngine, ReplayRunt
                          check_episode, executable_identity, load_state, record_verdict)
 from replay_history import (CAPTURE_MODES, DEFAULT_SCALE, DEFAULT_SECONDS, FILTERS, HistoryConfig,  # noqa: E402
                             history_bytes)
+from replay_lab import lab_lock, refusal  # noqa: E402
 from replay_task import character_name  # noqa: E402
 
 EXIT_MATCH, EXIT_DESYNC, EXIT_USAGE, EXIT_RUNTIME = 0, 1, 2, 3
@@ -105,6 +106,10 @@ def main(argv=None) -> int:
     history = HistoryConfig(seconds=args.history_seconds, scale=args.history_scale, capture=args.history_capture,
                             filter=args.history_filter)
 
+    lock = lab_lock()  # a fast-route lab run is active: start no game replay (replay_lab.py)
+    if lock is not None:
+        print(f"error: {refusal(lock)}", file=sys.stderr)
+        return EXIT_USAGE
     try:
         ep = load_episode(args.episode)
     except EpisodeError as exc:

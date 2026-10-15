@@ -27,11 +27,13 @@ import tkinter as tk
 import tkinter.font as tkfont
 from collections import defaultdict
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from replay_index import (DESCENDING_BY_DEFAULT, REPO_ROOT, SORT_KEYS, VIEWER, created_local, last_scan,
-                          last_scan_report, matches_text, set_last_target)
+import replay_lab
+from replay_index import (DESCENDING_BY_DEFAULT, REPO_ROOT, SORT_KEYS, VIEWER, SourceError, add_source, created_local,
+                          last_scan, last_scan_report, load_sources, matches_text, remove_source, set_last_target,
+                          source_entries, source_label)
 from replay_task import UNKNOWN
 from replay_widgets import (DARK_GREEN, DARK_RED, GREY_TEXT, HEAD_FONT, INK, UI_FONT, Tooltip, end_ellipsis,
                             middle_ellipsis, popup_tip)
@@ -63,17 +65,17 @@ COLUMNS: Tuple[Tuple[str, str, int, str, str, int], ...] = (
     ("role", "Role", 84, "w", "role", 0),
     ("milestone", "Milestone", 88, "w", "milestone", 0),
     ("run", "Run", 260, "w", "run", 1),
-    ("tags", "Tags", 150, "w", "tags", 0),  # tags are rare (4 episodes today): narrow, tooltip when cut
     ("created", "Created", 100, "w", "created", 0),
-)
+)  # no Tags column: tags are rare (a handful of episodes); they stay in the details card and in the search
 
 EPISODES_COLUMN = ("runeps", "Episodes", 84, "e", "episodes", 0)  # shown in "Best per run" only
 CONFIRM_ABOVE = 50  # "Check filtered" asks first above this many episodes
 CHECK_SECONDS = 4.5  # rough duration of one headless replay (launch + up to 3,600 ticks), for the estimate
 
 
-def main(load_rows: Callable[[], List[Dict[str, Any]]], scan: Callable[..., Dict[str, Any]]) -> int:
-    app = Browser(load_rows, scan)
+def main(load_rows: Callable[[], List[Dict[str, Any]]], scan: Callable[..., Dict[str, Any]], *,
+         lab_root: Optional[Path] = None) -> int:
+    app = Browser(load_rows, scan, lab_root=lab_root)
     app.root.mainloop()
     return 0
 
@@ -315,8 +317,6 @@ class Table(tk.Frame):
             run = r["run"] + (f"/{r['worker']}" if r["worker"] and not self.merge_workers else "")
             self._text(c, x0, x1, y0, run or "-", mode="middle")
             self._tips[(i, key)] = r["path"].replace("/", os.sep)  # the full episode path
-        elif key == "tags":
-            self._text(c, x0, x1, y0, r["tag_text"], color="#1d4ed8", tip_key=(i, key))
         elif key == "created":
             self._text(c, x0, x1, y0, r["created_text"], color=GREY_TEXT)
 
@@ -420,8 +420,12 @@ class Table(tk.Frame):
 
 
 class Browser:
-    def __init__(self, load_rows, scan):
+    def __init__(self, load_rows, scan, *, lab_root: Optional[Path] = None, sources_path: Optional[Path] = None,
+                 db_path: Optional[Path] = None):
         self.load_rows_fn, self.scan_fn = load_rows, scan
+        self.lab_root = lab_root  # the fast-route lab listed as LAB (unregistered), if any (replay_lab.py)
+        self.sources_path, self.db_path = sources_path, db_path  # added folders (sources.json) and the index to drop from
+        self.sources_dialog: Optional["SourcesDialog"] = None
         self.rows: List[Dict[str, Any]] = []
         self.view: List[Dict[str, Any]] = []
         self.sort_key, self.sort_desc = "targets", True
@@ -435,12 +439,19 @@ class Browser:
         self._checking_one = False  # a single-episode Check is running
         self.batch_factory = None  # tests replace it; default: replay_game.CheckBatch
         self.root = tk.Tk()
-        self.root.title("Replay browser - runs/")
+        self._set_title()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.geometry("1440x860")
         self.root.minsize(1000, 560)
         self._build()
         self.reload()
+
+    def _set_title(self) -> None:
+        """runs/, plus the lab root and the number of added folders (Sources…)."""
+        n = len(load_sources(self.sources_path))
+        self.root.title("Replay browser - runs/"
+                        + (f"  +  {replay_lab.LAB_LABEL} {self.lab_root}" if self.lab_root else "")
+                        + (f"  +  {n} added folder{'s' if n != 1 else ''}" if n else ""))
 
     # -- layout ---------------------------------------------------------------------------------------------------
 
@@ -469,7 +480,7 @@ class Browser:
         combo(bar, "Milestone", "milestone", ["any"], 13).pack(side="left", padx=(0, 8))
         combo(bar, "Character", "character", ["any"], 13).pack(side="left", padx=(0, 8))
         self.stage_box = combo(bar, "Stage", "stage", ["any"], 13)  # packed only when stages vary per character
-        self._stage_anchor = combo(bar, "Role", "role", ["any", "training", "evaluation"], 10)
+        self._stage_anchor = combo(bar, "Role", "role", ["any"], 10)  # the recorded roles, filled by reload()
         self._stage_anchor.pack(side="left", padx=(0, 8))
         combo(bar, "End", "end", ["any", "clear", "fall", "timeout", "goal", "aborted", "prefix", "unknown"], 9).pack(
             side="left", padx=(0, 8))
@@ -538,6 +549,10 @@ class Browser:
         self.status = tk.StringVar()
         ttk.Label(status, textvariable=self.status, font=UI_FONT, foreground=INK).pack(side="left")
         ttk.Button(status, text="Rescan", width=8, command=self.rescan).pack(side="right")
+        sources = ttk.Button(status, text="Sources…", width=9, command=self.open_sources)
+        sources.pack(side="right", padx=(0, 6))
+        Tooltip(sources, "The folders listed here: runs/, the fast-route lab, and folders you add (read-only).\n"
+                         "Add a folder of episode artifacts, or remove one to drop its episodes from the index.")
         self.index_info = tk.StringVar()
         ttk.Label(status, textvariable=self.index_info, font=UI_FONT, foreground=GREY_TEXT).pack(side="right", padx=8)
 
@@ -549,6 +564,7 @@ class Browser:
         chars = sorted({r["character"] or UNKNOWN for r in self.rows}, key=lambda c: (c == UNKNOWN, c))
         self.combos["milestone"].configure(values=["any"] + sorted({r["milestone"] for r in self.rows}))
         self.combos["character"].configure(values=["any"] + chars)
+        self.combos["role"].configure(values=["any"] + sorted({r["role"] for r in self.rows if r["role"]}))
         stages_by_char: Dict[str, set] = {}
         for r in self.rows:
             stages_by_char.setdefault(r["character"] or UNKNOWN, set()).add(r["stage"] or UNKNOWN)
@@ -561,12 +577,58 @@ class Browser:
             self.stage_box.pack_forget()
         stamp = last_scan()
         when = created_local(stamp) if stamp else None
-        self.index_info.set(f"index: {len(self.rows):,} episodes"
-                            + (f", scanned {when:%b} {when.day} {when:%H:%M}" if when else ", not scanned yet"))
+        lab = sum(1 for r in self.rows if r.get("lab"))
+        self.index_info.set(f"index: {len(self.rows) - lab:,} episodes"
+                            + (f", scanned {when:%b} {when.day} {when:%H:%M}" if when else ", not scanned yet")
+                            + (f" · lab: {lab:,} verified clears" if lab else ""))
         report = last_scan_report().get("not_indexed")
         if report and not self.status.get():
             self.status.set(f"last scan, not indexed: {report}")
         self.apply(keep=keep["path"] if keep else None)
+        if self.sources_dialog is not None and self.sources_dialog.alive():
+            self.sources_dialog.refresh()
+
+    # -- sources (runs/, the lab, added folders) ---------------------------------------------------------------------
+
+    def source_entries(self) -> List[Dict[str, Any]]:
+        return source_entries(self.rows, self.lab_root, sources_path=self.sources_path)
+
+    def open_sources(self, visible: bool = True) -> "SourcesDialog":
+        if self.sources_dialog is None or not self.sources_dialog.alive():
+            self.sources_dialog = SourcesDialog(self, visible=visible)
+        else:
+            self.sources_dialog.top.lift()
+        return self.sources_dialog
+
+    def add_folder(self, path: Optional[os.PathLike | str] = None) -> Optional[Path]:
+        """Register a folder of episode artifacts (asked for when `path` is None) and refresh the index with it.
+        The folder is only read. A refused folder (replay_index.check_source) leaves a status line."""
+        if path is None:
+            path = filedialog.askdirectory(parent=self.root, title="Add a folder of episode artifacts (read-only)",
+                                           mustexist=True)
+            if not path:
+                return None
+        try:
+            p = add_source(path, self.sources_path)
+        except SourceError as exc:
+            self.status.set(f"not added: {exc}")
+            return None
+        self._set_title()
+        self.status.set(f"added {p} (milestone {source_label(p)}); scanning it ...")
+        self.rescan()
+        return p
+
+    def remove_folder(self, path: os.PathLike | str, confirm: bool = True) -> int:
+        """Unregister an added folder and drop its episodes from the index; the folder itself is untouched."""
+        if confirm and not messagebox.askyesno(
+                "Remove folder", f"Stop listing {path}?\n\nIts episodes leave the index; the folder itself is not "
+                                 "touched. You can add it again later.", parent=self.root):
+            return 0
+        n = remove_source(path, self.sources_path, self.db_path)
+        self._set_title()
+        self.status.set(f"removed {path}: {n:,} episodes dropped from the index")
+        self.reload()
+        return n
 
     def rescan(self, first_time: bool = False) -> None:
         """Incremental read-only scan in a background thread; the table reloads when it finishes."""
@@ -718,8 +780,14 @@ class Browser:
         if r is None:
             self.status.set("select an episode first")
             return None
+        lock = replay_lab.lab_lock(self.lab_root)
+        if lock is not None:
+            self.status.set(f"replay refused: {replay_lab.refusal(lock)}")
+            return None
         path = str(REPO_ROOT / r["path"])
         kw: Dict[str, Any] = {"cwd": str(REPO_ROOT)}
+        if self.lab_root is not None:  # the viewer checks the same lab's lock
+            kw["env"] = {**os.environ, replay_lab.ROOT_ENV: str(self.lab_root)}
         if capture:  # headless check: read its report
             kw.update(stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             argv = [sys.executable, str(VIEWER), path, *extra]
@@ -786,6 +854,10 @@ class Browser:
         if self.batch is not None:
             self.batch.cancel()
             self.status.set("cancelling the check...")
+            return
+        lock = replay_lab.lab_lock(self.lab_root)
+        if lock is not None:
+            self.status.set(f"replay refused: {replay_lab.refusal(lock)}")
             return
         rows = list(self.view)
         if not rows:
@@ -854,4 +926,69 @@ class Browser:
     def open_folder(self) -> None:
         r = self.selected()
         if r and hasattr(os, "startfile"):
-            os.startfile(str(REPO_ROOT / r["path"]))  # read-only use: opens Explorer on the folder
+            p = REPO_ROOT / r["path"]
+            os.startfile(str(p if p.is_dir() else p.parent))  # read-only use: opens Explorer on the folder
+
+
+class SourcesDialog:
+    """The tracked folders: runs/ (built in), the lab root (option / variable) and the added folders, each with its
+    episode count; Add folder… registers and scans another folder, Remove drops an added one from the index."""
+
+    def __init__(self, browser: Browser, visible: bool = True):
+        self.b = browser
+        self.entries: List[Dict[str, Any]] = []
+        self.top = tk.Toplevel(browser.root)
+        self.top.title("Sources - tracked folders")
+        self.top.transient(browser.root)
+        if not visible:
+            self.top.withdraw()
+        ttk.Label(self.top, font=UI_FONT, wraplength=720, justify="left",
+                  text="Folders the browser lists, all read-only. runs/ is always indexed; the lab root comes from "
+                       "--lab-root / BATTLESHIP_LAB_ROOT; an added folder is scanned like runs/, with its name as the "
+                       "milestone. Remove drops an added folder's episodes from the index; the folder is untouched."
+                  ).pack(anchor="w", padx=12, pady=(10, 4))
+        box = ttk.Frame(self.top)
+        box.pack(fill="both", expand=True, padx=12)
+        self.listbox = tk.Listbox(box, height=8, width=110, font=UI_FONT, activestyle="none", exportselection=False)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        bar = ttk.Scrollbar(box, orient="vertical", command=self.listbox.yview)
+        bar.pack(side="right", fill="y")
+        self.listbox.configure(yscrollcommand=bar.set)
+        self.listbox.bind("<<ListboxSelect>>", lambda e: self._selection_changed())
+        buttons = ttk.Frame(self.top)
+        buttons.pack(fill="x", padx=12, pady=(6, 10))
+        ttk.Button(buttons, text="Add folder…", command=self.b.add_folder).pack(side="left")
+        self.remove_btn = ttk.Button(buttons, text="Remove", command=self.remove, state="disabled")
+        self.remove_btn.pack(side="left", padx=(6, 0))
+        ttk.Button(buttons, text="Close", command=self.close).pack(side="right")
+        self.refresh()
+
+    def refresh(self) -> None:
+        self.entries = self.b.source_entries()
+        self.listbox.delete(0, "end")
+        for e in self.entries:
+            flag = "    MISSING ON DISK" if e["missing"] else ""
+            self.listbox.insert("end", f"{e['path']}    {e['count']:,} episodes    [{e['kind']}]{flag}")
+        self._selection_changed()
+
+    def selected(self) -> Optional[Dict[str, Any]]:
+        sel = self.listbox.curselection()
+        return self.entries[sel[0]] if sel and sel[0] < len(self.entries) else None
+
+    def _selection_changed(self) -> None:
+        e = self.selected()
+        self.remove_btn.configure(state="normal" if e and e["removable"] else "disabled")
+
+    def remove(self) -> None:
+        e = self.selected()
+        if e and e["removable"]:
+            self.b.remove_folder(e["path"])
+
+    def alive(self) -> bool:
+        try:
+            return bool(self.top.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def close(self) -> None:
+        self.top.destroy()

@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 import replay_win32 as win32
+import replay_lab
 from replay_episode import (REPO_ROOT, Episode, ReplayTracker, Row, Verdict, compare, format_verdict, is_route)
 from replay_history import FrameHistory, HistoryConfig, SavedFrame, bgrx_to_rgb
 
@@ -182,7 +183,11 @@ def new_session_dir(episode_id: str, tag: str = "") -> Path:
 
 def route_runtime_config(ep: Episode) -> Optional[Path]:
     """An M8 route's pinned config: rd1's frozen copy at <rd1 run>/archive/runtime/BattleShip.cfg.json, found from
-    the route's run (routes/<name>/ -> run/archive/archive_meta.json base.rd1_root, or the run itself for rd1)."""
+    the route's run (routes/<name>/ -> run/archive/archive_meta.json base.rd1_root, or the run itself for rd1).
+    A route that names its config (`runtime_config`: a lab clear's frozen import config, replay_lab.py) uses that."""
+    pinned = ep.metadata.get("runtime_config")
+    if isinstance(pinned, str) and Path(pinned).is_file():
+        return Path(pinned)
     run = ep.directory.parent.parent
     try:
         meta = json.loads((run / "archive" / "archive_meta.json").read_text(encoding="utf-8"))
@@ -288,7 +293,11 @@ class GameProcess:
         return env
 
     def launch(self, *, startup_timeout: float = 60.0, ready_timeout: float = 120.0) -> Dict[str, Any]:
-        """Start a new process and wait for the fresh tick-0 state. Returns the tick-0 observation."""
+        """Start a new process and wait for the fresh tick-0 state. Returns the tick-0 observation. Refused while
+        a fast-route lab run is active (<lab root>/lab.lock exists, replay_lab.py)."""
+        lock = replay_lab.lab_lock()
+        if lock is not None:
+            raise ReplayRuntimeError(replay_lab.refusal(lock))
         self.close()
         if not self.runtime_dir.exists():
             prepare_worker_runtime(self.runtime_dir, self.executable)
