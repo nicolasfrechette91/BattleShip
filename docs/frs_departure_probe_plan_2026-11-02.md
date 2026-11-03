@@ -1,9 +1,10 @@
-# Departure probe: plan (Phase 1, 2026-11-02; updated with Nicolas's answers)
+# Departure probe: plan (Phase 1, 2026-11-02; updated with Nicolas's answers and, on 2026-11-03, with the review fixes)
 
 Status: Phase 1 done, with zero native ticks. No build was made, and no game, lab run, search, suite with native ticks or self-check was started. `lab.lock` was not taken. Lab
 records and traces were read only; nothing was written in `C:/BattleShip_lab`. Nicolas answered the open questions of the first version (section 9); the tool, the
-tests and this plan follow those answers. **Phase 2 is one native lab run and needs Nicolas's explicit go.** This record decides nothing. Its numbers describe the
-1,245's records; the tool reads every one of them from those records.
+tests and this plan follow those answers. On 2026-11-03 an independent review of commit `46a99cd` returned READY AFTER FIXES; the tool, the tests and this plan now
+follow Nicolas's decisions on that review (section 9, 2026-11-03), still with zero native ticks. **Phase 2 is one native lab run and needs Nicolas's explicit go.**
+This record decides nothing. Its numbers describe the 1,245's records; the tool reads every one of them from those records.
 
 Sources: `docs/project_handoff.md`, `docs/frs_lab_guide.md`, `docs/frs_lab_index.md`, `docs/frs_moving_geometry_timing_2026-10-16.md` (sections 0 to 6),
 `docs/rl_decision_soft_reset_2026-11-02.md` (for context), the existing lab tools (`tools/frs/trail_probe.py`, `tools/frs/splice_probe.py`,
@@ -15,27 +16,30 @@ replay-timing records (for the cost). The band was computed with `--band`, which
 
 - **Question:** every traced clear leaves the moving collision group in one band of its cycle. Is that band forced by the geometry, or is it inherited habit?
 - **Probe:** take the best verified lab clear, the 1,245 (dispatch 36,236, cell 8692). Replay its words up to a departure tick d, then try exits from d, for every d in a
-  window. Each try is one fresh process from tick 0 with the verify flags. Each try is valued by the chained tick, counted from tick 0, of the first break after the
-  departure.
+  window. Each try is one fresh process from tick 0 with the verify flags. Each try's own departure is measured with the same rule as D, and a try counts only when it
+  departs at d. A counted try is valued by its **progress tick**: the first tick after d at which it has broken every target the baseline had broken by B, in any
+  order (its live-target mask is a subset of the baseline's at B). It beats B when its progress tick is before B. The first break after d is still reported.
 - **Derived from the 1,245's own trace** (nothing hardcoded):
   - moving group 2, line 19, moving along y with period P = 300;
   - one contact interval, ticks 539..733; first grounded tick F = 545;
   - departure D = 716 (the exit's onset); airborne from A = 720; floor line off the group from L = 734;
-  - baseline B = 1,042, target 6, with B − D = 326;
-  - one on-group break, tick 639 (target 2).
+  - baseline B = 1,042, target 6, with B − D = 326; live mask at B 258 (targets 1 and 8 still live);
+  - one on-group break (F ≤ tick ≤ D), tick 639 (target 2).
 - **Window:** 545..716 (172 earlier departures) and 717..1,016 (300 later departures): 472 departure ticks. The 94 departures 545..638 are **pre-break departures**:
-  they leave before the on-group break, so they are their own part of the curve and never count as gains. That leaves 378 departures that can count.
-- **Band:** the verified clears leave at group phases 77..177 of the 300-tick cycle (296 verified trajectories, 3 departure phases). Of the 378 counted departures, 179
-  are inside the band and 199 outside. **All 199 outside the band are later departures (717..915).** Every earlier departure outside the band is a pre-break departure
-  (545..615), and every earlier departure after the on-group break (639..716) is inside the band. So with these answers a NOT_FORCED verdict can only come from
-  departing later than the clear, never earlier.
+  they leave before the on-group break. They are labelled, form their own part of the curve and of every table with their own counts, and count like any other
+  departure (decision D2 of 2026-11-03): a pre-break try beats B only when its progress tick is before B, so it must also break the on-group target before B.
+- **Band:** the verified clears leave at group phases 77..177 of the 300-tick cycle (295 verified clears plus the probed clear; 3 departure phases; every one of the
+  296 departures is the tick before a 3-tick status-20 take-off). Of the 472 planned departure ticks, 202 are inside the band and 270 outside: **71 on the earlier
+  side (545..615, all pre-break) and 199 on the later side (717..915)**. Every earlier departure after the on-group break (639..716) is inside the band, so the earlier
+  side is tested only by pre-break departures. The verdict states which sides were actually tested, counted from the rows that departed at d (S1).
 - **Plan:** 472 departure ticks times 2 exits (the clear's own exit shifted to d, and K = 1 generic exit from the lab burst generator, the same at every d) gives
-  **944 candidates** and 1,352,280 ticks. Candidate-set digest `bfca96f3401e6b5629398f3a414432cd85154cc54abf382834cfc99e0d7ad68f`.
+  **944 candidates** and 1,352,280 ticks. Candidate-set digest `bfca96f3401e6b5629398f3a414432cd85154cc54abf382834cfc99e0d7ad68f` (unchanged by the
+  2026-11-03 fixes). Band digest `0cb3b2912c00b6e8ea0ce36457efc853ef1aa60541aded6aa09ddf5fe3e20146`.
 - **Cost:** measured from the splice probe's 207 fresh-process trace replays (5 at once) as 4.08 s + 2.74 ms per tick per slot. Expected native time **25.3 minutes**,
   56 % of the 45-minute cap.
 - **(a) and (b)** are answered in section 2 from the record: 720..733 is the fighter airborne above the line, and B − D = 326 contains the timing study's 171-tick
   flight.
-- **Tool:** `tools/frs/departure_probe.py` (1,607 lines), with tests in `tools/frs/departure_probe_tests.py` (822 lines; 14/14 pass, zero ticks).
+- **Tool:** `tools/frs/departure_probe.py` (1,941 lines), with tests in `tools/frs/departure_probe_tests.py` (1,201 lines; 18/18 pass, zero ticks).
 
 ## 1. Method, as implemented
 
@@ -55,7 +59,9 @@ The tool reads these from the record:
 | departure D | D = (the first tick of the `fighter_status_id` run that contains G) − 1, never before C0; the tool stops when D < F. The clear's word at index D starts the exit, and the observation at input tick D is the clear's last state on the group before the exit (answer 1). |
 | period P | The median gap between successive turning points of the same kind in the group's translation. A record whose gaps differ from the median by more than 1 tick, or that has fewer than two turning points of one kind, stops the tool. The phase origin is the first bottom: phase(t) = (t − origin) mod P (`period_of`). |
 | baseline B | The first break after D in the verified clear, by input tick, with the target id that the native target records report. Also recorded: the live mask at B and the end state at B (`baseline_of`). |
-| on-group breaks | The clear's breaks with C0 ≤ tick ≤ D (`on_group_breaks`). A departure d is **pre-break** when one of them has a tick after d (`pending_of`). |
+| progress rule | A candidate's progress tick is the first tick after d whose live-target mask is a subset of the baseline's live mask at B, read from the record (258 here: targets 1 and 8 live). It beats B when its progress tick is before B (decision D1; `plan.progress_rule`). |
+| on-group breaks | The clear's breaks with F ≤ tick ≤ D (decision N1; `on_group_breaks`). A departure d is **pre-break** when one of them has a tick after d (`pending_of`). |
+| each candidate's departure | The same rule as D (`departure_core`, shared with D and the band), applied to the candidate's own trace on the contact run that contains d: `departure_tick`, `departure_phase`, and the reason (`at_d`, `later`, `earlier`, or why there is none: `no_exit`, `left_grounded`, ...) (`measured_departure`). The floor-line field is reported apart as `floor_line_leave_tick` and is never used for the band. |
 | exit run, spans | What the record shows from A to L, and B − D split at the record's own events (`exit_run_of`, `spans_of`; section 2). |
 
 **Window** (answers 2 and 7).
@@ -65,23 +71,25 @@ The tool reads these from the record:
 - Later departures: every d in (D, D + P] = 717..1,016, which is 300 ticks. Each prefix is the clear's words 0..D−1, then the canonical neutral word (Track 1 word 0,
   triple (0, 0, 0)) for ticks D..d−1.
 - The later window is checked natively once, at open, by a filler reference replay (the words 0..D−1 plus P neutral words). Later d are kept only while the fighter
-  stays grounded on the group through d. Later candidates past the first tick off the group are not dispatched and are listed in `not_dispatched.jsonl`. This cut
-  **counts as complete**. The measured cut point is reported in `controls.json`, `summary.json` (`later_cut`: the filler's first tick off the group, the last later d,
-  the later departure ticks dispatched of planned) and `report.md`.
+  stays grounded on the group through d. Later candidates past the filler's first tick off the group (the first tick that is not both grounded and on a group line:
+  the ground-contact rule, like D) are not dispatched and are listed in `not_dispatched.jsonl`. This cut **counts as complete**. The measured cut point is reported in
+  `controls.json`, `summary.json` (`later_cut`: the filler's first tick off the group, the last later d, the later departure ticks dispatched of planned) and
+  `report.md`.
 - Dispatch order: the control (d = D, the clear's exit) goes first. The other departure ticks follow in van der Corput order, so every prefix of the run spreads over
   the whole window. A run stopped by the cap therefore keeps a uniform subsample, although it is still INCONCLUSIVE.
 
-**Pre-break departures** (answer 3). The record shows one on-group break, at 639 (target 2), so d = 545..638 (94 ticks) are pre-break departures; the tool derives
-this, it is not written anywhere. Every pre-break candidate is labelled `part = pre_break` in `curve.csv` and reported apart:
+**Pre-break departures** (answer 3, amended by decision D2 of 2026-11-03). The record shows one on-group break, at 639 (target 2), so d = 545..638 (94 ticks) are
+pre-break departures; the tool derives this, it is not written anywhere. Every pre-break candidate is labelled `part = pre_break` in `curve.csv` and has its own counts:
 
-- in `summary.json`, `verdict.pre_break`: the d range, the valid count, how many break before B (and how many of those with the baseline's progress), and the
-  first-break target histogram, as the native records report it. For each target it records the earliest tick and its d, and how often the target hit is the pending
-  on-group target or the baseline's next;
-- in `curve_by_type` under `pre_break_clear_exit` and `pre_break_generic`;
+- in `summary.json`, `verdict.pre_break`: the d range, the valid count, how many departed at d, how many of those are outside the band, how many break first before B,
+  how many beat B (`beats_B`, `counted_as_gain`), and the first-break target histogram, as the native records report it. For each target it records the earliest tick
+  and its d, and how often the target hit is the pending on-group target or the baseline's next;
+- in the verdict counters (`beats_B_pre_break`, `beats_B_outside_band_pre_break`, `outside_band_pre_break`, `counted_pre_break`) and next to the verdict (S1);
+- in `curve_by_type` and `progress_by_type` under `pre_break_clear_exit` and `pre_break_generic`;
 - in a separate table in `report.md`.
 
-A pre-break candidate is never counted as a gain, even if its first break is earlier than B and leaves the baseline's progress (`counted_as_gain` is always 0). Pre-break
-departures do not count for the band either: "no valid departure outside the band" is read on the counted departures only.
+A pre-break candidate counts like any other departure: it beats B only when its progress tick is before B, which requires it to break the on-group target (here
+target 2) before B as well. When its measured departure is outside the band, it counts on the band's **earlier side**.
 
 **Exits at each d** (answers 5, 6 and 8).
 
@@ -96,27 +104,31 @@ departures do not count for the band either: "no valid departure outside the ban
 **Per candidate** (`read_candidate`), one row in `results.jsonl`:
 
 - d, the variant, the side (control, earlier or later), `pre_break` with the pending on-group breaks, and the group's phase, translation and direction at d;
-- whether d is in the band;
-- the tick contract on every step: consumed_tick = T, input_tick = T + 1, step_count = T + 1, and no consumed-tick mismatch;
-- the native action digest of the submitted words;
+- the tick contract on every step: consumed_tick = T, input_tick = T + 1, step_count = T + 1, and no consumed-tick mismatch; and the native action digest of the
+  submitted words. These are read first: any failure is outcome `contract` and ends the run as PROBE_INVALID (decision S6);
+- the pin check: `rl/frs_verify` re-hashes the pinned game files beside the executable before every replay, the controls included. A change (pin drift) launches
+  nothing; the row is outcome `pin_drift` with the detail, and the run ends as PROBE_INVALID on the first detection, with the S6 treatment (2026-11-03);
 - the prefix digest: the m8_rd chain at d against the verified clear's chain (earlier d), or against the filler reference (later d);
-- the outcome: budget end, fall, ended, error, mismatch, contract, or `clear_not_claimed` (a clear that is recorded but never verified or claimed);
+- the outcome: budget end, fall, ended, error, mismatch, contract, pin_drift, or `clear_not_claimed` (a clear that is recorded but never verified or claimed);
+- the measured departure: `departure_tick`, `departure_phase`, `departure_reason`, `departed_at_d` (only those rows count, S3), and the detail (S, G, A, the status
+  of G). `in_band` is read on `departure_phase` (S2). The floor-line facts are `floor_line_leave_tick` and `floor_line_leave_phase`, for reference only;
 - the first break after d: its chained tick, the target id and every target broken at that tick (as the native target records report them), whether that is the target
   the baseline broke next, whether it is a pending on-group target, the live mask, and the exit ticks;
-- `comparable`: the candidate's live mask at that break is a subset of the baseline's at B, so the candidate has broken everything the baseline had;
-- `earlier_than_B`, `beats_B` (earlier, comparable, and not pre-break) and the gain;
-- the end state at that break: grounded or airborne, status id and class, helpless or not, resource class, the three velocities, position, jumps used, floor line,
-  whether it is on the group, and the group's translation;
-- the first tick off the group, the last grounded tick on it, and the leave phase;
+- `comparable`: the live mask at that first break is already a subset of the baseline's at B; `earlier_than_B`: the first break is before B;
+- `progress_tick`, the targets broken at it, `beats_B` (the progress tick is before B) and the gain B − progress tick (D1);
+- the end states at the first break and at the progress tick: grounded or airborne, status id and class, helpless or not, resource class, the three velocities,
+  position, jumps used, floor line, whether it is on the group, and the group's translation;
 - the wall, startup and stepping seconds, the slot, and any errors.
+
+Each candidate's trace is saved before it is read (N7), so a crash while reading keeps it.
 
 **Prefix mismatch.** A candidate whose prefix digest differs is a failed row, and the first differing tick is logged. Its process has already exited, because every
 candidate is its own fresh process, so the process is retired and never reused, and the run continues with fresh processes. The third mismatch aborts the run.
 
 **Controls, at open, three fresh processes at once:**
 
-- the 1,245's words, twice. Both replays must be VERIFIED by the lab's own verdict (`rl/frs_verify.verdict`), equal the verified m8_rd chain at every tick, and
-  reproduce the row's break table;
+- the 1,245's words, twice. Both replays must be VERIFIED by the lab's own verdict (`rl/frs_verify.verdict`), equal the verified m8_rd chain at every tick,
+  reproduce the row's break table, and keep the full tick contract (step_count included, which `fv.evaluate` does not check);
 - the filler reference. Its chain at D must equal the clear's; its first tick off the group sets the later window's cut.
 
 In the run, the first candidate (d = D, the clear's exit) must reproduce B, its target and the clear's chain at B.
@@ -174,30 +186,40 @@ record (`spans_of`):
 
 ## 3. Window, variants and counts
 
-| part | d | count | in band / outside |
-|---|---|---|---|
-| pre-break (earlier, before the on-group break; reported apart) | 545..638 | 94 | 23 (616..638) / 71 (545..615) |
-| earlier, after the on-group break | 639..716 | 78 | 78 / 0 |
-| later | 717..1,016 | 300 | 101 (916..1,016) / 199 (717..915) |
-| counted departures (not pre-break) | | 378 | 179 / 199 |
-| all | | 472 | 202 / 270 |
+| part | d | count | in band / outside | band side when outside |
+|---|---|---|---|---|
+| pre-break (earlier, before the on-group break; labelled, own counts) | 545..638 | 94 | 23 (616..638) / 71 (545..615) | earlier |
+| earlier, after the on-group break | 639..716 | 78 | 78 / 0 | earlier |
+| later | 717..1,016 | 300 | 101 (916..1,016) / 199 (717..915) | later |
+| all (every part counts, decision D2) | | 472 | 202 / 270 | earlier 71 (all pre-break), later 199 |
+
+These are planned departure ticks. A row counts only if the candidate actually departs at d (its measured departure, by the D rule, is d; S3). Rows that leave later,
+earlier or never are reported as "did not depart at d", with their reasons, and never count toward NOT_FORCED, FORCED_IN_PROBE or IN_BAND_GAIN. How many rows depart at
+d, for the clear's exit shifted to d and for the generic exit, is known only after the run; the side statement (S1) reports it.
 
 - Variants: `a` (the clear's exit) plus `g1` (K = 1, seed 1). That is 944 candidates (472 × 2) and 1,352,280 ticks.
 - Candidate-set digest: `bfca96f3401e6b5629398f3a414432cd85154cc54abf382834cfc99e0d7ad68f`. It covers the clear's digest, D, B, E, P, F, the on-group breaks, and every
-  (d, variant, words digest, pre-break flag) in dispatch order.
+  (d, variant, words digest, pre-break flag) in dispatch order. The 2026-11-03 fixes leave it unchanged: no input of the candidate set changed (N1 moves the
+  on-group-break range from [C0, D] to [F, D], which still holds the one break [639, 2], so the pre-break flags are the same; the window, variants, exits and budget are
+  unchanged; the contract string `frs_departure_probe_v1` is unchanged).
 - `--dry-run --list` prints all 944 candidates. The first in the order are d00716_a, d00716_g1, d00545_a, d00545_g1, d00802_a, d00802_g1, and so on.
-- The band's 199 counted departures outside it are all later departures (section 0).
 
 **Band (the tool's rule).** The band is the shortest arc of phase, modulo the measured period, that contains the departure phase of every verified lab clear that
-has a stored trace. Each departure is found with the same D rule, the same group id, and each clear's own period measurement.
+has a stored trace. Each departure is found with the same D rule (`departure_core`), the same group id, and each clear's own period measurement.
 
-- Sources: every `*_r1` trace whose action digest matches a VERIFIED row of its run, plus the lab import's reference. The tool reads them at Phase 2 plan time, with
-  zero ticks, in about 46 s.
-- Result: 296 distinct trajectories, none skipped, with three departure phases:
+- Sources: every `*_r1` trace whose action digest matches a VERIFIED row of its run, plus the lab import's reference. Every source must be a verified clear's trace, or
+  the tool stops (N2): made with the verify flags, the full tick contract, the native target records agreeing with the live mask, the four clear facts, and the clocks of
+  its VERIFIED row (the reference is checked by `rl/frs_verify.load_reference`). The tool reads them at Phase 2 plan time, with zero ticks, in about 49 s.
+- Each row records the source, D, the phase, P, G, S, the status of G and G − D (N2). The band also records the probed clear's own row and the distinct
+  (status of G, G − D) onsets.
+- Result: 295 verified clears plus the probed clear, none skipped, with three departure phases:
   - 101, rising (292 trajectories: run 1's lineage);
   - 77, rising (2: the reference lineage);
   - 177, falling (2: the 1,245 and the 1,261).
+- Onsets: all 296 departures are the tick before a 3-tick run of status 20 (G − D = 3), the take-off.
 - Arc: 77..177 (length 100 of 300), with y at departure from 2,436 to 3,146.
+- Band digest (N3): `0cb3b2912c00b6e8ea0ce36457efc853ef1aa60541aded6aa09ddf5fe3e20146`, a sha256 over the probed clear's row, every source row, every skipped source,
+  P and the arc. `--dry-run --band` prints it; the run recomputes the band and refuses a digest other than `--expect-band`.
 - The splice probe's 9 clears have no VERIFIED rows (their double replays are in that probe's own summary), so they are not read. They are 1-tick variants of the
   reference lineage.
 
@@ -221,75 +243,111 @@ Expected native time at 5 slots (`expected_wall`; the dry run prints it):
 - total **25.3 minutes, 56 % of the 45-minute cap**.
 
 The cross-check model gives about 17.5 minutes. Non-native time comes on top and does not count toward the cap: building the plan and reading the band (about 1
-minute before the first process) and the close (seconds). Traces: 947 files of about 145 to 170 KB each, about 150 MB in the lab root.
+minute before the first process) and the close (seconds).
+
+Traces (N8): 947 files. The 944 candidates average 1,432 steps (1,352,280 planned ticks; a candidate that falls stops early) and the three controls have 3,506 steps
+(2 × 1,245 + 1,016). Stored lab traces take 110 to 125 bytes per step (34 traces measured: the 1,245's pair, run 1, run 2 and the splice probe; median 122). That is
+about 158 to 179 KB per candidate and **about 150 to 170 MB in all** (about 165 MB at the median), far below the 5 GiB disk threshold.
 
 The full window fits with K = 1, as chosen. For reference only, K = 0 would be 12.7 minutes and K = 2 would be 37.9 minutes (84 % of the cap). Any change to K, the
 seed, the budget factor or a reduction changes the candidate-set digest; re-run the dry run and use the digest it prints.
 
 ## 5. Outputs
 
-Everything goes under `C:/BattleShip_lab/departure_probe_2026-11-02/`, through the lab guard. The writer is LF-only and refuses any path outside the lab root.
+Everything goes under `C:/BattleShip_lab/departure_probe_2026-11-02/`, through the lab guard. The writer is LF-only and refuses any path outside the lab root. The
+run refuses an `--out` under the lab's `import/` folder, and an existing `--out` that holds anything but this plan's `plan.json` (same candidate-set and band
+digests), `candidates.jsonl` and `refused_*.json` from a refused attempt (S5).
 
-- `plan.json`: the derivation (groups, intervals, choice, departure with F and L, period, baseline, budget, window with its start rule and the excluded airborne contact
-  ticks, on-group breaks, pre-break range, exit run, spans, variants, digest) and the band with its 295 source rows.
+- `plan.json`: the derivation (groups, intervals, choice, departure with F and L, period, baseline, progress rule, budget, window with its start rule and the excluded
+  airborne contact ticks, on-group breaks, pre-break range, exit run, spans, variants, digest), the band with its 295 source rows and its digest, and the HEAD.
 - `candidates.jsonl`: one row per planned candidate: label, d, side, variant, prefix reference, pre-break flag with the pending on-group breaks, words digest and ticks
-  (no raw words; they re-derive from the plan).
+  (no raw words; they re-derive from the plan). Written atomically (N11).
 - `refused_<utc>.json`: only on a refusal.
 - `run/`:
-  - `config.json`: every value and its origin, the git state, the code manifest digest, the probe's sha256, readiness and the cost estimate;
-  - `controls.json`: both clear replays and the filler reference, with the filler's first tick off the group and the last later d;
+  - `config.json`: every value and its origin, the git state, the HEAD checked at start, the code manifest digest, the probe's sha256, readiness, the band digest and the
+    cost estimate;
+  - `controls.json`: both clear replays (with their tick contract) and the filler reference, with the filler's first tick off the group and the last later d,
+    and any pin drift detected in them;
   - `results.jsonl`: one row per candidate (section 1);
-  - `curve.csv`: per d and variant, the `part` (control, earlier, later or pre_break), the first-break tick or the outcome, the target, whether it is the on-group
-    target or the baseline's next, comparability, the gain, the phase, the band, the end state and the leave facts;
-  - `summary.json`: status, verdict (with `pre_break`), counters, native seconds, `later_cut`, the curve by variant type (the earliest first break per d for the clear
-    exit and for the generic exit, and the same two for the pre-break part), memory and integrity;
-  - `report.md`: a short table (with the later cut and the pre-break counts), the curve for every counted d, the pre-break table, the controls and integrity;
+  - `curve.csv`: per d and variant, the `part` (control, earlier, later or pre_break), the outcome, the measured departure (tick, phase, `departed_at_d`, reason), the
+    band, the first-break tick, the target, whether it is the on-group target or the baseline's next, comparability, the progress tick, `beats_B`, the gain, the end
+    state at the first break and the floor-line leave facts;
+  - `summary.json`: status and stop reason, the verdict (with `sides`, `did_not_depart_at_d` and `pre_break`) and `verdict_line`, the HEAD, counters (with
+    `contract` and `pin_drift`), native seconds, `later_cut`, the curves by variant type (`curve_by_type`: the earliest first break per counted d;
+    `progress_by_type`: the earliest progress tick; each for the clear exit and the generic exit, and the same two for the pre-break part), memory and integrity
+    (with every pin drift detected, `integrity.pin_drift`);
+  - `report.md`: the status with its stop reason and the HEAD, the verdict line (sides and pre-break counts next to it), a short table (with the later cut, the sides,
+    the pre-break and did-not-depart counts, and the contract and pin-drift counters), the curve for every non-pre-break d (first break / progress, or `nd` when no
+    row departed at d), the pre-break table, the controls and integrity;
   - `run_log.jsonl`, `state.json`, `memory.jsonl`, and `not_dispatched.jsonl` (only if the filler leaves the group);
   - `traces/`: the 3 controls and one trace per candidate, all kept (answer 9);
   - `vw/`: per-replay work folders, removed after each replay.
 
 ## 6. Verdict rules (the tool computes them: `verdict_of`)
 
-A candidate **beats B** when it is not a pre-break departure, its first break after the departure is earlier than B, **and** it leaves at least the baseline's progress:
-its live mask at that break is a subset of the baseline's at B. An earlier break that leaves a target live that the baseline had broken is reported as "earlier, with
-less progress" and never counted as faster. Pre-break departures are reported apart (section 1) and never counted.
+A row **counts** when it is valid and **departed at d**: its own departure, measured with the D rule, is d (S2, S3). Its band membership and its band side are read on
+that departure: the earlier side for d before D, the later side for d after D (the control, d = D, is in the band by construction). Rows that did not depart at d
+(they left later or earlier, or never) are reported as "did not depart at d", with their reasons, and never count.
+
+A counted candidate **beats B** when its **progress tick** is before B: at some tick after d, before B, its live mask is a subset of the baseline's at B, so it has
+broken every target the baseline had broken by B, in any order (D1). Its first break after d and that break's target are reported but do not decide. A first break
+before B without that progress before B is reported as "earlier, without the baseline's progress" and never counted as faster. Pre-break departures count like any
+other (D2): labelled, with their own counts, and on the earlier side when outside the band.
+
+**Integrity failures draw no verdict.** A tick-contract or action-digest failure (S6) and a pin drift (the pinned game files changed during the run, seen by the pin
+check before every replay; 2026-11-03) end the run as PROBE_INVALID on the first occurrence or detection, in a control (at open, before any candidate) or in a
+candidate. Dispatching stops, in-flight candidates finish and are recorded, and `summary.json` and `report.md` record the status, the stop reason, the counters
+(`contract`, `pin_drift`) and, for a pin drift, every detection (`integrity.pin_drift`; `controls.json` for a control). The verdict is then INCONCLUSIVE with the
+status as its reason (the first rule below): no verdict is drawn.
 
 - **INCONCLUSIVE** if any of these holds:
   - the run did not complete its planned window (status other than COMPLETED, or fewer rows than the planned set after the filler cut, which itself counts as
     complete);
-  - more than 10 % of the planned candidates failed to run (error, prefix mismatch or tick-contract failure);
+  - more than 10 % of the planned candidates failed to run (a row with outcome error, mismatch, contract or pin_drift; the last two have already ended the run as
+    PROBE_INVALID, above);
   - no band;
-  - no valid counted departure outside the band.
+  - no counted departure (valid, departed at d) outside the band.
 - **NOT_FORCED:** at least one counted departure outside the band beats B. The tool reports:
-  - the best gain in ticks, with its d, phase, variant, first break and end state;
-  - how many candidates and distinct departure ticks beat B, overall and outside the band.
-- **FORCED_IN_PROBE:** no counted departure beats B. Outside the band, every valid counted candidate either does not break within the budget, breaks at or after B, or
-  breaks earlier with less progress. Each count is reported.
+  - the best gain in ticks (B − progress tick), with its d, side, pre-break flag, measured departure and phase, variant, progress tick and targets, first break and the
+    end state at the progress tick;
+  - how many candidates and distinct departure ticks beat B, overall and outside the band, and how many of them are pre-break.
+- **FORCED_IN_PROBE:** no counted departure beats B. Outside the band, every counted candidate either does not break within the budget, first breaks at or after B, or
+  breaks earlier without the baseline's progress before B. Each count is reported.
 - **IN_BAND_GAIN** (accepted, answer 4): no counted departure outside the band beats B, but one inside it does.
-- **Always reported:** the curve. For every d, the first-break tick (or no break) per variant, with the pre-break departures as their own part.
+- **Sides (S1), with every verdict:** the counts of counted outside-band rows on the earlier side (and how many of those are pre-break) and on the later side, and
+  which sides were tested: "both sides", "later side only", "earlier side only" or "neither side". This statement is appended to the verdict's reasons automatically,
+  and the verdict line (`verdict_line`, at the top of `report.md`) shows the pre-break counts next to it: valid, departed at d, outside the band, beat B.
+- **Always reported:** the curve. For every d, the first-break and progress ticks (or none) per variant, with the pre-break departures as their own part, and the
+  did-not-depart counts by reason.
 
 How to read a verdict: (a) plays open-loop words recorded for another state, and g1 is one random stream. Neither searches for the best exit from d. A NOT_FORCED is
-direct evidence. A FORCED_IN_PROBE means only that these exits found nothing outside the band, which is why the name says "in probe". With these answers, the outside
-of the band is tested only by departing later than the clear (section 0).
+direct evidence. A FORCED_IN_PROBE means only that these exits found nothing outside the band, which is why the name says "in probe". The earlier side of the band can
+be tested only by pre-break departures (545..615), which beat B only if they also break the on-group target before B; the side statement says whether either side was
+tested at all. A row counts only when its exit takes off at d, so an exit that does not start the take-off at once is reported apart and narrows what was tested; how
+many rows of each exit take off at d is known only after the run.
 
 ## 7. Phase 2
 
 **Command** (Git Bash, from the checkout; one line):
 
 ```bash
-python -B tools/frs/departure_probe.py run --lab-root C:/BattleShip_lab --out C:/BattleShip_lab/departure_probe_2026-11-02 --clear crossing_2026-10-15_run2:36236:8692 --variants 1 --seed 1 --budget-factor 2 --slots 5 --max-wall-min 45 --expect-digest bfca96f3401e6b5629398f3a414432cd85154cc54abf382834cfc99e0d7ad68f
+python -B tools/frs/departure_probe.py run --lab-root C:/BattleShip_lab --out C:/BattleShip_lab/departure_probe_2026-11-02 --clear crossing_2026-10-15_run2:36236:8692 --variants 1 --seed 1 --budget-factor 2 --slots 5 --max-wall-min 45 --expect-digest bfca96f3401e6b5629398f3a414432cd85154cc54abf382834cfc99e0d7ad68f --expect-band 0cb3b2912c00b6e8ea0ce36457efc853ef1aa60541aded6aa09ddf5fe3e20146 --expect-head <HEAD after Nicolas commits>
 ```
 
-The run takes `lab.lock`, re-derives the plan and refuses when its digest differs from `--expect-digest`. It then reads the band (zero ticks), writes `plan.json`
-and `candidates.jsonl`, and opens. It needs no Claude session (lab guide, lessons). The output folder keeps the plan's date whatever day the run starts.
+`<HEAD after Nicolas commits>` is the full hash printed by `git rev-parse HEAD` after the commit of the three files (the dry run prints it in the command once the
+tree is clean). The run checks the required arguments, takes `lab.lock`, refuses a tracked change under `tools/`, `rl/` or `docs/` and a HEAD other than
+`--expect-head`, re-derives the plan and refuses when its digest differs from `--expect-digest`, reads the band (zero ticks) and refuses when its digest differs from
+`--expect-band`, checks the output folder, writes `plan.json` and `candidates.jsonl`, and opens. It needs no Claude session (lab guide, lessons). The output folder
+keeps the plan's date whatever day the run starts.
 
 **Readiness checklist:**
 
 1. Nicolas has given an explicit go for Phase 2.
-2. The new files are committed by hand: `tools/frs/departure_probe.py`, `tools/frs/departure_probe_tests.py` and this plan. The run records the HEAD, so the HEAD must
-   point to the code that ran.
-3. `python -B tools/frs/departure_probe_tests.py` gives 14/14 (zero ticks).
-4. `python -B tools/frs/departure_probe.py --dry-run --out C:/BattleShip_lab/departure_probe_2026-11-02` prints the digest in the command.
+2. The changed files are committed by hand: `tools/frs/departure_probe.py`, `tools/frs/departure_probe_tests.py` and this plan. The run refuses tracked changes under
+   `tools/`, `rl/` and `docs/`, and a HEAD other than `--expect-head`; it records the HEAD in `plan.json`, `config.json`, `summary.json` and `report.md`.
+3. `python -B tools/frs/departure_probe_tests.py` gives 18/18 (zero ticks).
+4. `python -B tools/frs/departure_probe.py --dry-run --band --out C:/BattleShip_lab/departure_probe_2026-11-02` prints the candidate-set digest and the band digest in
+   the command, `git: HEAD <hash>; tracked changes under tools/, rl/, docs/: 0`, and `output folder ...: accepted by the run`.
 5. The machine is prepared as in lab guide section 1:
    - `wsl --shutdown`, and `wsl --list --running` shows nothing;
    - IntelliJ, the browsers (with Edge background mode), the video editor, the replay viewer, Steam, ChatGPT and idle Claude sessions are closed;
@@ -297,7 +355,7 @@ and `candidates.jsonl`, and opens. It needs no Claude session (lab guide, lesson
    - `tasklist | grep -ci battleship` prints 0.
 6. No other lab workload or native work runs: `C:/BattleShip_lab/lab.lock` is absent, and no suite with native ticks or registered session is running.
 7. Readiness at the registered thresholds, which are never lowered: available memory at least 4,096 MB, free commit at least 10,240 MB, and at least 5 GiB free on
-   C: and D:. The run needs about 0.15 GB for traces.
+   C: and D:. The run needs about 0.17 GB for traces.
 8. Optional rehearsal, which costs native ticks: `python -B rl/frs_lab.py selfcheck --lab-root C:/BattleShip_lab`.
 9. After the run, back up the lab evidence (lessons: lab evidence lives only on C: until backed up).
 
@@ -305,14 +363,19 @@ and `candidates.jsonl`, and opens. It needs no Claude session (lab guide, lesson
 
 | condition | status, exit | when |
 |---|---|---|
-| readiness, a running BattleShip, import pins, a held lock, an existing run folder, a different digest, `--max-wall-min` above 45 | REFUSED, 2 | before any process: nothing launched |
-| the 1,245 does not replay exactly twice (verdict, chain per tick, break table) | PROBE_INVALID, 3 | open, before any candidate |
-| a control cannot run | PROBE_INCOMPLETE, 4 | open |
+| an argument refusal (`--max-wall-min` above 45, slots outside 1..5, `--variants` below 0, `--budget-factor` below 1, both or neither of `run` and `--dry-run`, an `--out` outside the lab root, under `runs/` or under `import/`, a missing `--expect-digest`, `--expect-band` or `--expect-head`, no lab import) | REFUSED, 2 (N6) | before the lock: nothing written |
+| a held lock (a live process), a tracked change under `tools/`, `rl/` or `docs/`, a HEAD other than `--expect-head`, a different candidate-set digest, a different band digest, an existing `--out` with anything but this plan's `plan.json`, `candidates.jsonl` and `refused_*.json` | REFUSED, 2 | before anything is written: nothing launched |
+| readiness, a running BattleShip, import pins, an existing run folder | REFUSED, 2 | at open, before any process: nothing launched (`refused_<utc>.json`) |
+| a band source that is not a verified clear's trace | stopped, 3 | plan time (also in the dry run): nothing written |
+| the 1,245 does not replay exactly twice (verdict, chain per tick, break table, tick contract) | PROBE_INVALID, 3 | open, before any candidate |
+| a control cannot run (other than a pin drift) | PROBE_INCOMPLETE, 4 | open |
 | the filler reference does not reproduce the clear's prefix at D | PROBE_INVALID, 3 | open |
 | the filler leaves the group before D + P | not a stop: the later window is cut there, reported, counted as complete | open |
 | the in-run control (d = D, the clear's exit) does not reproduce B, its target and the chain at B | PROBE_INVALID, 3 | first candidate |
+| a tick-contract or action-digest failure on any candidate (consumed_tick, input_tick, step_count, a recorded consumed-tick mismatch, the native action digest) | PROBE_INVALID, 3 (S6) | the first occurrence: stops dispatching; in-flight candidates finish |
+| a pin drift: the pinned game files beside the executable change during the run (`rl/frs_verify` re-hashes them before every replay; nothing is launched) | PROBE_INVALID, 3 (2026-11-03, as S6) | the first detection, in a control (at open, before any candidate) or a candidate: stops dispatching; in-flight candidates finish; recorded in `summary.json` and `report.md`; no verdict drawn |
 | the third prefix-digest mismatch | ABORTED, 3 | stops dispatching; in-flight candidates finish |
-| more than 10 % of the planned candidates failed to run | PROBE_INCOMPLETE, 4 | stops dispatching |
+| more than 10 % of the planned candidates failed to run (error or prefix mismatch) | PROBE_INCOMPLETE, 4 | stops dispatching |
 | registered memory cap, or more than 10 BattleShip processes in two samples | PROBE_INCOMPLETE, 4 | stops dispatching |
 | memory soft budget | MEMORY_BUDGET, 0 | stops dispatching; verdict INCONCLUSIVE |
 | guard violation | PROBE_INVALID, 3 | stops dispatching |
@@ -327,7 +390,8 @@ and `candidates.jsonl`, and opens. It needs no Claude session (lab guide, lesson
   (lab root, run folder, guard, lock, LF writer), `rl/frs_machine` (the memory and process sampler) and `rl/frs_archive.stream_words`, all unchanged.
 - Process restart resets the episode: every candidate and control is a fresh process from tick 0. The soft reset is decided but not built. It is not used and not
   designed for here.
-- Submit tick T, one update, consumed_tick = T, input_tick = T + 1. This is checked on every step of every replay, together with step_count = T + 1.
+- Submit tick T, one update, consumed_tick = T, input_tick = T + 1. This is checked on every step of every replay, together with step_count = T + 1; any failure
+  ends the run as PROBE_INVALID.
 - Canonical controller words are replay truth (Track 1 btt_s9_b8_v1 = MultiDiscrete([9,8])). Every candidate is a sequence of canonical words, and its native action
   digest is checked.
 - The TAS and human recordings are validation-only and never read. The lab guard refuses their path fragments.
@@ -352,31 +416,74 @@ and `candidates.jsonl`, and opens. It needs no Claude session (lab guide, lesson
 
 Requested additions, done: (a) and (b) are in section 2 and in the dry-run output.
 
-Note for Nicolas, not a question: with answers 2 and 3, every earlier departure outside the band (545..615) is pre-break, so the band can be refuted only by later
-departures (717..915).
+**Decisions of 2026-11-03 (Nicolas, on the independent review of `46a99cd`, verdict READY AFTER FIXES), all applied:**
+
+- D1 (review S4): "at least the baseline's progress" means that by some tick after d, the candidate's set of broken targets includes every target the baseline had
+  broken by B, in any order. `progress_tick` = the first tick after d whose live-target mask is a subset of the baseline's at B; a candidate beats B when
+  `progress_tick` < B. The first break and its target stay reported. This amends answer 3's "faster".
+- D2: pre-break departures can count as gains, only if `progress_tick` < B (so the on-group break must happen later too). They stay labelled, their own part of the
+  curve and of every table, with their own counts, and count toward the band's earlier side when their measured departure is outside the band. This amends answer 3's
+  "never counted as gains".
+- S1: the verdict states which sides of the band were testable, from the counted outside-band rows (earlier side, of them pre-break, later side), automatically, with
+  the pre-break counts next to it.
+- S2: each candidate's own departure is measured with the D rule (`departure_tick`, `departure_phase`), used for every band decision; the floor-line field is renamed
+  `floor_line_leave_tick` (`floor_line_leave_phase`).
+- S3: a row counts as an outside-band test only when its measured departure is outside the band; rows that did not depart at d are reported apart and never count.
+- S5: an existing `--out` may hold only this plan's `plan.json`, `candidates.jsonl` and `refused_*.json`; an `--out` under `import/` is refused.
+- S6: a tick-contract or action-digest failure ends the run as PROBE_INVALID on the first occurrence.
+- N1: on-group breaks over [F, D]. N2: band rows record G, S, the status of G and G − D; band sources must be verified clears. N3: `--expect-band`. N4: the literal test
+  is kept; a synthetic `band_of` test is added. N5: a dirty tree (tracked changes under `tools/`, `rl/`, `docs/`) or a HEAD other than the required `--expect-head` is
+  refused; the HEAD is recorded. N6: argument refusals exit 2. N7: each trace is saved before it is read. N8: the trace-size estimate (section 4). N9: the unreachable
+  branch is removed; `--stride` and `--half` are not options (the reductions stay plan text). N11: `candidates.jsonl` is written atomically.
+- Pin drift (follow-up, 2026-11-03): if the pinned game files change during the run (the existing pin check before every replay detects it), the run ends as
+  PROBE_INVALID on the first detection, with the S6 treatment: recorded in `summary.json` and `report.md`, no verdict drawn.
+
+Note for Nicolas, not a question: with answer 2 and D2, the earlier side outside the band (545..615) is tested only by pre-break departures, which beat B only if they
+also break the on-group target (target 2) before B. The later side (717..915) is tested by departing later than the clear. The band's later edge is the 1,245's own
+departure phase (177).
 
 ## 10. Phase 1 verification
 
-- Files: `tools/frs/departure_probe.py` (1,607 lines), `tools/frs/departure_probe_tests.py` (822 lines) and this plan. All three are new; no existing file was modified.
-- Unit tests: `python -B tools/frs/departure_probe_tests.py` passes 14/14, all zero ticks.
-  - 9 synthetic tests:
-    - the derivation on arbitrary ids, period and ticks, including F, L, the window start, the on-group breaks, the pre-break flags, the exit run with line extents, and
-      the spans;
+- Files (2026-11-03): `tools/frs/departure_probe.py` (1,941 lines), `tools/frs/departure_probe_tests.py` (1,201 lines) and this plan, changed in place from
+  `46a99cd`. No other file was modified; no shared lab module was changed.
+- Unit tests: `python -B tools/frs/departure_probe_tests.py` passes 18/18, all zero ticks.
+  - 13 synthetic tests:
+    - the derivation on arbitrary ids, period and ticks, including F, L, the window start, the on-group breaks over [F, D] (a break before F is not one), the
+      pre-break flags, the progress rule's mask, the exit run with line extents, and the spans;
     - the refusals on records that cannot support the method;
-    - the window, reductions and order;
+    - the full window (no reductions) and the order;
     - the candidate words;
-    - reading a candidate, including pre-break departures that break earlier, with or without the baseline's progress, and the on-group target, never counted;
-    - the verdict rules, including the pre-break part;
+    - reading a candidate: the measured departure (the control departs at D; a candidate held on the group departs later and one that never leaves has none, both
+      reported as not departing at d), the progress tick (another target first, then the baseline's, before B, beats B), a pre-break departure that reaches the
+      baseline's progress before B (counted, labelled pre-break) and ones that do not, and the contract failures (consumed tick, step_count, action digest, a recorded
+      mismatch read before the prefix digest);
+    - the verdict rules: D1, D2, S3 (rows that did not depart at d never count), the side statement (both, later only, earlier only, neither) with the pre-break counts
+      next to the verdict, the incomplete-run rules, and the curves;
     - band arcs with wrap-around;
-    - the engine end to end with a fake replay: completion, mismatch retirement, the abort at 3, PARTIAL at the cap, FORCED, the invalid control, refusals, the filler
-      cut reported and counted as complete, and the pre-break part in the summary, report and curve;
-    - the command-line refusals, in child processes.
+    - `band_of` on a synthetic lab with distinct departures: rows with D, phase, G, S, the status of G and G − D, a wrapping arc, a duplicate counted once, a clear
+      without the group and one with another period skipped, the band digest, and the refusal of a source that is not a verified clear's trace;
+    - the engine end to end with a fake replay: completion, mismatch retirement, the abort at 3, PARTIAL at the cap, FORCED, the invalid clear control, refusals, the
+      filler cut reported and counted as complete, rows not departing at d reported apart, the sides and HEAD in the report;
+    - the engine stops: the in-run control not reproducing B (PROBE_INVALID), one tick-contract failure (PROBE_INVALID on the first occurrence), more than 10 %
+      failures (PROBE_INCOMPLETE, verdict INCONCLUSIVE), and a pre-break gain counted and labelled in the curve and the report;
+    - a pin drift with a fake replay that raises the pin check's error from a given call on: after six candidates, PROBE_INVALID on the first detection (dispatching
+      stops, only the in-flight candidates finish, each detection a `pin_drift` row), verdict INCONCLUSIVE, recorded in `summary.json` (status, stop reason,
+      counter, `integrity.pin_drift`) and `report.md`; before the controls, PROBE_INVALID at open (not PROBE_INCOMPLETE), no candidate dispatched, the detections in
+      `controls.json`;
+    - the run guards as functions: the output-folder rule (import/, a refused attempt's files accepted, another plan, another band, run/, any other file) and the git
+      rule (wrong HEAD, short hash, dirty tree, unreadable state);
+    - the command-line refusals, in child processes, all exit 2: the cap, slots, run with --dry-run, `--stride` and `--half` not options, an `--out` outside the lab
+      root, under runs/ or under import/, missing expected digests and HEAD, no import, a lock held by a live process, a wrong HEAD (the real checkout), a dirty tree, a
+      different candidate set, a different band, an existing `--out` with another file; and the dry run printing the band digest only with `--band`.
   - 5 read-only tests on the real records of the 1,245:
     - consistency of r1, r2, the row and the target diagnostic;
-    - the geometry read from the record (F, the window, the on-group breaks and pre-break flags, the exit run against the line's extent, and the spans);
+    - the geometry read from the record (F, the window, the on-group breaks over [F, D] and pre-break flags, the candidate departure rule measuring D on the clear
+      itself, the exit run against the line's extent, and the spans);
     - determinism and the method;
-    - a child-process dry run that writes nothing, takes no lock and prints the exit run, the spans and the pre-break range;
-    - no record value appears as a literal in the source.
-- Dry run: `python -B tools/frs/departure_probe.py --dry-run --band --out C:/BattleShip_lab/departure_probe_2026-11-02`, and `--list` for the 944 rows. Exit 0, zero
-  native ticks, nothing written, no lock. `tasklist` shows no BattleShip process.
+    - a child-process dry run that writes nothing, takes no lock and prints the exit run, the spans, the pre-break range, the progress rule, the git state, the
+      output-folder check and the command with `--expect-band` and `--expect-head`;
+    - no record value appears as a literal in the source (unchanged).
+- Dry run: `python -B tools/frs/departure_probe.py --dry-run --band --out C:/BattleShip_lab/departure_probe_2026-11-02`. Exit 0 in 49 s, zero native ticks, nothing
+  written, no lock. Candidate-set digest `bfca96f3…d7ad68f` (unchanged), band digest `0cb3b291…e3e20146`, expected native time 25.3 minutes. `tasklist` shows no
+  BattleShip process.
 - CR bytes, checked with `tr -cd '\r' < file | wc -c`: 0 for each of the three files.

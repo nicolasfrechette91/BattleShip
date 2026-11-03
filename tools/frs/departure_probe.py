@@ -16,33 +16,42 @@ height, period, target id or tick number is written in this file.
     baseline B        the first break after D in the verified clear (input tick, as the native target records report it)
     period P          the median gap between successive turning points of the group's translation (same kind), measured from the
                       clear's own series; phase(t) = (t - first bottom turning point) mod P
-    window            earlier departures d in [C0, D] (the words of the clear up to d), later departures d in (D, D + P] (the clear's
-                      words up to D, then the neutral canonical word while the fighter stays grounded on the group, checked natively)
+    window            earlier departures d in [F, D] (F: the interval's first grounded tick; the words of the clear up to d), later
+                      departures d in (D, D + P] (the clear's words up to D, then the neutral canonical word while the fighter stays
+                      grounded on the group, checked natively)
+    on-group breaks   the clear's breaks with F <= tick <= D; a departure d before one of them is a pre-break departure (its own part
+                      of the curve and of every table)
     exits at each d   (a) the clear's own exit words D .. B, shifted to start at d, then the neutral word up to the budget;
                       (g1 .. gK) the lab burst generator (rl/frs_archive.stream_words: the m8_rd_explore_v1 keyed stream) with the
                       recorded Python seed in its key family; the same K streams at every d (common random numbers)
     budget            E = ceil(budget_factor * (B - D)) exit words after d
 
 Per candidate (one fresh BattleShip process from tick 0 with the verify flags, process restart for every candidate): the tick
-contract of every step (consumed_tick = T, input_tick = T + 1, step_count = T + 1), the native action digest, the prefix digest
-(the m8_rd chain at d against the verified clear's chain, or against the filler reference replay for later departures; a mismatch
-retires that process, is logged, and the run continues with fresh processes; three mismatches abort the run), the first break after
-d (tick from tick 0, target id as the native target records report it, whether it is the target the baseline broke next), whether
-it leaves at least the baseline's progress (its live-target mask is a subset of the baseline's at B), the end state at that break.
+contract of every step (consumed_tick = T, input_tick = T + 1, step_count = T + 1) and the native action digest (any failure ends the
+run as PROBE_INVALID), the pinned game files (re-hashed by rl/frs_verify before every replay, controls included; a change, pin drift,
+ends the run as PROBE_INVALID on the first detection), the prefix digest (the m8_rd chain at d against the verified clear's chain, or against the filler reference
+replay for later departures; a mismatch retires that process, is logged, and the run continues with fresh processes; three mismatches
+abort the run), the candidate's own departure measured with the D rule (departure_tick; a row counts only when it departs at d), the
+first break after d (tick from tick 0, target id as the native target records report it, whether it is the target the baseline broke
+next), the progress tick (the first tick after d whose live-target mask is a subset of the baseline's at B: the candidate has broken
+every target the baseline had, in any order; it beats B when the progress tick is before B), the end states at those ticks.
 
 The probe never extends a candidate to a full clear and never claims a clear. Nothing here reads, logs, controls, compares or hashes
 native RNG state. Process restart resets the episode; no soft reset.
 
     python -B tools/frs/departure_probe.py --dry-run [--lab-root C:/BattleShip_lab] [--clear best|RUN:N:CID] [--variants K]
-                                           [--seed S] [--budget-factor F] [--stride k] [--half flight] [--band] [--list]
-    python -B tools/frs/departure_probe.py run --out DIR --expect-digest HEX [same options] [--slots 5] [--max-wall-min 45]
+                                           [--seed S] [--budget-factor F] [--band] [--list]
+    python -B tools/frs/departure_probe.py run --out DIR --expect-digest HEX --expect-band HEX --expect-head SHA [same options]
+                                           [--slots 5] [--max-wall-min 45]
 
 --dry-run is zero native ticks: it reads only the chosen clear's verification row and its two verified traces (plus, for the cost
-estimate, the lab's existing replay-timing records; with --band, the other verified clears' traces), writes nothing, takes no lock.
-`run` writes only under DIR inside the lab root (rl/frs_guard), takes lab.lock, refuses on readiness (registered thresholds, never
-lowered), on running BattleShip processes, on the import pins, and when the candidate set differs from --expect-digest. The native
-time is capped at --max-wall-min (at most 45); a run stopped by the cap is PARTIAL. Zero-tick tests: tools/frs/departure_probe_tests.py.
-Run with python -B.
+estimate, the lab's existing replay-timing records; with --band, the other verified clears' traces and the band digest), writes
+nothing, takes no lock. `run` writes only under DIR inside the lab root (rl/frs_guard; never under the lab's import folder), takes
+lab.lock, refuses (exit 2) on readiness (registered thresholds, never lowered), on running BattleShip processes, on the import pins,
+on tracked changes under tools/, rl/ or docs/, when HEAD differs from --expect-head, when the candidate set differs from
+--expect-digest or the band from --expect-band, and on an existing DIR that holds anything but this plan's plan.json,
+candidates.jsonl and refused_*.json. The native time is capped at --max-wall-min (at most 45); a run stopped by the cap is PARTIAL.
+Zero-tick tests: tools/frs/departure_probe_tests.py. Run with python -B.
 """
 from __future__ import annotations
 
@@ -54,6 +63,7 @@ import hashlib
 import json
 import math
 import statistics
+import subprocess
 import sys
 import threading
 import traceback
@@ -73,6 +83,8 @@ import frs_machine as fm  # noqa: E402
 import frs_report as frep  # noqa: E402
 import frs_verify as fv  # noqa: E402
 import m8_rd_cells as mcell  # noqa: E402
+import m8_rd_claims as mclaims  # noqa: E402
+import m8_rd_worker as mw  # noqa: E402
 
 PROBE_CONTRACT = "frs_departure_probe_v1"
 KEY_FAMILY = "departure"
@@ -84,6 +96,7 @@ EXIT = {"COMPLETED": 0, "PARTIAL": 0, "MEMORY_BUDGET": 0, "REFUSED": 2, "ABORTED
 STATUS_RANK = {"COMPLETED": 0, "PARTIAL": 1, "MEMORY_BUDGET": 1, "ABORTED": 2, "PROBE_INCOMPLETE": 2, "PROBE_INVALID": 3}
 NOT_FORCED, FORCED_IN_PROBE, INCONCLUSIVE, IN_BAND_GAIN = "NOT_FORCED", "FORCED_IN_PROBE", "INCONCLUSIVE", "IN_BAND_GAIN"
 NEUTRAL_WORD = mcell.TRIPLES.index((0, 0, 0))          # the canonical Track 1 word with no button and a centred stick
+TRACKED_DIRS = ("tools", "rl", "docs")                  # owner, 2026-11-03: a run refuses any tracked change under these
 
 
 class ProbeError(RuntimeError):
@@ -277,30 +290,69 @@ def pick_interval(intervals: Sequence[Mapping[str, Any]]) -> int:
     return max(range(len(intervals)), key=lambda i: (intervals[i]["ride_or_still"], -intervals[i]["start"]))
 
 
-def departure_of(trace: Mapping[str, Any], iv: Mapping[str, Any]) -> Dict[str, Any]:
-    """F (first grounded tick of the interval: the earlier window's start), G (last grounded tick), A = G + 1 (first tick of the airborne
-    exit), S (first tick of the status run that contains G), D = max(start, S - 1) (the departure: the clear's word at index D starts the
-    exit), C1 (the interval's last tick), L = C1 + 1 (the first tick whose floor line is off the group)."""
-    s, e = int(iv["start"]), int(iv["end"])
-    if iv["ends_trace"]:
-        raise ProbeError("the contact interval reaches the end of the trace: no exit")
+def departure_core(trace: Mapping[str, Any], s: int, e: int) -> Dict[str, Any]:
+    """The departure rule on the contact run [s, e] (floor line on the group), shared by the probed clear's D, the band's sources and every
+    candidate's measured departure: F (first grounded tick), G (last grounded tick), A = G + 1 (first tick of the airborne exit), S (first
+    tick of the status run that contains G), D = max(s, S - 1) (the exit's onset). `kind` is 'airborne' when the rule applies; otherwise
+    'no_exit' (the run reaches the end of the trace), 'never_grounded', 'left_grounded' (grounded at G + 1) or 'onset_before_grounded'."""
+    if e >= last_tick(trace):
+        return {"kind": "no_exit", "C0": s, "C1": e}
     ground = [t for t in range(s, e + 1) if grounded(reply_at(trace, t))]
     if not ground:
-        raise ProbeError("the fighter is never grounded on the group in the contact interval: no departure from it")
+        return {"kind": "never_grounded", "C0": s, "C1": e}
     F, G = ground[0], ground[-1]
     if grounded(reply_at(trace, G + 1)):
-        raise ProbeError(f"the fighter leaves the group grounded at tick {G + 1} (no airborne exit)")
+        return {"kind": "left_grounded", "C0": s, "C1": e, "F": F, "G": G}
     status = int(reply_at(trace, G)["observation"]["fighter_status_id"])
     S = G
     while S - 1 >= s and int(reply_at(trace, S - 1)["observation"]["fighter_status_id"]) == status:
         S -= 1
     D = max(s, S - 1)
-    if D < F:
-        raise ProbeError(f"the exit's onset {D} precedes the first grounded tick {F} on the group: no grounded departure window")
+    return {"kind": "airborne" if D >= F else "onset_before_grounded", "C0": s, "F": F, "C1": e, "L": e + 1, "G": G, "A": G + 1, "S": S, "D": D,
+            "status_G": status}
+
+
+def departure_of(trace: Mapping[str, Any], iv: Mapping[str, Any]) -> Dict[str, Any]:
+    """The departure rule (departure_core) on the chosen contact interval, refused when it does not apply. F is the earlier window's start;
+    the clear's word at index D starts the exit; C1 is the interval's last tick and L = C1 + 1 the first tick whose floor line is off the
+    group."""
+    s, e = int(iv["start"]), int(iv["end"])
+    if iv["ends_trace"]:
+        raise ProbeError("the contact interval reaches the end of the trace: no exit")
+    dc = departure_core(trace, s, e)
+    if dc["kind"] == "never_grounded":
+        raise ProbeError("the fighter is never grounded on the group in the contact interval: no departure from it")
+    if dc["kind"] == "left_grounded":
+        raise ProbeError(f"the fighter leaves the group grounded at tick {dc['G'] + 1} (no airborne exit)")
+    if dc["kind"] != "airborne":
+        raise ProbeError(f"the exit's onset {dc.get('D')} precedes the first grounded tick {dc.get('F')} on the group: no grounded departure window")
+    F, G, D = dc["F"], dc["G"], dc["D"]
     st = lambda t: int(reply_at(trace, t)["observation"]["fighter_status_id"])  # noqa: E731
-    return {"C0": s, "F": F, "C1": e, "L": e + 1, "G": G, "A": G + 1, "S": S, "D": D, "status_D": st(D), "status_G": st(G), "status_A": st(G + 1),
+    return {"C0": s, "F": F, "C1": e, "L": e + 1, "G": G, "A": G + 1, "S": dc["S"], "D": D, "status_D": st(D), "status_G": st(G), "status_A": st(G + 1),
             "grounded_D": grounded(reply_at(trace, D)), "floor_line_D": floor_line(reply_at(trace, D)),
             "alternatives": {"last_contact_tick": e, "last_grounded_tick": G, "onset_tick": D}}
+
+
+def measured_departure(trace: Mapping[str, Any], d: int, lines: set) -> Dict[str, Any]:
+    """A candidate's own departure, by the D rule (departure_core) on the contact run (floor line on the group) that contains d.
+    `reason`: 'at_d' (departure_tick == d), 'later', 'earlier', or why there is no departure tick ('not_on_group_at_d', 'no_exit' = still
+    on the group's line when the trace ends, 'never_grounded', 'left_grounded', 'onset_before_grounded'). `floor_line_leave_tick` is the
+    first tick after d whose floor line is off the group (floor-line based, never used for the band)."""
+    n = last_tick(trace)
+    if d > n or floor_line(reply_at(trace, d)) not in lines:
+        return {"departure_tick": None, "kind": "not_on_group_at_d", "reason": "not_on_group_at_d", "floor_line_leave_tick": None}
+    s, e = d, d
+    while s - 1 >= 0 and floor_line(reply_at(trace, s - 1)) in lines:
+        s -= 1
+    while e + 1 <= n and floor_line(reply_at(trace, e + 1)) in lines:
+        e += 1
+    dc = departure_core(trace, s, e)
+    out = {"departure_tick": None, "kind": dc["kind"], "reason": dc["kind"], "floor_line_leave_tick": e + 1 if e < n else None,
+           "detail": {k: dc[k] for k in ("C0", "F", "G", "A", "S", "status_G") if k in dc}}
+    if dc["kind"] == "airborne":
+        D = int(dc["D"])
+        out.update(departure_tick=D, reason="at_d" if D == d else "later" if D > d else "earlier")
+    return out
 
 
 def line_span(trace: Mapping[str, Any], t: int, line: int, gid: int, axis: int) -> Optional[List[float]]:
@@ -587,31 +639,14 @@ def flight_sign(trace: Mapping[str, Any], geo: Mapping[str, Any]) -> int:
     return 1 if v > 0 else -1 if v < 0 else 0
 
 
-def window_of(geo: Mapping[str, Any], *, stride: int = 1, half: Optional[str] = None, trace: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+def window_of(geo: Mapping[str, Any]) -> Dict[str, Any]:
     """Earlier d in [F, D] (F: the first grounded tick on the group; owner, 2026-11-02: the airborne contact ticks before it are excluded),
-    later d in (D, D + P]; the optional reductions keep D (the control) and drop the rest by a rule."""
+    later d in (D, D + P]. The full window only (owner, 2026-11-03: the reductions are plan text, not options)."""
     dep, P = geo["departure"], int(geo["period"]["P"])
     F, D = int(dep["F"]), int(dep["D"])
     earlier = list(range(F, D + 1))
     later = list(range(D + 1, D + P + 1))
-    full = {"earlier": len(earlier), "later": len(later)}
-    rule = "full"
-    if stride > 1:
-        earlier = [d for d in earlier if (d - F) % stride == 0 or d == D]
-        later = [d for d in later if (d - D) % stride == 0]
-        rule = f"stride {stride}"
-    if half == "flight":
-        if trace is None:
-            raise ProbeError("the half-cycle reduction needs the clear's trace")
-        sign = flight_sign(trace, geo)
-        y = geo["y"]
-        keep = lambda d: d == D or (d < len(y) and direction_at(y, d) == sign)  # noqa: E731
-        earlier = [d for d in earlier if keep(d)]
-        later = [d for d in later if keep(d)]
-        rule += f" + half flight (group direction {sign:+d} along axis {geo['axis']})"
-    elif half is not None:
-        raise ProbeError(f"--half {half!r}: only 'flight'")
-    return {"earlier": earlier, "later": later, "rule": rule, "full": full}
+    return {"earlier": earlier, "later": later, "rule": "full", "full": {"earlier": len(earlier), "later": len(later)}}
 
 
 def bit_reverse_order(n: int) -> List[int]:
@@ -627,8 +662,6 @@ class ProbeParams:
     variants: int = 1
     seed: int = 1
     budget_factor: float = 2.0
-    stride: int = 1
-    half: Optional[str] = None
 
 
 def draw_id_of(clear: Mapping[str, Any], seed: int) -> str:
@@ -636,8 +669,9 @@ def draw_id_of(clear: Mapping[str, Any], seed: int) -> str:
 
 
 def on_group_breaks(breaks: Sequence[Sequence[int]], dep: Mapping[str, Any]) -> List[List[int]]:
-    """The clear's breaks taken during the contact interval up to the departure (C0 <= tick <= D), as the native records report them."""
-    return [[int(t), int(i)] for t, i in breaks if int(dep["C0"]) <= int(t) <= int(dep["D"])]
+    """The clear's breaks from the interval's first grounded tick to the departure (F <= tick <= D; owner, 2026-11-03), as the native
+    records report them."""
+    return [[int(t), int(i)] for t, i in breaks if int(dep["F"]) <= int(t) <= int(dep["D"])]
 
 
 def pending_of(d: int, onb: Sequence[Sequence[int]]) -> List[List[int]]:
@@ -656,7 +690,7 @@ def build_plan(clear: Mapping[str, Any], params: ProbeParams, clf: Any) -> Dict[
     E = int(math.ceil(params.budget_factor * (B - D)))
     if E < B - D:
         raise ProbeError(f"the budget {E} is shorter than the clear's own exit {B - D}")
-    win = window_of(geo, stride=params.stride, half=params.half, trace=tr)
+    win = window_of(geo)
     onb = on_group_breaks(clear["breaks"], dep)
     draw_id = draw_id_of(clear, params.seed)
     exits: Dict[str, bytes] = {VARIANT_CLEAR: bytes(words[D:B]) + bytes([NEUTRAL_WORD]) * (E - (B - D))}
@@ -694,9 +728,15 @@ def build_plan(clear: Mapping[str, Any], params: ProbeParams, clf: Any) -> Dict[
                        "d_count": len(ordered), "start_rule": "the first grounded tick on the group (owner, 2026-11-02)",
                        "excluded_airborne_contact": [int(dep["C0"]), int(dep["F"]) - 1, int(dep["F"]) - int(dep["C0"])]},
             "on_group_breaks": onb,
-            "pre_break": {"rule": "a departure before one of the clear's on-group breaks (C0 <= break tick <= D, break tick > d): reported as its own "
-                                  "part of the curve with the break it reaches first, never counted as a gain (owner, 2026-11-02)",
+            "pre_break": {"rule": "a departure before one of the clear's on-group breaks (F <= break tick <= D, break tick > d): labelled pre-break, "
+                                  "its own part of the curve and of every table with its own counts; counted like any departure (it beats B "
+                                  "only when its progress tick is before B, so it must also break the on-group targets) and on the band's "
+                                  "earlier side when outside the band (owner, 2026-11-03)",
                           "d": [pre[0], pre[-1], len(pre)] if pre else None},
+            "progress_rule": {"rule": "progress tick = the first tick after d whose live-target mask is a subset of the baseline's at B (every "
+                                      "target the baseline had broken by B, in any order); a candidate beats B when its progress tick is before "
+                                      "B (owner, 2026-11-03)", "baseline_mask": base["mask"],
+                              "baseline_live_targets": [i for i in range(int(base["mask"]).bit_length()) if int(base["mask"]) >> i & 1]},
             "exit_run": exit_run_of(tr, geo, clf), "spans": spans_of(tr, geo, B),
             "flight_sign": flight_sign(tr, geo), "neutral_word": NEUTRAL_WORD, "neutral_triple": list(mcell.TRIPLES[NEUTRAL_WORD]),
             "variants": {"clear_exit": VARIANT_CLEAR, "generic": [f"g{k}" for k in range(1, params.variants + 1)], "K": params.variants,
@@ -713,19 +753,42 @@ def candidate_row(c: Mapping[str, Any]) -> Dict[str, Any]:
 # -- the band of the verified clears (zero native ticks) ---------------------------------------------------------------------------------------
 
 
-def band_sources(lab_root: Path) -> List[Tuple[str, Path, Optional[set]]]:
-    """(label, trace path, the words digests it may carry) of every stored replay trace that can belong to a VERIFIED clear: each run's
-    *_r1 traces against that run's VERIFIED rows, and the lab import's reference clear (a registered verified clear; None = any digest)."""
-    want: Dict[str, set] = {}
+def band_sources(lab_root: Path) -> List[Tuple[str, Path, Optional[Dict[str, Dict[str, Any]]]]]:
+    """(label, trace path, {words digest: the VERIFIED row's clocks}) of every stored replay trace that can belong to a VERIFIED clear:
+    each run's *_r1 traces against that run's VERIFIED rows, and the lab import's reference clear (the registered verified clear the lab
+    imported; None: checked by rl/frs_verify.load_reference instead)."""
+    want: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for r in verified_rows(lab_root):
-        want.setdefault(r["_run"], set()).add(r["words_digest"])
-    out: List[Tuple[str, Path, Optional[set]]] = []
+        want.setdefault(r["_run"], {})[r["words_digest"]] = {k: r[k] for k in ("completion_input_tick", "completion_time_passed")}
+    out: List[Tuple[str, Path, Optional[Dict[str, Dict[str, Any]]]]] = []
     for run, digests in sorted(want.items()):
         for p in sorted((Path(lab_root) / run / "run" / "traces").glob("*_r1.json.gz")):
             out.append((f"{run}:{p.name}", p, digests))
     ref = Path(lab_root) / "import" / "reference" / "trace.json.gz"
     if ref.is_file():
         out.append(("import:reference", ref, None))
+    return out
+
+
+def verified_clear_problems(tr: Mapping[str, Any], clocks: Optional[Mapping[str, Any]]) -> List[str]:
+    """Why a band source is not a verified clear's trace: not made with the verify flags, a tick-contract break, the native target records
+    disagreeing with the live mask, not the four clear facts (ten breaks from the native target records), or clocks other than the
+    VERIFIED row's (when given)."""
+    out: List[str] = []
+    if dict(tr.get("extra_env") or {}) != fv.FLAGS_VERIFY:
+        out.append("not made with the verify flags")
+    br = tick_contract_break(tr)
+    if br is not None:
+        out.append(f"tick contract: {br}")
+    breaks, anomalies = native_breaks(tr)
+    if anomalies:
+        out.append(f"the native target records disagree with the live mask: {anomalies[:2]}")
+    facts = mclaims.clear_facts(tr, len(breaks))
+    if not facts["all"]:
+        out.append(f"not a clear: {({k: v for k, v in facts.items() if v is False})}")
+    for k, v in dict(clocks or {}).items():
+        if facts.get(k) != v:
+            out.append(f"{k} {facts.get(k)} differs from the VERIFIED row's {v}")
     return out
 
 
@@ -747,17 +810,43 @@ def in_arc(phase: int, arc: Mapping[str, Any], P: int) -> bool:
     return (int(phase) - int(arc["start"])) % P <= int(arc["length"])
 
 
-def band_of(lab_root: Path, plan: Mapping[str, Any], geo: Mapping[str, Any]) -> Dict[str, Any]:
+def band_row(label: str, digest: str, gg: Mapping[str, Any]) -> Dict[str, Any]:
+    dep = gg["departure"]
+    return {"source": label, "digest": str(digest)[:16], "D": dep["D"], "phase": phase_of(dep["D"], gg["period"]), "P": gg["period"]["P"],
+            "G": dep["G"], "S": dep["S"], "status_G": dep["status_G"], "G_minus_D": int(dep["G"]) - int(dep["D"]),
+            "axis_value": gg["group_at"]["D"]["axis_value"], "direction": gg["group_at"]["D"]["direction"]}
+
+
+def band_digest(band: Mapping[str, Any]) -> str:
+    """sha256 over what the band is computed from: the probed clear's own row, every source row, every skipped source, the period and the
+    arc (the run refuses a band that differs from --expect-band)."""
+    body = {"contract": PROBE_CONTRACT, "P": band["P"], "own": band["own"], "rows": band["rows"], "skipped": band["skipped"], "arc": band["arc"]}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
+
+
+def band_of(lab_root: Path, plan: Mapping[str, Any], geo: Mapping[str, Any], analyse: fv.Analyse = fv.real_analyse) -> Dict[str, Any]:
     """The departure phase (same rules, same group id, each clear's own period measurement) of every verified clear with a trace; the band
-    is the shortest arc of the cycle containing all of them, the probed clear's own departure included."""
+    is the shortest arc of the cycle containing all of them, the probed clear's own departure included. Every source must be a verified
+    clear's trace (verified_clear_problems; the import reference by rl/frs_verify.load_reference): any other is refused (ProbeError)."""
     P = int(geo["period"]["P"])
-    rows, skipped, phases = [], [], [phase_of(geo["departure"]["D"], geo["period"])]
+    own = band_row("probed clear", plan["clear"]["words_digest"], geo)
+    rows: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+    phases = [own["phase"]]
     seen = {plan["clear"]["words_digest"]}
     for label, p, digests in band_sources(lab_root):
         tr = read_trace(p)
         dg = tr.get("action_digest")
         if (digests is not None and dg not in digests) or dg in seen:
             continue                                       # not a VERIFIED clear's trace, or a trajectory already counted
+        if digests is None:
+            ref = fv.load_reference(p.parent, analyse)
+            bad = list(ref["problems"]) + ([] if dg == ref["meta"].get("native_action_digest") else ["its digest is not the reference's"])
+            bad += verified_clear_problems(tr, None)
+        else:
+            bad = verified_clear_problems(tr, digests[dg])
+        if bad:
+            raise ProbeError(f"band source {label} is not a verified clear's trace: {bad[:4]}")
         seen.add(dg)
         try:
             gg = geometry(tr, group=geo["group"])
@@ -767,20 +856,35 @@ def band_of(lab_root: Path, plan: Mapping[str, Any], geo: Mapping[str, Any]) -> 
         if int(gg["period"]["P"]) != P:
             skipped.append({"source": label, "why": f"period {gg['period']['P']} differs from the probed clear's {P}"})
             continue
-        ph = phase_of(gg["departure"]["D"], gg["period"])
-        phases.append(ph)
-        rows.append({"source": label, "digest": str(dg)[:16], "D": gg["departure"]["D"], "phase": ph, "P": gg["period"]["P"],
-                     "axis_value": gg["group_at"]["D"]["axis_value"], "direction": gg["group_at"]["D"]["direction"]})
+        r = band_row(label, dg, gg)
+        phases.append(r["phase"])
+        rows.append(r)
     arc = arc_of(phases, P)
     vals = [r["axis_value"] for r in rows]
-    return {"rule": "shortest arc of phase (mod the measured period) containing the departure phase of every verified clear with a trace",
+    onset = sorted({(r["status_G"], r["G_minus_D"]) for r in [own] + rows})
+    band = {"rule": "shortest arc of phase (mod the measured period) containing the departure phase of every verified clear with a trace",
             "sources": len(rows), "skipped": skipped, "arc": arc, "P": P, "axis_value_range": [min(vals), max(vals)] if vals else None,
-            "directions": sorted({r["direction"] for r in rows}), "rows": rows}
+            "directions": sorted({r["direction"] for r in rows}), "own": own, "rows": rows,
+            "onsets": [{"status_G": s, "G_minus_D": k, "rows": sum(1 for r in [own] + rows if (r["status_G"], r["G_minus_D"]) == (s, k))} for s, k in onset]}
+    band["digest"] = band_digest(band)
+    return band
 
 
-def band_counts(plan_d: Sequence[int], d_info: Callable[[int], Mapping[str, Any]], band: Mapping[str, Any]) -> Dict[str, int]:
-    inside = sum(1 for d in plan_d if in_arc(d_info(d)["phase"], band["arc"], band["P"]))
-    return {"d_in_band": inside, "d_outside_band": len(plan_d) - inside}
+def band_counts(cands: Sequence[Mapping[str, Any]], d_info: Callable[[int], Mapping[str, Any]], band: Mapping[str, Any], D: int) -> Dict[str, int]:
+    """The planned departure ticks inside and outside the band, by side (earlier: d < D, later: d > D) and pre-break, as if every candidate
+    departed at its d (the run decides on each candidate's measured departure)."""
+    pre = {int(c["d"]): bool(c["pre_break"]) for c in cands}
+    out = {"in_band": 0, "in_band_pre_break": 0, "outside_earlier": 0, "outside_earlier_pre_break": 0, "outside_later": 0}
+    for d, pb in sorted(pre.items()):
+        if in_arc(d_info(d)["phase"], band["arc"], band["P"]):
+            out["in_band"] += 1
+            out["in_band_pre_break"] += int(pb)
+        elif d < int(D):
+            out["outside_earlier"] += 1
+            out["outside_earlier_pre_break"] += int(pb)
+        else:
+            out["outside_later"] += 1
+    return out
 
 
 # -- cost (zero native ticks: the lab's own replay-timing records) ------------------------------------------------------------------------------
@@ -837,10 +941,34 @@ def expected_wall(cands: Sequence[Mapping[str, Any]], cost: Mapping[str, Any], s
 # -- per-candidate reading ------------------------------------------------------------------------------------------------------------------
 
 
+def tick_contract_break(trace: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """The first break of the tick contract (consumed_tick = T, input_tick = T + 1, step_count = T + 1 on every step, and no recorded
+    consumed-tick mismatch), or None."""
+    if trace.get("consumed_tick_mismatch") is not None:
+        return {"consumed_tick_mismatch": trace["consumed_tick_mismatch"]}
+    for i, s in enumerate(trace.get("steps") or []):
+        got = {"consumed_tick": s.get("consumed_tick"), "input_tick": (s.get("observation") or {}).get("input_tick"), "step_count": s.get("step_count")}
+        if got != {"consumed_tick": i, "input_tick": i + 1, "step_count": i + 1}:
+            return {"step": i, **got}
+    return None
+
+
 def ticks_ok_of(trace: Mapping[str, Any]) -> bool:
-    return trace.get("consumed_tick_mismatch") is None and all(
-        int(s["consumed_tick"]) == i and int(s["observation"]["input_tick"]) == i + 1 and int(s["step_count"]) == i + 1
-        for i, s in enumerate(trace["steps"]))
+    return tick_contract_break(trace) is None
+
+
+def pin_watch(replay: fv.ReplayFn, seen: List[Dict[str, Any]]) -> fv.ReplayFn:
+    """`replay` with each pin drift noted in `seen` (label, detail) before it propagates: rl/frs_verify re-hashes the pinned game files beside
+    the executable before every replay and raises MismatchError 'pin_drift', which fv.replay_with_retry turns into an error string."""
+    def watched(words: bytes, label: str, slot: int) -> Optional[Dict[str, Any]]:
+        try:
+            return replay(words, label, slot)
+        except mw.MismatchError as exc:
+            if exc.kind == "pin_drift":
+                seen.append({"label": label, "detail": exc.detail})
+            raise
+
+    return watched
 
 
 def outcome_of(trace: Mapping[str, Any], n_words: int) -> str:
@@ -853,75 +981,112 @@ def outcome_of(trace: Mapping[str, Any], n_words: int) -> str:
 
 
 def read_candidate(trace: Optional[Mapping[str, Any]], c: Mapping[str, Any], ctx: Mapping[str, Any], errors: Sequence[str] = ()) -> Dict[str, Any]:
-    """One results.jsonl row. ctx: geo, baseline, ref_chain {'clear': [...], 'filler': [...]}, clf, d_info, band (optional)."""
+    """One results.jsonl row. ctx: geo, baseline, ref_chain {'clear': [...], 'filler': [...]}, clf, d_info, band (optional).
+    The tick contract and the action digest come first (outcome 'contract': the run is PROBE_INVALID), then the prefix digest. A valid row
+    carries its measured departure (departed_at_d: departure_tick == d; only those rows count, and in_band is read on departure_phase),
+    its first break after d, and its progress tick (beats_B: progress_tick < B)."""
     d, B = int(c["d"]), int(ctx["baseline"]["B"])
     row: Dict[str, Any] = {"idx": c["idx"], "label": c["label"], "d": d, "side": c["side"], "variant": c["variant"], "ticks_planned": c["ticks"],
                            "pre_break": bool(c.get("pre_break")), "pending_on_group": list(c.get("pending_on_group") or []),
                            **{f"d_{k}": v for k, v in ctx["d_info"](d).items()}, "errors": list(errors)[:3]}
-    if ctx.get("band") is not None:
-        row["in_band"] = in_arc(row["d_phase"], ctx["band"]["arc"], ctx["band"]["P"])
     if trace is None:
         row.update(outcome="error", valid=False, failed=True)
         return row
     steps = trace["steps"]
     n = len(steps)
     words = c["words"]
+    contract = tick_contract_break(trace)
+    digest_ok = trace.get("action_digest") == mcell.words_digest(bytes(words[:n]))
+    row.update({"ticks": n, "ticks_ok": contract is None, "digest_ok": digest_ok, "prefix_ref": c["prefix_ref"], "startup_s": trace.get("startup_s"),
+                "stepping_s": trace.get("stepping_s")})
+    if contract is not None or not digest_ok:
+        row.update(outcome="contract", valid=False, failed=True, contract={"tick": contract, "action_digest_ok": digest_ok})
+        return row
     ch = chain_list(trace)
     ref = ctx["ref_chain"].get(c["prefix_ref"])
     prefix_equal = ref is not None and n >= d and len(ref) > d and ch[d] == ref[d]
-    row.update({"ticks": n, "ticks_ok": ticks_ok_of(trace), "digest_ok": trace.get("action_digest") == mcell.words_digest(bytes(words[:n])),
-                "prefix_equal": prefix_equal, "prefix_ref": c["prefix_ref"], "final_chain": ch[-1].hex(), "startup_s": trace.get("startup_s"),
-                "stepping_s": trace.get("stepping_s"), "outcome": outcome_of(trace, len(words))})
+    row.update({"prefix_equal": prefix_equal, "final_chain": ch[-1].hex(), "outcome": outcome_of(trace, len(words))})
     if not prefix_equal:
         diff = None
         if ref is not None:
             diff = next((t for t in range(0, min(d, len(ref) - 1, n) + 1) if ch[t] != ref[t]), None)
         row.update(outcome="mismatch", valid=False, failed=True, mismatch_first_tick=diff)
         return row
-    if not row["ticks_ok"] or not row["digest_ok"]:
-        row.update(outcome="contract", valid=False, failed=True)
-        return row
     if c["side"] == "control":
         row["chain_at_B_equal"] = n >= B and len(ref) > B and ch[B] == ref[B]
     geo = ctx["geo"]
-    lines = set(geo["group_lines"])
+    dep = measured_departure(trace, d, set(geo["group_lines"]))
+    dt_, fl = dep["departure_tick"], dep["floor_line_leave_tick"]
+    row.update({"valid": True, "failed": False, "departure_tick": dt_, "departure_phase": phase_of(dt_, geo["period"]) if dt_ is not None else None,
+                "departure_reason": dep["reason"], "departed_at_d": dep["reason"] == "at_d", "departure": dep["detail"],
+                "floor_line_leave_tick": fl, "floor_line_leave_phase": phase_of(fl - 1, geo["period"]) if fl is not None else None})
+    if ctx.get("band") is not None:
+        row["in_band"] = in_arc(row["departure_phase"], ctx["band"]["arc"], ctx["band"]["P"]) if dt_ is not None else None
     br, anomalies = native_breaks(trace)
     after = [b for b in br if int(b[0]) > d]
-    first_off = next((t for t in range(d + 1, n + 1) if floor_line(reply_at(trace, t)) not in lines), None)
-    stop = first_off if first_off is not None else n + 1
-    on_ground = [t for t in range(d, stop) if grounded(reply_at(trace, t)) and floor_line(reply_at(trace, t)) in lines]
-    row.update({"valid": True, "failed": False, "break_anomalies": anomalies[:3], "breaks_after": after[:4],
-                "first_off_group": first_off, "last_grounded_on_group": on_ground[-1] if on_ground else None,
-                "leave_phase": phase_of(first_off - 1, geo["period"]) if first_off is not None else None})
+    base_mask = int(ctx["baseline"]["mask"])
+    prog = next((t for t in range(d + 1, n + 1) if live_mask(reply_at(trace, t)) & ~base_mask == 0), None)
+    beats = prog is not None and prog < B
+    row.update({"break_anomalies": anomalies[:3], "breaks_after": after[:4], "progress_tick": prog,
+                "progress_targets": sorted(int(i) for t, i in after if int(t) == prog) if prog is not None else None,
+                "progress_exit_ticks": prog - d if prog is not None else None, "beats_B": beats, "gain": B - prog if beats else None,
+                "progress_end_state": end_state(trace, prog, geo, ctx["clf"]) if prog is not None else None})
     if not after:
-        row.update(first_break=None, beats_B=False, earlier_than_B=False, comparable=None)
+        row.update(first_break=None, earlier_than_B=False, comparable=None)
         return row
     t, target = int(after[0][0]), int(after[0][1])
     at_t = sorted(int(i) for tt, i in after if int(tt) == t)
     pend = {int(i) for _t, i in row["pending_on_group"]}
     m = live_mask(reply_at(trace, t))
-    comparable = (m & ~int(ctx["baseline"]["mask"])) == 0
-    counts = t < B and comparable and not row["pre_break"]           # a pre-break departure is never counted as a gain
     row.update({"first_break": {"tick": t, "target": target, "targets_at_tick": at_t, "same_as_baseline_next": target == int(ctx["baseline"]["target"]),
                                 "on_group_target": bool(pend & set(at_t)), "mask": m, "exit_ticks": t - d},
-                "comparable": comparable, "earlier_than_B": t < B, "beats_B": counts, "gain": B - t if counts else None,
-                "end_state": end_state(trace, t, geo, ctx["clf"])})
+                "comparable": (m & ~base_mask) == 0, "earlier_than_B": t < B, "end_state": end_state(trace, t, geo, ctx["clf"])})
     return row
 
 
 # -- verdict ---------------------------------------------------------------------------------------------------------------------------------
 
 
+def sides_of(outside: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """S1 (owner, 2026-11-03): which sides of the band were testable, from the valid, counted (departed at d) outside-band rows. A row's
+    side is its candidate's: 'earlier' (d <= D, pre-break departures included) or 'later' (d > D); the control (d = D) is in the band by
+    construction."""
+    e = [r for r in outside if r.get("side") == "earlier"]
+    later = [r for r in outside if r.get("side") == "later"]
+    ep = sum(1 for r in e if r.get("pre_break"))
+    if e and later:
+        which = "both sides"
+    elif later:
+        which = "later side only"
+    elif e:
+        which = "earlier side only"
+    else:
+        which = "neither side"
+    text = (f"{which} of the band tested (valid outside-band rows that departed at d: earlier side {len(e)}, of them pre-break {ep}; "
+            f"later side {len(later)})")
+    return {"earlier": len(e), "earlier_pre_break": ep, "later": len(later), "which": which, "statement": text}
+
+
 def verdict_of(rows: Sequence[Mapping[str, Any]], planned: int, status: str, B: int, band_ok: bool) -> Dict[str, Any]:
     """NOT_FORCED / FORCED_IN_PROBE / INCONCLUSIVE, plus IN_BAND_GAIN (the case the three rules leave open: a departure beats B, but only
-    inside the band). A candidate beats B when its first break after the departure is earlier than B AND it leaves at least the baseline's
-    progress (its live mask is a subset of the baseline's at B); earlier breaks with less progress are reported, never counted as faster."""
+    inside the band). A row counts only when it is valid and departed at d (its measured departure, by the D rule, is d); its band side is
+    read on that departure. Rows that did not depart at d are reported apart and never counted. A candidate beats B when its progress tick
+    (its live mask a subset of the baseline's at B) is before B; earlier first breaks without that progress are reported, never counted as
+    faster. Pre-break departures count like any other (owner, 2026-11-03) and are reported with their own counts."""
     failed = [r for r in rows if r.get("failed")]
-    valid_all = [r for r in rows if r.get("valid")]
-    pre = [r for r in valid_all if r.get("pre_break")]
-    valid = [r for r in valid_all if not r.get("pre_break")]
-    out: Dict[str, Any] = {"planned": planned, "ran": len(rows), "valid": len(valid_all), "valid_main": len(valid), "failed": len(failed),
-                           "failed_share": round(len(failed) / planned, 4) if planned else None, "B": B, "pre_break": pre_break_summary(pre, B)}
+    valid = [r for r in rows if r.get("valid")]
+    counted = [r for r in valid if r.get("departed_at_d")]
+    nd = [r for r in valid if not r.get("departed_at_d")]
+    pre = [r for r in valid if r.get("pre_break")]
+    reasons_nd: Dict[str, int] = {}
+    for r in nd:
+        reasons_nd[str(r.get("departure_reason"))] = reasons_nd.get(str(r.get("departure_reason")), 0) + 1
+    out: Dict[str, Any] = {"planned": planned, "ran": len(rows), "valid": len(valid), "failed": len(failed),
+                           "failed_share": round(len(failed) / planned, 4) if planned else None, "B": B,
+                           "counted": len(counted), "counted_pre_break": sum(1 for r in counted if r.get("pre_break")),
+                           "did_not_depart_at_d": {"rows": len(nd), "pre_break": sum(1 for r in nd if r.get("pre_break")),
+                                                   "by_reason": dict(sorted(reasons_nd.items())), "counted": 0},
+                           "pre_break": pre_break_summary(pre, B)}
     reasons = []
     if status not in ("COMPLETED",):
         reasons.append(f"the run did not complete its planned window (status {status})")
@@ -931,35 +1096,52 @@ def verdict_of(rows: Sequence[Mapping[str, Any]], planned: int, status: str, B: 
         reasons.append(f"{len(failed)} of {planned} candidates failed to run (> {FAILED_SHARE_MAX:.0%})")
     if not band_ok:
         reasons.append("the band of the verified clears is not available")
-    outside = [r for r in valid if r.get("in_band") is False]
+    outside = [r for r in counted if r.get("in_band") is False]
+    sides = sides_of(outside)
     if band_ok and not outside:
-        reasons.append("no valid departure outside the band (pre-break departures are reported apart)")
-    beats = [r for r in valid if r.get("beats_B")]
+        reasons.append("no valid departure at d outside the band (rows that did not depart at d are never counted)")
+    beats = [r for r in counted if r.get("beats_B")]
     beats_out = [r for r in beats if r.get("in_band") is False]
-    earlier_less = [r for r in valid if r.get("earlier_than_B") and not r.get("comparable")]
+    earlier_less = [r for r in counted if r.get("earlier_than_B") and not r.get("beats_B")]
     later = [r for r in outside if r.get("first_break") and not r.get("earlier_than_B")]
     none = [r for r in outside if not r.get("first_break")]
-    out.update({"beats_B": len(beats), "beats_B_outside_band": len(beats_out), "d_beating_B": len({r["d"] for r in beats}),
+    pb = lambda xs: sum(1 for r in xs if r.get("pre_break"))  # noqa: E731
+    out.update({"beats_B": len(beats), "beats_B_pre_break": pb(beats), "beats_B_outside_band": len(beats_out),
+                "beats_B_outside_band_pre_break": pb(beats_out), "d_beating_B": len({r["d"] for r in beats}),
                 "d_beating_B_outside_band": len({r["d"] for r in beats_out}), "earlier_with_less_progress": len(earlier_less),
-                "outside_band_valid": len(outside), "outside_band_later_break": len(later), "outside_band_no_break": len(none),
-                "outside_band_earlier_less_progress": sum(1 for r in earlier_less if r.get("in_band") is False)})
-    best = min(beats_out or beats, key=lambda r: (r["first_break"]["tick"], r["d"], r["variant"]), default=None)
+                "outside_band_valid": len(outside), "outside_band_pre_break": pb(outside), "outside_band_later_break": len(later),
+                "outside_band_no_break": len(none),
+                "outside_band_earlier_less_progress": sum(1 for r in earlier_less if r.get("in_band") is False), "sides": sides})
+    best = min(beats_out or beats, key=lambda r: (r["progress_tick"], r["d"], r["variant"]), default=None)
     if best is not None:
-        out["best"] = {k: best.get(k) for k in ("label", "d", "variant", "d_phase", "in_band", "gain", "first_break", "end_state", "leave_phase")}
+        out["best"] = {k: best.get(k) for k in ("label", "d", "variant", "side", "pre_break", "departure_tick", "departure_phase", "in_band", "gain",
+                                                "progress_tick", "progress_targets", "first_break", "progress_end_state")}
     if reasons:
         out.update(verdict=INCONCLUSIVE, reasons=reasons)
     elif beats_out:
-        out.update(verdict=NOT_FORCED, reasons=[f"{len({r['d'] for r in beats_out})} departures outside the band beat B; best gain {best['gain']} ticks at d {best['d']}"])
+        out.update(verdict=NOT_FORCED, reasons=[f"{len({r['d'] for r in beats_out})} departures outside the band beat B "
+                                                f"({pb(beats_out)} of the {len(beats_out)} candidates pre-break); best gain {best['gain']} ticks "
+                                                f"at d {best['d']}{' (pre-break)' if best.get('pre_break') else ''}"])
     elif beats:
         out.update(verdict=IN_BAND_GAIN, reasons=["no departure outside the band beats B, but a departure inside it does"])
     else:
-        out.update(verdict=FORCED_IN_PROBE, reasons=["no departure beats B; outside the band every valid candidate breaks later, does not break "
-                                                     "within the budget, or breaks earlier with less progress"])
+        out.update(verdict=FORCED_IN_PROBE, reasons=["no departure beats B; outside the band every counted candidate does not break within the "
+                                                     "budget, first breaks at or after B, or breaks earlier without the baseline's progress before B"])
+    out["reasons"] = out["reasons"] + [sides["statement"]]
     return out
 
 
+def verdict_line(v: Mapping[str, Any]) -> str:
+    """The verdict with its reasons, the sides of the band that were tested (S1) and the pre-break counts next to it."""
+    pbs, nd = v["pre_break"], v["did_not_depart_at_d"]
+    return (f"Verdict {v['verdict']}: {'; '.join(v.get('reasons') or [])}. Pre-break departures: valid {pbs['valid']}, departed at d "
+            f"{pbs['departed_at_d']}, outside the band {pbs['outside_band']}, beat B {pbs['beats_B']} (counted, labelled pre-break). "
+            f"Did not depart at d: {nd['rows']} (pre-break {nd['pre_break']}; {nd['by_reason']}), never counted.")
+
+
 def pre_break_summary(pre: Sequence[Mapping[str, Any]], B: int) -> Dict[str, Any]:
-    """The pre-break departures' own part of the curve: which break each reaches first (as reported), never a gain."""
+    """The pre-break departures' own part of the curve and their own counts: which break each reaches first (as reported), how many departed
+    at d, are outside the band and beat B (counted like any departure, labelled pre-break; owner, 2026-11-03)."""
     by_target: Dict[str, Dict[str, Any]] = {}
     for r in pre:
         fb = r.get("first_break")
@@ -972,9 +1154,12 @@ def pre_break_summary(pre: Sequence[Mapping[str, Any]], B: int) -> Dict[str, Any
             if e["earliest_tick"] is None or fb["tick"] < e["earliest_tick"]:
                 e["earliest_tick"], e["earliest_d"] = fb["tick"], r["d"]
     ds = sorted({r["d"] for r in pre})
+    dep = [r for r in pre if r.get("departed_at_d")]
+    beats = [r for r in dep if r.get("beats_B")]
     return {"valid": len(pre), "d": [ds[0], ds[-1], len(ds)] if ds else None, "first_break_by_target": by_target,
-            "earlier_than_B": sum(1 for r in pre if r.get("earlier_than_B")),
-            "earlier_than_B_comparable": sum(1 for r in pre if r.get("earlier_than_B") and r.get("comparable")), "counted_as_gain": 0}
+            "departed_at_d": len(dep), "did_not_depart_at_d": len(pre) - len(dep), "outside_band": sum(1 for r in dep if r.get("in_band") is False),
+            "earlier_than_B": sum(1 for r in dep if r.get("earlier_than_B")), "beats_B": len(beats),
+            "beats_B_outside_band": sum(1 for r in beats if r.get("in_band") is False), "counted_as_gain": len(beats)}
 
 
 def part_of(r: Mapping[str, Any]) -> str:
@@ -982,18 +1167,21 @@ def part_of(r: Mapping[str, Any]) -> str:
 
 
 def curve_rows(rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
-    """The curve: per d and variant, the first-break tick (or the reason there is none), sorted by d; `part` labels the pre-break departures."""
+    """The curve: per d and variant, the measured departure, the first-break and progress ticks (or the reason there are none), sorted by d;
+    `part` labels the pre-break departures and `departed_at_d` the rows that count."""
     out = []
     for r in sorted(rows, key=lambda x: (x["d"], x["variant"])):
         fb = r.get("first_break") or {}
-        es = r.get("end_state") or {}
+        es = r.get("end_state") or {}                      # at the first break; results.jsonl also has the end state at the progress tick
         out.append({"d": r["d"], "variant": r["variant"], "type": "clear_exit" if r["variant"] == VARIANT_CLEAR else "generic", "part": part_of(r),
-                    "side": r["side"], "phase": r.get("d_phase"), "axis_value": r.get("d_axis_value"), "direction": r.get("d_direction"), "in_band": r.get("in_band"),
-                    "outcome": r.get("outcome"), "first_break_tick": fb.get("tick"), "target": fb.get("target"), "on_group_target": fb.get("on_group_target"),
-                    "same_as_baseline_next": fb.get("same_as_baseline_next"),
-                    "comparable": r.get("comparable"), "beats_B": r.get("beats_B"), "gain": r.get("gain"), "grounded": es.get("grounded"),
+                    "side": r["side"], "phase": r.get("d_phase"), "axis_value": r.get("d_axis_value"), "direction": r.get("d_direction"),
+                    "outcome": r.get("outcome"), "departure_tick": r.get("departure_tick"), "departure_phase": r.get("departure_phase"),
+                    "departed_at_d": r.get("departed_at_d"), "departure_reason": r.get("departure_reason"), "in_band": r.get("in_band"),
+                    "first_break_tick": fb.get("tick"), "target": fb.get("target"), "on_group_target": fb.get("on_group_target"),
+                    "same_as_baseline_next": fb.get("same_as_baseline_next"), "comparable": r.get("comparable"),
+                    "progress_tick": r.get("progress_tick"), "beats_B": r.get("beats_B"), "gain": r.get("gain"), "grounded": es.get("grounded"),
                     "helpless": es.get("helpless"), "status": es.get("status"), "air_vx": es.get("air_vx"), "air_vy": es.get("air_vy"),
-                    "first_off_group": r.get("first_off_group"), "leave_phase": r.get("leave_phase")})
+                    "floor_line_leave_tick": r.get("floor_line_leave_tick"), "floor_line_leave_phase": r.get("floor_line_leave_phase")})
     return out
 
 
@@ -1008,15 +1196,16 @@ def curve_csv(rows: Sequence[Mapping[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def curve_by_type(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    """Per variant type, per d: the earliest first-break tick among that type's valid candidates (None = no break); the pre-break departures
-    form their own part (`pre_break_clear_exit`, `pre_break_generic`)."""
+def curve_by_type(rows: Sequence[Mapping[str, Any]], key: str = "first_break") -> Dict[str, Dict[str, Any]]:
+    """Per variant type, per d: the earliest first-break tick (key 'first_break') or progress tick (key 'progress') among that type's
+    counted candidates (valid, departed at d; None = none within the budget); the pre-break departures form their own part
+    (`pre_break_clear_exit`, `pre_break_generic`)."""
     out: Dict[str, Dict[str, Any]] = {"clear_exit": {}, "generic": {}, "pre_break_clear_exit": {}, "pre_break_generic": {}}
     for r in rows:
-        if not r.get("valid"):
+        if not (r.get("valid") and r.get("departed_at_d")):
             continue
         typ = ("pre_break_" if r.get("pre_break") else "") + ("clear_exit" if r["variant"] == VARIANT_CLEAR else "generic")
-        t = (r.get("first_break") or {}).get("tick")
+        t = (r.get("first_break") or {}).get("tick") if key == "first_break" else r.get("progress_tick")
         cur = out[typ].get(str(r["d"]))
         out[typ][str(r["d"])] = t if cur is None else (min(cur, t) if t is not None else cur)
     return out
@@ -1035,6 +1224,7 @@ class ProbeConfig:
     stop_reserve_s: float = 60.0
     progress_every_s: float = 60.0
     save_traces: bool = True
+    head: Optional[str] = None                 # the HEAD checked at run start (git_facts; --expect-head)
 
 
 class Probe:
@@ -1059,7 +1249,9 @@ class Probe:
         self.controls: Dict[str, Any] = {}
         self.queue: Deque[Dict[str, Any]] = deque()
         self.not_dispatched: List[Dict[str, Any]] = []
-        self.c = {"dispatched": 0, "returned": 0, "valid": 0, "failed": 0, "mismatches": 0, "ticks": 0, "control_ticks": 0}
+        self.c = {"dispatched": 0, "returned": 0, "valid": 0, "failed": 0, "mismatches": 0, "contract": 0, "pin_drift": 0, "ticks": 0,
+                  "control_ticks": 0}
+        self.pin_drift: List[Dict[str, Any]] = []
         self.ref_chain: Dict[str, List[bytes]] = {"clear": list(clear["chain"])}
         self.later_max: Optional[int] = None
         self.code: Dict[str, str] = {}
@@ -1087,6 +1279,14 @@ class Probe:
             self.stop_reason = reason[:600]
         if status != "COMPLETED":
             self.log(f"{status}: {reason}")
+
+    def pin_drift_found(self, label: str, detail: Any) -> None:
+        """The pinned game files changed during the run (the pin check before every replay): an integrity failure of the native run, treated
+        as a tick-contract failure (S6): PROBE_INVALID on the first detection, so no verdict is drawn (owner, 2026-11-03)."""
+        self.c["pin_drift"] += 1
+        self.pin_drift.append({"label": label, "detail": detail})
+        self.mark("PROBE_INVALID", f"the pinned game files changed during the run (pin drift, detected before {label}): "
+                                   f"{json.dumps(detail, default=str)[:400]} (an integrity failure of the native run; owner, 2026-11-03)")
 
     def native_elapsed(self) -> float:
         return 0.0 if self.t_native is None else self.env.now() - self.t_native
@@ -1154,17 +1354,19 @@ class Probe:
         filler = bytes(words[:D]) + bytes([NEUTRAL_WORD]) * P
         jobs = {"clear_r1": (words, 0), "clear_r2": (words, 1), "filler": (filler, 2)}
         res: Dict[str, Tuple[Optional[Dict[str, Any]], List[str]]] = {}
+        drift: List[Dict[str, Any]] = []
         with cf.ThreadPoolExecutor(max_workers=3) as ex:
-            futs = {ex.submit(fv.replay_with_retry, env.replay, w, f"control_{k}", slot): k for k, (w, slot) in jobs.items()}
+            futs = {ex.submit(fv.replay_with_retry, pin_watch(env.replay, drift), w, f"control_{k}", slot): k for k, (w, slot) in jobs.items()}
             for fu in cf.as_completed(futs):
                 res[futs[fu]] = fu.result()
         for k, (tr, _e) in res.items():
             if tr is not None:
                 self.c["control_ticks"] += len(tr.get("steps") or [])
                 fv.save_trace(self.dir / "traces" / f"control_{k}.json.gz", tr)
-        self.check_controls(res, filler, D, P)
+        self.check_controls(res, filler, D, P, drift)
 
-    def check_controls(self, res: Mapping[str, Tuple[Optional[Dict[str, Any]], List[str]]], filler: bytes, D: int, P: int) -> None:
+    def check_controls(self, res: Mapping[str, Tuple[Optional[Dict[str, Any]], List[str]]], filler: bytes, D: int, P: int,
+                       drift: Sequence[Mapping[str, Any]] = ()) -> None:
         words, row = self.clear["words"], self.clear["row"]
         ev = {k: fv.evaluate(res[k][0], words, self.env.analyse) for k in ("clear_r1", "clear_r2")}
         claim = {"words_digest": row["words_digest"], "completion_input_tick": row["completion_input_tick"],
@@ -1172,6 +1374,7 @@ class Probe:
         v = fv.verdict(ev["clear_r1"], ev["clear_r2"], claim)
         per_tick = {k: res[k][0] is not None and chain_list(res[k][0]) == self.ref_chain["clear"] for k in ("clear_r1", "clear_r2")}
         breaks_ok = {k: ev[k].get("breaks") == row["breaks_r1"] for k in ev}
+        contract = {k: res[k][0] is not None and ticks_ok_of(res[k][0]) for k in ev}       # step_count too (fv.evaluate does not check it)
         ftr, ferr = res["filler"]
         fill: Dict[str, Any] = {"errors": ferr, "ran": ftr is not None}
         if ftr is not None:
@@ -1185,15 +1388,21 @@ class Probe:
                          "later_max_d": self.later_max, "outcome": outcome_of(ftr, len(filler))})
             self.ref_chain["filler"] = fch
         self.controls = {"clear": {"verdict": v["verdict"], "reasons": v["reasons"], "per_tick_chain_equal": per_tick, "breaks_equal": breaks_ok,
+                                   "tick_contract_ok": contract,
                                    "clocks": [[ev[k].get("completion_input_tick"), ev[k].get("completion_time_passed")] for k in ev],
                                    "errors": [res[k][1] for k in ev]},
-                         "filler": fill}
+                         "filler": fill, "pin_drift": [dict(x) for x in drift]}
         self.fs.write_json(self.dir / "controls.json", self.controls)
+        if drift:
+            for x in drift:
+                self.pin_drift_found(x["label"], x["detail"])
+            return
         if v["verdict"] == fv.ERROR or not fill["ran"]:
             self.mark("PROBE_INCOMPLETE", f"a control replay could not run: {v['reasons']} {ferr[:2]}")
             return
-        if v["verdict"] != fv.VERIFIED or not all(per_tick.values()) or not all(breaks_ok.values()):
-            self.mark("PROBE_INVALID", f"the clear did not replay exactly in two fresh processes: {v['reasons']} per tick {per_tick} breaks {breaks_ok}")
+        if v["verdict"] != fv.VERIFIED or not all(per_tick.values()) or not all(breaks_ok.values()) or not all(contract.values()):
+            self.mark("PROBE_INVALID", f"the clear did not replay exactly in two fresh processes: {v['reasons']} per tick {per_tick} breaks {breaks_ok} "
+                                       f"tick contract {contract}")
             return
         if not (fill["ticks_ok"] and fill["digest_ok"] and fill["chain_at_D_equal"]):
             self.mark("PROBE_INVALID", f"the filler reference does not reproduce the clear's prefix: {fill}")
@@ -1214,23 +1423,27 @@ class Probe:
                 "lab_code_digest": fr.code_digest(self.code) if self.code else None, "lab_code_files": len(self.code), "git": fl.git_state(),
                 "slots": c.slots, "max_wall_s": c.max_wall_s, "stop_reserve_s": c.stop_reserve_s, "readiness": ready,
                 "max_battleship_processes": fm.MAX_BATTLESHIP, "memory_caps_mb": dict(self.env.caps or fm.CAPS_MB),
-                "flags_verify": fv.FLAGS_VERIFY, "backend": self.env.backend, "candidate_set_digest": self.plan["candidate_set_digest"],
+                "head_checked": c.head, "flags_verify": fv.FLAGS_VERIFY, "backend": self.env.backend,
+                "candidate_set_digest": self.plan["candidate_set_digest"],
                 "candidates": self.plan["candidates"], "ticks_planned": self.plan["ticks_planned"], "clear": self.plan["clear"],
                 "variants": self.plan["variants"], "budget": self.plan["budget"], "window": self.plan["window"],
-                "band": None if self.band is None else {k: self.band[k] for k in ("rule", "sources", "arc", "P")}, "cost_estimate": dict(self.cost)}
+                "band": None if self.band is None else {k: self.band.get(k) for k in ("rule", "sources", "arc", "P", "digest")}, "cost_estimate": dict(self.cost)}
 
     # -- dispatch ---------------------------------------------------------------------------------------------------------------------------------
 
     def run_candidate(self, c: Mapping[str, Any], slot: int) -> Dict[str, Any]:
         t = self.env.now()
+        drift: List[Dict[str, Any]] = []
         try:
-            tr, errors = fv.replay_with_retry(self.env.replay, c["words"], c["label"], slot)
-            row = read_candidate(tr, c, self.ctx, errors)
+            tr, errors = fv.replay_with_retry(pin_watch(self.env.replay, drift), c["words"], c["label"], slot)
             if tr is not None and self.cfg.save_traces:
-                fv.save_trace(self.dir / "traces" / f"{c['label']}.json.gz", tr)
+                fv.save_trace(self.dir / "traces" / f"{c['label']}.json.gz", tr)          # saved before it is read (a crash keeps it)
+            row = read_candidate(tr, c, self.ctx, errors)
         except Exception as exc:  # noqa: BLE001 - a crashed candidate is a failed row, never hidden
             row = {"idx": c["idx"], "label": c["label"], "d": c["d"], "side": c["side"], "variant": c["variant"], "outcome": "error",
                    "valid": False, "failed": True, "errors": [f"{type(exc).__name__}: {exc}"[:400]]}
+        if drift:                                                                          # no process was launched: the run is PROBE_INVALID
+            row.update(outcome="pin_drift", valid=False, failed=True, pin_drift=drift[0])
         row["wall_s"] = round(self.env.now() - t, 2)
         row["slot"] = slot
         return row
@@ -1261,8 +1474,6 @@ class Probe:
                 self.checks()
                 self.progress()
         self.t_native_end = env.now()
-        if self.queue and not self.stopping:
-            self.mark("PARTIAL", "candidates left in the queue")
         self.progress(force=True)
 
     def on_row(self, row: Dict[str, Any]) -> None:
@@ -1273,6 +1484,12 @@ class Probe:
             self.c["valid"] += int(bool(row.get("valid")))
             self.c["failed"] += int(bool(row.get("failed")))
             self.fs.append_jsonl(self.dir / "results.jsonl", row)
+        if row.get("outcome") == "contract":
+            self.c["contract"] += 1
+            self.mark("PROBE_INVALID", f"the tick contract or the action digest failed on {row['label']}: {row.get('contract')} "
+                                       "(an integrity failure of the native run; owner, 2026-11-03)")
+        if row.get("outcome") == "pin_drift":
+            self.pin_drift_found(row["label"], (row.get("pin_drift") or {}).get("detail"))
         if row.get("outcome") == "mismatch":
             self.c["mismatches"] += 1
             self.log(f"prefix mismatch on {row['label']} (first differing tick {row.get('mismatch_first_tick')}): that process is retired; "
@@ -1341,16 +1558,18 @@ class Probe:
                      "later_planned_d": len(later_d), "later_dispatched_d": len(later_d) - len(cut_d), "cut": bool(cut_d),
                      "counted_as": "complete: the later window is the ticks the filler stays grounded on the group (owner, 2026-11-02)"}
         s = {"mode": "lab", "contract": PROBE_CONTRACT, "claims": "none (the probe never extends a candidate to a clear and claims nothing)",
-             "status": self.status, "stop": {"reason": self.stop_reason, "notes": self.notes[:12]}, "verdict": v,
-             "utc_start": self.utc_start, "utc_end": g.utc(), "folder": str(self.dir), "native_s": native_s, "max_wall_s": self.cfg.max_wall_s,
+             "status": self.status, "stop": {"reason": self.stop_reason, "notes": self.notes[:12]}, "verdict": v, "verdict_line": verdict_line(v),
+             "git": {"head": self.cfg.head}, "utc_start": self.utc_start, "utc_end": g.utc(), "folder": str(self.dir), "native_s": native_s,
+             "max_wall_s": self.cfg.max_wall_s,
              "elapsed_s": round(self.env.now() - self.t0, 1), "counters": dict(self.c), "planned_after_filler": planned,
              "not_dispatched": len(self.not_dispatched), "later_max_d": self.later_max, "later_cut": later_cut, "controls": self.controls,
              "derived": {k: self.plan[k] for k in ("group", "group_lines", "axis", "departure", "period", "baseline", "budget", "window", "variants",
-                                                    "on_group_breaks", "pre_break", "spans", "candidate_set_digest", "candidates")},
-             "band": None if self.band is None else {k: self.band[k] for k in ("rule", "sources", "arc", "P", "axis_value_range", "directions")},
-             "curve_by_type": curve_by_type(self.rows), "cost_estimate": dict(self.cost),
+                                                    "on_group_breaks", "pre_break", "progress_rule", "spans", "candidate_set_digest", "candidates")},
+             "band": None if self.band is None else {k: self.band.get(k) for k in ("rule", "sources", "arc", "P", "axis_value_range", "directions",
+                                                                                  "onsets", "digest")},
+             "curve_by_type": curve_by_type(self.rows), "progress_by_type": curve_by_type(self.rows, "progress"), "cost_estimate": dict(self.cost),
              "memory": {"peak": mem.get("peak"), "soft_breach": mem.get("soft_breach"), "hard_breach": mem.get("hard_breach"),
-                        "proc_breach": mem.get("proc_breach")}, "integrity": self.integrity}
+                        "proc_breach": mem.get("proc_breach")}, "integrity": dict(self.integrity, pin_drift=self.pin_drift[:5])}
         self.fs.write_text(self.dir / "summary.json", frep.compact_json(s), atomic=True)
         self.fs.write_text(self.dir / "curve.csv", curve_csv(self.rows), atomic=True)
         if self.not_dispatched:
@@ -1362,9 +1581,11 @@ class Probe:
 def report_md(s: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) -> str:
     v, dv = s["verdict"], s["derived"]
     dep, base = dv["departure"], dv["baseline"]
+    pbs, nd, sd = v["pre_break"], v["did_not_depart_at_d"], v["sides"]
+    band = s["band"]
     lines = [f"# Departure probe run ({s['utc_start'][:10]})", "",
-             f"Lab, exploratory, unregistered; no claims. Status **{s['status']}** ({s['stop']['reason']}). Verdict **{v['verdict']}**: "
-             f"{'; '.join(v.get('reasons') or [])}.", "",
+             f"Lab, exploratory, unregistered; no claims. Status **{s['status']}** ({s['stop']['reason']}). HEAD `{(s.get('git') or {}).get('head')}`.", "",
+             f"**{verdict_line(v)}**", "",
              "| measure | value |", "|---|---|",
              f"| native time / cap | {frep.fmt(s['native_s'], 0)} s / {frep.fmt(s['max_wall_s'], 0)} s |",
              f"| group / lines / axis | {dv['group']} / {dv['group_lines']} / {dv['axis']} |",
@@ -1372,35 +1593,58 @@ def report_md(s: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) -> str:
              f"| later window cut (filler first off the group / last later d / later d dispatched of planned) | "
              f"{s['later_cut']['filler_first_tick_off_group']} / {s['later_cut']['later_max_d']} / {s['later_cut']['later_dispatched_d']} of "
              f"{s['later_cut']['later_planned_d']} (counted as complete) |",
-             f"| pre-break departures (d range, valid, earlier than B, counted as gain) | {dv['pre_break']['d']} / {v['pre_break']['valid']} / "
-             f"{v['pre_break']['earlier_than_B']} / {v['pre_break']['counted_as_gain']} |",
+             f"| sides of the band tested (outside the band, departed at d: earlier / of them pre-break / later) | {sd['earlier']} / "
+             f"{sd['earlier_pre_break']} / {sd['later']} ({sd['which']}) |",
+             f"| pre-break departures (d range; valid / departed at d / outside band / beat B, counted) | {dv['pre_break']['d']}; {pbs['valid']} / "
+             f"{pbs['departed_at_d']} / {pbs['outside_band']} / {pbs['beats_B']} |",
+             f"| did not depart at d (rows / pre-break / by reason; never counted) | {nd['rows']} / {nd['pre_break']} / {nd['by_reason']} |",
              f"| baseline B (target) / B - D / budget E | {base['B']} ({base['target']}) / {base['B_minus_D']} / {dv['budget']['E']} |",
+             f"| progress rule: baseline live mask at B (live targets) | {dv['progress_rule']['baseline_mask']} ({dv['progress_rule']['baseline_live_targets']}) |",
              f"| period P / origin | {dv['period']['P']} / {dv['period']['origin']} |",
-             f"| band arc (start, length) / sources | {None if s['band'] is None else (s['band']['arc']['start'], s['band']['arc']['length'])} / "
-             f"{None if s['band'] is None else s['band']['sources']} |",
-             f"| candidates planned / after filler / returned / valid / failed / mismatches | {dv['candidates']} / {s['planned_after_filler']} / "
-             f"{s['counters']['returned']} / {s['counters']['valid']} / {s['counters']['failed']} / {s['counters']['mismatches']} |",
-             f"| beat B (all / outside band) / distinct d | {v.get('beats_B')} / {v.get('beats_B_outside_band')} / {v.get('d_beating_B')} |",
-             f"| earlier than B with less progress | {v.get('earlier_with_less_progress')} |",
-             f"| outside band: later break / no break | {v.get('outside_band_later_break')} / {v.get('outside_band_no_break')} |",
-             f"| best | {json.dumps(v.get('best'), separators=(',', ':'), default=str)[:600]} |", "",
-             "Curve (first-break tick after d, chained from tick 0; '-' = no break within the budget; clear exit / best generic):", "",
+             f"| band arc (start, length) / sources / digest | {None if band is None else (band['arc']['start'], band['arc']['length'])} / "
+             f"{None if band is None else band['sources']} / {None if band is None else band.get('digest')} |",
+             f"| candidates planned / after filler / returned / valid / counted (departed at d) / failed / mismatches / contract / pin drift | "
+             f"{dv['candidates']} / {s['planned_after_filler']} / {s['counters']['returned']} / {s['counters']['valid']} / {v['counted']} / "
+             f"{s['counters']['failed']} / {s['counters']['mismatches']} / {s['counters']['contract']} / {s['counters']['pin_drift']} |",
+             f"| beat B (all / pre-break / outside band / outside band pre-break) / distinct d (all / outside band) | {v.get('beats_B')} / "
+             f"{v.get('beats_B_pre_break')} / {v.get('beats_B_outside_band')} / {v.get('beats_B_outside_band_pre_break')} / {v.get('d_beating_B')} / "
+             f"{v.get('d_beating_B_outside_band')} |",
+             f"| first break earlier than B without the baseline's progress before B (all / outside band) | {v.get('earlier_with_less_progress')} / "
+             f"{v.get('outside_band_earlier_less_progress')} |",
+             f"| outside band: first break at or after B / no break | {v.get('outside_band_later_break')} / {v.get('outside_band_no_break')} |",
+             f"| best | {json.dumps(v.get('best'), separators=(',', ':'), default=str)[:800]} |", "",
+             "Curve (counted rows only; per d: first-break tick / progress tick after d, chained from tick 0; '-' = none within the budget; "
+             "'nd' = did not depart at d; 'x' = failed or not run):", "",
              "| d | phase | in band | clear exit | generic best |", "|---|---|---|---|---|"]
-    cbt = s["curve_by_type"]
-    info = {int(r["d"]): r for r in rows}
-    for d in sorted(d for d, r in info.items() if not r.get("pre_break")):
-        r = info[d]
-        a, gb = cbt["clear_exit"].get(str(d), "x"), cbt["generic"].get(str(d), "x")
-        lines.append(f"| {d} | {r.get('d_phase')} | {r.get('in_band')} | {'-' if a is None else a} | {'-' if gb is None else gb} |")
+    by: Dict[int, List[Mapping[str, Any]]] = {}
+    for r in rows:
+        by.setdefault(int(r["d"]), []).append(r)
+
+    def cell(rs: Sequence[Mapping[str, Any]]) -> str:
+        dep_rows = [r for r in rs if r.get("valid") and r.get("departed_at_d")]
+        if not dep_rows:
+            return "nd" if any(r.get("valid") for r in rs) else "x"
+        r = min(dep_rows, key=lambda x: (x.get("progress_tick") is None, x.get("progress_tick") or 0, ((x.get("first_break") or {}).get("tick") is None)))
+        fb = (r.get("first_break") or {}).get("tick")
+        return f"{'-' if fb is None else fb} / {'-' if r.get('progress_tick') is None else r['progress_tick']}"
+
+    for d in sorted(d for d, rs in by.items() if not any(r.get("pre_break") for r in rs)):
+        rs = by[d]
+        inb = next((r.get("in_band") for r in rs if r.get("valid") and r.get("departed_at_d")), "-")
+        lines.append(f"| {d} | {rs[0].get('d_phase')} | {inb} | {cell([r for r in rs if r['variant'] == VARIANT_CLEAR])} | "
+                     f"{cell([r for r in rs if r['variant'] != VARIANT_CLEAR])} |")
     pre_rows = sorted((r for r in rows if r.get("pre_break")), key=lambda r: (int(r["d"]), r["variant"]))
-    lines += ["", "Pre-break departures (before the clear's on-group break; their own part of the curve, never counted as gains): the first "
-                  "break each reaches, as the native records report it.", "",
-              f"By first-break target: {json.dumps(v['pre_break']['first_break_by_target'], separators=(',', ':'))}", "",
-              "| d | variant | phase | in band | first break tick | target | on-group target | baseline's next | comparable |", "|---|---|---|---|---|---|---|---|---|"]
+    lines += ["", "Pre-break departures (before the clear's on-group break; their own part of the curve with their own counts; counted like any "
+                  "departure, so a pre-break row beats B only when its progress tick is before B): the first break each reaches, as the native "
+                  "records report it.", "",
+              f"By first-break target: {json.dumps(pbs['first_break_by_target'], separators=(',', ':'))}", "",
+              "| d | variant | phase | departed at d | in band | first break tick | target | on-group target | baseline's next | progress tick | beats B |",
+              "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in pre_rows:
         fb = r.get("first_break") or {}
-        lines.append(f"| {r['d']} | {r['variant']} | {r.get('d_phase')} | {r.get('in_band')} | {fb.get('tick', '-')} | {fb.get('target', '-')} | "
-                     f"{fb.get('on_group_target', '-')} | {fb.get('same_as_baseline_next', '-')} | {r.get('comparable')} |")
+        lines.append(f"| {r['d']} | {r['variant']} | {r.get('d_phase')} | {r.get('departed_at_d', r.get('outcome'))} | {r.get('in_band')} | "
+                     f"{fb.get('tick', '-')} | {fb.get('target', '-')} | {fb.get('on_group_target', '-')} | {fb.get('same_as_baseline_next', '-')} | "
+                     f"{'-' if r.get('progress_tick') is None else r['progress_tick']} | {r.get('beats_B')} |")
     lines += ["", f"Controls: {json.dumps(s['controls'], separators=(',', ':'), default=str)[:1600]}", "",
               f"Integrity: {json.dumps(s['integrity'], separators=(',', ':'), default=str)}", ""]
     return "\n".join(lines)
@@ -1409,17 +1653,83 @@ def report_md(s: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) -> str:
 # -- commands ---------------------------------------------------------------------------------------------------------------------------------
 
 
-def run_command(lab_root: Path, out: Path, a: argparse.Namespace, clear_spec: str, digest: str) -> str:
-    extra = (f" --stride {a.stride}" if a.stride > 1 else "") + (f" --half {a.half}" if a.half else "")
+def run_command(lab_root: Path, out: Path, a: argparse.Namespace, clear_spec: str, digest: str, band: str, head: str) -> str:
     return (f"python -B tools/frs/departure_probe.py run --lab-root {Path(lab_root).as_posix()} --out {Path(out).as_posix()} --clear {clear_spec} "
-            f"--variants {a.variants} --seed {a.seed} --budget-factor {a.budget_factor:g}{extra} --slots {a.slots} --max-wall-min {a.max_wall_min:g} "
-            f"--expect-digest {digest}")
+            f"--variants {a.variants} --seed {a.seed} --budget-factor {a.budget_factor:g} --slots {a.slots} --max-wall-min {a.max_wall_min:g} "
+            f"--expect-digest {digest} --expect-band {band} --expect-head {head}")
+
+
+def git_facts(repo: Path = REPO) -> Dict[str, Any]:
+    """HEAD and the tracked changes under TRACKED_DIRS (git status; untracked files are not changes). None = could not be read."""
+    def git(*args: str) -> Optional[str]:
+        try:
+            r = subprocess.run(["git", *args], capture_output=True, text=True, cwd=str(repo), timeout=120)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return r.stdout if r.returncode == 0 else None
+
+    head = git("rev-parse", "HEAD")
+    st = git("status", "--porcelain", "--untracked-files=no", "--", *TRACKED_DIRS)
+    return {"head": head.strip() if head else None, "tracked_changes": None if st is None else [ln for ln in st.splitlines() if ln.strip()]}
+
+
+def tree_problems(facts: Mapping[str, Any], expect_head: Optional[str]) -> List[str]:
+    """N5 (owner, 2026-11-03): a run refuses a tracked change under TRACKED_DIRS and a HEAD other than --expect-head (the full hash)."""
+    out: List[str] = []
+    if not facts.get("head"):
+        out.append("HEAD could not be read")
+    elif facts["head"] != expect_head:
+        out.append(f"HEAD {facts['head']} differs from --expect-head {expect_head}")
+    ch = facts.get("tracked_changes")
+    if ch is None:
+        out.append("git status could not be read")
+    elif ch:
+        out.append(f"{len(ch)} tracked changes under {', '.join(x + '/' for x in TRACKED_DIRS)}: {list(ch)[:6]}")
+    return out
+
+
+def under_import(out: Path, lab: Path) -> bool:
+    return any(g.under(a, b) for a in g.forms(out) for b in g.forms(Path(lab) / "import"))
+
+
+def out_problems(out: Path, lab: Path, digest: str, band: Optional[str]) -> List[str]:
+    """S5 (owner, 2026-11-03): --out is never under the lab's import folder, and an existing --out may hold only this plan's plan.json (same
+    candidate-set digest and, when given, band digest), candidates.jsonl and refused_*.json files from a refused attempt."""
+    out = Path(out)
+    probs: List[str] = []
+    if under_import(out, lab):
+        probs.append(f"{out} is under the lab's import folder")
+    if not out.exists():
+        return probs
+    if not out.is_dir():
+        return probs + [f"{out} exists and is not a folder"]
+    for p in sorted(out.iterdir()):
+        if p.name == "plan.json" and p.is_file():
+            try:
+                saved = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                probs.append(f"{p} cannot be read: {exc}")
+                continue
+            if saved.get("candidate_set_digest") != digest:
+                probs.append(f"{p} holds another candidate set ({saved.get('candidate_set_digest')})")
+            if band is not None and (saved.get("band") or {}).get("digest") != band:
+                probs.append(f"{p} holds another band ({(saved.get('band') or {}).get('digest')})")
+        elif p.is_file() and (p.name == "candidates.jsonl" or (p.name.startswith("refused_") and p.name.endswith(".json"))):
+            continue
+        else:
+            probs.append(f"{p} (an existing --out may hold only this plan's plan.json, candidates.jsonl and refused_*.json)")
+    return probs
+
+
+def refuse(msg: str) -> int:
+    print(f"refused: {msg}", flush=True)
+    return EXIT["REFUSED"]
 
 
 def prepare(lab: Path, a: argparse.Namespace) -> Dict[str, Any]:
     clf = mcell.Classifier()
     clear = load_clear(lab, a.clear)
-    P = build_plan(clear, ProbeParams(variants=a.variants, seed=a.seed, budget_factor=a.budget_factor, stride=a.stride, half=a.half), clf)
+    P = build_plan(clear, ProbeParams(variants=a.variants, seed=a.seed, budget_factor=a.budget_factor), clf)
     ident = clear["ident"]
     spec = f"{ident['run']}:{ident['n']}:{ident['cid']}"
     return {"clf": clf, "clear": clear, "P": P, "spec": spec}
@@ -1468,9 +1778,14 @@ def describe(L: Mapping[str, Any], cost: Mapping[str, Any], slots: int, band: Op
                f"{p['neutral_triple']}) + generic {p['variants']['generic']} (seed {p['variants']['seed']}, draw id {p['variants']['draw_id']}); "
                f"budget E {p['budget']['E']} = ceil({p['budget']['factor']:g} x {base['B_minus_D']}) (margin {p['budget']['margin']})")
     out.append(f"flight sign along the axis at A: {p['flight_sign']:+d}")
-    pb = p["pre_break"]
-    out.append(f"on-group breaks of the clear (C0 <= tick <= D): {p['on_group_breaks']}; pre-break departures d {pb['d']} "
-               f"(their own part of the curve, with the break they reach first; never counted as gains)")
+    pb, pr = p["pre_break"], p["progress_rule"]
+    out.append(f"on-group breaks of the clear (F <= tick <= D): {p['on_group_breaks']}; pre-break departures d {pb['d']} "
+               f"(labelled pre-break, their own part of the curve with their own counts; counted like any departure: a gain only when the "
+               f"progress tick is before B; on the band's earlier side when outside the band)")
+    out.append(f"progress: a candidate beats B when, at a tick before B, its live mask is a subset of the baseline's at B ({pr['baseline_mask']}, "
+               f"live targets {pr['baseline_live_targets']}): every target the baseline had broken, in any order")
+    out.append("departure of each candidate: measured with the D rule on the contact run that contains d; a row counts only when its departure "
+               "tick is d (the band side and the band test use that departure)")
     out.append(f"window start: {w['start_rule']}; excluded airborne contact ticks {w['excluded_airborne_contact'][0]}..{w['excluded_airborne_contact'][1]} "
                f"({w['excluded_airborne_contact'][2]})")
     out.append(f"candidates: {p['candidates']} ({w['d_count']} d x {1 + p['variants']['K']}), ticks planned {p['ticks_planned']:,}, "
@@ -1479,12 +1794,18 @@ def describe(L: Mapping[str, Any], cost: Mapping[str, Any], slots: int, band: Op
     out.append("dispatch order (first 12): " + " ".join(c["label"] for c in cands[:12]) + " ...")
     out.append("last 6: " + " ".join(c["label"] for c in cands[-6:]))
     if band is not None:
-        bc = band_counts([d for d in sorted({c["d"] for c in cands if not c["pre_break"]})], P["d_info"], band)
-        bp = band_counts([d for d in sorted({c["d"] for c in cands if c["pre_break"]})], P["d_info"], band)
+        bc = band_counts(cands, P["d_info"], band, int(dep["D"]))
+        ph = sorted({r["phase"] for r in band["rows"]} | {band["own"]["phase"]})
         out.append(f"band: arc start {band['arc']['start']} length {band['arc']['length']} (of P {band['P']}) from {band['sources']} verified clears "
-                   f"(skipped {len(band['skipped'])}); axis values {band['axis_value_range']}, directions {band['directions']}; "
-                   f"departures in band {bc['d_in_band']}, outside {bc['d_outside_band']} (pre-break, reported apart: in {bp['d_in_band']}, "
-                   f"outside {bp['d_outside_band']})")
+                   f"(skipped {len(band['skipped'])}) and the probed clear; departure phases {ph}; axis values {band['axis_value_range']}, directions "
+                   f"{band['directions']}")
+        out.append(f"band onsets (status of G, G - D, rows): {[[x['status_G'], x['G_minus_D'], x['rows']] for x in band['onsets']]}; probed clear "
+                   f"{json.dumps(band['own'], separators=(',', ':'))}")
+        out.append(f"planned departure ticks (as if each departs at d): in band {bc['in_band']} (pre-break {bc['in_band_pre_break']}); outside the band "
+                   f"on the earlier side {bc['outside_earlier']} (pre-break {bc['outside_earlier_pre_break']}), on the later side {bc['outside_later']}")
+        out.append(f"band digest {band['digest']}")
+    else:
+        out.append("band digest: not computed (give --band; the run needs --expect-band)")
     ctl = [len(L["clear"]["words"]), len(L["clear"]["words"]), int(dep["D"]) + int(per["P"])]
     ew = expected_wall(cands, cost, slots, ctl)
     if ew is None:
@@ -1503,46 +1824,53 @@ def describe(L: Mapping[str, Any], cost: Mapping[str, Any], slots: int, band: Op
     return out
 
 
-def cmd_dry_run(lab: Path, a: argparse.Namespace) -> int:
+def cmd_dry_run(lab: Path, out: Path, a: argparse.Namespace) -> int:
     L = prepare(lab, a)
     band = band_of(lab, L["P"]["plan"], L["P"]["geo"]) if a.band else None
     cost = measured_cost(lab)
     for ln in describe(L, cost, a.slots, band, a.list):
         print(ln)
-    out = Path(a.out) if a.out else lab / f"departure_probe_{dt.date.today().isoformat()}"
+    facts = git_facts()
+    ch = facts.get("tracked_changes")
+    print(f"git: HEAD {facts.get('head')}; tracked changes under {', '.join(x + '/' for x in TRACKED_DIRS)}: "
+          f"{'unreadable' if ch is None else len(ch)}{' (commit them first: the run refuses them)' if ch else ''}")
+    digest = L["P"]["plan"]["candidate_set_digest"]
+    bad = out_problems(out, lab, digest, band["digest"] if band is not None else None)
+    print(f"output folder {out.as_posix()}: {'refused by the run: ' + '; '.join(bad) if bad else 'accepted by the run'}")
     print("dry run: zero native ticks, nothing written, no lock taken")
-    print("phase 2 command:", run_command(lab, out, a, L["spec"], L["P"]["plan"]["candidate_set_digest"]))
+    head = facts["head"] if facts.get("head") and ch == [] else "<HEAD after the commit>"
+    print("phase 2 command:", run_command(lab, out, a, L["spec"], digest, band["digest"] if band is not None else "<run the dry run with --band>", head))
     return 0
 
 
 def cmd_run(lab: Path, out: Path, a: argparse.Namespace) -> int:
+    """Every refusal here comes before anything is written or launched: the git state, the candidate set, the band, the output folder."""
     import frs_lab as fl
     from m7_runtime import install_kill_on_close_job
 
-    if not a.expect_digest:
-        print("refused: run needs --expect-digest (the candidate-set digest printed by --dry-run)")
-        return 2
-    run_dir = out / "run"
-    if run_dir.exists():
-        print(f"refused: {run_dir} exists (never overwritten)")
-        return 2
+    facts = git_facts()
+    bad = tree_problems(facts, a.expect_head)
+    if bad:
+        return refuse(f"git: {bad}")
     L = prepare(lab, a)
     p = L["P"]["plan"]
     if p["candidate_set_digest"] != a.expect_digest:
-        print(f"refused: the candidate set {p['candidate_set_digest']} differs from --expect-digest {a.expect_digest}")
-        return 2
+        return refuse(f"the candidate set {p['candidate_set_digest']} differs from --expect-digest {a.expect_digest}")
     band = band_of(lab, p, L["P"]["geo"])
+    if band["digest"] != a.expect_band:
+        return refuse(f"the band {band['digest']} differs from --expect-band {a.expect_band}")
+    bad = out_problems(out, lab, p["candidate_set_digest"], band["digest"])
+    if bad:
+        return refuse(f"output folder: {bad[:4]}")
+    run_dir = out / "run"
     cost = measured_cost(lab)
     fs = g.LabFS(lab)
-    saved = out / "plan.json"
-    if saved.is_file() and json.loads(saved.read_text(encoding="utf-8")).get("candidate_set_digest") != p["candidate_set_digest"]:
-        print(f"refused: {saved} exists with a different candidate set")
-        return 2
     fs.mkdir(out)
-    fs.write_json(saved, dict(p, band=band))
-    fs.write_text(out / "candidates.jsonl", "".join(json.dumps(candidate_row(c), separators=(",", ":")) + "\n" for c in L["P"]["candidates"]))
+    fs.write_json(out / "plan.json", dict(p, band=band, git={"head": facts["head"]}))
+    fs.write_text(out / "candidates.jsonl", "".join(json.dumps(candidate_row(c), separators=(",", ":")) + "\n" for c in L["P"]["candidates"]),
+                  atomic=True)
     install_kill_on_close_job()
-    cfg = ProbeConfig(lab_root=lab, out=out, run_dir=run_dir, slots=a.slots, max_wall_s=60.0 * a.max_wall_min)
+    cfg = ProbeConfig(lab_root=lab, out=out, run_dir=run_dir, slots=a.slots, max_wall_s=60.0 * a.max_wall_min, head=facts["head"])
     code = Probe(cfg, fl.real_env(lab, run_dir), L["clear"], L["P"], band, L["clf"], cost).run()
     print(f"exit {code}: {run_dir / 'report.md'}")
     return code
@@ -1558,42 +1886,48 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--variants", type=int, default=1, help="K generic exit variants per departure tick")
     ap.add_argument("--seed", type=int, default=1, help="the Python seed in the burst generator's key family (never native RNG)")
     ap.add_argument("--budget-factor", type=float, default=2.0, help="exit budget E = ceil(F x (B - D)) words after d")
-    ap.add_argument("--stride", type=int, default=1, help="reduction: every k-th departure tick (D always kept)")
-    ap.add_argument("--half", default=None, choices=("flight",), help="reduction: only departures where the group moves with the clear's next flight")
-    ap.add_argument("--band", action="store_true", help="dry run: also read the other verified clears' traces for the band")
+    ap.add_argument("--band", action="store_true", help="dry run: also read the other verified clears' traces for the band and its digest")
     ap.add_argument("--list", action="store_true", help="dry run: print every planned candidate")
     ap.add_argument("--slots", type=int, default=5)
     ap.add_argument("--max-wall-min", type=float, default=MAX_WALL_MIN)
-    ap.add_argument("--expect-digest", default=None)
+    ap.add_argument("--expect-digest", default=None, help="run: the candidate-set digest printed by --dry-run")
+    ap.add_argument("--expect-band", default=None, help="run: the band digest printed by --dry-run --band")
+    ap.add_argument("--expect-head", default=None, help="run: the full HEAD hash the run must start from (git rev-parse HEAD)")
     a = ap.parse_args(argv)
     if a.dry_run == (a.command == "run"):
-        raise SystemExit("refused: give exactly one of --dry-run or run")
+        return refuse("give exactly one of --dry-run or run")
     if not 0 < a.max_wall_min <= MAX_WALL_MIN:
-        raise SystemExit(f"refused: --max-wall-min is in (0, {MAX_WALL_MIN:g}]")
+        return refuse(f"--max-wall-min is in (0, {MAX_WALL_MIN:g}]")
     if not 1 <= a.slots <= 5:
-        raise SystemExit("refused: 1 to 5 slots (at most 5 game processes at once)")
-    if a.variants < 0 or a.stride < 1 or a.budget_factor < 1.0:
-        raise SystemExit("refused: --variants >= 0, --stride >= 1, --budget-factor >= 1")
+        return refuse("1 to 5 slots (at most 5 game processes at once)")
+    if a.variants < 0 or a.budget_factor < 1.0:
+        return refuse("--variants >= 0, --budget-factor >= 1")
     try:
         lab = g.validate_lab_root(Path(a.lab_root))
         out = g.validate_run_dir(Path(a.out) if a.out else lab / f"departure_probe_{dt.date.today().isoformat()}", lab)
     except g.LabRootError as exc:
-        raise SystemExit(str(exc))
+        print(str(exc), flush=True)
+        return EXIT["REFUSED"]
+    if under_import(out, lab):
+        return refuse(f"--out {out} is under the lab's import folder")
     g.LabGuard.install(lab)
     if a.dry_run:
         try:
-            return cmd_dry_run(lab, a)
+            return cmd_dry_run(lab, out, a)
         except ProbeError as exc:
             print(f"stopped: {exc}")
             return 3
+    missing = [k for k, v in (("--expect-digest", a.expect_digest), ("--expect-band", a.expect_band), ("--expect-head", a.expect_head)) if not v]
+    if missing:
+        return refuse(f"run needs {', '.join(missing)} (printed by --dry-run --band)")
     if not (lab / "import" / "import_manifest.json").is_file():
-        raise SystemExit("refused: no lab import (rl/frs_lab.py import first)")
+        return refuse("no lab import (rl/frs_lab.py import first)")
     lock = g.LabLock(lab, "departure_probe run")
     try:
         lock.acquire()
     except g.LabRootError as exc:
-        print(str(exc))
-        return 2
+        print(str(exc), flush=True)
+        return EXIT["REFUSED"]
     try:
         return cmd_run(lab, out, a)
     except ProbeError as exc:
