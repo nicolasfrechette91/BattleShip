@@ -23,7 +23,7 @@ Items that are my own plans or preferences are not in any record.
 ## Absolute constraints
 - No native RNG seed inspection, logging, control, comparison or hashing. Python experiment seeds are fine.
 - Preserve non-PORT decomp/byte-matching behaviour. Native gameplay is authoritative.
-- Process restart resets the episode. Submit action tick T, one native update, consumed_tick=T, input_tick=T+1.
+- Process restart resets the episode. Submit action tick T, one native update, consumed_tick=T, input_tick=T+1. For search only: in-process soft reset (C) is allowed once its pilot passes; see docs/rl_decision_soft_reset_2026-11-02.md. Claims unchanged.
 - Canonical controller words are replay truth; no hidden actions. Track 1: btt_s9_b8_v1 = MultiDiscrete([9,8]).
 - Human recordings and the TAS (tas_input_2/mario_743.btti) are validation-only: never demonstrations, starts, prefixes, route hints or target times. The agent's own trajectories may be used.
 - No hardcoded routes or waypoints. Every selection or curriculum rule is generic and stage-agnostic. No census number in selection, claims, rules or runs.
@@ -77,6 +77,8 @@ Fingerprints recomputed on 2026-10-13 from the committed blobs at HEAD `6cb3e89`
 
 ## Design leads for November
 Order (decided 2026-10-16 in `docs/rl_decisions_2026-10-16.md`, which supersedes the build order of `docs/rl_decisions_2026-10-14.md`; that record had superseded the 2026-10-13 order "Donkey Kong first, then g4"): the crossing-search line first; Donkey Kong at a later checkpoint; g4 after it.
+
+Decided 2026-11-02: in-process soft reset (C) allowed for search after its pilot; claims unchanged; (B) snapshots open. See docs/rl_decision_soft_reset_2026-11-02.md.
 
 1. Crossing-search line (first, the main November line): the two-tier plan in `docs/rl_decisions_2026-10-16.md`, from the strategy review `docs/frs_strategy_2026-10-16.md`, whose findings are accepted (about 37 % of the 1,245 is waiting or slow movement; the agent's own data supports roughly 860 ticks with the current approach and shows nothing below about 850; the limit is how rarely the search returns to promising cells, not the inputs).
    - Tier 1: the review's stages 0 to 2. Stage 0: the run 3 tool (run 2's tool with the end record stored, a budget per (level, mask) group, a draw by arrival rank with a novelty floor, anchors whose share halves after each burst without a new earliest arrival in the group). Stage 1: run 3 from run 2's archive. Stage 2: the order-diverse right-side arm (seeds of every class, anchors per class). Stage 3 (state-aware representatives) only if stage 2 stops. Also in week 1: the offline cell-prior study; the native batched-prefix design (`docs/frs_prefix_cost_2026-10-14.md` section 4.3) waits for the throughput decision that opens week 1 (`docs/rl_decisions_2026-10-16_addendum.md`, part 2); no native throughput work for run 3. Claims are replayed only when faster than the best, with deduplication. Plateau: read on verified clears and on the earliest arrival per group; three nights without progress ends a line (the 2026-10-14 record also set a review on 2026-11-27).
