@@ -687,6 +687,20 @@ if (NOT MSVC)
     target_compile_options(ssb64_game PRIVATE -fno-builtin-sinf -fno-builtin-cosf)
 endif()
 
+# PORT, MSVC only, opt-in (default OFF: the default build is unchanged).
+# MSVC ignores the #pragma weak aliases above, so the bare sinf()/cosf()
+# decomp call sites (src/sys/vector.c, src/ft/ftphysics.c, ...) resolve to
+# the host CRT there instead of libultra. ON maps the bare names to
+# libultra's __sinf/__cosf for this target's C sources, as on the N64 and in
+# GCC/Clang builds. Experiment for REVIEW_2026-11-03.md finding D1.
+option(SSB64_MSVC_LIBULTRA_TRIG "MSVC: route bare sinf/cosf in C game sources to libultra __sinf/__cosf" OFF)
+if (MSVC AND SSB64_MSVC_LIBULTRA_TRIG)
+    target_compile_definitions(ssb64_game PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:sinf=__sinf>
+        $<$<COMPILE_LANGUAGE:C>:cosf=__cosf>)
+    message(STATUS "SSB64_MSVC_LIBULTRA_TRIG=ON: bare sinf/cosf -> libultra __sinf/__cosf (C sources of ssb64_game)")
+endif()
+
 # N64 audio library — synthesis driver, sequence player, voice management.
 # These decomp files are compiled with PORT defines; the CPU Acmd interpreter
 # (port/audio/mixer.h) replaces RSP microcode via macro substitution.
