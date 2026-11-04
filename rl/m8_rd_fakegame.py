@@ -12,6 +12,8 @@ the serving process (pid and its own launch nonce).
 Port log, like native main(): SSB64_LOG_PATH when non-empty, else (only if FAKEGAME_PREF_DIR is set) one shared
 $FAKEGAME_PREF_DIR/ssb64.log, opened with truncation by every process as the native game does with its shared
 %APPDATA% log today. FAKEGAME_NATIVE_ERROR_AT_STEP=k writes a native-style ERROR line at step k.
+FAKEGAME_STEP_JITTER_S=j sleeps a uniform 0..j seconds (from the OS entropy pool) before each step reply: wall-clock noise
+that changes which of several parallel jobs finishes first, never the world's replies.
 
 Environment (all optional): FAKEGAME_WORLD (stub world, default easy), FAKEGAME_BOOT_S (seconds spent Inactive), FAKEGAME_LOG
 (a file to which one line per start is appended: cwd, port, the sha256 of the BattleShip.cfg.json found in the working
@@ -23,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import random
 import socket
 import sys
 import time
@@ -51,6 +54,8 @@ def main() -> int:
                                                     if os.environ.get("FAKEGAME_PREF_DIR") else None)
     port_log_file = open(log_path, "w", encoding="utf-8") if log_path else None
     error_at = int(os.environ.get("FAKEGAME_NATIVE_ERROR_AT_STEP", "0"))
+    jitter = float(os.environ.get("FAKEGAME_STEP_JITTER_S", "0"))
+    noise = random.SystemRandom()
 
     def port_log(line: str) -> None:
         if port_log_file is not None:
@@ -140,6 +145,8 @@ def main() -> int:
                 resp.update({k: v for k, v in r.items() if k not in ("ok", "op", "protocol")})
         elif op == "step":
             steps += 1
+            if jitter > 0:
+                time.sleep(noise.random() * jitter)
             if log_requests:
                 event(event="step_served", step=steps)
             if error_at and steps == error_at:
