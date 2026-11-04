@@ -1,0 +1,1560 @@
+{
+ "generated_by": "tools/analysis/run2_records.py",
+ "inputs": [
+  "docs/frs_crossing_search_run2_2026-10-15.md",
+  "docs/frs_strategy_2026-10-16.md",
+  "docs/frs_route_insight_2026-10-16.md",
+  "docs/frs_anomaly_inventory_2026-10-16.md",
+  "docs/frs_prefix_cost_2026-10-14.md"
+ ],
+ "hourly": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_crossing_search_run2_2026-10-15.md",
+   "section": "Progress over time",
+   "note": "hour 8 is the search's last 46 minutes"
+  },
+  "rows": [
+   {
+    "hour": 1,
+    "dispatches": 4145.0,
+    "breaks": 65.0,
+    "falls": 2094.0,
+    "clears_claimed": 14.0,
+    "new_cells": 384.0,
+    "replacements": 8531.0,
+    "ticks": 5510000.0
+   },
+   {
+    "hour": 2,
+    "dispatches": 4776.0,
+    "breaks": 80.0,
+    "falls": 2981.0,
+    "clears_claimed": 33.0,
+    "new_cells": 457.0,
+    "replacements": 6800.0,
+    "ticks": 6060000.0
+   },
+   {
+    "hour": 3,
+    "dispatches": 5055.0,
+    "breaks": 73.0,
+    "falls": 3441.0,
+    "clears_claimed": 10.0,
+    "new_cells": 883.0,
+    "replacements": 7163.0,
+    "ticks": 6310000.0
+   },
+   {
+    "hour": 4,
+    "dispatches": 5198.0,
+    "breaks": 64.0,
+    "falls": 3363.0,
+    "clears_claimed": 4.0,
+    "new_cells": 575.0,
+    "replacements": 11355.0,
+    "ticks": 6550000.0
+   },
+   {
+    "hour": 5,
+    "dispatches": 5274.0,
+    "breaks": 65.0,
+    "falls": 3459.0,
+    "clears_claimed": 7.0,
+    "new_cells": 432.0,
+    "replacements": 10997.0,
+    "ticks": 6720000.0
+   },
+   {
+    "hour": 6,
+    "dispatches": 5384.0,
+    "breaks": 69.0,
+    "falls": 3465.0,
+    "clears_claimed": 9.0,
+    "new_cells": 490.0,
+    "replacements": 10392.0,
+    "ticks": 6880000.0
+   },
+   {
+    "hour": 7,
+    "dispatches": 5401.0,
+    "breaks": 92.0,
+    "falls": 3198.0,
+    "clears_claimed": 29.0,
+    "new_cells": 706.0,
+    "replacements": 9666.0,
+    "ticks": 6910000.0
+   },
+   {
+    "hour": 8,
+    "dispatches": 4076.0,
+    "breaks": 76.0,
+    "falls": 2284.0,
+    "clears_claimed": 30.0,
+    "new_cells": 623.0,
+    "replacements": 6333.0,
+    "ticks": 5230000.0
+   }
+  ],
+  "checks_per_utc_hour": {
+   "evidence": "recorded",
+   "values": [
+    1101,
+    911,
+    609,
+    451,
+    311,
+    206,
+    174,
+    129,
+    24
+   ],
+   "source": {
+    "doc": "docs/frs_crossing_search_run2_2026-10-15.md",
+    "section": "The run (checks of inherited cells)",
+    "note": "UTC hours from the launch, so the first one includes the open"
+   }
+  }
+ },
+ "totals": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_crossing_search_run2_2026-10-15.md",
+   "section": "The run"
+  },
+  "values": {
+   "dispatches": 39309,
+   "dispatches_per_level": {
+    "9": 20984,
+    "8": 10528,
+    "7": 5208,
+    "6": 2589
+   },
+   "ticks": {
+    "all": 54086814,
+    "prefix": 46603859,
+    "burst": 3568728,
+    "checks": 3903197,
+    "verification": 7716,
+    "reference": 1885,
+    "anchor": 1429
+   },
+   "jobs_per_hour": 5057,
+   "ticks_per_job": 1276,
+   "burst_words_per_job": 91,
+   "continued": 3013,
+   "boundaries": 17900,
+   "falls": 24285,
+   "clears_claimed": 136,
+   "bursts_broke_target": 584,
+   "cells_at_close": 37294,
+   "cells_inherited": 32744,
+   "cells_new": 4550,
+   "replacements": 71237,
+   "later_arrivals": 509661,
+   "beyond_bound": 144999,
+   "eligible_never_drawn": 3048,
+   "checks": 3916,
+   "check_worker_s": 19772,
+   "wall_s": 28505,
+   "search_s": 27982
+  }
+ },
+ "best_timeline": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_crossing_search_run2_2026-10-15.md",
+   "section": "Progress over time (best verified clear)"
+  },
+  "start_best": 1429,
+  "start_note": "run 1's best verified clear, imported at the open",
+  "rows": [
+   {
+    "best": 1352,
+    "time_passed": 1351,
+    "previous": 1429,
+    "gain": 77,
+    "dispatch": 813,
+    "cell": 9709,
+    "start_tick": 1328,
+    "elapsed_min": 22
+   },
+   {
+    "best": 1261,
+    "time_passed": 1260,
+    "previous": 1352,
+    "gain": 91,
+    "dispatch": 19643,
+    "cell": 9709,
+    "start_tick": 1232,
+    "elapsed_min": 255
+   },
+   {
+    "best": 1245,
+    "time_passed": 1244,
+    "previous": 1261,
+    "gain": 16,
+    "dispatch": 36236,
+    "cell": 8692,
+    "start_tick": 1209,
+    "elapsed_min": 441
+   }
+  ]
+ },
+ "earliest_per_level": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_crossing_search_run2_2026-10-15.md",
+   "section": "Progress over time (earliest arrival per level)"
+  },
+  "rows": [
+   {
+    "level": 9,
+    "run1": 1300,
+    "improvements": [
+     {
+      "tick": 1293,
+      "dispatch": 2274
+     },
+     {
+      "tick": 1072,
+      "dispatch": 2723
+     },
+     {
+      "tick": 1053,
+      "dispatch": 13636
+     },
+     {
+      "tick": 1051,
+      "dispatch": 28551
+     }
+    ],
+    "end": 1051,
+    "lead_on_reference": 781
+   },
+   {
+    "level": 8,
+    "run1": 1096,
+    "improvements": [
+     {
+      "tick": 974,
+      "dispatch": 1188
+     }
+    ],
+    "end": 974,
+    "lead_on_reference": 802
+   },
+   {
+    "level": 7,
+    "run1": 493,
+    "improvements": [],
+    "end": 493,
+    "lead_on_reference": 846
+   },
+   {
+    "level": 6,
+    "run1": 461,
+    "improvements": [],
+    "end": 461,
+    "lead_on_reference": 521
+   }
+  ]
+ },
+ "level9_groups": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_strategy_2026-10-16.md",
+   "section": "5. The search's limits",
+   "note": "all level-9 dispatches per group of remaining target"
+  },
+  "rows": [
+   {
+    "group": "target 6 left (mask 64)",
+    "dispatches": 8078,
+    "clears": 0,
+    "falls": 7327,
+    "cells_seed579": 1141
+   },
+   {
+    "group": "target 1 left (mask 2)",
+    "dispatches": 8027,
+    "clears": 90,
+    "cells_seed579": 2611
+   },
+   {
+    "group": "target 8 left (mask 256)",
+    "dispatches": 4879,
+    "clears": 46,
+    "cells_seed579": 1979
+   }
+  ],
+  "seed579_only": {
+   "evidence": "recorded",
+   "source": {
+    "doc": "docs/frs_crossing_search_run2_2026-10-15.md",
+    "section": "What limited progress",
+    "note": "dispatches from seed 579's descendants only"
+   },
+   "dispatches": {
+    "mask 64": 7996,
+    "mask 2": 7619,
+    "mask 256": 4813
+   },
+   "clears": {
+    "mask 64": 0,
+    "mask 2": 78,
+    "mask 256": 46
+   }
+  }
+ },
+ "chain_1245": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_strategy_2026-10-16.md",
+   "section": "5. The search's limits (the 1,245's chain)",
+   "note": "dispatch counters; link 5 was created in run 1 (its counter is run 1's)"
+  },
+  "rows": [
+   {
+    "link": 5,
+    "level_tick": "7: 978 (mid-flight, A2)",
+    "created_run": "run 1",
+    "created_at": 23285,
+    "first_dispatch_run": "run 2",
+    "first_dispatched_at": 14659,
+    "dispatches": 1
+   },
+   {
+    "link": 6,
+    "level_tick": "8: 1,042",
+    "created_run": "run 2",
+    "created_at": 14661,
+    "first_dispatch_run": "run 2",
+    "first_dispatched_at": 16105,
+    "dispatches": 2
+   },
+   {
+    "link": 7,
+    "level_tick": "8: 1,071",
+    "created_run": "run 2",
+    "created_at": 16110,
+    "first_dispatch_run": "run 2",
+    "first_dispatched_at": 18309,
+    "dispatches": 2
+   },
+   {
+    "link": 8,
+    "level_tick": "8: 1,098",
+    "created_run": "run 2",
+    "created_at": 29051,
+    "first_dispatch_run": "run 2",
+    "first_dispatched_at": 29318,
+    "dispatches": 3
+   },
+   {
+    "link": 9,
+    "level_tick": "9: 1,150",
+    "created_run": "run 2",
+    "created_at": 29318,
+    "first_dispatch_run": "run 2",
+    "first_dispatched_at": 29643,
+    "dispatches": 1
+   },
+   {
+    "link": 10,
+    "level_tick": "9: 1,188",
+    "created_run": "run 2",
+    "created_at": 29646,
+    "first_dispatch_run": "run 2",
+    "first_dispatched_at": 34242,
+    "dispatches": 1
+   },
+   {
+    "link": 11,
+    "level_tick": "9: 1,202",
+    "created_run": "run 2",
+    "created_at": 34247,
+    "first_dispatch_run": "run 2",
+    "first_dispatched_at": 35106,
+    "dispatches": 2
+   },
+   {
+    "link": 12,
+    "level_tick": "9: 1,209",
+    "created_run": "run 2",
+    "created_at": 35114,
+    "first_dispatch_run": "run 2",
+    "first_dispatched_at": 36236,
+    "dispatches": 1
+   }
+  ]
+ },
+ "bests_breaks": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_route_insight_2026-10-16.md",
+   "section": "3.4 The verified bests, break by break"
+  },
+  "clears": [
+   {
+    "clear": "1,245",
+    "source": "1,245 (run 2 n 36236)"
+   },
+   {
+    "clear": "1,261",
+    "source": "1,261 (run 2 n 19643)"
+   },
+   {
+    "clear": "1,352",
+    "source": "1,352 (run 2 n 813)"
+   },
+   {
+    "clear": "1,429",
+    "source": "1,429 (run 1 n 28613)"
+   },
+   {
+    "clear": "1,588",
+    "source": "1,588 (run 1 n 25467)"
+   },
+   {
+    "clear": "1,884",
+    "source": "1,884 (splice c073_cid2290)"
+   },
+   {
+    "clear": "1,885",
+    "source": "1,885 (reference)"
+   }
+  ],
+  "breaks": {
+   "1,245": [
+    {
+     "tick": 29,
+     "target": 4,
+     "class": "A1"
+    },
+    {
+     "tick": 80,
+     "target": 0,
+     "class": "A1"
+    },
+    {
+     "tick": 167,
+     "target": 5,
+     "class": "A0"
+    },
+    {
+     "tick": 184,
+     "target": 7,
+     "class": "A0"
+    },
+    {
+     "tick": 305,
+     "target": 9,
+     "class": "A0"
+    },
+    {
+     "tick": 461,
+     "target": 3,
+     "class": "G"
+    },
+    {
+     "tick": 639,
+     "target": 2,
+     "class": "G"
+    },
+    {
+     "tick": 1042,
+     "target": 6,
+     "class": "A2"
+    },
+    {
+     "tick": 1135,
+     "target": 8,
+     "class": "A2"
+    },
+    {
+     "tick": 1245,
+     "target": 1,
+     "class": "A1"
+    }
+   ],
+   "1,261": [
+    {
+     "tick": 29,
+     "target": 4,
+     "class": "A1"
+    },
+    {
+     "tick": 80,
+     "target": 0,
+     "class": "A1"
+    },
+    {
+     "tick": 167,
+     "target": 5,
+     "class": "A0"
+    },
+    {
+     "tick": 184,
+     "target": 7,
+     "class": "A0"
+    },
+    {
+     "tick": 305,
+     "target": 9,
+     "class": "A0"
+    },
+    {
+     "tick": 461,
+     "target": 3,
+     "class": "G"
+    },
+    {
+     "tick": 639,
+     "target": 2,
+     "class": "G"
+    },
+    {
+     "tick": 1042,
+     "target": 6,
+     "class": "A2"
+    },
+    {
+     "tick": 1195,
+     "target": 8,
+     "class": "A1"
+    },
+    {
+     "tick": 1261,
+     "target": 1,
+     "class": "A1"
+    }
+   ],
+   "1,352": [
+    {
+     "tick": 28,
+     "target": 4,
+     "class": "A1"
+    },
+    {
+     "tick": 95,
+     "target": 5,
+     "class": "A0"
+    },
+    {
+     "tick": 246,
+     "target": 9,
+     "class": "A2"
+    },
+    {
+     "tick": 482,
+     "target": 7,
+     "class": "A1"
+    },
+    {
+     "tick": 663,
+     "target": 0,
+     "class": "A1"
+    },
+    {
+     "tick": 761,
+     "target": 3,
+     "class": "G"
+    },
+    {
+     "tick": 848,
+     "target": 2,
+     "class": "A2"
+    },
+    {
+     "tick": 1231,
+     "target": 6,
+     "class": "A1"
+    },
+    {
+     "tick": 1307,
+     "target": 8,
+     "class": "A1"
+    },
+    {
+     "tick": 1352,
+     "target": 1,
+     "class": "A1"
+    }
+   ],
+   "1,429": [
+    {
+     "tick": 28,
+     "target": 4,
+     "class": "A1"
+    },
+    {
+     "tick": 95,
+     "target": 5,
+     "class": "A0"
+    },
+    {
+     "tick": 246,
+     "target": 9,
+     "class": "A2"
+    },
+    {
+     "tick": 482,
+     "target": 7,
+     "class": "A1"
+    },
+    {
+     "tick": 663,
+     "target": 0,
+     "class": "A1"
+    },
+    {
+     "tick": 761,
+     "target": 3,
+     "class": "G"
+    },
+    {
+     "tick": 848,
+     "target": 2,
+     "class": "A2"
+    },
+    {
+     "tick": 1288,
+     "target": 6,
+     "class": "A2"
+    },
+    {
+     "tick": 1356,
+     "target": 8,
+     "class": "A2"
+    },
+    {
+     "tick": 1429,
+     "target": 1,
+     "class": "A2"
+    }
+   ],
+   "1,588": [
+    {
+     "tick": 28,
+     "target": 4,
+     "class": "A1"
+    },
+    {
+     "tick": 95,
+     "target": 5,
+     "class": "A0"
+    },
+    {
+     "tick": 246,
+     "target": 9,
+     "class": "A2"
+    },
+    {
+     "tick": 482,
+     "target": 7,
+     "class": "A1"
+    },
+    {
+     "tick": 663,
+     "target": 0,
+     "class": "A1"
+    },
+    {
+     "tick": 761,
+     "target": 3,
+     "class": "G"
+    },
+    {
+     "tick": 848,
+     "target": 2,
+     "class": "A2"
+    },
+    {
+     "tick": 1288,
+     "target": 6,
+     "class": "A2"
+    },
+    {
+     "tick": 1447,
+     "target": 1,
+     "class": "A2"
+    },
+    {
+     "tick": 1588,
+     "target": 8,
+     "class": "A1"
+    }
+   ],
+   "1,884": [
+    {
+     "tick": 43,
+     "target": 0,
+     "class": "A2"
+    },
+    {
+     "tick": 120,
+     "target": 4,
+     "class": "A0"
+    },
+    {
+     "tick": 399,
+     "target": 9,
+     "class": "G"
+    },
+    {
+     "tick": 609,
+     "target": 5,
+     "class": "A0"
+    },
+    {
+     "tick": 880,
+     "target": 3,
+     "class": "G"
+    },
+    {
+     "tick": 982,
+     "target": 7,
+     "class": "A0"
+    },
+    {
+     "tick": 1338,
+     "target": 2,
+     "class": "A0"
+    },
+    {
+     "tick": 1775,
+     "target": 6,
+     "class": "A2"
+    },
+    {
+     "tick": 1831,
+     "target": 8,
+     "class": "A2"
+    },
+    {
+     "tick": 1884,
+     "target": 1,
+     "class": "A2"
+    }
+   ],
+   "1,885": [
+    {
+     "tick": 43,
+     "target": 0,
+     "class": "A2"
+    },
+    {
+     "tick": 120,
+     "target": 4,
+     "class": "A0"
+    },
+    {
+     "tick": 399,
+     "target": 9,
+     "class": "G"
+    },
+    {
+     "tick": 609,
+     "target": 5,
+     "class": "A0"
+    },
+    {
+     "tick": 880,
+     "target": 3,
+     "class": "G"
+    },
+    {
+     "tick": 982,
+     "target": 7,
+     "class": "A0"
+    },
+    {
+     "tick": 1339,
+     "target": 2,
+     "class": "A0"
+    },
+    {
+     "tick": 1776,
+     "target": 6,
+     "class": "A2"
+    },
+    {
+     "tick": 1832,
+     "target": 8,
+     "class": "A2"
+    },
+    {
+     "tick": 1885,
+     "target": 1,
+     "class": "A2"
+    }
+   ]
+  },
+  "per_target_earliest_among_bests": {
+   "evidence": "derived",
+   "values": {
+    "0": {
+     "earliest": 43,
+     "in_clear": "1,884",
+     "per_clear": {
+      "1,245": 80,
+      "1,261": 80,
+      "1,352": 663,
+      "1,429": 663,
+      "1,588": 663,
+      "1,884": 43,
+      "1,885": 43
+     }
+    },
+    "1": {
+     "earliest": 1245,
+     "in_clear": "1,245",
+     "per_clear": {
+      "1,245": 1245,
+      "1,261": 1261,
+      "1,352": 1352,
+      "1,429": 1429,
+      "1,588": 1447,
+      "1,884": 1884,
+      "1,885": 1885
+     }
+    },
+    "2": {
+     "earliest": 639,
+     "in_clear": "1,245",
+     "per_clear": {
+      "1,245": 639,
+      "1,261": 639,
+      "1,352": 848,
+      "1,429": 848,
+      "1,588": 848,
+      "1,884": 1338,
+      "1,885": 1339
+     }
+    },
+    "3": {
+     "earliest": 461,
+     "in_clear": "1,245",
+     "per_clear": {
+      "1,245": 461,
+      "1,261": 461,
+      "1,352": 761,
+      "1,429": 761,
+      "1,588": 761,
+      "1,884": 880,
+      "1,885": 880
+     }
+    },
+    "4": {
+     "earliest": 28,
+     "in_clear": "1,352",
+     "per_clear": {
+      "1,245": 29,
+      "1,261": 29,
+      "1,352": 28,
+      "1,429": 28,
+      "1,588": 28,
+      "1,884": 120,
+      "1,885": 120
+     }
+    },
+    "5": {
+     "earliest": 95,
+     "in_clear": "1,352",
+     "per_clear": {
+      "1,245": 167,
+      "1,261": 167,
+      "1,352": 95,
+      "1,429": 95,
+      "1,588": 95,
+      "1,884": 609,
+      "1,885": 609
+     }
+    },
+    "6": {
+     "earliest": 1042,
+     "in_clear": "1,245",
+     "per_clear": {
+      "1,245": 1042,
+      "1,261": 1042,
+      "1,352": 1231,
+      "1,429": 1288,
+      "1,588": 1288,
+      "1,884": 1775,
+      "1,885": 1776
+     }
+    },
+    "7": {
+     "earliest": 184,
+     "in_clear": "1,245",
+     "per_clear": {
+      "1,245": 184,
+      "1,261": 184,
+      "1,352": 482,
+      "1,429": 482,
+      "1,588": 482,
+      "1,884": 982,
+      "1,885": 982
+     }
+    },
+    "8": {
+     "earliest": 1135,
+     "in_clear": "1,245",
+     "per_clear": {
+      "1,245": 1135,
+      "1,261": 1195,
+      "1,352": 1307,
+      "1,429": 1356,
+      "1,588": 1588,
+      "1,884": 1831,
+      "1,885": 1832
+     }
+    },
+    "9": {
+     "earliest": 246,
+     "in_clear": "1,352",
+     "per_clear": {
+      "1,245": 305,
+      "1,261": 305,
+      "1,352": 246,
+      "1,429": 246,
+      "1,588": 246,
+      "1,884": 399,
+      "1,885": 399
+     }
+    }
+   },
+   "note": "earliest break of each target among these verified clears only, not over every trajectory"
+  }
+ },
+ "orders": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_strategy_2026-10-16.md",
+   "section": "3. Target orders explored",
+   "note": "archive and lab together, not run 2 alone"
+  },
+  "complete": [
+   {
+    "order": "4, 0, 5, 7, 9, 3, 2, 6, 8, 1",
+    "fastest": 1245,
+    "fastest_source": "1,245 (run 2)",
+    "clears": 22,
+    "composite": 665
+   },
+   {
+    "order": "4, 0, 5, 7, 9, 3, 2, 6, 1, 8",
+    "fastest": 1280,
+    "fastest_source": "1,280 (run 2)",
+    "clears": 46,
+    "composite": 770
+   },
+   {
+    "order": "4, 5, 9, 7, 0, 3, 2, 6, 8, 1",
+    "fastest": 1352,
+    "fastest_source": "1,352 (run 2; 1,429 in run 1)",
+    "clears": 157,
+    "composite": 497
+   },
+   {
+    "order": "4, 5, 9, 7, 0, 3, 2, 6, 1, 8",
+    "fastest": 1588,
+    "fastest_source": "1,588 (run 1)",
+    "clears": 209,
+    "composite": 602
+   },
+   {
+    "order": "0, 4, 9, 5, 3, 7, 2, 6, 8, 1",
+    "fastest": 1885,
+    "fastest_source": "1,885 (archive)",
+    "clears": 21,
+    "composite": 780
+   }
+  ],
+  "level7": [
+   {
+    "prefix": "4, 0, 5, 7, 9, 3, 2",
+    "note": "the 1,245's",
+    "fastest_arrival": 493,
+    "fastest_source": "493 (frontier)",
+    "composite": 336,
+    "trajectories": 47,
+    "dispatches": 6341
+   },
+   {
+    "prefix": "4, 0, 5, 7, 9, 2, 3",
+    "note": "",
+    "fastest_arrival": 638,
+    "fastest_source": "638",
+    "composite": 469,
+    "trajectories": 56,
+    "dispatches": 404
+   },
+   {
+    "prefix": "4, 5, 9, 7, 0, 3, 2",
+    "note": "the 1,429's",
+    "fastest_arrival": 798,
+    "fastest_source": "798",
+    "composite": 168,
+    "trajectories": 7,
+    "dispatches": 2811
+   },
+   {
+    "prefix": "4, 0, 5, 7, 3, 9, 2",
+    "note": "",
+    "fastest_arrival": 874,
+    "fastest_source": "874",
+    "composite": 423,
+    "trajectories": 1,
+    "dispatches": 16
+   },
+   {
+    "prefix": "4, 0, 5, 7, 9, 2, 6",
+    "note": "target 6 before 3",
+    "fastest_arrival": 879,
+    "fastest_source": "879 (run 2)",
+    "composite": 632,
+    "trajectories": 9,
+    "dispatches": 226
+   },
+   {
+    "prefix": "4, 0, 5, 7, 9, 3, 8",
+    "note": "target 8 before 2",
+    "fastest_arrival": 894,
+    "fastest_source": "894 (run 2)",
+    "composite": 757,
+    "trajectories": 7,
+    "dispatches": 157
+   },
+   {
+    "prefix": "4, 5, 9, 3, 0, 2, 7",
+    "note": "",
+    "fastest_arrival": 979,
+    "fastest_source": "979",
+    "composite": 398,
+    "trajectories": 2,
+    "dispatches": 48
+   },
+   {
+    "prefix": "4, 5, 9, 7, 3, 0, 2",
+    "note": "",
+    "fastest_arrival": 1079,
+    "fastest_source": "1,079",
+    "composite": 326,
+    "trajectories": 1,
+    "dispatches": 17
+   },
+   {
+    "prefix": "4, 5, 9, 7, 2, 0, 3",
+    "note": "",
+    "fastest_arrival": 1089,
+    "fastest_source": "1,089",
+    "composite": 347,
+    "trajectories": 1,
+    "dispatches": 17
+   },
+   {
+    "prefix": "0, 4, 5, 7, 9, 3, 2",
+    "note": "",
+    "fastest_arrival": 1097,
+    "fastest_source": "1,097 (probe)",
+    "composite": 289,
+    "trajectories": 8,
+    "dispatches": 113
+   },
+   {
+    "prefix": "4, 5, 9, 7, 0, 2, 3",
+    "note": "",
+    "fastest_arrival": 1101,
+    "fastest_source": "1,101",
+    "composite": 249,
+    "trajectories": 1,
+    "dispatches": 16
+   },
+   {
+    "prefix": "0, 4, 5, 7, 3, 9, 2",
+    "note": "",
+    "fastest_arrival": 1154,
+    "fastest_source": "1,154",
+    "composite": 376,
+    "trajectories": 2,
+    "dispatches": 16
+   },
+   {
+    "prefix": "4, 5, 9, 7, 2, 3, 0",
+    "note": "",
+    "fastest_arrival": 1234,
+    "fastest_source": "1,234",
+    "composite": 308,
+    "trajectories": 2,
+    "dispatches": 32
+   },
+   {
+    "prefix": "0, 4, 9, 5, 3, 7, 2",
+    "note": "the reference's",
+    "fastest_arrival": 1339,
+    "fastest_source": "1,339",
+    "composite": 451,
+    "trajectories": 38,
+    "dispatches": 5002
+   },
+   {
+    "prefix": "0, 4, 9, 5, 3, 2, 7",
+    "note": "",
+    "fastest_arrival": 1372,
+    "fastest_source": "1,372",
+    "composite": 511,
+    "trajectories": 36,
+    "dispatches": 155
+   }
+  ],
+  "prefixes_per_level": {
+   "4": 38,
+   "5": 33,
+   "6": 19,
+   "7": 15,
+   "8": 12,
+   "9": 9,
+   "10": 5
+  }
+ },
+ "segments_1245": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_strategy_2026-10-16.md",
+   "section": "2. Fastest observed transitions",
+   "note": "best = fastest observed anywhere (archive, frontier, probe, runs 1 and 2)"
+  },
+  "rows": [
+   {
+    "pair": "start → 4",
+    "clear": 29,
+    "best": 26,
+    "where": "archive rd1",
+    "n": 55,
+    "median": 117,
+    "room": 3
+   },
+   {
+    "pair": "4 → 0",
+    "clear": 51,
+    "best": 45,
+    "where": "archive rd4",
+    "n": 111,
+    "median": 112,
+    "room": 6
+   },
+   {
+    "pair": "0 → 5",
+    "clear": 87,
+    "best": 45,
+    "where": "frontier (grounded start)",
+    "n": 44,
+    "median": 141,
+    "room": 42
+   },
+   {
+    "pair": "5 → 7",
+    "clear": 17,
+    "best": 11,
+    "where": "archive rd3",
+    "n": 1431,
+    "median": 17,
+    "room": 6
+   },
+   {
+    "pair": "7 → 9",
+    "clear": 121,
+    "best": 96,
+    "where": "frontier, from the 184 up-B state",
+    "n": 307,
+    "median": 144,
+    "room": 25
+   },
+   {
+    "pair": "9 → 3",
+    "clear": 156,
+    "best": 101,
+    "where": "frontier (grounded on the right platform)",
+    "n": 55,
+    "median": 240,
+    "room": 55
+   },
+   {
+    "pair": "3 → 2",
+    "clear": 178,
+    "best": 12,
+    "where": "frontier (A1 near the platform; a projectile or a hit on arrival)",
+    "n": 71,
+    "median": 262,
+    "room": 166
+   },
+   {
+    "pair": "2 → 6",
+    "clear": 403,
+    "best": 245,
+    "where": "probe pair 170 lead (an archive state at 1,237 crossing at 1,482)",
+    "n": 122,
+    "median": 440,
+    "room": 158
+   },
+   {
+    "pair": "6 → 8",
+    "clear": 93,
+    "best": 39,
+    "where": "probe pair 192 control (the route's neighbourhood, 1,777 -> 1,816)",
+    "n": 359,
+    "median": 100,
+    "room": 54
+   },
+   {
+    "pair": "8 → 1",
+    "clear": 110,
+    "best": 45,
+    "where": "run 2 (the 1,352 clear)",
+    "n": 328,
+    "median": 114,
+    "room": 65
+   }
+  ]
+ },
+ "signals": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_crossing_search_run2_2026-10-15.md",
+   "section": "Effects of the signals"
+  },
+  "rows": [
+   {
+    "signal": "break bonus",
+    "bucket": "cells with a break record",
+    "jobs": 1037,
+    "broke": 223,
+    "share_pct": 21.5,
+    "new_cells_per_job": 0.1
+   },
+   {
+    "signal": "break bonus",
+    "bucket": "without",
+    "jobs": 38272,
+    "broke": 361,
+    "share_pct": 0.94,
+    "new_cells_per_job": 0.12
+   },
+   {
+    "signal": "seen penalty",
+    "bucket": "seen 0 to 2",
+    "jobs": 7857,
+    "broke": 169,
+    "share_pct": 2.15,
+    "new_cells_per_job": 0.46
+   },
+   {
+    "signal": "seen penalty",
+    "bucket": "3 to 5",
+    "jobs": 4381,
+    "broke": 70,
+    "share_pct": 1.6,
+    "new_cells_per_job": 0.11
+   },
+   {
+    "signal": "seen penalty",
+    "bucket": "6 to 15",
+    "jobs": 8672,
+    "broke": 152,
+    "share_pct": 1.75,
+    "new_cells_per_job": 0.04
+   },
+   {
+    "signal": "seen penalty",
+    "bucket": "16 and more",
+    "jobs": 18399,
+    "broke": 193,
+    "share_pct": 1.05,
+    "new_cells_per_job": 0.01
+   },
+   {
+    "signal": "novelty",
+    "bucket": "fresh 0",
+    "jobs": 25032,
+    "broke": 375,
+    "share_pct": 1.5,
+    "new_cells_per_job": 0.15
+   },
+   {
+    "signal": "novelty",
+    "bucket": "1 to 3",
+    "jobs": 12400,
+    "broke": 176,
+    "share_pct": 1.42,
+    "new_cells_per_job": 0.06
+   },
+   {
+    "signal": "novelty",
+    "bucket": "4 to 15",
+    "jobs": 1808,
+    "broke": 33,
+    "share_pct": 1.83,
+    "new_cells_per_job": 0.03
+   }
+  ]
+ },
+ "anomalies": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_anomaly_inventory_2026-10-16.md",
+   "section": "3.5 Ranked flagged events",
+   "note": "an offline scan of 510 traces; nothing flagged is a finding until replayed"
+  },
+  "rows": [
+   {
+    "rank": 1,
+    "test": "A",
+    "record": "splice_probe_2026-10-14/run/traces/c088_cid1531_r1, 446 (+2) and 8 more rolls",
+    "extreme": "x residual -280.6, 4.2 x q99.9",
+    "shows": "EscapeB, position fixed at exactly one collision half-width from a wall line, wall id set, roll velocity recorded",
+    "run2": false
+   },
+   {
+    "rank": 2,
+    "test": "A",
+    "record": "splice_probe_2026-10-14/run/traces/c101_cid1550_r1, 459 (+2) and 6 more",
+    "extreme": "x residual -265 to -149",
+    "shows": "roll ending exactly one collision half-width (or exactly at the vertex, 3 cases) from a floor line's endpoint",
+    "run2": false
+   },
+   {
+    "rank": 3,
+    "test": "A",
+    "record": "splice_probe_2026-10-14/run/traces/c091_cid1552_r1, 243 (+3); 17 similar",
+    "extreme": "y residual -215.5, 1.5 x q99.9",
+    "shows": "M:SpecialAirHi with hitlag 4, a break within one tick, position frozen while the velocity is kept",
+    "run2": false
+   },
+   {
+    "rank": 4,
+    "test": "A",
+    "record": "splice_probe_2026-10-14/run/traces/c161_cid557_r1, 640; 18 similar",
+    "extreme": "x residual +-126.3 or +-117.4",
+    "shows": "M:SpecialAirHi rising with x fixed one collision half-width from a wall line, wall id set",
+    "run2": false
+   },
+   {
+    "rank": 5,
+    "test": "A",
+    "record": "crossing_2026-10-15_run2/run/traces/clear_n19643_c9709_k0_r1, 626 (shared 2)",
+    "extreme": "y residual +4.9 (the grounded-y class is 99.7 % exact zeros)",
+    "shows": "EscapeB -> M:SpecialLw on the moving line: the fighter moved with the line (+17.5) while carry reads 0 and the velocity reads +12.6 on this status-change tick; carry is non-zero again on the next tick",
+    "run2": true
+   },
+   {
+    "rank": 6,
+    "test": "A",
+    "record": "crossing_2026-10-15/run/traces/clear_n10074_c9306_k6_r1, 850 (+1) (shared 300)",
+    "extreme": "y residual -12.6",
+    "shows": "M:SpecialLw on the moving line with hitlag 2, velocity y 12.6 held during hitlag, position moving with the line only",
+    "run2": false
+   },
+   {
+    "rank": 7,
+    "test": "A",
+    "record": "splice_probe_2026-10-14/run/traces/c030_cid6456_r1, 1560",
+    "extreme": "y residual +11.1",
+    "shows": "WalkFast -> Fall, floor id changes from the moving line to a static line, carry recorded",
+    "run2": false
+   },
+   {
+    "rank": 8,
+    "test": "B",
+    "record": "crossing_2026-10-15/run/traces/reference, 114 (shared 122); 95 similar",
+    "extreme": "air velocity change 226.9, 1.05 x q99.9",
+    "shows": "M:SpecialHi, previous velocity exactly zero",
+    "run2": false
+   },
+   {
+    "rank": 9,
+    "test": "C",
+    "record": "crossing_2026-10-15/run/traces/clear_n10303_c16554_k11_r1, 1512 (shared 17)",
+    "extreme": "transition seen once",
+    "shows": "Turn -> M:SpecialAirLw, grounded to airborne, y +12.6 above the floor line on the first tick, jumps used 0 -> 1",
+    "run2": false
+   },
+   {
+    "rank": 10,
+    "test": "C",
+    "record": "crossing_2026-10-15/run/traces/clear_n25371_c9231_k0_r1, 1442 and 1449 (shared 4)",
+    "extreme": "transitions seen once",
+    "shows": "JumpAerialF -> StopCeil, then StopCeil -> AttackAirB, under the left structure",
+    "run2": false
+   },
+   {
+    "rank": 11,
+    "test": "C",
+    "record": "splice_probe_2026-10-14/run/traces/c091_cid1552_r1, 824",
+    "extreme": "transition seen once",
+    "shows": "AttackAirF -> DeadDown at y below the recorded map bound",
+    "run2": false
+   },
+   {
+    "rank": 12,
+    "test": "D",
+    "record": "crossing_2026-10-15/run/traces/clear_n10074_c9306_k6_r1, 662 (shared 300)",
+    "extreme": "d_prev 5,044, z 17.9",
+    "shows": "target 0 broke while the fighter was 5,044 units away in AttackAirF; a projectile was 335 units from the target one tick earlier",
+    "run2": false
+   },
+   {
+    "rank": 13,
+    "test": "D",
+    "record": "splice_probe_2026-10-14/run/traces/c049_cid2704_r1, 786; and 2 more",
+    "extreme": "d_prev 3,435 to 3,954",
+    "shows": "same pattern, projectile 261 to 317 units from the target",
+    "run2": false
+   },
+   {
+    "rank": 14,
+    "test": "D",
+    "record": "splice_probe_2026-10-14/run/traces/c072_cid2291_r1, 1774; 4 similar",
+    "extreme": "d_prev 20 to 88, below q1",
+    "shows": "AttackAirB or AttackAirF, attack flag on at the break tick",
+    "run2": false
+   },
+   {
+    "rank": 15,
+    "test": "D",
+    "record": "splice_probe_2026-10-14/run/traces/c007_cid16729_r1, 1112; 3 similar",
+    "extreme": "no attack flag and no projectile observed",
+    "shows": "M:SpecialAirN / M:SpecialN at 162 to 336 units",
+    "run2": false
+   }
+  ]
+ },
+ "per_tick_costs": {
+  "evidence": "recorded",
+  "source": {
+   "doc": "docs/frs_prefix_cost_2026-10-14.md",
+   "section": "2.3 Per tick",
+   "note": "measured in sd2 and the lab smoke run, NOT in run 2"
+  },
+  "step_ms_low": 1.14,
+  "step_ms_high": 1.378,
+  "native_frame_ms": 0.28
+ },
+ "worker_time": {
+  "evidence": "inferred",
+  "assumptions": [
+   "5 worker slots busy for the whole wall time (the record's 28,505 s); checks used 19,772 of those worker-seconds",
+   "a stepped tick costs 1.14 to 1.378 ms under lab load (sd2 and the smoke run, docs/frs_prefix_cost_2026-10-14.md 2.3), not measured in run 2",
+   "the native game frame is about 0.28 ms of that tick (same record)",
+   "'rest' = standby boot wait, close, result transfer, ingest, selection and verification borrow, which no record splits for run 2"
+  ],
+  "derived_shares": {
+   "checks_share_of_worker_time": 0.1387,
+   "worker_s": 142525,
+   "job_s": 3.123
+  },
+  "range": {
+   "low": {
+    "per_job_s": 3.123,
+    "prefix_stepping_s": 1.351,
+    "burst_stepping_s": 0.104,
+    "of_which_native_frames_s": 0.357,
+    "rest_s": 1.668
+   },
+   "high": {
+    "per_job_s": 3.123,
+    "prefix_stepping_s": 1.633,
+    "burst_stepping_s": 0.125,
+    "of_which_native_frames_s": 0.357,
+    "rest_s": 1.364
+   }
+  }
+ },
+ "checks": [
+  {
+   "check": "hourly dispatches sums to the run total",
+   "got": 39309,
+   "want": 39309,
+   "ok": true
+  },
+  {
+   "check": "hourly new_cells sums to the run total",
+   "got": 4550,
+   "want": 4550,
+   "ok": true
+  },
+  {
+   "check": "hourly replacements sums to the run total",
+   "got": 71237,
+   "want": 71237,
+   "ok": true
+  },
+  {
+   "check": "hourly breaks sums to the run total",
+   "got": 584,
+   "want": 584,
+   "ok": true
+  },
+  {
+   "check": "hourly falls sums to the run total",
+   "got": 24285,
+   "want": 24285,
+   "ok": true
+  },
+  {
+   "check": "hourly clears_claimed sums to the run total",
+   "got": 136,
+   "want": 136,
+   "ok": true
+  },
+  {
+   "check": "dispatches per level sum to the total",
+   "got": 39309,
+   "want": 39309,
+   "ok": true
+  },
+  {
+   "check": "the level-9 groups sum to the level-9 dispatches",
+   "got": 20984,
+   "want": 20984,
+   "ok": true
+  },
+  {
+   "check": "tick categories sum to all ticks",
+   "got": 54086814,
+   "want": 54086814,
+   "ok": true
+  },
+  {
+   "check": "checks per UTC hour sum to the checks",
+   "got": 3916,
+   "want": 3916,
+   "ok": true
+  },
+  {
+   "check": "inherited + new cells = cells at close",
+   "got": 37294,
+   "want": 37294,
+   "ok": true
+  },
+  {
+   "check": "the 1,245's segments sum to 1,245",
+   "got": 1245,
+   "want": 1245,
+   "ok": true
+  },
+  {
+   "check": "the 1,245's best-segment room sums to 580",
+   "got": 580,
+   "want": 580,
+   "ok": true
+  },
+  {
+   "check": "each verified best's last break is its clock",
+   "got": true,
+   "want": true,
+   "ok": true
+  }
+ ]
+}
