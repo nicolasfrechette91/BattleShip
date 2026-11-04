@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -61,6 +62,7 @@ from battleship_client import (  # noqa: E402
     StepResult,
     StepState,
 )
+import port_lease  # noqa: E402
 
 # Frozen M1a result schema (port/rl/rl_result.cpp). Values are validated by the
 # caller against its own expectations; this module checks shape and types only,
@@ -82,6 +84,15 @@ RESULT_INT_FIELDS = (
 # LaunchConfig.extra_env; SSB64_BTT_INPUT can never be passed through.
 CHILD_ENV_REMOVED = ("SSB64_BTT_INPUT", "SSB64_MAX_FRAMES")
 
+# Launch identity (INFRA_2026-11-04.md, fix 1): every launch passes a fresh random nonce to its child, and the child's
+# `status` echoes it (an executable that predates the field simply omits it). The first request on a new connection is
+# that handshake, so a client can never step a game another launcher started on the same port. With
+# BATTLESHIP_REQUIRE_IDENTITY=1 (or LaunchConfig.require_identity=True) a child that does not answer the handshake is
+# refused as well; otherwise it is accepted and reported as identity "unverified".
+LAUNCH_NONCE_ENV = "SSB64_RL_LAUNCH_NONCE"
+REQUIRE_IDENTITY_ENV = "BATTLESHIP_REQUIRE_IDENTITY"
+LEASED_PORT_ATTEMPTS = 32
+
 
 class EpisodeOutcome(str, Enum):
     """How an episode ended. COMPLETED requires every condition in finish()."""
@@ -99,6 +110,7 @@ class EpisodeOutcome(str, Enum):
     EXIT_FAILURE = "exit_failure"  # terminal result collected, process exited with a non-zero code
     RESULT_INVALID = "result_invalid"  # exited 0, but the native result JSON is missing or malformed
     CLEANUP_FAILURE = "cleanup_failure"  # terminate and kill both left the process alive
+    IDENTITY_MISMATCH = "identity_mismatch"  # the process behind the port is not this launch's child (handshake)
 
 
 class EpisodeFailure(Exception):
@@ -148,6 +160,8 @@ class LaunchConfig:
     kill_timeout: float = 10.0  # abort path: wait after kill()
     poll_interval: float = 0.05
     extra_env: Mapping[str, str] = field(default_factory=dict)  # applied before the mandatory M2 settings
+    lease_ports: bool = True  # hold a machine-wide port lease (rl/port_lease.py) from allocation until the child is gone
+    require_identity: Optional[bool] = None  # None: $BATTLESHIP_REQUIRE_IDENTITY == "1"; see LAUNCH_NONCE_ENV
 
 
 @dataclass(frozen=True)
@@ -221,15 +235,16 @@ def allocate_loopback_port(host: str = DEFAULT_HOST) -> int:
 # -- environment ---------------------------------------------------------------
 
 
-def build_child_env(config: LaunchConfig, port: int, paths: EpisodePaths) -> Dict[str, str]:
+def build_child_env(config: LaunchConfig, port: int, paths: EpisodePaths, launch_nonce: Optional[str] = None) -> Dict[str, str]:
     """A copy of this process's environment with the M2 episode settings.
 
     The parent environment is never mutated. extra_env is applied first so the
     mandatory settings always win, and SSB64_BTT_INPUT is removed last so no
-    inherited or extra value can activate native replay mode.
+    inherited or extra value can activate native replay mode. An inherited
+    launch nonce is always dropped; this launch's own nonce, when given, is set.
     """
     env = os.environ.copy()
-    for key in CHILD_ENV_REMOVED:
+    for key in CHILD_ENV_REMOVED + (LAUNCH_NONCE_ENV,):
         env.pop(key, None)
     env.update({str(k): str(v) for k, v in config.extra_env.items()})
     env["SSB64_RL_BTT"] = "1"
@@ -238,8 +253,29 @@ def build_child_env(config: LaunchConfig, port: int, paths: EpisodePaths) -> Dic
     env["SSB64_SAVE_PATH"] = str(paths.save_path)
     env["SSB64_RL_RESULT_PATH"] = str(paths.result_path)
     env["SSB64_RL_EXIT_ON_END"] = "1"
+    if launch_nonce:
+        env[LAUNCH_NONCE_ENV] = launch_nonce
     env.pop("SSB64_BTT_INPUT", None)
     return env
+
+
+def identity_required(config: LaunchConfig) -> bool:
+    if config.require_identity is not None:
+        return bool(config.require_identity)
+    return os.environ.get(REQUIRE_IDENTITY_ENV) == "1"
+
+
+def allocate_leased_port(host: str = DEFAULT_HOST, owner: str = "") -> "tuple[int, port_lease.PortLease]":
+    """An OS-assigned free loopback port that this launcher also holds the machine-wide lease on."""
+    for _ in range(LEASED_PORT_ATTEMPTS):
+        port = allocate_loopback_port(host)
+        lease = port_lease.try_acquire(port, owner=owner)
+        if lease is None:
+            continue
+        if loopback_port_is_free(port, host):
+            return port, lease
+        lease.release()
+    raise OSError(f"no free leased loopback port after {LEASED_PORT_ATTEMPTS} attempts")
 
 
 # -- result JSON ---------------------------------------------------------------
@@ -313,6 +349,10 @@ class BattleShipEpisode:
         self.exit_code: Optional[int] = None
         self.cleanup_action: Optional[str] = None
         self.timeline: Dict[str, float] = {}  # monotonic timestamps of lifecycle events
+        self.launch_nonce: Optional[str] = None  # this launch's identity (LAUNCH_NONCE_ENV)
+        self.identity: Optional[str] = None  # "verified" / "unverified" after the handshake
+        self.peer_pid: Optional[int] = None  # the pid the child reported in the handshake, when it does
+        self.lease: Optional[port_lease.PortLease] = None
         self._closed = False
 
     # -- context manager ---------------------------------------------------------
@@ -344,6 +384,10 @@ class BattleShipEpisode:
             "port": self.port,
             "pid": self.pid,
             "exit_code": self.process.returncode if self.process is not None else None,
+            "launch_nonce": self.launch_nonce,
+            "identity": self.identity,
+            "peer_pid": self.peer_pid,
+            "port_lease": str(self.lease.path) if self.lease is not None else None,
         }
 
     def seconds(self, start: str, end: str) -> Optional[float]:
@@ -375,17 +419,36 @@ class BattleShipEpisode:
             )
 
         self.paths = self._make_paths()
+        owner = f"episode {self.index} {self.paths.directory}"
         if self.config.port is None:
-            self.port = allocate_loopback_port(self.config.host)
+            if self.config.lease_ports:
+                try:
+                    self.port, self.lease = allocate_leased_port(self.config.host, owner)
+                except OSError as exc:
+                    raise EpisodeFailure(EpisodeOutcome.STARTUP_FAILURE, str(exc), episode=self) from exc
+            else:
+                self.port = allocate_loopback_port(self.config.host)
         else:
             self.port = int(self.config.port)
+            if self.config.lease_ports:
+                self.lease = port_lease.try_acquire(self.port, owner=owner)
+                if self.lease is None:
+                    held = port_lease.holder(self.port) or {}
+                    raise EpisodeFailure(
+                        EpisodeOutcome.STARTUP_FAILURE,
+                        f"port {self.port} is leased by another launcher (pid {held.get('pid')}, {held.get('owner')}); "
+                        "refusing to launch beside it",
+                        episode=self,
+                    )
             if not loopback_port_is_free(self.port, self.config.host):
+                self._release_lease()
                 raise EpisodeFailure(
                     EpisodeOutcome.STARTUP_FAILURE,
                     f"port {self.port} already accepts connections; refusing to launch beside it",
                     episode=self,
                 )
-        env = build_child_env(self.config, self.port, self.paths)
+        self.launch_nonce = secrets.token_hex(16)
+        env = build_child_env(self.config, self.port, self.paths, self.launch_nonce)
 
         # The child inherits the log handle; ours is closed right after the
         # spawn. No pipes: nothing has to be drained.
@@ -400,9 +463,12 @@ class BattleShipEpisode:
                     stderr=subprocess.STDOUT,
                 )
             except OSError as exc:
+                self._release_lease()
                 raise EpisodeFailure(
                     EpisodeOutcome.STARTUP_FAILURE, f"cannot start {executable}: {exc}", episode=self
                 ) from exc
+        if self.lease is not None:
+            self.lease.note_child(self.process.pid)
         self.timeline["launched"] = time.monotonic()
 
     def wait_for_transport(self) -> None:
@@ -434,8 +500,45 @@ class BattleShipEpisode:
                 time.sleep(self.config.poll_interval)
                 continue
             self.client = client
+            self._handshake()
             self.timeline["transport"] = time.monotonic()
             return
+
+    def _handshake(self) -> None:
+        """The first request on the new connection: prove the process behind the port is this launch's child.
+
+        The child's `status` echoes the launch nonce it was started with. A different nonce means another launcher's game
+        answered (a port race): the connection is dropped at once, before any action, so that game's own client can still
+        connect. No nonce means an executable that predates the handshake: refused when identity is required, otherwise
+        accepted as "unverified"."""
+        assert self.client is not None
+        try:
+            reply = self.client.request("status")
+        except BattleShipError as exc:
+            raise self._classify_before_fresh(exc) from exc
+        got = reply.get("launch_nonce")
+        pid = reply.get("pid")
+        self.peer_pid = int(pid) if isinstance(pid, int) and not isinstance(pid, bool) else None
+        if got is None:
+            if identity_required(self.config):
+                self.client.close()
+                raise EpisodeFailure(
+                    EpisodeOutcome.IDENTITY_MISMATCH,
+                    f"the process on {self.config.host}:{self.port} does not answer the launch-nonce handshake "
+                    f"(an executable without {LAUNCH_NONCE_ENV} support) and identity is required",
+                    episode=self,
+                )
+            self.identity = "unverified"
+            return
+        if got != self.launch_nonce:
+            self.client.close()
+            raise EpisodeFailure(
+                EpisodeOutcome.IDENTITY_MISMATCH,
+                f"the process on {self.config.host}:{self.port} answered another launch's nonce (pid {self.peer_pid}); "
+                "it is not this launch's child, so nothing was sent to it",
+                episode=self,
+            )
+        self.identity = "verified"
 
     def wait_for_fresh_episode(self) -> Status:
         """Stage 2: poll the non-consuming status until the episode is fresh.
@@ -558,6 +661,7 @@ class BattleShipEpisode:
         process = self.process
         if process is None:
             self.cleanup_action = "not_launched"
+            self._release_lease()
             return self.cleanup_action
         if process.poll() is not None:
             self.cleanup_action = "already_exited"
@@ -574,12 +678,17 @@ class BattleShipEpisode:
         self.exit_code = process.returncode
         self.timeline.setdefault("exited", time.monotonic())
         if self.cleanup_action == "still_alive":
-            raise EpisodeFailure(
+            raise EpisodeFailure(  # the lease is kept: the port may still be bound by the survivor
                 EpisodeOutcome.CLEANUP_FAILURE,
                 f"pid {process.pid} survived terminate() and kill()",
                 episode=self,
             )
+        self._release_lease()
         return self.cleanup_action
+
+    def _release_lease(self) -> None:
+        if self.lease is not None:
+            self.lease.release()
 
     # -- internals -------------------------------------------------------------------
 

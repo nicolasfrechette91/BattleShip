@@ -440,6 +440,14 @@ int rlTransportPort(void);
  * running without a transport. */
 void rlTransportStart(void);
 
+/* Launch identity (INFRA_2026-11-04.md): the value of SSB64_RL_LAUNCH_NONCE
+ * when it is 1..64 characters of [0-9A-Za-z_-], otherwise NULL. Read once by
+ * rlConfigInit(). When non-NULL the transport's `status` reply also carries
+ * "launch_nonce" and "pid", so a launcher can prove that the process behind
+ * the port is its own child before it sends anything else. When NULL every
+ * reply is byte-identical to a build without this field. */
+const char *rlLaunchNonce(void);
+
 /* Stop accepting, unblock the worker, join it and release the sockets.
  * Called by main() right after rlRuntimeShutdown(), which is what releases a
  * worker blocked in rlStepWait(). No-op when the transport never started. */

@@ -3,6 +3,13 @@ world of rl/m8_rd_stub.py. It lets the REAL lifecycle code (rl/battleship_proces
 rl/m8_rd_worker.py, rl/m7f_trace.py) run end to end without a game. It is launched through a one-line .cmd wrapper named like
 the executable; tests only. THE WORLD IS SYNTHETIC.
 
+INFRA_2026-11-04.md additions (all opt-in, the defaults keep the behaviour above): SSB64_RL_LAUNCH_NONCE is echoed in
+`status` with the pid, like the native transport, unless FAKEGAME_LEGACY=1 (an executable that predates the field).
+FAKEGAME_BIND_DELAY_S waits before binding. A failed bind no longer crashes: like the native transport, the process stays
+alive without a transport (until FAKEGAME_IDLE_S) and logs the failure. FAKEGAME_REACCEPT=1 accepts the next client after
+one disconnects (the native transport does). FAKEGAME_LOG_REQUESTS=1 adds one FAKEGAME_LOG line per step request, naming
+the serving process (pid and its own launch nonce).
+
 Environment (all optional): FAKEGAME_WORLD (stub world, default easy), FAKEGAME_BOOT_S (seconds spent Inactive), FAKEGAME_LOG
 (a file to which one line per start is appended: cwd, port, the sha256 of the BattleShip.cfg.json found in the working
 directory, the SSB64_* flags), FAKEGAME_DIE_AT_STEP (exit with code 3 on that step request), FAKEGAME_IDLE_S (give up after
@@ -33,6 +40,14 @@ def main() -> int:
     die_at = int(os.environ.get("FAKEGAME_DIE_AT_STEP", "0"))
     idle_s = float(os.environ.get("FAKEGAME_IDLE_S", "120"))
     log = os.environ.get("FAKEGAME_LOG")
+    nonce = os.environ.get("SSB64_RL_LAUNCH_NONCE") if os.environ.get("FAKEGAME_LEGACY") != "1" else None
+    reaccept = os.environ.get("FAKEGAME_REACCEPT") == "1"
+    log_requests = os.environ.get("FAKEGAME_LOG_REQUESTS") == "1"
+
+    def event(**row: object) -> None:
+        if log:
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(json.dumps(dict(row, pid=os.getpid(), own_nonce=os.environ.get("SSB64_RL_LAUNCH_NONCE"))) + "\n")
     cfg = os.path.join(os.getcwd(), "BattleShip.cfg.json")
     cfg_hash = hashlib.sha256(open(cfg, "rb").read()).hexdigest() if os.path.isfile(cfg) else None
     if log:
@@ -41,9 +56,18 @@ def main() -> int:
                                 "flags": {k: v for k, v in os.environ.items() if k.startswith("SSB64_")}}) + "\n")
     host_off = 30 + (os.getpid() % 50)
     state = world.initial()
+    time.sleep(float(os.environ.get("FAKEGAME_BIND_DELAY_S", "0")))
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("127.0.0.1", port))
+    if sys.platform != "win32":  # like the native transport: SO_REUSEADDR only off Windows, where it would allow a second bind
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        srv.bind(("127.0.0.1", port))
+    except OSError as exc:
+        # the native transport logs the failure and the game keeps running without a transport
+        event(event="bind_failed", port=port, error=str(exc))
+        srv.close()
+        time.sleep(idle_s)
+        return 6
     srv.listen(1)
     srv.settimeout(idle_s)
     t_boot = time.monotonic()
@@ -66,7 +90,16 @@ def main() -> int:
             except OSError:
                 return 5
             if not chunk:
-                return 0
+                if not reaccept:
+                    return 0
+                conn.close()
+                buf = b""
+                try:
+                    conn, _addr = srv.accept()
+                except OSError:
+                    return 4
+                conn.settimeout(idle_s)
+                continue
             buf += chunk
         line, _, buf = buf.partition(b"\n")
         req = json.loads(line.decode("utf-8"))
@@ -80,6 +113,8 @@ def main() -> int:
             st = 6 if ended else (2 if ready else 1)
             resp.update({"state": st, "state_name": {1: "Inactive", 2: "WaitingForAction", 6: "EpisodeEnded"}[st],
                          "can_step": bool(ready and not ended), "step_count": steps, **flags})
+            if nonce:
+                resp.update({"launch_nonce": nonce, "pid": os.getpid()})
         elif op == "observe":
             if not ready:
                 resp = {"protocol": 1, "ok": False, "op": op, "error": "no_observation", "message": "not booted"}
@@ -88,6 +123,8 @@ def main() -> int:
                 resp.update({k: v for k, v in r.items() if k not in ("ok", "op", "protocol")})
         elif op == "step":
             steps += 1
+            if log_requests:
+                event(event="step_served", step=steps)
             if die_at and steps == die_at:
                 return 3
             if not ready or ended:
