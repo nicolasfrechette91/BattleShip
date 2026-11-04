@@ -141,6 +141,7 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <process.h> /* _getpid: launch identity in `status` */
 #else
 #include <errno.h>
 #include <netinet/in.h>
@@ -171,6 +172,14 @@ const Socket kInvalidSocket = -1;
 #endif
 
 const size_t kMaxLineBytes = 8192;    /* a request is a few dozen bytes */
+
+long long currentPid() {
+#ifdef _WIN32
+	return (long long)_getpid();
+#else
+	return (long long)getpid();
+#endif
+}
 const long kSelectTimeoutUs = 250000; /* stop-flag re-check period for blocking socket waits */
 
 std::thread sWorker;
@@ -449,6 +458,12 @@ json handleStatus(const json &op) {
 	/* M7q: likewise, present only when the input-state diagnostic is on. */
 	if (sInputEnabled) {
 		r["input_diag"] = true;
+	}
+	/* INFRA 2026-11-04: launch identity, present only when the launcher passed
+	 * SSB64_RL_LAUNCH_NONCE, so a default reply is byte-identical to before. */
+	if (const char *nonce = rlLaunchNonce()) {
+		r["launch_nonce"] = nonce;
+		r["pid"] = currentPid();
 	}
 	return r;
 }

@@ -34,6 +34,7 @@ struct RLConfig {
 	bool entity = false;         /* M7n entity diagnostic (SSB64_RL_ENTITY=1), read-only */
 	bool input = false;          /* M7q input-state diagnostic (SSB64_RL_INPUT=1), read-only */
 	std::string resultPath;
+	std::string launchNonce;     /* INFRA 2026-11-04: SSB64_RL_LAUNCH_NONCE, echoed by `status` (launch identity) */
 };
 
 RLConfig sConfig;
@@ -163,6 +164,23 @@ extern "C" void rlConfigInit(void) {
 		}
 	}
 
+	/* Launch identity: an opaque token the launcher generated for this one
+	 * process. It is never interpreted; the transport only echoes it. */
+	if (const char *nonceEnv = std::getenv("SSB64_RL_LAUNCH_NONCE")) {
+		const size_t n = std::strlen(nonceEnv);
+		bool ok = n >= 1 && n <= 64;
+		for (size_t i = 0; ok && i < n; i++) {
+			const char ch = nonceEnv[i];
+			ok = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || ch == '-';
+		}
+		if (ok) {
+			sConfig.launchNonce = nonceEnv;
+			port_log("SSB64 RL Transport: launch nonce set (status carries launch_nonce and pid)\n");
+		} else {
+			port_log("SSB64 RL Transport: SSB64_RL_LAUNCH_NONCE ignored: not 1..64 characters of [0-9A-Za-z_-]\n");
+		}
+	}
+
 	port_log("SSB64 RL: enabled episode=btt_mario result=%s exit_on_end=%d step=%d transport_port=%d no_render=%d "
 	         "raphnet_disabled=%d\n",
 	         sConfig.resultPath.empty() ? "<unset>" : sConfig.resultPath.c_str(), exitOnEndEnv ? 1 : 0,
@@ -259,6 +277,10 @@ extern "C" int rlStepExitOnEnd(void) {
 
 extern "C" int rlTransportPort(void) {
 	return sConfig.transportPort;
+}
+
+extern "C" const char *rlLaunchNonce(void) {
+	return sConfig.launchNonce.empty() ? nullptr : sConfig.launchNonce.c_str();
 }
 
 extern "C" int rlIsEnabled(void) {

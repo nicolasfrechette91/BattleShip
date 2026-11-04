@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -46,7 +47,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -61,6 +62,7 @@ from battleship_client import (  # noqa: E402
     StepResult,
     StepState,
 )
+import port_lease  # noqa: E402
 
 # Frozen M1a result schema (port/rl/rl_result.cpp). Values are validated by the
 # caller against its own expectations; this module checks shape and types only,
@@ -82,6 +84,26 @@ RESULT_INT_FIELDS = (
 # LaunchConfig.extra_env; SSB64_BTT_INPUT can never be passed through.
 CHILD_ENV_REMOVED = ("SSB64_BTT_INPUT", "SSB64_MAX_FRAMES")
 
+# Launch identity (INFRA_2026-11-04.md, fix 1): every launch passes a fresh random nonce to its child, and the child's
+# `status` echoes it (an executable that predates the field simply omits it). The first request on a new connection is
+# that handshake, so a client can never step a game another launcher started on the same port. With
+# BATTLESHIP_REQUIRE_IDENTITY=1 (or LaunchConfig.require_identity=True) a child that does not answer the handshake is
+# refused as well; otherwise it is accepted and reported as identity "unverified".
+LAUNCH_NONCE_ENV = "SSB64_RL_LAUNCH_NONCE"
+REQUIRE_IDENTITY_ENV = "BATTLESHIP_REQUIRE_IDENTITY"
+LEASED_PORT_ATTEMPTS = 32
+
+# Native log (INFRA_2026-11-04.md, fix 2): every child writes its own port log into its episode directory through
+# SSB64_LOG_PATH, instead of every process truncating one shared %APPDATA%\BattleShip\ssb64.log. When the child is gone
+# the launcher keeps the log's flagged lines (errors and the native stepping anomalies) in `native_log_flags`, and, with
+# BATTLESHIP_NATIVE_LOG_SINK_DIR set, appends them to <dir>/native_errors_<launcher pid>.jsonl (one file per launcher
+# process, so concurrent launchers never interleave), which outlives the episode directory.
+LOG_PATH_ENV = "SSB64_LOG_PATH"
+NATIVE_LOG_SINK_DIR_ENV = "BATTLESHIP_NATIVE_LOG_SINK_DIR"
+NATIVE_LOG_FLAGS = ("ERROR", "FATAL", "not yet consumed", "parking the game coroutine")
+NATIVE_LOG_SCAN_BYTES = 8 * 1024 * 1024
+NATIVE_LOG_MAX_FLAGS = 200
+
 
 class EpisodeOutcome(str, Enum):
     """How an episode ended. COMPLETED requires every condition in finish()."""
@@ -99,6 +121,7 @@ class EpisodeOutcome(str, Enum):
     EXIT_FAILURE = "exit_failure"  # terminal result collected, process exited with a non-zero code
     RESULT_INVALID = "result_invalid"  # exited 0, but the native result JSON is missing or malformed
     CLEANUP_FAILURE = "cleanup_failure"  # terminate and kill both left the process alive
+    IDENTITY_MISMATCH = "identity_mismatch"  # the process behind the port is not this launch's child (handshake)
 
 
 class EpisodeFailure(Exception):
@@ -148,6 +171,8 @@ class LaunchConfig:
     kill_timeout: float = 10.0  # abort path: wait after kill()
     poll_interval: float = 0.05
     extra_env: Mapping[str, str] = field(default_factory=dict)  # applied before the mandatory M2 settings
+    lease_ports: bool = True  # hold a machine-wide port lease (rl/port_lease.py) from allocation until the child is gone
+    require_identity: Optional[bool] = None  # None: $BATTLESHIP_REQUIRE_IDENTITY == "1"; see LAUNCH_NONCE_ENV
 
 
 @dataclass(frozen=True)
@@ -156,6 +181,7 @@ class EpisodePaths:
     save_path: Path
     result_path: Path
     log_path: Path  # child stdout + stderr
+    native_log_path: Optional[Path] = None  # the child's own port log (SSB64_LOG_PATH); an older executable ignores it
 
 
 @dataclass(frozen=True)
@@ -221,25 +247,65 @@ def allocate_loopback_port(host: str = DEFAULT_HOST) -> int:
 # -- environment ---------------------------------------------------------------
 
 
-def build_child_env(config: LaunchConfig, port: int, paths: EpisodePaths) -> Dict[str, str]:
+def build_child_env(config: LaunchConfig, port: int, paths: EpisodePaths, launch_nonce: Optional[str] = None) -> Dict[str, str]:
     """A copy of this process's environment with the M2 episode settings.
 
     The parent environment is never mutated. extra_env is applied first so the
     mandatory settings always win, and SSB64_BTT_INPUT is removed last so no
-    inherited or extra value can activate native replay mode.
+    inherited or extra value can activate native replay mode. An inherited
+    launch nonce is always dropped; this launch's own nonce, when given, is set.
     """
     env = os.environ.copy()
-    for key in CHILD_ENV_REMOVED:
+    for key in CHILD_ENV_REMOVED + (LAUNCH_NONCE_ENV, LOG_PATH_ENV):
         env.pop(key, None)
     env.update({str(k): str(v) for k, v in config.extra_env.items()})
+    if paths.native_log_path is not None:
+        env.setdefault(LOG_PATH_ENV, str(paths.native_log_path))  # an explicit extra_env value (even "") wins
     env["SSB64_RL_BTT"] = "1"
     env["SSB64_RL_STEP"] = "1"
     env["SSB64_RL_PORT"] = str(port)
     env["SSB64_SAVE_PATH"] = str(paths.save_path)
     env["SSB64_RL_RESULT_PATH"] = str(paths.result_path)
     env["SSB64_RL_EXIT_ON_END"] = "1"
+    if launch_nonce:
+        env[LAUNCH_NONCE_ENV] = launch_nonce
     env.pop("SSB64_BTT_INPUT", None)
     return env
+
+
+def scan_native_log(path: Optional[Path], limit: int = NATIVE_LOG_MAX_FLAGS) -> List[str]:
+    """The flagged lines (NATIVE_LOG_FLAGS) of a port log, from its last NATIVE_LOG_SCAN_BYTES; [] when there is none."""
+    if path is None:
+        return []
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - NATIVE_LOG_SCAN_BYTES))
+            text = f.read().decode("utf-8", "replace")
+    except OSError:
+        return []
+    out = [ln.rstrip() for ln in text.splitlines() if any(k in ln for k in NATIVE_LOG_FLAGS)]
+    return out[:limit]
+
+
+def identity_required(config: LaunchConfig) -> bool:
+    if config.require_identity is not None:
+        return bool(config.require_identity)
+    return os.environ.get(REQUIRE_IDENTITY_ENV) == "1"
+
+
+def allocate_leased_port(host: str = DEFAULT_HOST, owner: str = "") -> "tuple[int, port_lease.PortLease]":
+    """An OS-assigned free loopback port that this launcher also holds the machine-wide lease on."""
+    for _ in range(LEASED_PORT_ATTEMPTS):
+        port = allocate_loopback_port(host)
+        lease = port_lease.try_acquire(port, owner=owner)
+        if lease is None:
+            continue
+        if loopback_port_is_free(port, host):
+            return port, lease
+        lease.release()
+    raise OSError(f"no free leased loopback port after {LEASED_PORT_ATTEMPTS} attempts")
 
 
 # -- result JSON ---------------------------------------------------------------
@@ -313,6 +379,11 @@ class BattleShipEpisode:
         self.exit_code: Optional[int] = None
         self.cleanup_action: Optional[str] = None
         self.timeline: Dict[str, float] = {}  # monotonic timestamps of lifecycle events
+        self.launch_nonce: Optional[str] = None  # this launch's identity (LAUNCH_NONCE_ENV)
+        self.identity: Optional[str] = None  # "verified" / "unverified" after the handshake
+        self.peer_pid: Optional[int] = None  # the pid the child reported in the handshake, when it does
+        self.lease: Optional[port_lease.PortLease] = None
+        self.native_log_flags: Optional[List[str]] = None  # set once the child is gone (see NATIVE_LOG_FLAGS)
         self._closed = False
 
     # -- context manager ---------------------------------------------------------
@@ -344,6 +415,13 @@ class BattleShipEpisode:
             "port": self.port,
             "pid": self.pid,
             "exit_code": self.process.returncode if self.process is not None else None,
+            "launch_nonce": self.launch_nonce,
+            "identity": self.identity,
+            "peer_pid": self.peer_pid,
+            "port_lease": str(self.lease.path) if self.lease is not None else None,
+            "native_log": str(self.paths.native_log_path) if self.paths and self.paths.native_log_path else None,
+            "native_log_flags": (self.native_log_flags if self.native_log_flags is not None
+                                 else scan_native_log(self.paths.native_log_path if self.paths else None))[:20],
         }
 
     def seconds(self, start: str, end: str) -> Optional[float]:
@@ -375,17 +453,36 @@ class BattleShipEpisode:
             )
 
         self.paths = self._make_paths()
+        owner = f"episode {self.index} {self.paths.directory}"
         if self.config.port is None:
-            self.port = allocate_loopback_port(self.config.host)
+            if self.config.lease_ports:
+                try:
+                    self.port, self.lease = allocate_leased_port(self.config.host, owner)
+                except OSError as exc:
+                    raise EpisodeFailure(EpisodeOutcome.STARTUP_FAILURE, str(exc), episode=self) from exc
+            else:
+                self.port = allocate_loopback_port(self.config.host)
         else:
             self.port = int(self.config.port)
+            if self.config.lease_ports:
+                self.lease = port_lease.try_acquire(self.port, owner=owner)
+                if self.lease is None:
+                    held = port_lease.holder(self.port) or {}
+                    raise EpisodeFailure(
+                        EpisodeOutcome.STARTUP_FAILURE,
+                        f"port {self.port} is leased by another launcher (pid {held.get('pid')}, {held.get('owner')}); "
+                        "refusing to launch beside it",
+                        episode=self,
+                    )
             if not loopback_port_is_free(self.port, self.config.host):
+                self._release_lease()
                 raise EpisodeFailure(
                     EpisodeOutcome.STARTUP_FAILURE,
                     f"port {self.port} already accepts connections; refusing to launch beside it",
                     episode=self,
                 )
-        env = build_child_env(self.config, self.port, self.paths)
+        self.launch_nonce = secrets.token_hex(16)
+        env = build_child_env(self.config, self.port, self.paths, self.launch_nonce)
 
         # The child inherits the log handle; ours is closed right after the
         # spawn. No pipes: nothing has to be drained.
@@ -400,9 +497,12 @@ class BattleShipEpisode:
                     stderr=subprocess.STDOUT,
                 )
             except OSError as exc:
+                self._release_lease()
                 raise EpisodeFailure(
                     EpisodeOutcome.STARTUP_FAILURE, f"cannot start {executable}: {exc}", episode=self
                 ) from exc
+        if self.lease is not None:
+            self.lease.note_child(self.process.pid)
         self.timeline["launched"] = time.monotonic()
 
     def wait_for_transport(self) -> None:
@@ -434,8 +534,45 @@ class BattleShipEpisode:
                 time.sleep(self.config.poll_interval)
                 continue
             self.client = client
+            self._handshake()
             self.timeline["transport"] = time.monotonic()
             return
+
+    def _handshake(self) -> None:
+        """The first request on the new connection: prove the process behind the port is this launch's child.
+
+        The child's `status` echoes the launch nonce it was started with. A different nonce means another launcher's game
+        answered (a port race): the connection is dropped at once, before any action, so that game's own client can still
+        connect. No nonce means an executable that predates the handshake: refused when identity is required, otherwise
+        accepted as "unverified"."""
+        assert self.client is not None
+        try:
+            reply = self.client.request("status")
+        except BattleShipError as exc:
+            raise self._classify_before_fresh(exc) from exc
+        got = reply.get("launch_nonce")
+        pid = reply.get("pid")
+        self.peer_pid = int(pid) if isinstance(pid, int) and not isinstance(pid, bool) else None
+        if got is None:
+            if identity_required(self.config):
+                self.client.close()
+                raise EpisodeFailure(
+                    EpisodeOutcome.IDENTITY_MISMATCH,
+                    f"the process on {self.config.host}:{self.port} does not answer the launch-nonce handshake "
+                    f"(an executable without {LAUNCH_NONCE_ENV} support) and identity is required",
+                    episode=self,
+                )
+            self.identity = "unverified"
+            return
+        if got != self.launch_nonce:
+            self.client.close()
+            raise EpisodeFailure(
+                EpisodeOutcome.IDENTITY_MISMATCH,
+                f"the process on {self.config.host}:{self.port} answered another launch's nonce (pid {self.peer_pid}); "
+                "it is not this launch's child, so nothing was sent to it",
+                episode=self,
+            )
+        self.identity = "verified"
 
     def wait_for_fresh_episode(self) -> Status:
         """Stage 2: poll the non-consuming status until the episode is fresh.
@@ -533,6 +670,7 @@ class BattleShipEpisode:
             )
         self.timeline["exited"] = time.monotonic()
         self.exit_code = code
+        self._collect_native_log()
         if code != 0:
             raise EpisodeFailure(
                 EpisodeOutcome.EXIT_FAILURE, f"process exited with code {code}, expected 0", episode=self, exit_code=code
@@ -558,6 +696,7 @@ class BattleShipEpisode:
         process = self.process
         if process is None:
             self.cleanup_action = "not_launched"
+            self._release_lease()
             return self.cleanup_action
         if process.poll() is not None:
             self.cleanup_action = "already_exited"
@@ -574,12 +713,39 @@ class BattleShipEpisode:
         self.exit_code = process.returncode
         self.timeline.setdefault("exited", time.monotonic())
         if self.cleanup_action == "still_alive":
-            raise EpisodeFailure(
+            raise EpisodeFailure(  # the lease is kept: the port may still be bound by the survivor
                 EpisodeOutcome.CLEANUP_FAILURE,
                 f"pid {process.pid} survived terminate() and kill()",
                 episode=self,
             )
+        self._release_lease()
+        self._collect_native_log()
         return self.cleanup_action
+
+    def _collect_native_log(self) -> None:
+        """Once, after the child is gone: keep the port log's flagged lines, and append them to the sink when configured."""
+        if self.native_log_flags is not None or self.paths is None:
+            return
+        self.native_log_flags = scan_native_log(self.paths.native_log_path)
+        sink = os.environ.get(NATIVE_LOG_SINK_DIR_ENV)
+        if not sink or not self.native_log_flags:
+            return
+        guard = port_lease._lab_guard()
+        if guard is not None and not guard.inside_lab(sink):
+            return  # the lab guard would refuse (and record) a write outside the lab root; the flags stay in native_log_flags
+        try:
+            Path(sink).mkdir(parents=True, exist_ok=True)
+            head = {"utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "launcher_pid": os.getpid(), "child_pid": self.pid,
+                    "port": self.port, "launch_nonce": self.launch_nonce, "episode_dir": str(self.paths.directory)}
+            with open(Path(sink) / f"native_errors_{os.getpid()}.jsonl", "a", encoding="utf-8", newline="\n") as f:
+                for line in self.native_log_flags:
+                    f.write(json.dumps(dict(head, line=line)) + "\n")
+        except OSError:
+            pass  # diagnostics only: the flags stay in native_log_flags
+
+    def _release_lease(self) -> None:
+        if self.lease is not None:
+            self.lease.release()
 
     # -- internals -------------------------------------------------------------------
 
@@ -602,6 +768,7 @@ class BattleShipEpisode:
             save_path=directory / "ssb64_save.bin",
             result_path=directory / "result.json",
             log_path=directory / "battleship_stdout.log",
+            native_log_path=directory / "ssb64.log",
         )
 
     def _require_launched(self) -> None:

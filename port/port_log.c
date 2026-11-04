@@ -2,8 +2,15 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 
 static FILE *sLogFile = NULL;
+static int sFlushImportant = 0;
+
+void port_log_set_flush_important(int on)
+{
+	sFlushImportant = on;
+}
 
 void port_log_init(const char *path)
 {
@@ -42,4 +49,8 @@ void port_log(const char *fmt, ...)
 	 * figatree watchdogs fire 28x per frame during a stuck APPEAR. Rely on
 	 * stdio's buffer + OS-on-exit flush for normal logging; crash dumps
 	 * have their own flush path. */
+	if (sFlushImportant && (strncmp(fmt, "SSB64 RL", 8) == 0 || strstr(fmt, "ERROR") != NULL ||
+	                        strstr(fmt, "FATAL") != NULL)) {
+		fflush(sLogFile);
+	}
 }

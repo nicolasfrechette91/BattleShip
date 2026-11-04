@@ -23,6 +23,13 @@ void port_log_close(void);
  * Used by async-signal-safe crash handlers that cannot call fprintf. */
 int port_log_get_fd(void);
 
+/* INFRA 2026-11-04: with a per-process log (SSB64_LOG_PATH, set by the RL
+ * launcher), flush every "SSB64 RL..." line and every line whose format
+ * contains ERROR or FATAL as it is written, so the launcher's terminate()
+ * cannot drop them from stdio's buffer. Other lines stay buffered (see
+ * port_log() for why). Off by default. */
+void port_log_set_flush_important(int on);
+
 /* Write a formatted message to the log file. */
 #ifdef __GNUC__
 __attribute__((format(printf, 1, 2)))
