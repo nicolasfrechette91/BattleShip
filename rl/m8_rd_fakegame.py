@@ -9,6 +9,9 @@ FAKEGAME_BIND_DELAY_S waits before binding. A failed bind no longer crashes: lik
 alive without a transport (until FAKEGAME_IDLE_S) and logs the failure. FAKEGAME_REACCEPT=1 accepts the next client after
 one disconnects (the native transport does). FAKEGAME_LOG_REQUESTS=1 adds one FAKEGAME_LOG line per step request, naming
 the serving process (pid and its own launch nonce).
+Port log, like native main(): SSB64_LOG_PATH when non-empty, else (only if FAKEGAME_PREF_DIR is set) one shared
+$FAKEGAME_PREF_DIR/ssb64.log, opened with truncation by every process as the native game does with its shared
+%APPDATA% log today. FAKEGAME_NATIVE_ERROR_AT_STEP=k writes a native-style ERROR line at step k.
 
 Environment (all optional): FAKEGAME_WORLD (stub world, default easy), FAKEGAME_BOOT_S (seconds spent Inactive), FAKEGAME_LOG
 (a file to which one line per start is appended: cwd, port, the sha256 of the BattleShip.cfg.json found in the working
@@ -44,6 +47,18 @@ def main() -> int:
     reaccept = os.environ.get("FAKEGAME_REACCEPT") == "1"
     log_requests = os.environ.get("FAKEGAME_LOG_REQUESTS") == "1"
 
+    log_path = os.environ.get("SSB64_LOG_PATH") or (os.path.join(os.environ["FAKEGAME_PREF_DIR"], "ssb64.log")
+                                                    if os.environ.get("FAKEGAME_PREF_DIR") else None)
+    port_log_file = open(log_path, "w", encoding="utf-8") if log_path else None
+    error_at = int(os.environ.get("FAKEGAME_NATIVE_ERROR_AT_STEP", "0"))
+
+    def port_log(line: str) -> None:
+        if port_log_file is not None:
+            port_log_file.write(line + "\n")
+            port_log_file.flush()
+
+    port_log("SSB64: main entered (fake)")
+
     def event(**row: object) -> None:
         if log:
             with open(log, "a", encoding="utf-8") as f:
@@ -65,10 +80,12 @@ def main() -> int:
     except OSError as exc:
         # the native transport logs the failure and the game keeps running without a transport
         event(event="bind_failed", port=port, error=str(exc))
+        port_log(f"SSB64 RL Transport: ERROR: bind 127.0.0.1:{port} failed error={exc.errno}; transport disabled")
         srv.close()
         time.sleep(idle_s)
         return 6
     srv.listen(1)
+    port_log(f"SSB64 RL Transport: listening on 127.0.0.1:{port} protocol=1 (fake)")
     srv.settimeout(idle_s)
     t_boot = time.monotonic()
     try:
@@ -125,6 +142,9 @@ def main() -> int:
             steps += 1
             if log_requests:
                 event(event="step_served", step=steps)
+            if error_at and steps == error_at:
+                port_log(f"SSB64 RL Step: ERROR: controller read for tick {steps - 1} reached in state ObservationReady; "
+                         "parking the game coroutine (fake)")
             if die_at and steps == die_at:
                 return 3
             if not ready or ended:

@@ -1264,13 +1264,23 @@ int main(int argc, char* argv[]) {
 	 * Ship::Context will later use for the user's saves and o2r. */
 	{
 		std::string logPath;
-		if (char* p = SDL_GetPrefPath(NULL, "BattleShip")) {
+		/* INFRA 2026-11-04: SSB64_LOG_PATH gives this process its own log.
+		 * The RL launcher sets it per episode, so parallel workers no longer
+		 * truncate one shared %APPDATA%\BattleShip\ssb64.log and their
+		 * native error lines survive. Unset (every ordinary launch): the
+		 * shared path below, exactly as before. */
+		const char* logOverride = std::getenv("SSB64_LOG_PATH");
+		const bool perProcessLog = logOverride != nullptr && logOverride[0] != '\0';
+		if (perProcessLog) {
+			logPath = logOverride;
+		} else if (char* p = SDL_GetPrefPath(NULL, "BattleShip")) {
 			logPath = std::string(p) + "ssb64.log";
 			SDL_free(p);
 		} else {
 			logPath = "ssb64.log";  // last-resort cwd fallback
 		}
 		port_log_init(logPath.c_str());
+		port_log_set_flush_important(perProcessLog ? 1 : 0);
 	}
 	port_log("SSB64: main entered\n");
 

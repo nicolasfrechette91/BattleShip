@@ -299,9 +299,11 @@ class Harness:
         """M2 episode: the full replay through the raw M1d client, frozen contract asserted."""
         self.port_log.mark()
         self.lus_log.mark()
+        # This regression reads the shared port log (self.port_log), one process at a time, so it opts out of the
+        # per-episode log the launcher now sets (INFRA_2026-11-04.md, fix 2): an empty SSB64_LOG_PATH = the shared path.
         config = LaunchConfig(executable=self.exe, run_root=self.run_root, startup_timeout=self.args.startup_timeout,
                               ready_timeout=self.args.ready_timeout, request_timeout=self.args.request_timeout,
-                              exit_timeout=self.args.exit_timeout, extra_env=dict(case.env))
+                              exit_timeout=self.args.exit_timeout, extra_env=dict(case.env, SSB64_LOG_PATH=""))
         episode = BattleShipEpisode(config, index=index)
         t0 = time.perf_counter()
         with episode:

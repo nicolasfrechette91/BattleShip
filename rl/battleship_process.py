@@ -47,7 +47,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -92,6 +92,17 @@ CHILD_ENV_REMOVED = ("SSB64_BTT_INPUT", "SSB64_MAX_FRAMES")
 LAUNCH_NONCE_ENV = "SSB64_RL_LAUNCH_NONCE"
 REQUIRE_IDENTITY_ENV = "BATTLESHIP_REQUIRE_IDENTITY"
 LEASED_PORT_ATTEMPTS = 32
+
+# Native log (INFRA_2026-11-04.md, fix 2): every child writes its own port log into its episode directory through
+# SSB64_LOG_PATH, instead of every process truncating one shared %APPDATA%\BattleShip\ssb64.log. When the child is gone
+# the launcher keeps the log's flagged lines (errors and the native stepping anomalies) in `native_log_flags`, and, with
+# BATTLESHIP_NATIVE_LOG_SINK_DIR set, appends them to <dir>/native_errors_<launcher pid>.jsonl (one file per launcher
+# process, so concurrent launchers never interleave), which outlives the episode directory.
+LOG_PATH_ENV = "SSB64_LOG_PATH"
+NATIVE_LOG_SINK_DIR_ENV = "BATTLESHIP_NATIVE_LOG_SINK_DIR"
+NATIVE_LOG_FLAGS = ("ERROR", "FATAL", "not yet consumed", "parking the game coroutine")
+NATIVE_LOG_SCAN_BYTES = 8 * 1024 * 1024
+NATIVE_LOG_MAX_FLAGS = 200
 
 
 class EpisodeOutcome(str, Enum):
@@ -170,6 +181,7 @@ class EpisodePaths:
     save_path: Path
     result_path: Path
     log_path: Path  # child stdout + stderr
+    native_log_path: Optional[Path] = None  # the child's own port log (SSB64_LOG_PATH); an older executable ignores it
 
 
 @dataclass(frozen=True)
@@ -244,9 +256,11 @@ def build_child_env(config: LaunchConfig, port: int, paths: EpisodePaths, launch
     launch nonce is always dropped; this launch's own nonce, when given, is set.
     """
     env = os.environ.copy()
-    for key in CHILD_ENV_REMOVED + (LAUNCH_NONCE_ENV,):
+    for key in CHILD_ENV_REMOVED + (LAUNCH_NONCE_ENV, LOG_PATH_ENV):
         env.pop(key, None)
     env.update({str(k): str(v) for k, v in config.extra_env.items()})
+    if paths.native_log_path is not None:
+        env.setdefault(LOG_PATH_ENV, str(paths.native_log_path))  # an explicit extra_env value (even "") wins
     env["SSB64_RL_BTT"] = "1"
     env["SSB64_RL_STEP"] = "1"
     env["SSB64_RL_PORT"] = str(port)
@@ -257,6 +271,22 @@ def build_child_env(config: LaunchConfig, port: int, paths: EpisodePaths, launch
         env[LAUNCH_NONCE_ENV] = launch_nonce
     env.pop("SSB64_BTT_INPUT", None)
     return env
+
+
+def scan_native_log(path: Optional[Path], limit: int = NATIVE_LOG_MAX_FLAGS) -> List[str]:
+    """The flagged lines (NATIVE_LOG_FLAGS) of a port log, from its last NATIVE_LOG_SCAN_BYTES; [] when there is none."""
+    if path is None:
+        return []
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - NATIVE_LOG_SCAN_BYTES))
+            text = f.read().decode("utf-8", "replace")
+    except OSError:
+        return []
+    out = [ln.rstrip() for ln in text.splitlines() if any(k in ln for k in NATIVE_LOG_FLAGS)]
+    return out[:limit]
 
 
 def identity_required(config: LaunchConfig) -> bool:
@@ -353,6 +383,7 @@ class BattleShipEpisode:
         self.identity: Optional[str] = None  # "verified" / "unverified" after the handshake
         self.peer_pid: Optional[int] = None  # the pid the child reported in the handshake, when it does
         self.lease: Optional[port_lease.PortLease] = None
+        self.native_log_flags: Optional[List[str]] = None  # set once the child is gone (see NATIVE_LOG_FLAGS)
         self._closed = False
 
     # -- context manager ---------------------------------------------------------
@@ -388,6 +419,9 @@ class BattleShipEpisode:
             "identity": self.identity,
             "peer_pid": self.peer_pid,
             "port_lease": str(self.lease.path) if self.lease is not None else None,
+            "native_log": str(self.paths.native_log_path) if self.paths and self.paths.native_log_path else None,
+            "native_log_flags": (self.native_log_flags if self.native_log_flags is not None
+                                 else scan_native_log(self.paths.native_log_path if self.paths else None))[:20],
         }
 
     def seconds(self, start: str, end: str) -> Optional[float]:
@@ -636,6 +670,7 @@ class BattleShipEpisode:
             )
         self.timeline["exited"] = time.monotonic()
         self.exit_code = code
+        self._collect_native_log()
         if code != 0:
             raise EpisodeFailure(
                 EpisodeOutcome.EXIT_FAILURE, f"process exited with code {code}, expected 0", episode=self, exit_code=code
@@ -684,7 +719,26 @@ class BattleShipEpisode:
                 episode=self,
             )
         self._release_lease()
+        self._collect_native_log()
         return self.cleanup_action
+
+    def _collect_native_log(self) -> None:
+        """Once, after the child is gone: keep the port log's flagged lines, and append them to the sink when configured."""
+        if self.native_log_flags is not None or self.paths is None:
+            return
+        self.native_log_flags = scan_native_log(self.paths.native_log_path)
+        sink = os.environ.get(NATIVE_LOG_SINK_DIR_ENV)
+        if not sink or not self.native_log_flags:
+            return
+        try:
+            Path(sink).mkdir(parents=True, exist_ok=True)
+            head = {"utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "launcher_pid": os.getpid(), "child_pid": self.pid,
+                    "port": self.port, "launch_nonce": self.launch_nonce, "episode_dir": str(self.paths.directory)}
+            with open(Path(sink) / f"native_errors_{os.getpid()}.jsonl", "a", encoding="utf-8", newline="\n") as f:
+                for line in self.native_log_flags:
+                    f.write(json.dumps(dict(head, line=line)) + "\n")
+        except OSError:
+            pass  # diagnostics only: the flags stay in native_log_flags
 
     def _release_lease(self) -> None:
         if self.lease is not None:
@@ -711,6 +765,7 @@ class BattleShipEpisode:
             save_path=directory / "ssb64_save.bin",
             result_path=directory / "result.json",
             log_path=directory / "battleship_stdout.log",
+            native_log_path=directory / "ssb64.log",
         )
 
     def _require_launched(self) -> None:
