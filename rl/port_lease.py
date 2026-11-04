@@ -27,8 +27,26 @@ LEASE_DIR_ENV = "BATTLESHIP_PORT_LEASE_DIR"
 STALE_AFTER_S = 24 * 3600.0
 
 
+def _lab_guard() -> Any:
+    """The lab guard class when it is installed in this process (rl/frs_guard.py), else None. Looked up, never imported:
+    this module stays standard library only and usable outside the lab."""
+    mod = sys.modules.get("frs_guard")
+    guard = getattr(mod, "LabGuard", None) if mod is not None else None
+    if guard is not None and getattr(guard, "installed", False) and getattr(guard, "lab", None):
+        return guard
+    return None
+
+
 def lease_dir() -> Path:
+    """$BATTLESHIP_PORT_LEASE_DIR, else <system temp>/battleship_port_leases. Under the lab guard (which refuses and records
+    every write outside the lab root) the leases live in <lab root>/port_leases instead, unless the variable already points
+    inside the lab root: every lab process (main, workers, verification replays) arms the same guard, so they share it."""
     d = os.environ.get(LEASE_DIR_ENV)
+    guard = _lab_guard()
+    if guard is not None:
+        if d and guard.inside_lab(d):
+            return Path(d)
+        return Path(guard.lab[0]) / "port_leases"
     return Path(d) if d else Path(tempfile.gettempdir()) / "battleship_port_leases"
 
 

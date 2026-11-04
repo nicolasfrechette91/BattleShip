@@ -227,6 +227,48 @@ def normal_launch_verified() -> Dict[str, Any]:
         cleanup(t["root"])
 
 
+GUARD_CHILD = r"""
+import json, sys
+from pathlib import Path
+sys.path.insert(0, %(rl)r)
+import frs_guard as g
+lab = Path(%(lab)r)
+g.LabGuard.install(lab)
+import port_lease
+from battleship_process import BattleShipEpisode, LaunchConfig
+from infra_testlib import fake_exe
+exe = fake_exe(lab / "fake")
+cfg = LaunchConfig(executable=exe, run_root=lab / "episodes", startup_timeout=20.0, ready_timeout=20.0, request_timeout=10.0,
+                   extra_env={"FAKEGAME_BOOT_S": "0.1", "FAKEGAME_IDLE_S": "30"})
+ep = BattleShipEpisode(cfg, index=1)
+with ep:
+    ep.start()
+    lease = str(ep.lease.path)
+    identity = ep.identity
+print(json.dumps({"violations": g.LabGuard.violations[:3], "lease": lease, "lease_dir": str(port_lease.lease_dir()), "identity": identity}))
+"""
+
+
+def lease_inside_lab_guard() -> Dict[str, Any]:
+    """Under the lab guard (which refuses and records any write outside the lab root), the lease lives in <lab>/port_leases
+    and a launch records no violation. Without this, every lab launch would fail and invalidate the run."""
+    lab = tmpdir("infra_guard_lab_")
+    try:
+        code = GUARD_CHILD % {"rl": str(Path(__file__).resolve().parent), "lab": str(lab)}
+        r = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True, timeout=120)
+        try:
+            out = json.loads(r.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            raise AssertionError(f"child failed: {(r.stderr or r.stdout)[-1500:]}")
+        check(out["violations"] == [], f"no guard violation: {out['violations']}")
+        check(Path(out["lease_dir"]).name == "port_leases" and str(lab.resolve()).lower() in out["lease_dir"].lower(),
+              f"the lease directory is inside the lab root: {out['lease_dir']}")
+        check(out["identity"] == "verified", f"the launch worked: {out}")
+        return {"lease_dir": out["lease_dir"], "identity": out["identity"]}
+    finally:
+        cleanup(lab)
+
+
 TESTS = {
     "race_legacy": race_legacy,
     "race_fixed": race_fixed,
@@ -234,6 +276,7 @@ TESTS = {
     "lease_stale_reclaimed": lease_stale_reclaimed,
     "require_identity_refuses_legacy": require_identity_refuses_legacy,
     "normal_launch_verified": normal_launch_verified,
+    "lease_inside_lab_guard": lease_inside_lab_guard,
 }
 
 if __name__ == "__main__":
