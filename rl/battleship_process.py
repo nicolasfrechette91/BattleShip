@@ -730,6 +730,9 @@ class BattleShipEpisode:
         sink = os.environ.get(NATIVE_LOG_SINK_DIR_ENV)
         if not sink or not self.native_log_flags:
             return
+        guard = port_lease._lab_guard()
+        if guard is not None and not guard.inside_lab(sink):
+            return  # the lab guard would refuse (and record) a write outside the lab root; the flags stay in native_log_flags
         try:
             Path(sink).mkdir(parents=True, exist_ok=True)
             head = {"utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "launcher_pid": os.getpid(), "child_pid": self.pid,
