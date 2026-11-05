@@ -585,3 +585,41 @@ The comparison checks **16 of the 17 fields**: `obs_diffs` ignores `host_frame`,
   `rl/frs_worker.py` changed (`fb7d3a33` -> `6a968829`).
 - Run 1's and run 2's tools pin run 1's digest (`expect_code`), so they already refused this tree before this change.
 - `tools/frs/run3_*.py` are not in the manifest (`rl/` only). The run 3 config records `run3_core_file_sha256`.
+
+## 14. Before step 6: stored records under forced redraws; the run 3 digest and the rebuild (proposed)
+
+**Owner (2026-11-05):** step 5 committed (c3bfce3 worker, 212998e run 3 files, 82f3175 log). Before step 6: (1) a targeted test of
+stored end records, committed separately; (2) a digest covering every file run 3 depends on, the choice explained before
+implementing; then the plan of the single rebuild. Nothing native without a go.
+
+### 14.1 Stored end records under forced redraws (built)
+
+- An end record on disk only helps if a later run reads it, so this needed a loader:
+  - `run3_archive.end_records(files)`: every stored record by (cell id, words digest), from `end_record` rows and from the `end`
+    of NEW / REPLACED rows; the first per representative; conflicts reported; each file's sha256.
+  - `Run3Archive.import_end_records`: attaches a record only to the representative with the same cell id AND words digest (a
+    record of a representative replaced since is never attached to the new one).
+  - `Run3Core`: `P["end_record_files"]` (optional) imported before the open; files, sha256 and counts in `config.json`
+    (`run3.end_import`) and the summary. A conflict between two records of one representative is a refusal.
+- Test `e2e_stored_records` (fake game; a test-only engine whose dispatch n draws the n-th of 8 fixed cells in a cycle, under D4):
+  - run x, 48 dispatches: the 8 first dispatches fused and stored their records; **40** later dispatches compared against them.
+  - a copy of x's `cells.jsonl` with ONE compared field of ONE record changed (`position_x` of cell 2, next float up).
+  - run y imports that copy: 8 records imported, 0 fused, **47** dispatches compared against records read from disk, all clean.
+  - the corrupted cell: dispatched once (n 3): `prefix_end`, `field_diffs` = {position_x: [true, corrupted]}, chain and record
+    digest equal, 0 burst words, 0 ticks, the fake game stepped exactly L = 493 times, quarantined, run 2's event and log.
+- `unit_end_record_import`: attach by (cell, digest) only; conflicts reported.
+- The bench now rebuilds its synthetic run 1 (run 1's engine, no D4) up to 3 times when it has no verified clear (it had none once).
+- `e2e_fused_runs` failed once on a correct engine path: a fused first dispatch stores nothing when the cell was replaced by a faster
+  arrival ingested before it (`fused_stale`; e.g. dispatch 8 fused cell 116 at tick 688, dispatch 6 replaced it at 668). The test now
+  accepts exactly that case; the rerun had 2 such dispatches and passed.
+- Suite: `run3_search_tests.py` 11 tests, all passing (the full run 10/11 before that test fix, then `e2e_fused_runs` alone);
+  `run3_archive_tests.py` 2/2. Committed aef1c70.
+
+### 14.2 Proposed, waiting for the owner
+
+- **Run 3 digest:** a separate run 3 manifest (recommended) rather than extending the lab manifest. Details in the reply of
+  2026-11-05; closure today: 31 repo files (20 `rl/`, 7 `tools/frs/`, 4 `tools/glitch/`), every `rl/` one already in the lab manifest.
+- **Step 6 plan:** one incremental US Release build in `build-us` (trig option OFF), the new executable paired with the
+  registered runtime files in a lab probe folder, then M6, Raphnet, the A/B replay against 30a3913b, a stored-chain probe and one
+  launcher episode. Preconditions checked (zero ticks): D: archive 6/6 OK, no native file differs from HEAD, submodules clean.
+  A build would copy the checkout-root `f3d.o2r` (bf16e8dd) over the registered one (73ab91ef) in `build-us/Release`.
