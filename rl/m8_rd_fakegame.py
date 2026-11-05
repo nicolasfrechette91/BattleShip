@@ -12,8 +12,18 @@ the serving process (pid and its own launch nonce).
 Port log, like native main(): SSB64_LOG_PATH when non-empty, else (only if FAKEGAME_PREF_DIR is set) one shared
 $FAKEGAME_PREF_DIR/ssb64.log, opened with truncation by every process as the native game does with its shared
 %APPDATA% log today. FAKEGAME_NATIVE_ERROR_AT_STEP=k writes a native-style ERROR line at step k.
-FAKEGAME_STEP_JITTER_S=j sleeps a uniform 0..j seconds (from the OS entropy pool) before each step reply: wall-clock noise
-that changes which of several parallel jobs finishes first, never the world's replies.
+FAKEGAME_STEP_JITTER_S=j sleeps 0..j seconds before each step reply: wall-clock noise that changes which of several parallel
+jobs finishes first, never the world's replies. Off by default (j = 0). The delay is a keyed sha256 uniform, like every other
+draw in the M8-rd modules: key = FAKEGAME_STEP_JITTER_SEED (default "0"), the step index, and a running digest of every step
+request this process has received (the job's prefix and burst words). The process is never told a job id (standby processes
+boot before a job is assigned, and the launch nonce is fresh per launch), so the job's own word stream is its identity. The
+same seed and the same job give the same delays in any process, worker or run.
+FAKEGAME_NONFINITE_P=p (off by default) replaces one field of a step reply with JSON null (what the native transport sends
+for a NaN or inf) with probability p per step, keyed like the jitter (FAKEGAME_NONFINITE_SEED, the step index, the running
+digest of the step requests), so the same words always meet the same null at the same step. FAKEGAME_NONFINITE_FIELD names the
+field as a dotted path (default observation.position_x); FAKEGAME_NONFINITE_MIN_STEP=m (default 1) exempts the step requests
+before the m-th (1-based), e.g. prefixes that were never stepped under the injection. Only the reply is changed; the synthetic
+world goes on.
 
 Environment (all optional): FAKEGAME_WORLD (stub world, default easy), FAKEGAME_BOOT_S (seconds spent Inactive), FAKEGAME_LOG
 (a file to which one line per start is appended: cwd, port, the sha256 of the BattleShip.cfg.json found in the working
@@ -25,7 +35,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import random
 import socket
 import sys
 import time
@@ -55,7 +64,23 @@ def main() -> int:
     port_log_file = open(log_path, "w", encoding="utf-8") if log_path else None
     error_at = int(os.environ.get("FAKEGAME_NATIVE_ERROR_AT_STEP", "0"))
     jitter = float(os.environ.get("FAKEGAME_STEP_JITTER_S", "0"))
-    noise = random.SystemRandom()
+    jitter_seed = os.environ.get("FAKEGAME_STEP_JITTER_SEED", "0")
+    job_words = hashlib.sha256(b"fakegame_jitter_words_v1")    # running digest of this process's step requests
+
+    def jitter_delay(step: int) -> float:
+        key = f"fakegame_jitter_v1|{jitter_seed}|{step}|{job_words.hexdigest()}"
+        return jitter * (int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:8], "big") / 2.0 ** 64)
+
+    nonfinite_p = float(os.environ.get("FAKEGAME_NONFINITE_P", "0"))
+    nonfinite_seed = os.environ.get("FAKEGAME_NONFINITE_SEED", "0")
+    nonfinite_path = os.environ.get("FAKEGAME_NONFINITE_FIELD", "observation.position_x").split(".")
+    nonfinite_min = int(os.environ.get("FAKEGAME_NONFINITE_MIN_STEP", "1"))
+
+    def nonfinite_now(step: int) -> bool:
+        if step < nonfinite_min:
+            return False
+        key = f"fakegame_nonfinite_v1|{nonfinite_seed}|{step}|{job_words.hexdigest()}"
+        return int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:8], "big") / 2.0 ** 64 < nonfinite_p
 
     def port_log(line: str) -> None:
         if port_log_file is not None:
@@ -145,8 +170,10 @@ def main() -> int:
                 resp.update({k: v for k, v in r.items() if k not in ("ok", "op", "protocol")})
         elif op == "step":
             steps += 1
+            if jitter > 0 or nonfinite_p > 0:
+                job_words.update(f"{req.get('buttons')},{req.get('stick_x')},{req.get('stick_y')};".encode("utf-8"))
             if jitter > 0:
-                time.sleep(noise.random() * jitter)
+                time.sleep(jitter_delay(steps))
             if log_requests:
                 event(event="step_served", step=steps)
             if error_at and steps == error_at:
@@ -161,6 +188,14 @@ def main() -> int:
                 world.advance(state, word)
                 r = world.reply(state, host_off)
                 resp.update({k: v for k, v in r.items() if k not in ("ok", "op", "protocol")})
+                if nonfinite_p > 0 and nonfinite_now(steps):
+                    node = resp
+                    for part in nonfinite_path[:-1]:
+                        child = dict(node[part])            # copy: never write into the world's own objects
+                        node[part] = child
+                        node = child
+                    node[nonfinite_path[-1]] = None
+                    event(event="nonfinite_injected", step=steps, field=".".join(nonfinite_path))
         else:
             resp = {"protocol": 1, "ok": False, "op": op, "error": "unknown_op", "message": op}
         conn.sendall((json.dumps(resp, separators=(",", ":")) + "\n").encode("utf-8"))
