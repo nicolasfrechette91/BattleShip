@@ -33,6 +33,8 @@ class Params:
     hitlag_window: int = 11             # longest hitlag after a hit: (s32)(19 / 3 + 5), ftParamGetHitLag US (ftparam.c:1674-1680)
                                         # with Mario's largest hitbox damage 19 (202_MarioMainMotion.c); hitlag_mul is 1.5 only for
                                         # electric hits between fighters (ftmain.c:3020, 3140). In BTT the only hits are target breaks
+    stop_samples: int = 60              # grounded stops are counted; the first N per class are kept as samples for audit. Rule of
+                                        # three: 0 misclassified among 60 bounds a class's error rate below 5 % (95 % confidence)
     target_half_extent: float = 150.0   # ITBonus1ObjectHeader damage_coll_size 300 x 0.5 (itmanager.c:382)
     body_reach: float = 500.0           # generous reach of Mario's hitboxes from his centre (not measured)
     weapon_radius: float = 100.0        # Mario fireball WPAttributes size 200 x 0.5 (204_MarioSpecial1.c)
@@ -283,6 +285,15 @@ class Detector:
             if since is not None and 0 <= since <= self.p.hitlag_window:
                 self.counts["freeze:after_break"] = self.counts.get("freeze:after_break", 0) + 1
                 return
+            stop = self._grounded_stop(b) if b.ga == 0 else None
+            if stop is not None:
+                # the game holding a grounded fighter at a wall or at a floor end (M6 / M8): counted, the first N kept as samples
+                n = self.counts[f"freeze:{stop}"] = self.counts.get(f"freeze:{stop}", 0) + 1
+                if n <= self.p.stop_samples:
+                    self.emit("freeze_stop_sample", ["M8"] if stop == "edge_stop" else ["M6"], a, b, score, self.p.snap_threshold,
+                              {"key": [stop, n], "class": stop, "sample": n, "of_first": self.p.stop_samples, "predicted_delta": [px, py],
+                               "floor": b.floor_id, "mask_curr": b.mask})
+                return
             self.counts["freeze:unexplained"] = self.counts.get("freeze:unexplained", 0) + 1
             self.emit("freeze_unexplained", ["M6"], a, b, score, self.p.snap_threshold,
                       {"key": ["freeze"], "predicted_delta": [px, py], "ticks_since_break": since, "hitlag_window": self.p.hitlag_window,
@@ -294,6 +305,26 @@ class Detector:
             mech = {"edge_snap": ["M8"], "unexplained": ["M6", "M7", "M8"]}.get(cls, ["M6"])
             self.emit("position_snap", mech, a, b, score, self.p.snap_threshold,
                       {"key": [cls], "class": cls, "residual": [rx, ry], "predicted_delta": [px, py]})
+
+    def _grounded_stop(self, b: State) -> Optional[str]:
+        """wall_stop: a side point on a wall line that faces it; edge_stop: x at the floor's end or its 40-unit inset (both within
+        vertex_eps). None otherwise."""
+        top, center, bottom, width = self.ecb
+        eps = self.p.vertex_eps
+        for side, kind in ((b.x + width, KIND_LWALL), (b.x - width, KIND_RWALL)):
+            for line in self.geo.lines:
+                if line.kind != kind:
+                    continue
+                q = _local((side, b.y + center), b, line.group)
+                if any(_point_segment_distance(q, s0, s1) <= eps for s0, s1, _f in line.segments()):
+                    return "wall_stop"
+        if 0 <= b.floor_id < len(self.geo.lines):
+            fl = self.geo.line(b.floor_id)
+            off = b.groups.get(fl.group, (0.0, 0.0))
+            lo, hi = sorted((fl.points[0][0] + off[0], fl.points[-1][0] + off[0]))
+            if min(abs(b.x - xe) for xe in (lo, hi, lo + 40.0, hi - 40.0)) <= eps:
+                return "edge_stop"
+        return None
 
     def _classify_snap(self, a: State, b: State, rx: float, ry: float) -> str:
         top, center, bottom, width = self.ecb
