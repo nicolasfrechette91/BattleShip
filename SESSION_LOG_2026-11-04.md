@@ -515,3 +515,73 @@ It is native and needs the owner's go.
     About 1.6 h on 5 workers at run 2's check rate. Needs a go.
   - **C. Run 2's lazy checks:** up to 41.2 M ticks if every cell is drawn; run 2 paid 19,772 worker-seconds (13.9 %) for 3,916
     of them; D4 stays refused.
+
+## 13. Step 5: option A (fused first dispatch), end records, D4 in run 3
+
+**Owner's decision (2026-11-05):** option A as an explicit change to `rl/frs_worker.py` (not a shim), under four conditions. Option B
+(the native harvest) is not needed. The 123 `break_occluded` breaks stay queued.
+
+### 13.1 The change (uncommitted)
+
+- **`rl/frs_worker.py`**, the only lab-code file changed:
+  - `FUSED_END_MODE = "fused_first_dispatch_v1"` and `fused_prefix(end_t)`.
+  - A job with `end_mode == FUSED_END_MODE` carries `end = None`. At L the record digest and the chain are compared as always, the
+    tuple comparison is skipped, and the observed 17-field tuple is returned in `prefix["end"]`. A difference raises the same
+    `prefix_end` mismatch before any burst word.
+  - Refused as an error before any process is acquired: a fused job with an end record, a fused job at L = 0 (the real archive's
+    lowest cell tick is 461), an unknown end mode.
+  - A job without `end_mode` (every run 1 and run 2 job) runs the old code: `if L > 0:` became `elif L > 0:` after the new branch.
+- **`tools/frs/run3_worker.py`**: a D6 truncation of a fused dispatch carries the fused prefix.
+- **`tools/frs/run3_search.py`** (new):
+  - `Run3Archive`: every eligible cell is dispatchable; `verified` means "end record known"; `unverified_eligible()` is 0, so
+    D4's refusal does not apply; `end_pending()` counts the cells whose next dispatch is fused.
+  - `adopt_archive`: run 2's freshly loaded archive becomes a `Run3Archive` in place. Step 8's loader of runs 1 + 2 replaces it.
+  - `Run3Core(ResumeSearch)`: no eager or lazy check; `Run3Pool` workers; key family `crossing3`.
+    - End records are stored at ingest, in dispatch order, as an `end_record` row of `cells.jsonl`. NEW / REPLACED rows carry `end`.
+    - A second fused dispatch of one representative must match the stored record in the 16 compared fields (else SEARCH_INVALID);
+      the first record stays.
+  - `Run3Search(DeterministicSchedule, AnomalyIngest, Run3Core)`.
+- **`tools/frs/run3_archive.py`**: `merged_cells` reads end records back by words digest; an `end_record` row is never the
+  representative; two records of one representative that differ in a compared field are refused (`end_conflicts`).
+- **`tools/frs/run3_search_tests.py`** (new): 9 tests.
+
+### 13.2 Condition 1: 17 fields, one at a time (fake game, L = 37, 68 processes)
+
+The comparison checks **16 of the 17 fields**: `obs_diffs` ignores `host_frame`, and the record (`m8_rd_record_v1`) leaves it out.
+
+| fields | value change (int + 1, next float) | JSON type change (int <-> integral float) |
+| --- | --- | --- |
+| 16 compared fields | **16/16 detected in both modes**; the record digest changes for all 16 | **14/14** (2 non-integral floats: n/a) |
+| `host_frame` | not detected in either mode; digest unchanged | not detected in either mode |
+
+- Detection kind: `prefix_end`, except `input_tick` + 1, which the tick contract catches first (`consumed_tick`) in both modes.
+- Every detection: 0 burst words; the fake game stepped exactly L times.
+- `host_frame`, as today: the stored path reports `host_frame_equal: False`; the fused path stores the altered value.
+
+### 13.3 Conditions 2 to 4
+
+- **2, mismatch** (`e2e_fused_mismatch`; chain of one inherited cell and record digest of another set wrong):
+  - each tampered representative: one dispatch, `prefix_end`, fused, 0 words, 0 ticks, quarantined, never dispatched again;
+  - no `end_record` row; the run 2 event in `run_log.jsonl`; the preserved prefix holds exactly L replies; DISPATCH_CAP.
+  - The quarantine belongs to the representative, as in runs 1 and 2: a faster arrival at the key later becomes a new
+    representative (seen in one earlier run; asserted when it happens).
+- **3, run 2's path**:
+  - `unit_run2_path_equals_pre_change`: 10 jobs give results identical to the pre-change file (39e20ca, via `git show`).
+  - suites: `frs_tests` 31/31, `crossing_search_tests stub` 5/5, `crossing_search_run2_tests stub` 4/4, `det_schedule_tests` 5/5,
+    `run3_anomaly_tests` 10/10, `run3_archive_tests` 2/2, `test_glitch` 36 OK, `m8_rd_tests unit` 47/48. The one failure is
+    `tracked_files_unchanged` (the uncommitted changes and the owner's handoff edit).
+  - `crossing_search_run2_tests real` fails at its pin of run 1's lab code digest. That pin has failed since the merge
+    (6f3a4989 != 0b248a9e); every assertion before it passed on the real run 1 folder.
+- **4, O10 and D4** (`e2e_fused_runs`, 120 dispatches, 3 workers):
+  - D4 accepted the archive (`schedule.json`, no refusal).
+  - Two same-seed runs: identical dispatches, cell events (`end_record` rows included), end records (16 fields) and anomaly bursts.
+  - Every inherited representative's first dispatch was fused and stored its end record (69 fused, 68 stored, 1 repeat). Later
+    dispatches used the stored record with the full comparison (1 such dispatch).
+  - Four stored records equal fresh fake-game replays of the cells' words.
+
+### 13.4 Lab code digest
+
+- Runs 1 and 2: `0b248a9e` (34 files). The merge (`rl/port_lease.py`): `6f3a4989` (35). Now: **`81b88be6`** (35); only
+  `rl/frs_worker.py` changed (`fb7d3a33` -> `6a968829`).
+- Run 1's and run 2's tools pin run 1's digest (`expect_code`), so they already refused this tree before this change.
+- `tools/frs/run3_*.py` are not in the manifest (`rl/` only). The run 3 config records `run3_core_file_sha256`.
