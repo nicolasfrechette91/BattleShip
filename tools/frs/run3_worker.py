@@ -110,7 +110,9 @@ def truncated_result(ctx: Any, job: Mapping[str, Any], obs: ra.JobObserver, proc
     seg = int(job["segment_words"])
     n = len(rb["words"])
     prefix: Dict[str, Any] = {"words": L, "cut": False, "terminal": False}
-    if L > 0:
+    if L > 0 and job.get("end_mode") == fw.FUSED_END_MODE:          # the prefix passed the worker's fused check before the burst
+        prefix.update(fw.fused_prefix(mcell.obs_tuple((obs.last_prefix or {})["observation"])))
+    elif L > 0:
         end_t = mcell.obs_tuple((obs.last_prefix or {})["observation"])
         prefix.update({"end_equal": True, "chain_equal": True, "end_digest_equal": True,
                        "host_frame_equal": end_t[mcell.HOST_FRAME] == tuple(job["end"])[mcell.HOST_FRAME]})

@@ -8,14 +8,26 @@ archive inherits, and the (level, mask) group of a cell. Zero native ticks; read
     refusals        `require_consistent` refuses an archive in which a cell's rows carry different masks or keys, a row's mask
                     disagrees with its level, or a cell has no key. Measured on runs 1 + 2: 37,294 cells, 181,657 rows, 0 of each.
     group           (level, mask) of a cell; a cell with no key is the explicit group UNKNOWN, never merged into another one.
+    end records     (2026-11-05, step 5) run 3 writes the end record of a cell (the 17 observation values at its tick) in its NEW / REPLACED
+                    rows (`end`) and, for an inherited cell, in an `end_record` row after its first (fused) dispatch. An `end_record` row
+                    never replaces the representative: it is attached to the representative with the same words digest. Two end records
+                    of one representative that differ in a compared field (all but host_frame) are refused (`end_conflicts`).
 """
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+_RL = Path(__file__).resolve().parents[2] / "rl"
+if str(_RL) not in sys.path:
+    sys.path.insert(0, str(_RL))
+
+import m8_rd_cells as mcell  # noqa: E402
+
 UNKNOWN = "unknown"
+END_RECORD_EV = "end_record"
 TARGETS_TOTAL = 10
 
 
@@ -28,13 +40,14 @@ def level_of_mask(mask: int) -> int:
 
 
 def merged_cells(cells_files: Sequence[Path]) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Any]]:
-    """{cell id: its last row (source, ev, key, level, tick, digest)} over the files in order, and the consistency report."""
+    """{cell id: its last row (source, ev, key, level, tick, digest, end)} over the files in order, and the consistency report."""
     last: Dict[int, Dict[str, Any]] = {}
+    ends: Dict[int, Dict[str, Any]] = {}
     masks: Dict[int, set] = {}
     keys: Dict[int, set] = {}
     nrows: Dict[int, int] = {}
     report: Dict[str, Any] = {"files": [str(p) for p in cells_files], "rows": 0, "rows_per_file": {}, "level_conflicts": [],
-                              "missing_keys": []}
+                              "missing_keys": [], "end_record_rows": 0, "end_conflicts": []}
     for src in cells_files:
         n = 0
         with open(src, encoding="utf-8") as f:
@@ -44,9 +57,15 @@ def merged_cells(cells_files: Sequence[Path]) -> Tuple[Dict[int, Dict[str, Any]]
                 c = json.loads(line)
                 n += 1
                 cid = int(c["cid"])
+                if c.get("ev") == END_RECORD_EV:
+                    report["end_record_rows"] += 1
+                    _note_end(ends, report, cid, c["digest"], c["end"])
+                    continue
                 key = tuple(c["key"]) if c.get("key") else None
                 row = {"source": str(src), "ev": c.get("ev"), "key": key, "level": int(c["level"]), "tick": int(c["tick"]),
-                       "digest": c.get("digest")}
+                       "digest": c.get("digest"), "end": None}
+                if c.get("end") is not None:
+                    _note_end(ends, report, cid, c.get("digest"), c["end"])
                 last[cid] = row
                 nrows[cid] = nrows.get(cid, 0) + 1
                 if key is None:
@@ -58,7 +77,11 @@ def merged_cells(cells_files: Sequence[Path]) -> Tuple[Dict[int, Dict[str, Any]]
                     report["level_conflicts"].append(cid)
         report["rows_per_file"][str(src)] = n
         report["rows"] += n
+    for cid, row in last.items():
+        row["end"] = ends.get(cid, {}).get(row["digest"])
     report["cells"] = len(last)
+    report["with_end_record"] = sum(1 for row in last.values() if row["end"] is not None)
+    report["end_conflicts"] = sorted(set(report["end_conflicts"]))
     report["multi_row_cells"] = sum(1 for n in nrows.values() if n > 1)
     report["mask_conflicts"] = sorted(cid for cid, s in masks.items() if len(s) > 1)
     report["key_conflicts"] = sorted(cid for cid, s in keys.items() if len(s) > 1)
@@ -67,8 +90,20 @@ def merged_cells(cells_files: Sequence[Path]) -> Tuple[Dict[int, Dict[str, Any]]
     return last, report
 
 
+def _note_end(ends: Dict[int, Dict[str, Any]], report: Dict[str, Any], cid: int, digest: Any, end: Sequence[Any]) -> None:
+    """Keep the first end record of a representative; a later one must equal it in every compared field."""
+    if len(end) != len(mcell.OBS_FIELDS):
+        raise ArchiveKeyError(f"cell {cid}: an end record with {len(end)} fields")
+    have = ends.setdefault(cid, {})
+    if digest in have:
+        if mcell.obs_diffs(tuple(end), tuple(have[digest])):
+            report["end_conflicts"].append(cid)
+        return
+    have[digest] = list(end)
+
+
 def require_consistent(report: Mapping[str, Any]) -> None:
-    bad = {k: len(report[k]) for k in ("mask_conflicts", "key_conflicts", "level_conflicts", "missing_keys") if report.get(k)}
+    bad = {k: len(report[k]) for k in ("mask_conflicts", "key_conflicts", "level_conflicts", "missing_keys", "end_conflicts") if report.get(k)}
     if bad:
         raise ArchiveKeyError(f"refused: the merged archive is not consistent: {bad} (first cells: "
                               f"{ {k: list(report[k])[:5] for k in bad} })")
