@@ -21,6 +21,9 @@ The owner's conditions (2026-11-05):
                  the pre-change file read from git); the existing suites are run separately
     4 O10 + D4   the stored end record is used by every later dispatch of the representative (full comparison); D4 accepts the archive;
                  two same-seed runs with fused first dispatches give the same dispatches, cells and end records (`e2e_fused_runs`)
+    stored       (2026-11-05, before step 6) forced redraws: >= 30 later dispatches compare against a record stored in the run, and in a
+                 second run >= 30 against records read from cells.jsonl, one of which has a single compared field changed: a prefix_end
+                 mismatch naming that field, 0 burst words, L steps, quarantined (`e2e_stored_records`, `unit_end_record_import`)
 """
 from __future__ import annotations
 
@@ -488,8 +491,45 @@ def engine_child(a: Mapping[str, Any]) -> Dict[str, Any]:
                     caps=dict(fm.CAPS_MB, main_private=1e9))
     cfg = cs.SearchConfig(lab_root=lab, out=out, run_dir=run_dir, frontier_dir=run1, n_workers=3, max_ticks=10 ** 9, max_wall_s=900.0, expect_code=None,
                           stop_grace_s=60.0, verify_floor_s=5.0, verify_s_per_clear=2.0, write_reserve_s=2.0, progress_every_s=2.0, seed_parallel=3)
-    code = r3.Run3Search(cfg, env, P, params, anomaly_build={"exe": "fake", "platform": sys.platform}).run()
-    return {"code": code, "violations": g.LabGuard.violations[:3]}
+    if a.get("end_record_files"):
+        P["end_record_files"] = list(a["end_record_files"])
+    cls, forced = r3.Run3Search, None
+    if a.get("forced_k"):
+        forced = forced_cells(P["archive"], int(a["forced_k"]))
+        cls = forced_engine_class(forced)
+    code = cls(cfg, env, P, params, anomaly_build={"exe": "fake", "platform": sys.platform}).run()
+    return {"code": code, "violations": g.LabGuard.violations[:3], "forced": forced}
+
+
+def forced_cells(archive: Any, k: int) -> List[int]:
+    """Test only: the k deepest eligible cells (level desc, tick, cell id) of a freshly loaded archive."""
+    return [c.cid for c in sorted((c for c in archive.cells if archive.eligible(c)), key=lambda c: (-c.level, c.tick, c.cid))][:k]
+
+
+def forced_engine_class(forced: Sequence[int]) -> Any:
+    """Test only: run 3's engine (D4 and anomaly keeping included) whose dispatch n draws forced[(n - 1) % k], skipping a cell that is
+    no longer dispatchable (quarantined): redraws are forced, every cell is dispatched about max_dispatches / k times."""
+    import det_schedule as det
+    import run3_anomaly as ra
+    import run3_search as r3
+
+    cyc = list(forced)
+
+    class ForcedCore(r3.Run3Core):
+        def next_job(self, w: int) -> Optional[Dict[str, Any]]:
+            n = self.c["dispatches"] + 1
+            for j in range(len(cyc)):
+                slot = (n - 1 + j) % len(cyc)
+                c = self.archive.cells[cyc[slot]]
+                if self.archive.dispatchable(c):
+                    return self.build_job(w, c, {"forced": True, "slot": slot})
+            self.mark("ARCHIVE_EMPTY", "no forced cell is dispatchable")
+            return None
+
+    class ForcedRun3(det.DeterministicSchedule, ra.AnomalyIngest, ForcedCore):
+        pass
+
+    return ForcedRun3
 
 
 def read_jsonl(p: Path) -> List[Dict[str, Any]]:
@@ -500,19 +540,30 @@ class Bench:
     def __init__(self) -> None:
         import crossing_search_run2_tests as r2t
 
-        self.lab = tmpdir("run3_search_lab_")
-        self.run1 = r2t.synthetic_run1(self.lab, max_dispatches=110)["out"]
+        # run 1's engine (no D4) makes the fixture: its outcome varies; run 2's helper needs a verified clear, so up to 3 fresh attempts
+        self.fixture_attempts = []
+        for _attempt in range(3):
+            self.lab = tmpdir("run3_search_lab_")
+            try:
+                self.run1 = r2t.synthetic_run1(self.lab, max_dispatches=110)["out"]
+                self.fixture_attempts.append("ok")
+                break
+            except AssertionError as exc:
+                self.fixture_attempts.append(str(exc)[:120])
+                cleanup(self.lab)
+        else:
+            raise AssertionError(f"no usable synthetic run 1 in 3 attempts: {self.fixture_attempts}")
         self.fk = fake_setup(self.lab)
         self.port = 34000
         self.runs: Dict[str, Dict[str, Any]] = {}
 
-    def run(self, name: str, run1: Path, params: Mapping[str, Any] = RUN3_PARAMS) -> Dict[str, Any]:
+    def run(self, name: str, run1: Path, params: Mapping[str, Any] = RUN3_PARAMS, **extra: Any) -> Dict[str, Any]:
         if name in self.runs:
             return self.runs[name]
         out = self.lab / f"run3_{name}"
         self.port += 1000
-        res = run_child("engine_child", self.lab, {"lab": str(self.lab), "out": str(out), "run1": str(run1), "exe": self.fk["exe"], "frozen": self.fk["frozen"],
-                                                   "exe_copy": self.fk["exe_copy"], "params": dict(params), "port_base": self.port})
+        res = run_child("engine_child", self.lab, dict({"lab": str(self.lab), "out": str(out), "run1": str(run1), "exe": self.fk["exe"], "frozen": self.fk["frozen"],
+                                                        "exe_copy": self.fk["exe_copy"], "params": dict(params), "port_base": self.port}, **extra))
         d = out / "run"
         res.update({"dir": d, "summary": json.loads((d / "summary.json").read_text(encoding="utf-8")), "config": json.loads((d / "config.json").read_text(encoding="utf-8")),
                     "dispatches": read_jsonl(d / "dispatches.jsonl"), "cells": read_jsonl(d / "cells.jsonl"), "log": read_jsonl(d / "run_log.jsonl"),
@@ -585,13 +636,20 @@ def e2e_fused_runs() -> Dict[str, Any]:
     by_rep: Dict[Tuple[int, str], List[Dict[str, Any]]] = {}
     for d in sorted(A["dispatches"], key=lambda d: int(d["n"])):
         by_rep.setdefault(_rep(d), []).append(d)
-    later_stored = repeats = 0
+    replaced_cids = {int(x["cid"]) for x in A["cells"] if x["ev"] == "replaced"}
+    later_stored = repeats = stale = 0
     for rep, rows in by_rep.items():
         if rep in found:
             check(all(d["end_mode"] is None for d in rows), f"a cell found by run 3 is never fused: {rep}")
             continue
-        check(rep in inherited and rows[0]["end_mode"] == fw.FUSED_END_MODE and rep in end_at and end_at[rep] == rows[0]["n"],
-              f"an inherited representative: first dispatch fused, its end record stored by it: {rep} {[(d['n'], d['end_mode']) for d in rows]}")
+        check(rep in inherited and rows[0]["end_mode"] == fw.FUSED_END_MODE, f"an inherited representative's first dispatch is fused: {rep}")
+        if rep not in end_at:
+            # the only path that stores nothing: the cell was replaced (a faster arrival, ingested first) before this dispatch was ingested
+            check(rep[0] in replaced_cids and all(d["end_mode"] == fw.FUSED_END_MODE for d in rows),
+                  f"an inherited representative without an end record was replaced in the run: {rep} {[(d['n'], d['end_mode']) for d in rows]}")
+            stale += len(rows)
+            continue
+        check(end_at[rep] == rows[0]["n"], f"its end record was stored by its first dispatch: {rep} {end_at[rep]} {[(d['n'], d['end_mode']) for d in rows]}")
         for d in rows[1:]:
             if d["end_mode"] is None:
                 check(int(d["n"]) > end_at[rep], f"a stored-end dispatch after the end record: {rep} {d['n']} {end_at[rep]}")
@@ -604,9 +662,9 @@ def e2e_fused_runs() -> Dict[str, Any]:
             current[int(x["cid"])] = x["digest"]
     still_inherited = {cid for (cid, dg) in end_at if current.get(cid) == dg}          # an inherited representative run 3 did not replace
     e3 = A["summary"]["run3"]["end_records"]
-    check(e3["end_records"] == len(end_at) and e3["fused"] == sum(1 for d in A["dispatches"] if d["end_mode"]) and e3["fused_repeat"] == repeats
-          and e3["fused_mismatch"] == 0 and e3["inherited_with_end_record"] == len(still_inherited), f"the end-record counts: {e3} (repeats {repeats}, "
-                                                                                                        f"stored {len(end_at)}, still inherited {len(still_inherited)})")
+    check(e3["end_records"] == len(end_at) and e3["fused"] == sum(1 for d in A["dispatches"] if d["end_mode"])
+          and e3["fused_repeat"] + e3["fused_stale"] == repeats + stale and e3["fused_stale"] >= stale and e3["fused_mismatch"] == 0 and e3["inherited_with_end_record"] == len(still_inherited),
+          f"the end-record counts: {e3} (repeats {repeats}, stale {stale}, stored {len(end_at)}, still inherited {len(still_inherited)})")
     check(later_stored >= 1, "O10 exercised: at least one later dispatch of an inherited representative used its stored end record")
     check(all(x.get("end") is not None and len(x["end"]) == len(FIELDS) for x in A["cells"] if x["ev"] in ("new", "replaced")), "every NEW / REPLACED row carries its end record")
     cells, rep = ar.merged_cells([b.run1 / "run" / "cells.jsonl", A["dir"] / "cells.jsonl"])
@@ -621,7 +679,8 @@ def e2e_fused_runs() -> Dict[str, Any]:
         diffs = mcell.obs_diffs(mcell.obs_tuple(replies[len(words) - 1]["observation"]), tuple(row["end"]))
         check(not diffs, f"cell {cid}: the stored end record differs from a fresh replay: {diffs}")
         replayed.append([cid, len(words)])
-    return {"dispatches": len(A["dispatches"]), "fused": e3["fused"], "end_records": e3["end_records"], "fused_repeat": repeats, "later_stored_end": later_stored,
+    return {"dispatches": len(A["dispatches"]), "fused": e3["fused"], "end_records": e3["end_records"], "fused_repeat": repeats, "fused_stale": stale,
+            "later_stored_end": later_stored,
             "eligible_without_end_record": e3["eligible_without_end_record"], "inherited": e3["inherited"], "replayed": replayed,
             "verified": A["summary"]["clears"]["verified"], "det": A["summary"].get("schedule") or None}
 
@@ -692,11 +751,113 @@ def e2e_fused_mismatch() -> Dict[str, Any]:
             "replaced_later": replaced_later}
 
 
+def unit_end_record_import() -> Dict[str, Any]:
+    """end_records reads every stored record by (cell id, words digest); the archive attaches only those of its own representatives."""
+    import crossing_search_run2 as r2
+    import crossing_search_run2_tests as r2t
+    import crossing_search_tests as cst
+    import run3_search as r3
+
+    arrival = {lv: 100 * lv for lv in range(mcell.TARGETS_TOTAL + 1)}
+    R1 = r2t.fake_run1([(0, 7, 500, 1, None), (1, 8, 640, 2, None), (2, 9, 700, 3, None)], arrival)
+    a = r2.ResumeArchive("arch", arrival, 800 - 24 - 1, r2.Params2())
+    a.load_run1(R1, 1000 - 24 - 1, {}, reset_novelty=False)
+    r3.adopt_archive(a)
+    c0, c1, c2 = a.cells
+    e = [1, 500, 500, 499, 1, 1, 3, 1, 10.0, 20.0, 0.0, 0.0, 0.0, 1, 0, 10, 0]
+    d = tmpdir("run3_import_")
+    try:
+        f = d / "cells.jsonl"
+        rows = [{"ev": ar.END_RECORD_EV, "cid": 0, "digest": c0.digest, "end": e, "n": 3},
+                {"ev": ar.END_RECORD_EV, "cid": 1, "digest": "f" * 64, "end": e, "n": 4},            # a representative replaced since
+                {"ev": "new", "cid": 9, "digest": "a" * 64, "end": e, "n": 5, "key": [0, 0, "G", 1, 1], "level": 9, "tick": 900},
+                {"ev": "replaced", "cid": 2, "digest": c2.digest, "end": e, "n": 6, "key": list(c2.key), "level": 9, "tick": 700}]
+        f.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        ends, rep = ar.end_records([f])
+        check(rep["records"] == 4 and rep["end_record_rows"] == 2 and not rep["end_conflicts"] and len(rep["files"][0]["sha256"]) == 64, f"report {rep}")
+        before = a.end_pending()
+        n = a.import_end_records(ends)
+        check(n == 2 and c0.verified and tuple(c0.end) == tuple(e) and not c1.verified and c2.verified and a.end_pending() == before - 2
+              and a.counts["end_records_imported"] == 2 and a.counts["end_records"] == 0, f"attached {n}; pending {before} -> {a.end_pending()}")
+        g2 = d / "bad.jsonl"
+        e2 = list(e)
+        e2[mcell.OBS_INDEX["jumps_used"]] = 1
+        g2.write_text(json.dumps(dict(rows[0], end=e2)) + "\n", encoding="utf-8")
+        check(ar.end_records([f, g2])[1]["end_conflicts"] == [0], "two records of one representative that differ are reported")
+        return {"records": rep["records"], "attached": n}
+    finally:
+        cleanup(d)
+
+
+def e2e_stored_records() -> Dict[str, Any]:
+    """Forced redraws (8 cells in a fixed cycle, 48 dispatches). Run x: each cell's first dispatch is fused and stores its record; every
+    later dispatch compares against it. Run y imports x's records from a copy of x's cells.jsonl in which ONE compared field of ONE record
+    was changed: every dispatch compares against a record read from disk; the corrupted one is a prefix_end mismatch naming that field,
+    with 0 burst words, the fake game stepped exactly L times, and the cell is quarantined."""
+    import run3_search as r3
+
+    b = bench()
+    params = dict(RUN3_PARAMS, max_dispatches=48)
+    X = b.run("x", b.run1, params, forced_k=8)
+    _clean(X, 48)
+    forced = X["forced"]
+    final1 = b.final1()
+    check(len(forced) == 8 and len({_rep(d) for d in X["dispatches"]}) >= 8, f"8 forced cells: {forced}")
+    end_at = {(int(x["cid"]), x["digest"]): int(x["n"]) for x in X["cells"] if x["ev"] == r3.END_RECORD_EV}
+    rows = sorted(X["dispatches"], key=lambda d: int(d["n"]))
+    check(all(d["outcome"] not in ("mismatch", "lifecycle", "aborted") for d in rows), "every prefix of run x reproduced")
+    for cid in forced:
+        first = next(d for d in rows if int(d["cid"]) == cid)
+        check(first["end_mode"] == fw.FUSED_END_MODE and end_at.get(_rep(first)) == int(first["n"]), f"cell {cid}: its first dispatch is fused and stores the record")
+    in_run = [d for d in rows if d["end_mode"] is None and _rep(d) in end_at and int(d["n"]) > end_at[_rep(d)]]
+    check(len(in_run) >= 30, f"later dispatches compared against a record stored in the run: {len(in_run)}")
+    # one compared field of one stored record changed in a copy of x's cells.jsonl
+    victim = forced[2]
+    vrep = (victim, final1[victim]["digest"])
+    field = "position_x"
+    xi = mcell.OBS_INDEX[field]
+    cells_x = read_jsonl(X["dir"] / "cells.jsonl")
+    hit = [i for i, x in enumerate(cells_x) if x["ev"] == r3.END_RECORD_EV and (int(x["cid"]), x["digest"]) == vrep]
+    check(len(hit) == 1, f"the victim's end_record row: {hit}")
+    true_v = cells_x[hit[0]]["end"][xi]
+    cells_x[hit[0]]["end"][xi] = math.nextafter(true_v, math.inf)
+    corrupted = b.lab / "x_cells_corrupted.jsonl"
+    with open(corrupted, "w", encoding="utf-8", newline="\n") as fh:
+        for x in cells_x:
+            fh.write(json.dumps(x, separators=(",", ":")) + "\n")
+    Y = b.run("y", b.run1, params, forced_k=8, end_record_files=[str(corrupted)])
+    _clean(Y, 48)
+    check(Y["forced"] == forced, "the same forced cells")
+    e3 = Y["summary"]["run3"]["end_records"]
+    imp = Y["config"]["run3"]["end_import"]
+    check(e3["imported"] == 8 and e3["fused"] == 0 and imp["files"][0]["sha256"] == mw.sha256_file(corrupted), f"8 records imported, nothing fused: {e3} {imp}")
+    vrows = [d for d in Y["dispatches"] if _rep(d) == vrep]
+    check(len(vrows) == 1, f"the corrupted cell dispatched once, then never again: {[(d['n'], d['outcome']) for d in vrows]}")
+    d = vrows[0]
+    det_ = json.loads(d["detail"])
+    check(d["outcome"] == "mismatch" and d["mismatch"] == "prefix_end" and d["end_mode"] is None and d["words_played"] == 0 and d["ticks"] == 0
+          and list(det_["field_diffs"]) == [field] and det_["chain_equal"] is True and det_["end_digest_equal"] is True
+          and det_["field_diffs"][field] == [true_v, math.nextafter(true_v, math.inf)], f"the corrupted record is detected: {d}")
+    check(Y["summary"]["archive"]["quarantined"] == 1 and Y["summary"]["work"]["mismatches"] == 1
+          and any(f"cell {victim} (level" in x["msg"] and "quarantined: its prefix did not reproduce (prefix_end)" in x["msg"] for x in Y["log"]),
+          "quarantined, counted and logged as run 2 does")
+    pres = [json.load(gzip.open(p, "rt", encoding="utf-8")) for p in sorted((Y["dir"] / "failures").glob("*.json.gz"))]
+    check(len(pres) == 1 and int(pres[0]["job"]["cell"]) == victim and len(pres[0]["replies"]) == int(final1[victim]["tick"]),
+          f"the fake game stepped exactly L = {final1[victim]['tick']} times: {[len(p['replies']) for p in pres]}")
+    imported = {(cid, final1[cid]["digest"]) for cid in forced}
+    from_disk = [x for x in Y["dispatches"] if x["end_mode"] is None and _rep(x) in imported and _rep(x) != vrep]
+    check(len(from_disk) >= 30 and all(x["outcome"] not in ("mismatch", "lifecycle", "aborted") for x in from_disk),
+          f"dispatches compared against a record read from disk: {len(from_disk)}")
+    return {"fixture_attempts": len(b.fixture_attempts), "forced": forced, "x_fused": X["summary"]["run3"]["end_records"]["fused"], "x_later_stored": len(in_run), "y_imported": e3["imported"],
+            "y_from_disk": len(from_disk), "victim": [victim, field, int(final1[victim]["tick"])], "y_mismatch_n": d["n"]}
+
+
 UNIT = {"unit_digest_covers_compared_fields": unit_digest_covers_compared_fields, "unit_worker_refusals": unit_worker_refusals,
         "unit_stub_fused_equals_stored": unit_stub_fused_equals_stored, "unit_run2_path_equals_pre_change": unit_run2_path_equals_pre_change,
-        "unit_merge_end_records": unit_merge_end_records, "unit_d4_reads_no_lazy_check": unit_d4_reads_no_lazy_check}
+        "unit_merge_end_records": unit_merge_end_records, "unit_d4_reads_no_lazy_check": unit_d4_reads_no_lazy_check,
+        "unit_end_record_import": unit_end_record_import}
 FAKE = {"fake_field_by_field": fake_field_by_field}
-E2E = {"e2e_fused_runs": e2e_fused_runs, "e2e_fused_mismatch": e2e_fused_mismatch}
+E2E = {"e2e_fused_runs": e2e_fused_runs, "e2e_fused_mismatch": e2e_fused_mismatch, "e2e_stored_records": e2e_stored_records}
 
 if __name__ == "__main__":
     args = sys.argv[1:]

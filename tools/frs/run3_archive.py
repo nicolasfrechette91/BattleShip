@@ -12,9 +12,11 @@ archive inherits, and the (level, mask) group of a cell. Zero native ticks; read
                     rows (`end`) and, for an inherited cell, in an `end_record` row after its first (fused) dispatch. An `end_record` row
                     never replaces the representative: it is attached to the representative with the same words digest. Two end records
                     of one representative that differ in a compared field (all but host_frame) are refused (`end_conflicts`).
+                    `end_records` reads them for a later run (or a resumed one) to import by (cell id, words digest).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -107,6 +109,35 @@ def require_consistent(report: Mapping[str, Any]) -> None:
     if bad:
         raise ArchiveKeyError(f"refused: the merged archive is not consistent: {bad} (first cells: "
                               f"{ {k: list(report[k])[:5] for k in bad} })")
+
+
+def end_records(cells_files: Sequence[Path]) -> Tuple[Dict[Tuple[int, str], List[Any]], Dict[str, Any]]:
+    """{(cell id, words digest): end record} from every `end` a cells.jsonl row carries (end_record rows and NEW / REPLACED rows), the
+    first per representative, and a report (files with sha256, records, end_conflicts). A run imports the records whose (cell, digest)
+    is a representative of its archive: a record of a representative that was replaced since is never attached to the new one."""
+    ends: Dict[int, Dict[str, Any]] = {}
+    report: Dict[str, Any] = {"files": [], "rows": 0, "end_record_rows": 0, "end_conflicts": []}
+    for src in cells_files:
+        h = hashlib.sha256()
+        with open(src, "rb") as f:
+            data = f.read()
+        h.update(data)
+        n = 0
+        for line in data.decode("utf-8").splitlines():
+            if not line.strip():
+                continue
+            c = json.loads(line)
+            n += 1
+            if c.get("end") is None:
+                continue
+            report["end_record_rows"] += int(c.get("ev") == END_RECORD_EV)
+            _note_end(ends, report, int(c["cid"]), c.get("digest"), c["end"])
+        report["files"].append({"path": str(src), "sha256": h.hexdigest(), "rows": n})
+        report["rows"] += n
+    out = {(cid, str(dg)): end for cid, by in ends.items() for dg, end in by.items()}
+    report["records"] = len(out)
+    report["end_conflicts"] = sorted(set(report["end_conflicts"]))
+    return out, report
 
 
 def group_of(level: int, cell: Optional[Mapping[str, Any]]) -> Tuple[int, Any]:

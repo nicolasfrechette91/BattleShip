@@ -10,6 +10,9 @@ command line, the reports, the step 7 rules) is step 8; until then the tests bui
                     The engine stores it at ingest, in dispatch order, and writes an `end_record` row to cells.jsonl. Every later
                     dispatch of that representative carries the end record and is compared field by field, as in run 2 (review O10).
                     A cell found by run 3 has its end record from the reach that made it: every NEW / REPLACED row carries `end`.
+    import          P["end_record_files"] (cells.jsonl files of earlier run 3 runs, optional): their end records are attached, before
+                    the open, to the representatives with the same (cell id, words digest) (tools/frs/run3_archive.end_records); those
+                    cells are dispatched with the stored record from their first dispatch. The files and their sha256 go to config.json.
     mismatch        a fused dispatch whose prefix does not reproduce is run 2's `prefix_end` mismatch, raised before any burst word: the
                     dispatch row (outcome mismatch), the representative quarantined, the event logged, the mismatch limit; no end record.
     no checks       run 2's eager and lazy checks are not run: an inherited cell is eligible from the start and nothing waits on a lent
@@ -46,6 +49,7 @@ import frs_verify as fv  # noqa: E402
 import frs_worker as fw  # noqa: E402
 import m8_rd_cells as mcell  # noqa: E402
 import run3_anomaly as ra  # noqa: E402
+import run3_archive as rar  # noqa: E402
 import run3_worker as r3w  # noqa: E402
 
 RUN3_CORE_CONTRACT = "frs_run3_core_v1"
@@ -69,11 +73,23 @@ class Run3Archive(r2.ResumeArchive):
         """Eligible cells whose end record is not known yet (their next dispatch is fused)."""
         return sum(1 for c in self.cells if self.eligible(c) and not c.verified)
 
-    def store_end(self, c: cs.Cell, end: Sequence[Any]) -> None:
+    def store_end(self, c: cs.Cell, end: Sequence[Any], *, counter: str = "end_records") -> None:
+        if len(end) != len(mcell.OBS_FIELDS):
+            raise SearchError(f"cell {c.cid}: an end record with {len(end)} fields")
         c.end = tuple(end)
         c.verified = True
-        self.counts["end_records"] = self.counts.get("end_records", 0) + 1
+        self.counts[counter] = self.counts.get(counter, 0) + 1
         self.touch(c)
+
+    def import_end_records(self, ends: Mapping[Any, Sequence[Any]]) -> int:
+        """Attach stored end records to the representatives with the same (cell id, words digest); returns how many were attached."""
+        n = 0
+        for c in self.cells:
+            e = ends.get((c.cid, c.digest))
+            if e is not None and not c.verified and c.words is not None:
+                self.store_end(c, e, counter="end_records_imported")
+                n += 1
+        return n
 
 
 def adopt_archive(archive: r2.ResumeArchive) -> Run3Archive:
@@ -84,6 +100,7 @@ def adopt_archive(archive: r2.ResumeArchive) -> Run3Archive:
         raise SearchError("refused: the archive has pending checks or cells kept by a search")
     archive.__class__ = Run3Archive
     archive.counts.setdefault("end_records", 0)
+    archive.counts.setdefault("end_records_imported", 0)
     return archive
 
 
@@ -93,6 +110,13 @@ class Run3Core(r2.ResumeSearch):
     def __init__(self, cfg: cs.SearchConfig, env: Any, P: Mapping[str, Any], params: r2.Params2):
         super().__init__(cfg, env, P, params)
         self.archive = adopt_archive(self.archive)
+        self.end_import: Dict[str, Any] = {"files": [], "records": 0, "imported": 0}
+        files = [Path(f) for f in (P.get("end_record_files") or [])]
+        if files:
+            ends, rep = rar.end_records(files)
+            if rep["end_conflicts"]:
+                raise SearchError(f"refused: end records that differ for one representative: cells {rep['end_conflicts'][:5]}")
+            self.end_import = {"files": rep["files"], "records": rep["records"], "imported": self.archive.import_end_records(ends)}
         self.fused_n: Set[int] = set()
         self.c.update({"fused": 0, "fused_ok": 0, "fused_mismatch": 0, "fused_repeat": 0, "fused_stale": 0, "fused_cut": 0, "end_records": 0})
 
@@ -262,7 +286,8 @@ class Run3Core(r2.ResumeSearch):
     def end_record_stats(self) -> Dict[str, Any]:
         inh = [c for c in self.archive.cells if c.inherited]
         out = {k: self.c[k] for k in ("fused", "fused_ok", "fused_mismatch", "fused_repeat", "fused_stale", "fused_cut", "end_records")}
-        out.update({"inherited": len(inh), "inherited_with_end_record": sum(1 for c in inh if c.verified), "eligible_without_end_record": self.archive.end_pending()})
+        out.update({"inherited": len(inh), "inherited_with_end_record": sum(1 for c in inh if c.verified), "eligible_without_end_record": self.archive.end_pending(),
+                    "imported": self.end_import["imported"], "import_records": self.end_import["records"]})
         return out
 
     def config_record(self, ready: Mapping[str, Any]) -> Dict[str, Any]:
@@ -275,7 +300,7 @@ class Run3Core(r2.ResumeSearch):
                                          "at L) and its observed end record is stored at ingest as an end_record row of cells.jsonl")
         rec["origins"]["draw_id"] = f"<archive id>|{KEY_FAMILY}|<prefix words digest>, iteration k = 0.. per representative (a new family)"
         rec["run3"] = {"contract": RUN3_CORE_CONTRACT, "end_mode": fw.FUSED_END_MODE, "end_record_ev": END_RECORD_EV, "checks": "none (no eager or lazy check)",
-                       "workers": r3w.RUN3_WORKER_CONTRACT}
+                       "workers": r3w.RUN3_WORKER_CONTRACT, "end_import": dict(self.end_import)}
         return rec
 
     def summary(self) -> Dict[str, Any]:
