@@ -268,6 +268,38 @@ def unit_freeze_window() -> Dict[str, Any]:
     return out
 
 
+def unit_freeze_stop_classes() -> Dict[str, Any]:
+    """Grounded freezes held by the game: side point on a facing wall -> wall_stop, at a floor end or its 40-unit inset -> edge_stop
+    (counted, the first stop_samples kept as samples); airborne freezes stay freeze_unexplained."""
+    import test_glitch as tg
+
+    spec = tg.sorted_spec(tg.box(0, 0, 1000, 1000) + [(gm.KIND_FLOOR, [(-2000, 0), (0, 0)], 0)])   # floor 0 = block top, floor 1 = ground
+
+    def frozen(x: float, y: float, ga: int, floor: int, ticks: int, params: Optional[gd.Params] = None) -> gd.Detector:
+        path = [(x - 10.0 * (5 - i), y, ga) for i in range(6)] + [(x, y, ga)] * ticks     # reach x, then stay put `ticks` ticks
+        extra: Dict[int, Any] = {i: {"spatial": {"fighter": {"floor_line_id": floor}}} for i in range(len(path))}
+        for i in range(6, len(path)):
+            extra[i]["observation"] = {"air_velocity_x": 10.0}
+        import test_glitch as tg2
+
+        geo = gm.derive(tg2.raw_from_lines(spec), "test")
+        d = gd.Detector(tg2.make_trace(geo, path, extra=extra), geo, params)
+        d.run()
+        return d
+
+    w = frozen(-150.0, 0.0, 0, 1, 1)
+    check(w.counts.get("freeze:wall_stop") == 1 and [e["evidence"]["class"] for e in w.events if e["kind"] == "freeze_stop_sample"] == ["wall_stop"]
+          and "freeze_unexplained" not in w.counts, f"side point on the block's wall: wall_stop {w.counts}")
+    e = frozen(0.0, 1000.0, 0, 0, 1)
+    check(e.counts.get("freeze:edge_stop") == 1 and "freeze_unexplained" not in e.counts, f"at the block top's end: edge_stop {e.counts}")
+    a = frozen(-500.0, 500.0, 1, -1, 1)
+    check(a.counts.get("freeze_unexplained") == 1, f"airborne: still freeze_unexplained {a.counts}")
+    c = frozen(-150.0, 0.0, 0, 1, 5, gd.Params(stop_samples=2))
+    check(c.counts.get("freeze:wall_stop") == 5 and sum(1 for x in c.events if x["kind"] == "freeze_stop_sample") == 2, f"counted 5, sampled 2: {c.counts}")
+    return {"wall": w.counts.get("freeze:wall_stop"), "edge": e.counts.get("freeze:edge_stop"), "airborne": a.counts.get("freeze_unexplained"),
+            "capped": [c.counts.get("freeze:wall_stop"), 2]}
+
+
 def unit_live_scanner_equals_detector() -> Dict[str, Any]:
     """LiveScanner fed one reply at a time == Detector.run, on stored lab traces when the lab is present (skipped otherwise)."""
     import gzip
@@ -418,6 +450,9 @@ def e2e_engine_read_only() -> Dict[str, Any]:
     ns = {e["source"]["n"] for e in obs["events"]}
     check(ns == {x["n"] for x in obs["bursts"]}, "one anomaly_bursts row per burst with an event")
     check(not obs["replays"] and not any(d.get("outcome") == "nonfinite" for d in obs["dispatches"]), "no non-finite outcome without the injection")
+    cap = an.get("sample_cap")
+    check(all(v <= cap for v in (an.get("samples") or {}).values()) and isinstance(an.get("counts"), dict), f"per-class counts in the summary, samples capped: {an.get('samples')}")
+    check(all(e["kind"] != "freeze_stop_sample" for e in obs["events"]), "audit samples are not anomaly events")
     return {"dispatches": len(obs["dispatches"]), "cells": len(obs["cells"]), "verified": len(obs["verifications"]), "selfcheck": sc,
             "events": an.get("by_kind"), "bursts_with_events": an.get("bursts"), "scan_errors": an.get("scan_errors")}
 
@@ -494,7 +529,7 @@ def e2e_nonfinite_keeps_running() -> Dict[str, Any]:
 
 UNIT = {"unit_nonfinite_scan": unit_nonfinite_scan, "unit_proxy_is_transparent": unit_proxy_is_transparent,
         "unit_run_job_equals_frs_worker": unit_run_job_equals_frs_worker, "unit_nonfinite_truncates_burst": unit_nonfinite_truncates_burst,
-        "unit_detector_rules": unit_detector_rules, "unit_freeze_window": unit_freeze_window,
+        "unit_detector_rules": unit_detector_rules, "unit_freeze_window": unit_freeze_window, "unit_freeze_stop_classes": unit_freeze_stop_classes,
         "unit_live_scanner_equals_detector": unit_live_scanner_equals_detector}
 E2E = {"e2e_engine_read_only": e2e_engine_read_only, "e2e_nonfinite_keeps_running": e2e_nonfinite_keeps_running}
 

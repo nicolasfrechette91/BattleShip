@@ -247,7 +247,8 @@ class AnomalyIngest:
     def __init__(self, *args: Any, anomaly_build: Optional[Mapping[str, Any]] = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.anomaly_build = dict(anomaly_build or {})
-        self.anomaly_stats: Dict[str, Any] = {"events": 0, "bursts": 0, "nonfinite": 0, "scan_errors": 0, "by_kind": {}}
+        self.anomaly_stats: Dict[str, Any] = {"events": 0, "bursts": 0, "nonfinite": 0, "scan_errors": 0, "by_kind": {}, "counts": {},
+                                              "samples": {}, "sample_cap": gd.Params().stop_samples}
 
     def handle(self, w: Any, kind: str, payload: Dict[str, Any]) -> None:
         info = self.inflight.get(w)
@@ -269,13 +270,17 @@ class AnomalyIngest:
 
     def _keep_anomalies(self, info: Mapping[str, Any], res: Mapping[str, Any]) -> None:
         glitch = res.get("glitch") or {}
-        events = list(glitch.get("events") or [])
+        counts = self.anomaly_stats["counts"]
+        for k, v in (glitch.get("counts") or {}).items():           # every class of every burst, for the run summary
+            counts[k] = counts.get(k, 0) + int(v)
+        events = [e for e in glitch.get("events") or [] if not str(e.get("kind")).endswith("_sample")]
+        samples = [e for e in glitch.get("events") or [] if str(e.get("kind")).endswith("_sample")]
         if glitch.get("error"):
             self.anomaly_stats["scan_errors"] += 1
         nf = res.get("nonfinite")
         if nf:
             events.append(nf["event"])
-        if not events:
+        if not events and not samples:
             return
         parent = bytes(info["words"])
         burst = bytes(res.get("words") or b"")
@@ -283,6 +288,16 @@ class AnomalyIngest:
         source = {"run_folder": str(self.dir), "n": info["n"], "cid": info["cid"], "k": info["k"], "draw_id": info["draw_id"],
                   "level": info["level"], "start_tick": info["tick"], "parent_digest": info["digest"],
                   "words_digest": mcell.words_digest(words), "words_from_tick0": len(words)}
+        for ev in samples:                                           # audit samples: the first sample_cap per class of the run
+            cls = str((ev.get("evidence") or {}).get("class"))
+            kept = self.anomaly_stats["samples"].get(cls, 0)
+            if kept >= self.anomaly_stats["sample_cap"]:
+                continue
+            self.anomaly_stats["samples"][cls] = kept + 1
+            self.fs.append_jsonl(self.dir / "glitch_samples.jsonl", dict(ev, source=dict(ev.get("source") or {}, **source),
+                                                                          build=dict(self.anomaly_build), words_hex=words.hex()))
+        if not events:
+            return
         ids = []
         for ev in events:
             row = dict(ev)
