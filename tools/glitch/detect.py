@@ -30,6 +30,9 @@ class Params:
     vertex_eps: float = 0.001           # float error at a vertex: the 0.001 start tolerance of the flat tests and the +-0.001
                                         # clamp of the line getters (mpcollision.c; GLITCH_CANDIDATES.md 1.4), about 4 ulps here
     snap_threshold: float = 1.0         # |position change - velocity prediction| that counts as a snap (units)
+    hitlag_window: int = 11             # longest hitlag after a hit: (s32)(19 / 3 + 5), ftParamGetHitLag US (ftparam.c:1674-1680)
+                                        # with Mario's largest hitbox damage 19 (202_MarioMainMotion.c); hitlag_mul is 1.5 only for
+                                        # electric hits between fighters (ftmain.c:3020, 3140). In BTT the only hits are target breaks
     target_half_extent: float = 150.0   # ITBonus1ObjectHeader damage_coll_size 300 x 0.5 (itmanager.c:382)
     body_reach: float = 500.0           # generous reach of Mario's hitboxes from his centre (not measured)
     weapon_radius: float = 100.0        # Mario fireball WPAttributes size 200 x 0.5 (204_MarioSpecial1.c)
@@ -127,6 +130,7 @@ class Detector:
                        if f.check in ("corner", "bend") and f.where.get("corner") == "convex"}
         self.events: List[Dict[str, Any]] = []
         self.counts: Dict[str, int] = {}
+        self.last_break: Optional[int] = None
 
     # -- event plumbing ---------------------------------------------------------------------------------------------
 
@@ -197,8 +201,11 @@ class Detector:
                         self._corner_pass(a, b, line, k, which, p0, p1, s1 if u1 >= 1 - eps_u else s0, u1)
                         continue
                     if flags & VERTEX_COLL_PASS:
-                        # one-way line: crossing it is ordinary (M9); counted for explanation, not emitted
+                        # one-way line: a downward crossing is a fall through it (M9), an ordinary mechanic; logged, never a clip
                         self.counts["pass_line_crossing"] = self.counts.get("pass_line_crossing", 0) + 1
+                        self.emit("pass_through", ["M9"], a, b, -d1, self.p.cross_margin, {
+                            "key": [line.id, k, which], "line": line.id, "segment": k, "kind": line.kind_name, "point": which,
+                            "group": line.group, "depth_behind": -d1, "crossing_xy_local": list(q), "u_on_segment": u})
                         continue
                     mech = ["M3", "M5", "M2"] if which == "center" else ["M5", "M2", "M3"]
                     self.emit("line_crossing", mech, a, b, -d1, self.p.cross_margin, {
@@ -269,6 +276,17 @@ class Detector:
         score = max(abs(rx), abs(ry))
         if score <= self.p.snap_threshold:
             return
+        if b.x == a.x and b.y == a.y:
+            # exactly unchanged although the velocity says it should move: hitlag only within hitlag_window ticks of a break
+            since = None if self.last_break is None else b.index - self.last_break
+            if since is not None and 0 <= since <= self.p.hitlag_window:
+                self.counts["freeze:after_break"] = self.counts.get("freeze:after_break", 0) + 1
+                return
+            self.counts["freeze:unexplained"] = self.counts.get("freeze:unexplained", 0) + 1
+            self.emit("freeze_unexplained", ["M6"], a, b, score, self.p.snap_threshold,
+                      {"key": ["freeze"], "predicted_delta": [px, py], "ticks_since_break": since, "hitlag_window": self.p.hitlag_window,
+                       "mask_curr": b.mask, "entity_hitlag": b.hitlag if b.has_entity else None})
+            return
         cls = self._classify_snap(a, b, rx, ry)
         self.counts[f"snap:{cls}"] = self.counts.get(f"snap:{cls}", 0) + 1
         if self.p.all_snaps or cls in ("unexplained", "edge_snap"):
@@ -312,6 +330,10 @@ class Detector:
             return
         self.emit("floor_switch_unlinked", ["M6", "M7", "M9"], a, b, abs(b.y - a.y), 0,
                   {"key": [la.id, lb.id], "from_line": la.id, "to_line": lb.id, "dy": b.y - a.y})
+
+    def _note_break(self, a: State, b: State) -> None:
+        if a.target_mask is not None and b.target_mask is not None and int(a.target_mask) & ~int(b.target_mask):
+            self.last_break = b.index
 
     def target_breaks(self, a: State, b: State) -> None:
         if a.target_mask is None or b.target_mask is None:
@@ -396,6 +418,7 @@ class Detector:
             if b.index != a.index + 1:
                 self.counts["tick_gap"] = self.counts.get("tick_gap", 0) + 1
                 continue
+            self._note_break(a, b)
             self.line_crossings(a, b)
             self.bounds(a, b)
             self.snaps(a, b)
