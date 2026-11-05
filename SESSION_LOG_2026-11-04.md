@@ -444,3 +444,74 @@ detached copy.
    (airborne up-B) of 1,685; 562 edge stops, 1,087 wall stops.
 
 Not started: step 5 (end records) and later steps.
+
+## 11. 2026-11-05: both proposals approved and applied
+
+**Owner's decisions:**
+
+0. Commit the step 4 work locally in coherent commits, no push:
+   - cc9d41d: fake game;
+   - dbdcc9f: run 3 anomaly keeping;
+   - d1bbcb5: decisions;
+   - 549172b: inventory;
+   - 45c3c38: this log.
+   The owner's handoff edit, the probe-result doc and `tools/audit/trig_ab_replay.py` stay uncommitted.
+1. **Masks: approved**, after checking that no cell has rows with different masks.
+   - **0** such cells: 37,294 cells, 181,657 rows in run 1's and run 2's `cells.jsonl`, 32,160 cells with several rows.
+   - 0 key conflicts, 0 masks disagreeing with their level, 0 cells without a key.
+   - Applied: `tools/frs/run3_archive.py` (272e165) merges the keys in inheritance order (last row per cell), refuses any
+     inconsistency, and makes unknown an explicit group.
+   - Run 2's groups with the merged keys: level 9 = 8,078 / 8,027 / 4,879, the record's numbers, and **no unknown group**. With
+     run 2's file alone, the unknown group would hold 42 / 287 / 738 / 839 dispatches at levels 9 to 6.
+   - `tools/frs/run3_archive_tests.py`: 2/2.
+2. **Freeze refinement: approved**, with these details:
+   - wall and edge stops are counted, not logged;
+   - per-class counts go in the run summary, and the first N per class are logged for audit;
+   - the floor-end teleport stays an `edge_snap`;
+   - the 36 airborne up-B freezes stay `freeze_unexplained`.
+   - **N = 60** (rule of three: 0 misclassified among 60 bounds a class's error rate below 5 % at 95 % confidence).
+   - Applied in a0bbd90 (`detect.py` only) and d8db719 (`AnomalyIngest`: counts summed into `summary.anomalies.counts`; samples
+     go to `glitch_samples.jsonl`, the first 60 per class of the run in dispatch order; samples are never anomaly events).
+
+**Splice-set volumes after the refinement** (208 traces; offline and live agree except where shown):
+
+| class | count |
+| --- | ---: |
+| `freeze_unexplained` | **36** (was 1,685); all airborne up-B, none with recorded hitlag |
+| `freeze:wall_stop` (counted) | 1,087 |
+| `freeze:edge_stop` (counted) | 562 |
+| `freeze:after_break` (counted) | 404 offline, 4,642 live (4,238 recorded hitlag, all inside the window) |
+| `position_snap` (`edge_snap`, the teleport itself) | 162 |
+| `corner_pass` counted / `corner_pass_near_vertex` | 215 / 10 |
+| `pass_through` | 179 |
+| `break_live` / `break_occluded` (live) | 1,188 / 123 |
+| `line_crossing`, `break_without_plausible_hitter` | 0, 0 |
+
+**Tests:** `run3_anomaly_tests.py` 10/10 (new: `unit_freeze_stop_classes`); `test_glitch.py` 36 OK; `run3_archive_tests.py` 2/2.
+
+**Queued, not now (owner):** an offline replay, under the verify flags, of the 123 breaks flagged as possibly through a wall.
+It is native and needs the owner's go.
+
+## 12. Step 5: the plan rests on a false premise (stopped for a decision)
+
+- **Finding:** run 2's `checks.jsonl` rows (3,916) hold only booleans and digests: `chain_equal`, `end_digest_equal`,
+  `key_equal`, tick counts. **They do not hold the end observation tuple** (`job["end"]`, the 17 fields the worker compares at
+  the cell's tick).
+- Neither run 1's nor run 2's `cells.jsonl` holds it either: rows carry `end_digest` and `chain`, not `end`. Run 2 kept the end
+  records in memory only.
+- So REVIEW_2026-11-03 O10 ("import the check rows as end records") cannot be done offline, and **none of the 37,294 cells has
+  an end record on disk**.
+- What the check rows do give: 3,916 cells whose prefixes were verified to reproduce on 30a3913b.
+- Options (measured offline):
+  - **A. Fused first dispatch (recommended, 0 extra ticks).**
+    - A cell without an end record is dispatched directly. The worker's prefix replay validates it by the stored record digest
+      and chain, which cover every observation field the tuple comparison checks (host_frame excluded on both sides, JSON
+      types included).
+    - The observed tuple at L is returned and stored as the cell's end record from then on, in run 3's `cells.jsonl`.
+    - No lazy checks, so D4 is no longer refused.
+    - Mechanism: a small explicit change to `rl/frs_worker.py` (`end` absent → no tuple comparison, digest and chain still
+      checked, the tuple returned), or a run3_worker shim that fills `job["end"]` from the observed reply at step L − 1.
+  - **B. Native harvest:** one replay per prefix-trie leaf: 7,820 replays, 9,171,630 ticks, end records for all 37,294 cells.
+    About 1.6 h on 5 workers at run 2's check rate. Needs a go.
+  - **C. Run 2's lazy checks:** up to 41.2 M ticks if every cell is drawn; run 2 paid 19,772 worker-seconds (13.9 %) for 3,916
+    of them; D4 stays refused.
