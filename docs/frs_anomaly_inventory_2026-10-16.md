@@ -75,9 +75,21 @@ tick is in `splice_probe_2026-10-14/run/results.jsonl` (`fall_tick`). The 57 fal
 trajectory in the lab.
 
 Collision geometry: every trace's `initial.spatial.lines` holds the same 20 lines (one geometry hash across all 823 traces):
-10 of type 0, 5 of type 1, 4 of type 2, 1 of type 3 by the recorded `type` field; 19 in group 1 (static) and 1 in group 2, whose
-`translate` and `speed` are recorded every tick (the moving line). Two lines carry `flags` 16384; the meaning of `type` and
-`flags` is not recorded anywhere in the lab. The fighter's `coll` is the same four values on every tick of every trace.
+6 of type 0, 5 of type 1, 5 of type 2, 4 of type 3 by the recorded `type` field; 19 in group 1 (static) and 1 in group 2, whose
+`translate` and `speed` are recorded every tick (the moving line). Two lines carry `flags` 16384: lines 2 (a static floor) and
+19 (the moving floor). The fighter's `coll` is the same four values on every tick of every trace.
+
+**Corrected 2026-11-04.** This paragraph first said "10 of type 0, 5 of type 1, 4 of type 2, 1 of type 3", and that the meaning
+of `type` and `flags` was not recorded.
+
+- Source: `GLITCH_CANDIDATES.md` §1.1. Re-counted on two lab traces (`crossing_2026-10-15_run2/run/traces/clear_n36236_c8692_k0_r1`
+  and `splice_probe_2026-10-14/run/traces/c000_cid29171_r1`), and checked against the ROM table (`tools/glitch/glitch.py extract`
+  and `compare`: SAME). See `SESSION_LOG_2026-11-04.md` §2.3.
+- `type` is the line kind, in `nMPLineKind` order (`decomp/src/mp/mpdef.h`): 0 floor, 1 ceiling, 2 right wall, 3 left wall.
+  Hence 6 floors, 5 ceilings, 5 right walls and 4 left walls.
+- `flags` 16384 is `0x4000`, `MAP_VERTEX_COLL_PASS`: a pass-through (one-way) line.
+- The native record keeps only each line's first-vertex flags (`decomp/src/sc/sc1pmode/sc1pbonusstage.c`, PORT-only). That is
+  exact on this stage, where only first vertices carry flags.
 
 ### 1.3 Sparse snapshots (one tick per row, no neighbours)
 
@@ -144,7 +156,7 @@ the recorded lines (as the scan did), or logged natively (section 4).
 
 | anomaly class (addendum part 4 (a)) | fields needed | exists offline | missing |
 |---|---|---|---|
-| collision-line pass-through between ticks | position at t-1 and t, collision box, lines with per-tick group translation, line type and one-way flags | yes, in the 495 traces (lines once per trace; box and translation per tick) | the meaning of `type` and `flags` (not recorded; must be read from the decomp or logged), the point of the body the game tests, whether lines are ever added or removed at run time (the list is recorded once); not run in this session by instruction |
+| collision-line pass-through between ticks | position at t-1 and t, collision box, lines with per-tick group translation, line type and one-way flags | yes, in the 495 traces (lines once per trace; box and translation per tick) | the meaning of `type` and `flags` (not recorded; must be read from the decomp or logged; read from the decomp on 2026-11-04, section 1.2), the point of the body the game tests, whether lines are ever added or removed at run time (the list is recorded once); not run in this session by instruction |
 | position jumps | position, velocities, status, hitlag, carry | yes | nothing for the test itself; a wall-contact signal would remove most ordinary flags (section 3, test A) |
 | positions inside or outside the geometry | position, lines, `map_bounds`, `camera_bounds` | yes | a region model (which side of each wall is inside) built from the recorded line types; not run |
 | impossible velocities or status changes | velocities, status id, `status_total_tics`, hitlag, ground/air state | yes | a per-status reference (which transitions the game allows) if the test is to be more than a rarity count; the checked-in class table gives names and classes only |
@@ -266,7 +278,8 @@ What the live detector must log per tick that today's records lack:
 - A contact record from the native collision step: for each of the four directions, the line id tested this tick and whether
   it blocked, with the pre-resolution candidate position (position plus velocity before clamping). This replaces the
   last-contact ids and makes pass-through a direct test (candidate crossed a line, resolved position did not stop at it).
-- The meaning of line `type` and `flags` (once per run, from the decomp), and any run-time change of the line list.
+- The meaning of line `type` and `flags` (once per run, from the decomp; read on 2026-11-04, section 1.2), and any run-time
+  change of the line list.
 - Attack hitbox positions and sizes while `attack_active`, the projectile hitbox size, and the target collision radius (once).
 - A per-tick signed distance to the nearest line of each type (cheap to compute natively, removes the need for a region model).
 - The burst's identity on every row: run folder, dispatch `n`, `cid`, `k`, consumed tick, so a row maps to a replayable burst.
