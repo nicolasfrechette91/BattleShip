@@ -1,6 +1,7 @@
 # Decision: in-process soft reset (C) for search
 
-**Status:** (C) DECIDED, allowed for search only, gated by the pilot. (B) mid-episode snapshots: OPEN.
+**Status:** (C) DECIDED, allowed for search only, gated by the pilot. (B) mid-episode snapshots: NOT PURSUED (decided
+2026-11-03, recorded in `docs/rl_decisions_2026-11-04.md` §2; see section 9).
 
 **Decided by:** Nicolas, 2026-11-02.
 
@@ -17,6 +18,8 @@ Naming: "(C)", "(B)", "P0", "P1" and "P2" mean the feasibility record's mechanis
 ## 2. Claims unchanged
 
 Every claimed clear is still verified by exact replay from tick 0 in fresh processes. Lab claims: twice, with the verify flags. Any original-game result also needs a BizHawk replay of the agent's canonical words. A soft-reset episode is never evidence on its own.
+
+Superseded 2026-11-04: BizHawk is not used in this project (`docs/rl_decisions_2026-11-04.md` §3). The BizHawk sentence above no longer applies. The other sentences stand.
 
 ## 3. Implementation constraints
 
@@ -65,13 +68,15 @@ Each step needs Nicolas's explicit go: plan first, then stop for approval, then 
 - **Option 2, defer:** keep process restart.
   Correction to the advisor's first framing: today's pipeline gives about 4,800 candidates per hour for the segment shapes (a projection) and 5,057 per hour measured for the archive-job shape (feasibility §4). The segment-optimiser pilot's INVALID verdict ("INVALID: fewer than 3,000 candidates evaluated in the hour", addendum part 1, Q8) belongs to that pilot, not to this pilot's P2, and is unlikely to be hit without (C). The real cost of deferring: tier 2 stays blocked, and search runs at about 36 % to 77 % of (C)'s projected speed (feasibility §4: (C) gives 1.3 to 2.8 times today's throughput).
 - **Option 3, allow (C) and (B) together:** rejected. (B) is the largest change and is revisited only with (C)'s evidence.
+  Superseded 2026-11-03: (B) is not pursued at all (section 9).
 - **Option 4, reject resets permanently:** rejected. It would cap every future search line at boot-bound throughput.
 
-## 9. (B) mid-episode snapshots: OPEN, revisited after the (C) pilot with its evidence
+## 9. (B) mid-episode snapshots: NOT PURSUED (decided 2026-11-03)
 
-Draft wording, NOT decided. A snapshot restore would be compatible with the RNG rule only if:
-- it restores the whole state the game itself produced earlier in the same process;
-- it never edits, selects or targets RNG bytes, and no snapshot is chosen for any RNG-related reason;
-- claims still replay from tick 0 in fresh processes.
-
-Given section 5, the RNG question for (B) is likely a formality, but it stays open until decided.
+- Nicolas closed this on 2026-11-03. Mid-episode native savestates are not pursued: neither (B) nor any equivalent, for example
+  `fork()`-based snapshots.
+- They are not revisited after the (C) pilot.
+- Recorded in `docs/rl_decisions_2026-11-04.md` §2.
+- (C) is not a snapshot. Sections 1 to 7 are unchanged.
+- The draft RNG-compatibility wording that stood here was never decided. It is withdrawn, and it remains in this file's history
+  (commit b255bdc).
