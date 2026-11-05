@@ -11,6 +11,13 @@ the main process and waits for its answer: continue = keep stepping THE SAME PRO
 consumed_tick == i, input_tick == i + 1 and step_count == i + 1; no reset, no savestate). With max_segments = 1 nothing is asked and the
 result equals `run_iterate`'s (tested). The whole job is returned, and ingested, as one burst. Light top-level imports only (spawned workers
 re-import the main module). Design: logs/frs_prep/phase1_plan.md sections 3 and 4.
+
+Fused first dispatch (run 3 only, 2026-11-05; SESSION_LOG_2026-11-04.md section 13): a job with `end_mode` == FUSED_END_MODE carries no end
+record (`end` None) because none is on disk for the cell. At L the record digest and the chain are compared as always; the tuple comparison
+is skipped (it compares 16 of the 17 fields, host_frame ignored; the record digest covers those 16, value and JSON type, tested field by
+field in tools/frs/run3_search_tests.py) and the observed 17-field tuple is returned in `prefix["end"]` for the engine to store. A
+difference is the same `prefix_end` mismatch, raised before any burst word. A job without `end_mode` (every run 1 and run 2 job) takes the
+unchanged path.
 """
 from __future__ import annotations
 
@@ -34,6 +41,14 @@ FRS_WORKER_CONTRACT = "frs_worker_v1"
 EXPLORE_CONT_CONTRACT = "frs_explore_cont_v1"
 JOB_KIND = "iterate_frs"
 ANSWER_TIMEOUT_S = 60.0
+FUSED_END_MODE = "fused_first_dispatch_v1"
+
+
+def fused_prefix(end_t: Tuple[Any, ...]) -> Dict[str, Any]:
+    """The prefix fields of a fused first dispatch whose record digest and chain matched: the tuple was not compared (nothing stored to compare
+    with), so end_equal and host_frame_equal are None; `end` is the observed end record."""
+    return {"end_mode": FUSED_END_MODE, "end_equal": None, "chain_equal": True, "end_digest_equal": True, "host_frame_equal": None,
+            "end": list(end_t)}
 
 
 def explore_description(segment_words: int, max_segments: int, window: int) -> Dict[str, Any]:
@@ -73,6 +88,9 @@ def run_iterate_frs(ctx: LabJobContext, job: Mapping[str, Any]) -> Dict[str, Any
     seg, max_seg, window = int(job["segment_words"]), int(job["max_segments"]), int(job["window"])
     if seg < 1 or max_seg < 1 or window < 1:
         raise mw.WorkerError(f"bad segment parameters {seg} / {max_seg} / {window}")
+    fused = job.get("end_mode") == FUSED_END_MODE
+    if job.get("end_mode") not in (None, FUSED_END_MODE) or (fused and (job.get("end") is not None or L == 0)):
+        raise mw.WorkerError(f"bad end mode {job.get('end_mode')!r}: a fused first dispatch has L > 0 and no end record")
     stats = {"step_s": 0.0, "ask_s": 0.0}
     raw: List[Mapping[str, Any]] = []
     proc = ctx.backend.acquire()
@@ -117,7 +135,14 @@ def run_iterate_frs(ctx: LabJobContext, job: Mapping[str, Any]) -> Dict[str, Any
         prefix = {"words": L, "cut": False, "terminal": prefix_terminal}
         if expect_terminal and not prefix_terminal:
             raise mw.MismatchError("terminal_expected", {"cell": job["cell"], "L": L, "why": "the prefix did not end the episode"})
-        if L > 0:
+        if fused:
+            chain_ok = chain == bytes(job["chain"])
+            digest_ok = rd == bytes(job["end_digest"])
+            if not chain_ok or not digest_ok:
+                raise mw.MismatchError("prefix_end", {"cell": job["cell"], "L": L, "end_mode": FUSED_END_MODE, "field_diffs": None,
+                                                      "chain_equal": chain_ok, "end_digest_equal": digest_ok})
+            prefix.update(fused_prefix(mcell.obs_tuple(o)))
+        elif L > 0:
             end_t = mcell.obs_tuple(o)
             diffs = mcell.obs_diffs(end_t, tuple(job["end"]))
             chain_ok = chain == bytes(job["chain"])
