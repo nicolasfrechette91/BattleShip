@@ -80,6 +80,7 @@ class State:
         self.target_positions = sp.get("target_positions") or []
         self.target_records = {int(t["id"]): t for t in tg.get("records") or []}
         self.weapons = {int(w.get("serial", i)): w for i, w in enumerate(en.get("weapons") or [])}
+        self.has_entity = bool(en)  # False in live replies (explore flags: spatial only): no hitlag, attack flag or weapons
         self.hitlag = int(ef.get("hitlag_tics", 0) or 0)
         self.attack_active = int(ef.get("attack_active", 0) or 0)
         self.stick_x = int(inp.get("stick_x", 0) or 0)
@@ -333,10 +334,23 @@ class Detector:
                 continue
             hitters: List[Dict[str, Any]] = []
             body0, body1 = (a.x, a.y + center), (b.x, b.y + center)
+            if not b.has_entity:
+                # live replies cannot attribute a break; flag only a fighter-to-target line through a solid (replay decides)
+                self.counts["break_live"] = self.counts.get("break_live", 0) + 1
+                hit = self._solid_lines_between(body1, pos)
+                if hit:
+                    self.emit("break_occluded", ["M11"], a, b, len(hit), 0, {
+                        "key": [tid], "target": tid, "target_xy": list(pos), "fighter_to_target": [list(body1), list(pos)],
+                        "solid_lines_between": hit, "hitter": "unknown (no entity block)"})
+                continue
             r = h + self.p.body_reach
-            if segment_box_hit(body0, body1, (pos[0] - r, pos[1] - r), (pos[0] + r, pos[1] + r)):
-                attack = a.attack_active or b.attack_active or b.status in self.p.fireball_status_ids
-                hitters.append({"hitter": "fighter", "from": list(body0), "to": list(body1), "attack_flag_or_fireball_status": bool(attack)})
+            # hitlag starting on the break tick is the game's own sign that the fighter's attack connected
+            # (itprocess.c:311 sets attack_damage, ftmain.c:4094-4134 turns it into hitlag): a melee hit at any reach
+            onset = b.hitlag > 0 and a.hitlag == 0
+            if onset or segment_box_hit(body0, body1, (pos[0] - r, pos[1] - r), (pos[0] + r, pos[1] + r)):
+                attack = onset or a.attack_active or b.attack_active or b.status in self.p.fireball_status_ids
+                hitters.append({"hitter": "fighter", "from": list(body0), "to": list(body1), "attack_flag_or_fireball_status": bool(attack),
+                                "hitlag_onset": onset})
             rw = h + self.p.weapon_radius
             for serial in set(a.weapons) | set(b.weapons):
                 wa, wb = a.weapons.get(serial), b.weapons.get(serial)
@@ -366,6 +380,10 @@ class Detector:
             if all(blocked_by):
                 evidence["solid_lines_between"] = sorted({i for hit in blocked_by for i in hit})
                 self.emit("break_through_solid", ["M11"], a, b, len(evidence["solid_lines_between"]), 0, evidence)
+
+    def _solid_lines_between(self, frm: Tuple[float, float], pos: Tuple[float, float]) -> List[int]:
+        return sorted({line.id for line in self.geo.lines if line.group not in self.moving
+                       for s0, s1, f in line.segments() if not (f & VERTEX_COLL_PASS) and _segments_cross(frm, pos, s0, s1)})
 
     def native_flags(self, b: State) -> None:
         bad = {k: v for k, v in b.flags.items() if v}
