@@ -225,7 +225,8 @@ class Detector:
         self.emit("corner_pass_near_vertex", ["M5"], a, b, d, self.p.vertex_eps, {
             "key": [line.id, k, which, list(vertex)], "line": line.id, "segment": k, "kind": line.kind_name, "point": which,
             "vertex": list(vertex), "vertex_lines": corner["lines"], "vertex_angle_deg": corner.get("angle_deg"), "distance": d,
-            "u_end": u_end, "path_local": [list(p0), list(p1)], "group": line.group})
+            "u_end": u_end, "path_local": [list(p0), list(p1)], "group": line.group,
+            "on_adjacent_floor": b.ga == 0 and b.floor_id in corner["lines"]})
 
     def solid_occupancy(self) -> None:
         run: Optional[Tuple[State, State, int]] = None
@@ -430,6 +431,69 @@ class Detector:
         return {"schema": "btt_glitch_scan_v1", "source": self.source, "geometry_sha256": self.geo.sha256(),
                 "ecb": list(self.ecb), "live_ticks": len(live), "solids": len(self.solids), "counts": self.counts,
                 "events": len(self.events)}
+
+
+class LiveScanner(Detector):
+    """The same detectors fed one reply at a time, for use during a burst. Replies before `emit_from` only update the break
+    history and the look-back window (no detector runs on them: they were scanned when they were a burst); events are emitted
+    for steps >= emit_from. `stick_x` may be passed per step when the replies carry no input block."""
+
+    def __init__(self, initial: Mapping[str, Any], geometry: Optional[Geometry] = None, params: Optional[Params] = None,
+                 source: Optional[Mapping[str, Any]] = None, emit_from: int = 0) -> None:
+        super().__init__({"initial": initial, "steps": []}, geometry, params, source)
+        self.emit_from = int(emit_from)
+        self.prev: Optional[State] = None
+        self._raw: Optional[Tuple[int, Mapping[str, Any]]] = (-1, initial)    # the tick-0 observe pairs with step 0, as in run()
+        m0 = (initial.get("spatial") or {}).get("target_live_mask")
+        self._mask: Optional[int] = None if m0 is None else int(m0)
+        self._recent: List[Tuple[int, int, int]] = []          # (step, status, |stick_x|), the last platform_window + 1 steps
+        self._inside: Optional[Tuple[State, State, int]] = None
+
+    def feed(self, index: int, reply: Mapping[str, Any], stick_x: Optional[int] = None) -> None:
+        sp = reply.get("spatial") or {}
+        m = sp.get("target_live_mask")
+        if m is not None:
+            if self._mask is not None and int(self._mask) & ~int(m):
+                self.last_break = index
+            self._mask = int(m)
+        lookback = self.p.platform_window + 1
+        if index < self.emit_from - lookback:
+            self._raw = (index, reply)
+            return
+        if self.prev is None and self._raw is not None and self._raw[0] == index - 1:
+            self.prev = State(*self._raw)
+        s = State(index, reply)
+        if stick_x is not None:
+            s.stick_x = int(stick_x)
+        self._recent = (self._recent + [(index, s.status, abs(s.stick_x))])[-lookback:]
+        a, self.prev = self.prev, s
+        if index < self.emit_from or a is None or not (a.live and s.live) or s.index != a.index + 1:
+            return
+        self.line_crossings(a, s)
+        self.bounds(a, s)
+        self.snaps(a, s)
+        self.floor_switch(a, s)
+        self.target_breaks(a, s)
+        self.native_flags(s)
+        idx = inside_solid(_point(s, self.ecb, "center"), self.solids)
+        if idx is not None:
+            self._inside = (self._inside[0], s, idx) if self._inside else (a, s, idx)
+        elif self._inside:
+            self._emit_inside(*self._inside)
+            self._inside = None
+
+    def finish(self) -> List[Dict[str, Any]]:
+        if self._inside:
+            self._emit_inside(*self._inside)
+            self._inside = None
+        return self.events
+
+    def _platform(self, idx: int) -> List[str]:
+        lo = idx + 1 - self.p.platform_window
+        for step, status, stick in self._recent:
+            if step >= lo and status in self.p.transn_status_ids and stick > self.p.transn_stick_threshold:
+                return ["d1_transn_cosf"]
+        return []
 
 
 def _point_segment_distance(v: Tuple[float, float], p: Tuple[float, float], q: Tuple[float, float]) -> float:
