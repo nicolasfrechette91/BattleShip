@@ -15,7 +15,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from analysis import face_normal, inside_solid, loops, segment_box_hit
+from analysis import check_connectivity, face_normal, inside_solid, loops, segment_box_hit
 from geometry import KIND_CEIL, KIND_FLOOR, KIND_LWALL, KIND_RWALL, VERTEX_COLL_PASS, Geometry, lines_from_trace_reply
 
 EVENT_SCHEMA = "btt_glitch_event_v1"
@@ -27,6 +27,8 @@ MAP_FLAG_LWALL, MAP_FLAG_RWALL, MAP_FLAG_CEIL, MAP_FLAG_FLOOR = 0x1, 0x20, 0x400
 @dataclass
 class Params:
     cross_margin: float = 0.01          # how far behind a line a swept point must end to count as crossing it
+    vertex_eps: float = 0.001           # float error at a vertex: the 0.001 start tolerance of the flat tests and the +-0.001
+                                        # clamp of the line getters (mpcollision.c; GLITCH_CANDIDATES.md 1.4), about 4 ulps here
     snap_threshold: float = 1.0         # |position change - velocity prediction| that counts as a snap (units)
     target_half_extent: float = 150.0   # ITBonus1ObjectHeader damage_coll_size 300 x 0.5 (itmanager.c:382)
     body_reach: float = 500.0           # generous reach of Mario's hitboxes from his centre (not measured)
@@ -120,6 +122,8 @@ class Detector:
             moving.update(s.groups)
         self.moving = moving
         self.solids = [lp for lp in loops(self.geo, moving_groups=moving) if lp.solid_inside]
+        self.convex = {(self.geo.line(f.where["lines"][0]).group, tuple(f.where["point"])): f.where for f in check_connectivity(self.geo)
+                       if f.check in ("corner", "bend") and f.where.get("corner") == "convex"}
         self.events: List[Dict[str, Any]] = []
         self.counts: Dict[str, int] = {}
 
@@ -183,6 +187,14 @@ class Detector:
                     tol = 0.5 / math.sqrt(seg_len2)
                     if not -tol <= u <= 1 + tol:
                         continue
+                    # a real crossing ends behind the segment itself; an end past the segment's end is a corner pass
+                    # (e.g. a point clamped on a wall that rises past its top end): counted, and logged near a convex vertex
+                    u1 = ((p1[0] - s0[0]) * seg[0] + (p1[1] - s0[1]) * seg[1]) / seg_len2
+                    eps_u = self.p.vertex_eps / math.sqrt(seg_len2)
+                    if not eps_u < u1 < 1 - eps_u:
+                        self.counts["corner_pass"] = self.counts.get("corner_pass", 0) + 1
+                        self._corner_pass(a, b, line, k, which, p0, p1, s1 if u1 >= 1 - eps_u else s0, u1)
+                        continue
                     if flags & VERTEX_COLL_PASS:
                         # one-way line: crossing it is ordinary (M9); counted for explanation, not emitted
                         self.counts["pass_line_crossing"] = self.counts.get("pass_line_crossing", 0) + 1
@@ -193,6 +205,19 @@ class Detector:
                         "segment_xy": [list(s0), list(s1)], "group": line.group, "depth_behind": -d1,
                         "crossing_xy_local": list(q), "u_on_segment": u,
                         "corner_proximity": min(u, 1 - u) * math.sqrt(seg_len2)})
+
+    def _corner_pass(self, a: State, b: State, line: Any, k: int, which: str, p0: Tuple[float, float], p1: Tuple[float, float],
+                     vertex: Tuple[float, float], u_end: float) -> None:
+        corner = self.convex.get((line.group, tuple(vertex)))
+        if corner is None:
+            return
+        d = _point_segment_distance(vertex, p0, p1)
+        if d > self.p.vertex_eps:
+            return
+        self.emit("corner_pass_near_vertex", ["M5"], a, b, d, self.p.vertex_eps, {
+            "key": [line.id, k, which, list(vertex)], "line": line.id, "segment": k, "kind": line.kind_name, "point": which,
+            "vertex": list(vertex), "vertex_lines": corner["lines"], "vertex_angle_deg": corner.get("angle_deg"), "distance": d,
+            "u_end": u_end, "path_local": [list(p0), list(p1)], "group": line.group})
 
     def solid_occupancy(self) -> None:
         run: Optional[Tuple[State, State, int]] = None
@@ -364,6 +389,13 @@ class Detector:
         return {"schema": "btt_glitch_scan_v1", "source": self.source, "geometry_sha256": self.geo.sha256(),
                 "ecb": list(self.ecb), "live_ticks": len(live), "solids": len(self.solids), "counts": self.counts,
                 "events": len(self.events)}
+
+
+def _point_segment_distance(v: Tuple[float, float], p: Tuple[float, float], q: Tuple[float, float]) -> float:
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((v[0] - p[0]) * dx + (v[1] - p[1]) * dy) / L2))
+    return math.hypot(p[0] + t * dx - v[0], p[1] + t * dy - v[1])
 
 
 def _segments_cross(p: Tuple[float, float], q: Tuple[float, float], a: Tuple[float, float], b: Tuple[float, float]) -> bool:
