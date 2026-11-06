@@ -811,3 +811,117 @@ groups, anomaly bursts and the eligibility bound; options with simulated cost an
   kept, both groups' windows / counters / demotion unchanged, an emptied group leaving and returning, the pooled warm start of a new
   niche); end to end on the fake game: two same-seed runs with group moves identical under D4 (dispatch rows except clock fields,
   cells.jsonl rows with niche and group, end records, hourly records), with a vacuity guard of >= 5 group moves.
+
+## 17. Step 8: run 3 built (2026-11-06)
+
+**Owner (2026-11-06):** the 4b table and its four rules approved; DECISIVE 4 and 4b recorded and committed (71d5beb). Then step 8: run 3 by
+every decision (DECISIVE 1-4b, MINOR table, step 4 anomalies, step 5 fused dispatch, D4, run 3 manifest) with fake-game tests; the hourly
+summary must show each group's share, the top 10, the earliest arrival per level, demotions and exits, fall rates, anchors, breadth draws and
+the anomaly triggers; then a 20-30 min native smoke run proposed (a go for it, a separate go for the night).
+
+### 17.1 Files
+
+- `tools/frs/run3_select.py` (new, pure): order niches, (level, mask, niche) groups, DECISIVE 1 shares with the warm-started window, DECISIVE 2
+  demotion, DECISIVE 3 anchors, DECISIVE 4 breadth and anomaly triggers, the hourly record.
+- `tools/frs/run3_load.py` (new): runs 1 + 2 checked and merged, every row's niche from its exact lineage, run 2 replayed with each dispatch
+  credited to the niche of the representative actually dispatched (the 4b history).
+- `tools/frs/run3_export.py` (new): a .btti and a .bk2 per verified clear (the inverse of `tools/bk2_to_btt_inputs.py`), the native text
+  replay of new verified bests.
+- `tools/frs/crossing_search_run3.py` (new): `Params3`, the plan of runs 1 + 2, the engine `Run3Night` (D4, anomaly keeping, fused first
+  dispatches, the selection), hourly.jsonl / hourly.md, triggers.jsonl, best_times.jsonl, exports.jsonl, text_replays.jsonl, report.md,
+  progress.md, the command line (`plan`, `run`).
+- `tools/frs/crossing_search_run3_tests.py` (new).
+- `rl/m8_rd_fakegame.py`: an opt-in text-replay mode (SSB64_BTT_INPUT), test helper only.
+- `tools/frs/run3_manifest.py`: `crossing_search_run3` joins the entry modules: 54 files (the plan records the tree's digest).
+- The lab code digest is unchanged (`81b88be6`, 35 files).
+
+### 17.2 Choices made inside the approved decisions (listed so they can be changed)
+
+1. Staleness (DECISIVE 1), the breadth count (DECISIVE 4) and anchor bursts (DECISIVE 3) are counted when a dispatch is SELECTED, not when it
+   is ingested: deterministic under D4, and the 10-dispatch reorder window cannot hand one cell ten draws in a row.
+2. An anchor's w and bursts change only through anchor draws; a rank or breadth draw of an anchor cell leaves them.
+3. Triggers: the kept cells are the burst's new or replaced cells, eligible, at ticks >= the event's step_from + 1. Rarity counts bursts. A
+   triggered cell in a demoted group is still drawn (the demotion exclusion is the count-based draw's). **Open:** a non-finite burst is cut
+   before the null, so its trigger tick is the burst's last tick and nothing is queued unless a cell was kept at exactly that tick (17.3).
+4. A breadth dispatch with no eligible cell outside the demoted groups falls back to exploitation (counted in the records).
+5. A new group's pooled rate: its level's windows at that moment; else every level's; else 0.
+6. e counts a kept cell at any deeper level (as `d4b_niche_units.py`), not only the next.
+7. Text replay (MINOR O7): at the close, when no other game process runs, with SSB64_RL_EXIT_ON_END=1 (the M1a exit; no stepping); only
+   result.json is read (the pinned executable keeps one shared log). Clocks that differ from the verified ones are SEARCH_INVALID.
+8. A .btti and a .bk2 are written when each clear is verified, not at the close. Frame 0 is the run's tick 0, not power-on.
+9. Hourly records by wall time (3,600 s) for the night; by ingested dispatches in the tests (deterministic there).
+10. The summary reads Q11's plateau signals for the night: a faster verified clear, and the groups whose earliest eligible arrival improved.
+
+### 17.3 Tests
+
+`python -B tools/frs/crossing_search_run3_tests.py` (zero native ticks):
+
+- unit (9, in process): niche inheritance; the scripted A -> B move (membership, ranks, both groups' anchors, B's displaced third anchor,
+  the staleness reset, the breadth count kept, both windows / counters / demotion unchanged, an emptied group leaving level 7 with phi
+  0.125 -> 0.25 and returning with its window, the pooled warm start of a new niche, rule 1); demotion at the 1,000th fall, exit on the first
+  break, phi / 4; e and anchor success, w halving to 1/8; the draws (anchor rotation, rank weights, the cleared factor, count-based breadth
+  in cell-id order; breadth share 0.1994 over 100,000 keyed dispatches); triggers (step_from + 1, 3 draws per cell served in turn, rarity 3,
+  the cap, break_occluded never, a replaced queued cell dropped); the bk2 round trip through `tools/bk2_to_btt_inputs.py` and
+  `rl/btti_replay.py`; the export writer; parameters and the manifest.
+- real (2, read only): niches of all 181,657 rows / 37,294 cells of runs 1 + 2 equal to the offline derivation (0 differences; 5,221 / 5,221
+  single steps agree, 168 multi-target steps, 0 orphans; 39,309 / 39,309 run 2 dispatches attributed by start tick; 15,770 moves); the plan's
+  start table equal to the approved 4b table (14 groups, 153 anchors, shares to 0.1 %, only (9, 64, 326:2-8-1) demoted, 22,464 eligible,
+  best 1,245 from run 2, bound 1,220).
+- e2e (fake game): fixture = a synthetic run 1 (run 1's engine, stub world, 200 dispatches, all 32 frontier keys as seeds) and a synthetic
+  run 2 on it. With run 1's usual 12 seeds every synthetic cell is at level 9 and no group move can happen.
+  - `e2e_same_seed_runs`: two run 3s, same seed, reorder window, step jitter: 160 dispatches each, **147 group moves** (guard >= 5);
+    identical dispatch rows (with stream, group, niche, draw), cell rows (with niche, group, moved_from), end records, 5 records each.
+  - `e2e_nonfinite_trigger`: nulls past every eligible prefix in a record field (3 triggers, rarity stops further ones), then nulls from tick
+    1 in a field neither the record nor the key reads (`spatial.update_tic`, rarity 50): 34 non-finite bursts, 34 triggers, each at its
+    burst's cut tick, 0 cells queued, 0 prefix mismatches.
+  - `e2e_text_replay`: the fake game's text-replay mode on run 1's best words gives its verified clocks; a cut copy gives no clear.
+- Real archive timing (zero ticks): selector built in 0.2 s; per dispatch 0.9 ms (rank), 4.2 ms (breadth over 21,410 cells), 0.07 ms (anchor);
+  an ingest with a keep 3.5 ms; the full table 24 ms.
+- Defects found and fixed while testing: a heredoc turned an escaped newline into a real one in the fake game (every fake process exited 1);
+  the loader required verifications.jsonl (absent when a run replayed no claim); a too strict bound check (run 3's bound may equal run 2's
+  when run 2 verified no faster clear); group labels split the markdown tables (now rendered as (level, mask, niche)).
+- Result: `crossing_search_run3_tests.py` 14/14 from scratch (unit 9, real 2, e2e 3), then `e2e_nonfinite_trigger` alone with its final
+  assertions. Inherited suites after the fake-game change: `run3_search_tests.py` 13/13 (field table 16/16 value, 14/14 type), `run3_archive_tests.py`
+  2/2, `det_schedule_tests.py` unit 3/3 and e2e 2/2, `run3_anomaly_tests.py` unit 8/8 and e2e 2/2. `git diff --check` clean.
+
+### 17.4 Before the smoke run
+
+- Readiness on 2026-11-06 with no test running: **refused**, free commit 6,833 MB < 10,240 MB (available 7,508 MB). The open refuses before
+  launching anything until about 3.4 GB of commit is freed; the thresholds are not lowered.
+- Open for the owner: the non-finite trigger rule (17.2 item 3).
+- Not exercised natively yet: the run 3 engine on the real executable, the text-replay path with SSB64_RL_EXIT_ON_END on the pinned
+  executable, the bk2 export of a verified clear inside a run (the writer is unit-tested).
+- Nothing of step 8 is committed.
+
+### 17.5 2026-11-06, owner: rule (b) for non-finite triggers; the text-replay mismatch; go for the smoke run
+
+- **Rule (b), approved and built:** a non-finite burst that triggers queues the burst's last kept eligible cell before the null, or, when the
+  burst kept none, the dispatched cell (eligible). Detector classes keep the at-or-after rule. The trigger row records the rule used
+  (`rule`). Tests: `unit_triggers` (both branches) and `e2e_nonfinite_trigger` on the fake game: every triggering non-finite burst queues
+  exactly one cell (39 bursts, 39 triggers, 117 draws queued: 20 last kept cells, 19 dispatched cells), 3 trigger draws served within the
+  10 % cap; the earlier run past the bound: 3 triggers (rarity), one cell each.
+- After the fixes below: `crossing_search_run3_tests.py` unit 9/9, e2e 4/4 on the kept fixture (`e2e_same_seed_runs` 90 moves, identical;
+  `e2e_nonfinite_trigger`; `e2e_text_replay`; `e2e_exports_under_guard`); the second non-finite run verified a faster clear (803 < 868):
+  exported as .btt.txt + .bk2 under the guard, best_times.jsonl, its text replay at the close equal (803 / 802).
+- **Defect found by that test (fixed):** a run of it verified a faster clear, and under the lab guard both the export and the text replay
+  failed. G3 (`rl/frs_guard.py`, `m8_rd_worker.FORBIDDEN_FRAGMENTS`) refuses any path holding ".btti" (the human TAS replays' extension), so
+  writing `clear_*.btti` was refused (the export recorded an error) and the text replay's `words.btti` raised into the close
+  (SEARCH_INCOMPLETE). The run's own words in the .btti format are now written as `.btt.txt` (the native reader ignores the extension);
+  every step of a text replay is inside its error handling, and the engine records a text replay that cannot run instead of raising.
+  New test `e2e_exports_under_guard` (a guarded child: export and fake text replay, no refusal); `e2e_nonfinite_trigger` also checks that
+  every verified clear of its runs was exported and every new best's text replay was equal, with no guard violation.
+- **What "invalid" means today** for a text-replay clock mismatch (17.2 item 7): the status becomes SEARCH_INVALID (exit 3) and the close
+  goes on (the other text replays, the integrity record, summary.json, report.md). Nothing is deleted: cells.jsonl (every NEW / REPLACED row
+  and every end record), dispatches.jsonl, verifications.jsonl (the clear stays VERIFIED there), best_times.jsonl and the .btti / .bk2 files
+  stay. The summary still names the faster clear as the run's best. A later run cannot inherit the archive (`run3_load` accepts only the
+  clean statuses), but `P["end_record_files"]` would still import its end records (no status check). Nothing registers a clear
+  automatically (Q8 is a separate decision).
+- **Proposed, not built (owner's preference):** a mismatch sets a new status CLAIMS_FROZEN (its own exit code) and
+  `summary["run3"]["claims_frozen"]` (dispatch, both clocks, reason). Every verified clear of the run is reported frozen: the summary's best
+  stays the start's, best_times.jsonl and exports.jsonl get a `frozen` row, report.md and progress.md open with a banner. The close stops
+  its remaining text replays (recorded as skipped) but still writes the integrity record and the summary. The archive is untouched and
+  marked `to_investigate`: a later plan refuses it, and refuses its end records too, unless the owner's decision is recorded (an explicit
+  plan flag naming that run folder, written into plan.json).
+- **Go:** commit step 8 locally (no push), check readiness, then the smoke run as proposed (plan; run with 3 workers, 25 min, rng seed 1,
+  records every 600 s); after it, the checks plus the group shares against the plan table, the native text replay of the 1,245 and the
+  memory peak against the registered budget. The full night needs its own go.

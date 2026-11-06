@@ -29,6 +29,8 @@ Environment (all optional): FAKEGAME_WORLD (stub world, default easy), FAKEGAME_
 (a file to which one line per start is appended: cwd, port, the sha256 of the BattleShip.cfg.json found in the working
 directory, the SSB64_* flags), FAKEGAME_DIE_AT_STEP (exit with code 3 on that step request), FAKEGAME_IDLE_S (give up after
 that many idle seconds, default 120). The usual SSB64_RL_* variables are honoured: SSB64_RL_PORT, SSB64_RL_RESULT_PATH.
+Text replay (2026-11-06, opt-in): with SSB64_BTT_INPUT set, like the native text-replay path the process plays the .btti rows
+("%x,%d,%d", '#' comments) from tick 0 without a transport, writes SSB64_RL_RESULT_PATH on a clear and exits 0.
 """
 from __future__ import annotations
 
@@ -47,7 +49,29 @@ import m8_rd_stub as stub  # noqa: E402
 _WORD = {t: i for i, t in enumerate(mcell.TRIPLES)}
 
 
+def text_replay(path: str, result_path: object, world: object) -> int:
+    state = world.initial()  # type: ignore[attr-defined]
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            text = line.strip()
+            if not text or text.startswith("#"):
+                continue
+            b, x, y = text.split(",")
+            world.advance(state, _WORD[(int(b, 16), int(x), int(y))])  # type: ignore[attr-defined]
+            if state[14]:
+                t = world.reply(state, 0)["observation"]["input_tick"]  # type: ignore[attr-defined]
+                if result_path:
+                    with open(str(result_path), "w", encoding="utf-8") as g:
+                        json.dump({"result_schema": 1, "outcome": "clear", "targets_broken": 10, "completion_time_passed": t - 1,
+                                   "completion_input_tick": t, "time_passed_final": t - 1, "input_cursor_final": t, "host_frames": t + 60}, g)
+                return 0
+    return 0
+
+
 def main() -> int:
+    if os.environ.get("SSB64_BTT_INPUT"):
+        return text_replay(os.environ["SSB64_BTT_INPUT"], os.environ.get("SSB64_RL_RESULT_PATH"),
+                           stub.World(stub.WORLDS[os.environ.get("FAKEGAME_WORLD", "easy")]))
     port = int(os.environ["SSB64_RL_PORT"])
     result_path = os.environ.get("SSB64_RL_RESULT_PATH")
     world = stub.World(stub.WORLDS[os.environ.get("FAKEGAME_WORLD", "easy")])

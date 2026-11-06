@@ -1,0 +1,844 @@
+#!/usr/bin/env python3
+"""Step 8 tests (2026-11-06 session): run 3's selection (tools/frs/run3_select.py), its start (tools/frs/run3_load.py), its exports
+(tools/frs/run3_export.py) and the engine (tools/frs/crossing_search_run3.py). Zero native ticks: the unit tests run in process on a small
+synthetic archive; the `real` tests read the lab's run 1 and run 2 folders and import (read only); the `e2e` tests run the engine on fake
+game processes (rl/m8_rd_fakegame.py, the stub world behind the real launcher) in guarded children. THE WORLD IS SYNTHETIC.
+
+    python -B tools/frs/crossing_search_run3_tests.py            every test
+    python -B tools/frs/crossing_search_run3_tests.py unit       in-process tests only
+    python -B tools/frs/crossing_search_run3_tests.py real       the lab's runs 1 + 2 (zero ticks; skipped when the lab is absent)
+    python -B tools/frs/crossing_search_run3_tests.py e2e        the engine on the fake game
+
+The owner's test plan (2026-11-06, SESSION_LOG_2026-11-04.md section 16.7):
+    niches      units (parent niche + the burst's breaks, several breaks ordered by tick, seeds) and the engine's derivation equal to the
+                offline one on every cell row of runs 1 + 2 (`unit_niche_inheritance`, `real_niches_equal_offline`)
+    moves       a scripted A -> B move: membership, ranks, anchors in both groups, a displaced third anchor, the staleness reset, the breadth
+                count kept, both groups' windows / counters / demotion unchanged, an emptied group leaving its level and returning with its
+                history, the pooled warm start of a new niche (`unit_moves`)
+    e2e         two same-seed runs on the fake game with group moves, identical under D4 (dispatch rows except clock fields, cells.jsonl rows
+                with niche and group, end records, hourly records, triggers), vacuity guard >= 5 group moves (`e2e_same_seed_runs`)
+"""
+from __future__ import annotations
+
+import io
+import json
+import os
+import subprocess
+import sys
+import zipfile
+from collections import Counter
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+assert sys.flags.dont_write_bytecode, "run with python -B"
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent.parent
+RL = REPO / "rl"
+for _p in (RL, HERE):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+import det_schedule as det  # noqa: E402
+import m8_rd_cells as mcell  # noqa: E402
+import run3_export as rx  # noqa: E402
+import run3_load as rl3  # noqa: E402
+import run3_select as rs  # noqa: E402
+from infra_testlib import check, cleanup, run_suite, tmpdir  # noqa: E402
+
+LAB = Path(os.environ.get("RUN3_TEST_LAB", "C:/BattleShip_lab"))
+RUN1_REAL = LAB / "crossing_2026-10-15"
+RUN2_REAL = LAB / "crossing_2026-10-15_run2"
+
+
+def params(**kw: Any) -> Any:
+    import crossing_search_run3 as C
+
+    return C.Params3(**kw)
+
+
+# -- a small synthetic archive -------------------------------------------------------------------------------------------------------------------
+
+
+class FC:
+    def __init__(self, cid: int, level: int, mask: int, cls: str, tick: int):
+        self.cid, self.level, self.tick = cid, level, tick
+        self.key = (0, 0, cls, mask, -1)
+        self.words: Optional[bytes] = b"x"
+        self.quarantined: Optional[str] = None
+        self.retired: Optional[str] = None
+        self.digest = f"d{cid}_{tick}"
+        self.cleared = 0
+
+    def alive(self) -> bool:
+        return self.words is not None and self.quarantined is None and self.retired is None
+
+
+class FA:
+    def __init__(self, cells: List[FC], bound: int):
+        self.cells, self.bound = cells, bound
+
+    def eligible(self, c: FC) -> bool:
+        return c.alive() and c.level < 10 and c.tick <= self.bound
+
+
+A_N, B_N, C_N = (15, (3,)), (23, (4,)), (15, ())          # level 7 mask 7 via target 3 / via target 4; level 6 mask 15
+GA, GB, GC = (7, 7, "15:3"), (7, 7, "23:4"), (6, 15, "15:")
+
+
+def fixture(history: Optional[Mapping[str, Mapping[str, int]]] = None, **pkw: Any) -> Tuple[FA, rs.Run3Selector]:
+    cells = [FC(0, 7, 7, "A0", 100), FC(1, 7, 7, "A0", 110), FC(2, 7, 7, "A0", 120), FC(3, 7, 7, "A0", 130),   # group A
+             FC(4, 7, 7, "A0", 105), FC(5, 7, 7, "A0", 115), FC(6, 7, 7, "A0", 125),                         # group B
+             FC(7, 6, 15, "A1", 50), FC(8, 6, 15, "A1", 60)]                                                  # group C
+    niches = {0: A_N, 1: A_N, 2: A_N, 3: A_N, 4: B_N, 5: B_N, 6: B_N, 7: C_N, 8: C_N}
+    hist = history if history is not None else {rs.glabel(GA): {"n": 400, "fall": 100, "b": 8, "bu": 8, "e": 0},
+                                                rs.glabel(GB): {"n": 400, "fall": 100, "b": 2, "bu": 2, "e": 0},
+                                                rs.glabel(GC): {"n": 400, "fall": 100, "b": 4, "bu": 4, "e": 0}}
+    a = FA(cells, 1000)
+    return a, rs.Run3Selector(a, params(**pkw), niches=niches, history=hist, cid_dispatches={1: 7}, best_claim=None)
+
+
+def info_of(sel: rs.Run3Selector, cid: int, stream: str = "rank") -> Dict[str, Any]:
+    c = sel.a.cells[cid]
+    return {"group": sel.group[cid], "level": c.level, "stream": stream, "cid": cid, "digest": c.digest, "niche": sel.niche[cid]}
+
+
+QUIET = {"outcome": "out_of_words", "levels": {}, "advanced": False}
+
+
+def replace(c: FC, tick: int) -> FC:
+    c.tick = tick
+    c.digest = f"d{c.cid}_{tick}"
+    return c
+
+
+# -- unit tests ---------------------------------------------------------------------------------------------------------------------------------
+
+
+def unit_niche_inheritance() -> Dict[str, Any]:
+    st: Counter = Counter()
+    check(rs.seed_niche(7) == (7, ()) and rs.niche_label((7, ())) == "7:", "a seed's niche is its mask and no target")
+    one = rs.child_niche((15, ()), 7, 60, [[50, 3]], st)
+    check(one == (15, (3,)) and st["steps_single_agree"] == 1, f"one break: the parent's niche plus that target {one}")
+    child_mask = 1023 & ~(1 << 2) & ~(1 << 5) & ~(1 << 7)
+    multi = rs.child_niche((1023, ()), child_mask, 40, [[30, 7], [20, 5], [30, 2]], st)
+    check(multi == (1023, (5, 2, 7)) and rs.niche_label(multi) == "1023:5-2-7" and st["steps_multi"] == 1,
+          f"several breaks in one burst: by break tick, ties by target id {multi}")
+    late = rs.child_niche((1023, ()), 1023 & ~(1 << 2) & ~(1 << 5), 40, [[50, 5], [45, 2]], st)
+    check(late == (1023, (2, 5)), f"breaks after the child's tick do not order it: target id order {late}")
+    grand = rs.child_niche(one, 3, 90, [[80, 2]], st)
+    check(grand == (15, (3, 2)), f"a grandchild extends its parent's niche {grand}")
+    none = rs.child_niche(one, 7, 70, [], st)
+    check(none == one, "no target broken: the parent's niche")
+    return {"stats": dict(st)}
+
+
+def unit_moves() -> Dict[str, Any]:
+    a, sel = fixture()
+    check([cid for _t, cid in sel.gall[GA]] == [0, 1, 2, 3] and sel.anchors[GA] == [0, 1, 2] and sel.anchors[GB] == [4, 5, 6], "the start: A 4 cells, anchors 3+3")
+    sel.anc[1].update(w=0.25, bursts=3)
+    sel.stale[1] = 5
+    hist_a, hist_b = dict(sel.hist[GA]), dict(sel.hist[GB])
+    win_a, win_b = list(sel.win[GA]), list(sel.win[GB])
+    dem0 = set(sel.dem)
+    # cell 1 (an anchor of A) replaced by a faster arrival from another order: it moves to B; the dispatch is credited to C (cell 7)
+    replace(a.cells[1], 101)
+    out = sel.on_ingest(info_of(sel, 7), QUIET, [(rs.REPLACED, a.cells[1], B_N)], [], 1)
+    check(out["moves"] == 1 and sel.group[1] == GB and sel.niche[1] == B_N, "cell 1 moved to B")
+    check([cid for _t, cid in sel.gall[GA]] == [0, 2, 3] and [cid for _t, cid in sel.gall[GB]] == [1, 4, 5, 6], "membership and ranks of both groups")
+    check(sel.members(GB).index(1) == 0, "inserted into B by its tick (rank 0)")
+    check(sel.anchors[GA] == [0, 2, 3] and sel.anc[3]["w"] == 1.0 and sel.anc[3]["bursts"] == 0, "A: the next cell of the class becomes an anchor at w 1")
+    check(sel.anchors[GB] == [1, 4, 5] and 6 not in sel.anc, "B: the moved cell is an anchor, B's third anchor (cell 6) lost status and weight")
+    check(sel.anc[1]["w"] == 1.0 and sel.anc[1]["bursts"] == 0 and sel.anc[1]["group"] == GB, "the weight and bursts the old representative earned are dropped")
+    check(sel.stale.get(1) == 0 and sel.bcount[1] == 7, "staleness reset; the breadth count stays with the cell id")
+    check(dict(sel.hist[GA]) == hist_a and dict(sel.hist[GB]) == hist_b and list(sel.win[GA]) == win_a and list(sel.win[GB]) == win_b and sel.dem == dem0,
+          "both groups' windows, counters and demotion unchanged by the move")
+    check(sel.hist[GC]["n"] == 401, "the dispatch was credited to the group dispatched (C)")
+    # rule 1: a same-niche replacement of an anchor resets it to w 1 / 0 bursts
+    sel.anc[0].update(w=0.125, bursts=4)
+    replace(a.cells[0], 99)
+    sel.on_ingest(info_of(sel, 7), QUIET, [(rs.REPLACED, a.cells[0], A_N)], [], 2)
+    check(sel.group[0] == GA and sel.anc[0]["w"] == 1.0 and sel.anc[0]["bursts"] == 0, "same-niche replacement of an anchor: w 1, 0 bursts")
+    # an emptied group leaves its level (phi recomputed) and returns with its history
+    lv_before = sel.levels()[7]
+    _sh, phi2 = sel.shares(7)
+    for cid, t in ((0, 98), (2, 97), (3, 96)):
+        replace(a.cells[cid], t)
+        sel.on_ingest(info_of(sel, 7), QUIET, [(rs.REPLACED, a.cells[cid], B_N)], [], 3)
+    check(GA not in sel.levels().get(7, []) and lv_before == [GA, GB], f"A has no eligible cell: it left level 7 {sel.levels()}")
+    _sh, phi1 = sel.shares(7)
+    check(abs(phi2 - 0.125) < 1e-12 and abs(phi1 - 0.25) < 1e-12, f"phi recomputed: {phi2} -> {phi1}")
+    check(dict(sel.hist[GA]) == hist_a and list(sel.win[GA]) == win_a, "A kept its history while empty")
+    replace(a.cells[3], 95)
+    sel.on_ingest(info_of(sel, 7), QUIET, [(rs.REPLACED, a.cells[3], A_N)], [], 4)
+    check(GA in sel.levels()[7] and list(sel.win[GA]) == win_a and sel.warm[GA]["source"] == "run2", "A returned with its history")
+    # a brand-new niche: the pooled warm start of its level
+    pooled = sum(sum(sel.win[g]) for g in sel.win if g[0] == 6) / sum(len(sel.win[g]) for g in sel.win if g[0] == 6)
+    c9 = FC(9, 6, 15, "A2", 70)
+    a.cells.append(c9)
+    sel.on_ingest(info_of(sel, 4), QUIET, [(rs.NEW, c9, (31, (4,)))], [], 5)        # credited to B (level 7): level 6's windows unchanged
+    gD = (6, 15, "31:4")
+    check(sel.warm[gD]["source"] == "pooled_level" and abs(sel.warm[gD]["rate"] - pooled) < 1e-12 and len(sel.win[gD]) == 200,
+          f"a new niche group starts at its level's pooled rate {sel.warm[gD]} vs {pooled}")
+    return {"moves": sel.cnt["moves"], "events": len(sel.events)}
+
+
+def unit_demotion_and_shares() -> Dict[str, Any]:
+    hist = {rs.glabel(GA): {"n": 999, "fall": 800, "b": 0, "bu": 0, "e": 0}, rs.glabel(GB): {"n": 400, "fall": 100, "b": 6, "bu": 6, "e": 2},
+            rs.glabel(GC): {"n": 10, "fall": 1, "b": 0, "bu": 0, "e": 0}}
+    a, sel = fixture(hist)
+    check(GA not in sel.dem, "999 dispatches: not demoted yet")
+    sh, phi = sel.shares(7)
+    rho_a, rho_b = (200 * 0 + 1) / 202, (200 * 8 / 400 + 1) / 202
+    exp = {GA: max(phi, rho_a / (rho_a + rho_b)), GB: max(phi, rho_b / (rho_a + rho_b))}
+    t = sum(exp.values())
+    check(all(abs(sh[g] - exp[g] / t) < 1e-12 for g in exp), f"normalised then floored: {sh}")
+    fall = {"outcome": "fall", "levels": {}, "advanced": False}
+    sel.on_ingest(info_of(sel, 0), fall, [], [], 1)
+    check(GA in sel.dem and sel.events[-1]["kind"] == "demoted" and sel.events[-1]["history"]["n"] == 1000, f"the 1,000th fall demotes: {sel.events[-1:]}")
+    sh, phi = sel.shares(7)
+    check(abs(sh[GA] - phi / 4) < 1e-12 and abs(sh[GB] - (1 - phi / 4)) < 1e-12, f"a demoted group gets phi / 4: {sh}")
+    check(all(cid not in sel.breadth_pool() for cid in (0, 1, 2, 3)), "a demoted group is not in the breadth pool")
+    brk = {"outcome": "fall", "levels": {"8": 1500}, "advanced": True}
+    sel.on_ingest(info_of(sel, 0), brk, [], [], 2)
+    check(GA not in sel.dem and sel.events[-1]["kind"] == "exit" and sel.events[-1]["history"]["b"] == 1, "its first break (any break) is the exit")
+    useful = {"outcome": "fall", "levels": {"8": 900}, "advanced": True}
+    before = sum(sel.win[GA])
+    sel.on_ingest(info_of(sel, 0), useful, [], [], 3)
+    check(sum(sel.win[GA]) == before + 1 and sel.hist[GA]["bu"] == 1, "a useful break (next arrival <= the bound) counts in the window")
+    return {"events": [e["kind"] for e in sel.events]}
+
+
+def unit_e_and_anchor_success() -> Dict[str, Any]:
+    a, sel = fixture()
+    deep = FC(9, 6 + 1, 7, "A0", 90)                    # a deeper group (level 7) arrival at 90 < A's earliest 100: e = 1
+    a.cells.append(deep)
+    sel.anc[7].update(w=0.5, bursts=1)
+    out = sel.on_ingest(info_of(sel, 7, "anchor"), QUIET, [(rs.NEW, deep, A_N)], [], 1)
+    check(out["e"] == 1 and out["anchor_success"] is True and sel.anc[7]["w"] == 1.0 and sel.anc[7]["successes"] == 1, f"e and anchor success: {out}")
+    late = FC(10, 7, 7, "A2", 140)                      # deeper, not earliest; but the first A2 of A: an anchor -> success, e = 0
+    a.cells.append(late)
+    out = sel.on_ingest(info_of(sel, 7, "anchor"), QUIET, [(rs.NEW, late, A_N)], [], 2)
+    check(out["e"] == 0 and out["anchor_success"] is True, f"a new anchor in a deeper group without e: {out}")
+    late2 = FC(11, 7, 7, "A0", 150)                     # deeper, A0 already has 3 earlier anchors: no success, w halves
+    a.cells.append(late2)
+    out = sel.on_ingest(info_of(sel, 7, "anchor"), QUIET, [(rs.NEW, late2, A_N)], [], 3)
+    check(out["anchor_success"] is False and sel.anc[7]["w"] == 0.5, f"no success: w halves {sel.anc[7]}")
+    for i in range(5):
+        sel.on_ingest(info_of(sel, 7, "anchor"), QUIET, [], [], 4 + i)
+    check(sel.anc[7]["w"] == 0.125, "the weight floor 1/8")
+    out = sel.on_ingest(info_of(sel, 7, "rank"), QUIET, [], [], 10)
+    check(out["anchor_success"] is None and sel.anc[7]["w"] == 0.125, "a rank draw of an anchor does not change its anchor weight")
+    return {"w": sel.anc[7]["w"]}
+
+
+class Seq:
+    def __init__(self, xs: Sequence[float]):
+        self.xs = list(xs)
+
+    def random(self) -> float:
+        return self.xs.pop(0)
+
+
+def unit_draws() -> Dict[str, Any]:
+    a, sel = fixture()
+    # exploitation: level 7 (deepest, weight 1 of 1.5), group by share, anchor when u3 < 0.5 x w_max = 0.5
+    c, d = sel.select(Seq([0.9, 0.9, 0.0, 0.1]))
+    check(d["stream"] == "anchor" and c.cid == 0, f"an anchor draw: the highest w, fewest bursts, earliest tick {d} {c.cid}")
+    sel.on_dispatch(c, d, 1)
+    c2, d2 = sel.select(Seq([0.9, 0.9, 0.0, 0.1]))
+    check(d2["stream"] == "anchor" and c2.cid == 1, f"rotation: the next anchor (fewest anchor bursts) {c2.cid}")
+    c3, d3 = sel.select(Seq([0.9, 0.9, 0.0, 0.9, 0.0]))
+    check(d3["stream"] == "rank" and d3["rank"] == 0, f"a rank draw at u = 0: rank 0 {d3}")
+    ws = sel.rank_weights(GA)
+    check(abs(ws[0] - 1.0 * max(0.05, 1 / 2)) < 1e-12 and abs(ws[1] - 0.5) < 1e-12, f"(1 + rank)^-1 x max(0.05, 1 / (1 + stale)) {ws}")
+    a.cells[2].cleared = 2
+    check(abs(sel.rank_weights(GA)[2] - (1 / 3) * 0.01) < 1e-12, "x 0.1 per claimed clear")
+    # breadth: count-based over the pool in cell-id order
+    pool = sel.breadth_pool()
+    w = [1 / (1 + sel.bcount.get(cid, 0)) for cid in pool]
+    target = sum(w[:3]) / sum(w) + 1e-9
+    c4, d4 = sel.select(Seq([0.1, target]))
+    check(d4["stream"] == "breadth" and c4.cid == pool[3], f"count-based breadth: cumulative in cell-id order {d4} {c4.cid} {pool}")
+    # keyed streams: the breadth share over 100,000 dispatches
+    rng = det.KeyedRandom(5, "test")
+    n = Counter()
+    for i in range(100000):
+        rng.begin(i + 1)
+        n[sel.select(rng)[1]["stream"]] += 1
+    share = (n["breadth"] + n["trigger"]) / 100000
+    check(abs(share - 0.2) < 0.01, f"breadth share {share:.4f} within 0.20 +/- 0.01")
+    return {"streams": dict(n), "breadth_share": round(share, 4)}
+
+
+def add(a: FA, level: int, mask: int, cls: str, tick: int) -> FC:
+    c = FC(len(a.cells), level, mask, cls, tick)
+    a.cells.append(c)
+    return c
+
+
+def unit_triggers() -> Dict[str, Any]:
+    a, sel = fixture(trigger_cap=0.5)
+    k = [add(a, 7, 7, "A1", t) for t in (45, 50, 60)]
+    kept = [(rs.NEW, c, A_N) for c in k]
+    ev = [{"kind": "line_crossing", "step": 51, "step_from": 49, "event_id": "e1"}, {"kind": "break_occluded", "step": 20, "step_from": 19, "event_id": "e0"}]
+    out = sel.on_ingest(info_of(sel, 7), QUIET, kept, ev, 1)
+    t = sel.triggers[out["trigger"]]
+    check(t["classes"] == ["line_crossing"] and [c for c, _t in t["cells"]] == [k[1].cid, k[2].cid] and t["draws_queued"] == 6 and len(sel.tq) == 2,
+          f"kept cells at ticks >= step_from + 1 (50), 3 draws each; break_occluded records only {t}")
+    occl = sel.on_ingest(info_of(sel, 7), QUIET, [], [{"kind": "break_occluded", "step": 5, "step_from": 4}], 2)
+    check(occl["trigger"] is None, "break_occluded never triggers")
+    for i in range(2):
+        sel.on_ingest(info_of(sel, 7), QUIET, [], [{"kind": "line_crossing", "step": 1, "step_from": 0}], 3 + i)
+    fourth = sel.on_ingest(info_of(sel, 7), QUIET, [], [{"kind": "line_crossing", "step": 1, "step_from": 0}], 5)
+    check(fourth["trigger"] is None and sel.trig_seen["line_crossing"] == 4, "a class seen in 3 earlier bursts no longer triggers")
+    # rule b (owner 2026-11-06): a non-finite burst queues its last kept eligible cell, or the dispatched cell when it kept none
+    early, c_nf = add(a, 7, 7, "A1", 40), add(a, 7, 7, "A1", 70)
+    nf = sel.on_ingest(info_of(sel, 7), QUIET, [(rs.NEW, early, A_N), (rs.NEW, c_nf, A_N)], [{"kind": "nonfinite", "step": 80, "step_from": 79}], 6)
+    tn = sel.triggers[nf["trigger"]]
+    check(tn["cells"] == [[c_nf.cid, 70]] and tn["rule"] == ["last_kept_before_null"], f"a non-finite reply: the burst's last kept cell is queued {tn}")
+    nf2 = sel.on_ingest(info_of(sel, 8), QUIET, [], [{"kind": "nonfinite", "step": 90, "step_from": 89}], 7)
+    tn2 = sel.triggers[nf2["trigger"]]
+    check(tn2["cells"] == [[8, 60]] and tn2["rule"] == ["dispatched_cell"], f"a non-finite burst that kept nothing: the dispatched cell {tn2}")
+    served: List[Tuple[str, int]] = []
+    for i in range(40):
+        c, d = sel.select(Seq([0.1, 0.5]))
+        sel.on_dispatch(c, d, 10 + i)
+        served.append((d["stream"], c.cid))
+    trig = [cid for s_, cid in served if s_ == "trigger"]
+    check(sel.cnt["trigger_draws"] <= 0.5 * sel.cnt["breadth_draws"] and trig[:4] == [k[1].cid, k[2].cid, c_nf.cid, 8], f"served in turn within the cap: {served[:8]}")
+    check(Counter(trig) == Counter({k[1].cid: 3, k[2].cid: 3, c_nf.cid: 3, 8: 3}) and not sel.tq, f"3 draws per cell: {Counter(trig)}")
+    # a queued cell replaced before its draw is dropped
+    a2, sel2 = fixture(trigger_cap=1.0)
+    c30 = add(a2, 7, 7, "A1", 55)
+    sel2.on_ingest(info_of(sel2, 7), QUIET, [(rs.NEW, c30, A_N)], [{"kind": "inside_solid", "step": 60, "step_from": 54}], 1)
+    replace(c30, 52)
+    c, d = sel2.select(Seq([0.1, 0.5]))
+    check(d["stream"] == "breadth" and sel2.cnt["trigger_dropped"] == 1, f"a replaced queued cell is dropped: {d}")
+    return {"served": len(trig), "triggers": len(sel.triggers)}
+
+
+def unit_bk2_roundtrip() -> Dict[str, Any]:
+    import importlib.util
+
+    import btti_replay as bt
+
+    spec = importlib.util.spec_from_file_location("bk2_to_btt_inputs", REPO / "tools" / "bk2_to_btt_inputs.py")
+    conv = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(conv)
+    words = bytes(range(mcell.TRACK1_WORDS)) + bytes((7 * i + 3) % mcell.TRACK1_WORDS for i in range(500))
+    data = rx.bk2_bytes(words, "test")
+    rows = rx.bk2_rows(data)
+    inherited = [conv.parse_row(r, i) for i, r in enumerate(rows)]
+    check(inherited == rx.triples(words), "tools/bk2_to_btt_inputs.py reads the exported bk2 back to exactly the words' rows")
+    check([rx.parse_bk2_row(r) for r in rows] == rx.triples(words), "the run's own reader agrees")
+    d = tmpdir("run3_bk2_")
+    try:
+        (d / "x.bk2").write_bytes(data)
+        r = subprocess.run([sys.executable, "-B", str(REPO / "tools" / "bk2_to_btt_inputs.py"), str(d / "x.bk2"), str(d / "x.btti")], capture_output=True, text=True)
+        check(r.returncode == 0, f"the inherited converter ran: {r.stderr}")
+        via_tool = [tuple(x) for x in bt.read_btti_rows(str(d / "x.btti"))]
+        (d / "y.btti").write_text(rx.btti_text(words, "test"), encoding="ascii", newline="\n")
+        direct = [tuple(x) for x in bt.read_btti_rows(str(d / "y.btti"))]
+        check(via_tool == direct == rx.triples(words), "the .btti export equals the converter's output, read by rl/btti_replay.py")
+        check(rx.bk2_bytes(words, "test") == data, "the bk2 bytes are deterministic")
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            names = sorted(z.namelist())
+        check(names == ["Comments.txt", "Header.txt", "Input Log.txt"], f"the bk2 entries {names}")
+    finally:
+        cleanup(d)
+    return {"frames": len(words)}
+
+
+def unit_params() -> Dict[str, Any]:
+    import crossing_search_run3 as C
+
+    p = C.Params3()
+    p.check()
+    d = p.as_dict()
+    need = ("breadth_share", "window", "rank_exp", "novelty_floor", "phi_factor", "demote_min_dispatches", "demote_fall_rate", "demote_share_factor", "anchor_k",
+            "anchor_share", "anchor_w_floor", "trigger_classes", "trigger_rarity", "trigger_draws_per_cell", "trigger_cap", "summary_every_s", "cleared_weight",
+            "level_decay", "max_segments", "rng_seed")
+    check(all(k in d for k in need) and d["max_segments"] == 6 and d["breadth_share"] == 0.2 and d["trigger_classes"] == list(C.TRIGGER_CLASSES),
+          f"every parameter recorded: {sorted(set(need) - set(d))}")
+    bad = 0
+    for kw in ({"breadth_share": 1.0}, {"retire_after": 5}, {"cleared_weight": 0.0}, {"reset_novelty": False}, {"summary_every_dispatches": 10},
+               {"anchor_w_floor": 0.0}, {"window": 0}):
+        try:
+            C.Params3(**kw).check()
+        except C.SearchError:
+            bad += 1
+    check(bad == 7, f"every out-of-range parameter refused ({bad}/7)")
+    import run3_manifest as rm
+
+    m = rm.run3_code_manifest()
+    check(all(f"tools/frs/{n}.py" in m for n in ("crossing_search_run3", "run3_select", "run3_load", "run3_export")), "the run 3 manifest covers the step 8 files")
+    return {"manifest_files": len(m), "digest": rm.code_digest(m)[:16]}
+
+
+# -- the lab's runs 1 + 2 (read only, zero ticks) ---------------------------------------------------------------------------------------------------
+
+EXPECT_4B = {"9|2|326:2-6-8": (433, 12, 51.2, False), "9|256|326:2-6-1": (53, 10, 46.7, False), "9|64|326:2-8-1": (1054, 6, 2.1, True),
+             "8|258|326:2-6": (1422, 12, 52.1, False), "8|66|326:2-8": (2519, 12, 33.0, False), "8|258|322:6": (320, 11, 8.2, False),
+             "8|320|326:2-1": (127, 9, 6.7, False), "7|322|326:2": (3555, 12, 66.9, False), "7|322|322:": (3603, 12, 9.8, False),
+             "7|70|326:8": (397, 12, 7.8, False), "7|266|330:6": (139, 12, 7.8, False), "7|322|330:3": (173, 9, 7.8, False),
+             "6|330|330:": (4434, 12, 51.2, False), "6|326|326:": (4235, 12, 48.8, False)}
+
+
+def _offline_niches(rows_by_run: Mapping[int, List[Dict[str, Any]]], dispatches: Mapping[int, List[Dict[str, Any]]]) -> Dict[str, Tuple[int, Tuple[int, ...]]]:
+    """tools/analysis/run3_design/d4b_niche_units.py's niche_of, as written there (the offline reference)."""
+    bydig: Dict[str, Dict[str, Any]] = {}
+    for run in (1, 2):
+        for r in rows_by_run[run]:
+            bydig.setdefault(r["digest"], r)
+    breaks_of = {(run, int(d["n"])): [(int(t), int(i)) for t, i in d["breaks_after_start"]] for run in (1, 2) for d in dispatches[run] if d.get("breaks_after_start")}
+    memo: Dict[str, Tuple[int, Tuple[int, ...]]] = {}
+
+    def niche_of(r: Mapping[str, Any]) -> Tuple[int, Tuple[int, ...]]:
+        path, cur, base = [], r, None
+        while cur is not None:
+            if cur["digest"] in memo:
+                base = memo[cur["digest"]]
+                break
+            path.append(cur)
+            pd = (cur.get("origin") or {}).get("parent_digest")
+            cur = bydig.get(pd) if pd else None
+        if base is None:
+            root = path.pop()
+            base = (int(root["key"][3]), ())
+            memo[root["digest"]] = base
+        for row in reversed(path):
+            sm, order = base
+            prev = sm & ~sum(1 << t for t in order)
+            m = int(row["key"][3])
+            gone = [i for i in range(16) if (prev >> i) & 1 and not (m >> i) & 1]
+            if len(gone) >= 2:
+                bk = breaks_of.get((row["_run"], int(row["origin"]["n"])), [])
+                when = {i: t for t, i in bk if t <= int(row["tick"])}
+                gone.sort(key=lambda i: (when.get(i, 10 ** 9), i))
+            base = (sm, order + tuple(gone))
+            memo[row["digest"]] = base
+        return base
+
+    return {r["digest"]: niche_of(r) for run in (1, 2) for r in rows_by_run[run]}
+
+
+def real_niches_equal_offline() -> Dict[str, Any]:
+    if not (RUN1_REAL / "run" / "cells.jsonl").is_file() or not (RUN2_REAL / "run" / "cells.jsonl").is_file():
+        return {"skipped": f"no lab runs under {LAB}"}
+    D = rl3.load(RUN1_REAL, RUN2_REAL, 1220)
+    R1, R2 = D["R1"], D["R2"]
+    off = _offline_niches({1: R1["rows"], 2: R2["rows"]}, {1: R1["dispatches"], 2: R2["dispatches"]})
+    nx = rl3.NicheIndex([R1, R2])
+    rows = R1["rows"] + R2["rows"]
+    diffs = [r["digest"] for r in rows if nx.of(r) != off[r["digest"]]]
+    finals = [cid for cid, n in D["niches"].items() if n != off[str(D["M"]["final"][cid]["digest"])]]
+    check(not diffs and not finals and len(D["niches"]) == 37294, f"{len(diffs)} rows and {len(finals)} final cells differ ({len(rows)} rows, {len(D['niches'])} cells)")
+    check(D["niche_stats"].get("orphans", 0) == 0 and D["niche_stats"]["steps_single_agree"] == D["niche_stats"]["steps_single_checked"] == 5221
+          and D["niche_stats"]["steps_multi"] == 168, f"lineage checks {D['niche_stats']}")
+    check(D["history"]["attribution"] == {"by_start_tick": 39309} and D["history"]["moves"]["run2_moves"] == 15770, f"history {D['history']['attribution']} {D['history']['moves']}")
+    return {"rows": len(rows), "cells": len(D["niches"]), "stats": D["niche_stats"]}
+
+
+def real_start_table() -> Dict[str, Any]:
+    if not (LAB / "import" / "import_manifest.json").is_file() or not RUN2_REAL.is_dir():
+        return {"skipped": f"no lab import or runs under {LAB}"}
+    import crossing_search_run3 as C
+
+    P = C.build_plan(LAB, RUN1_REAL, RUN2_REAL, C.Params3(), code_digest="test")
+    p = P["plan"]
+    rows = {r["group"]: r for r in p["run3"]["start"] if r["eligible"]}
+    got = {g: (r["eligible"], r["anchors"], round(100 * r["share"], 1), r["demoted"]) for g, r in rows.items()}
+    check(got == EXPECT_4B, f"the start table is the approved 4b table: {[(g, got.get(g), EXPECT_4B.get(g)) for g in sorted(set(got) | set(EXPECT_4B)) if got.get(g) != EXPECT_4B.get(g)]}")
+    check(p["e7"]["bound_max_L"] == 1220 and p["best"]["completion_input_tick"] == 1245 and p["best"]["source"] == "run2" and p["archive"]["inherited"] == 37294
+          and p["archive"]["eligible"] == 22464 and p["run3"]["anchors"] == 153 and p["route"]["completion_input_tick"] == 1885, f"{p['e7']} {p['best']} {p['archive']['eligible']}")
+    check(sum(r["eligible"] for r in rows.values()) == 22464 and p["run3"]["demoted"] == ["9|64|326:2-8-1"], "eligible 22,464; only (9, 64) demoted")
+    return {"groups": len(rows), "anchors": p["run3"]["anchors"], "eligible": p["archive"]["eligible"], "cleared_starts": p["archive"]["cleared_starts"]}
+
+
+# -- end to end on the fake game ------------------------------------------------------------------------------------------------------------------
+
+FLAGS = {"SSB64_RL_NO_RENDER": "1", "SSB64_RAPHNET_DISABLE": "1", "SSB64_RL_SPATIAL": "1", "FAKEGAME_WORLD": "easy", "FAKEGAME_BOOT_S": "0.1",
+         "FAKEGAME_IDLE_S": "60", "FAKEGAME_STEP_JITTER_S": "0.002"}
+RUN2_PARAMS = {"seeds": 1, "seed_order": "level", "level_decay": 0.5, "novelty_exp": 1.0, "seen_exp": 1.0, "bonus_exp": 1.0, "pace_exp": 0.5, "max_segments": 3,
+               "retire_after": 0, "max_cells": 100000, "max_dispatches": 240, "rng_seed": 5, "cleared_weight": 0.1, "check_slots": 1, "check_queue_max": 4,
+               "eager_levels": 0, "eager_max_min": 15.0, "canary_per_level": 1, "reset_novelty": False, "check_error_limit": 10}
+RUN3_PARAMS = {"max_segments": 3, "max_dispatches": 160, "rng_seed": 7, "check_slots": 1, "summary_every_s": 0.0, "summary_every_dispatches": 40}
+CHILD = ("import json, sys\nfrom pathlib import Path\nsys.path.insert(0, %r); sys.path.insert(0, %r)\nimport frs_guard as g\n"
+         "g.LabGuard.install(Path(%r))\nimport crossing_search_run3_tests as T\nprint(json.dumps(T.%s(json.loads(%r)), default=str))\n")
+
+
+def run_child(fn: str, lab: Path, args: Mapping[str, Any], timeout: float = 1800.0) -> Dict[str, Any]:
+    code = CHILD % (str(RL), str(HERE), str(lab), fn, json.dumps(args))
+    r = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True, timeout=timeout, cwd=str(lab))
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        raise AssertionError(f"{fn}: child failed: {(r.stderr or r.stdout)[-3000:]}")
+
+
+def engine3_child(a: Mapping[str, Any]) -> Dict[str, Any]:
+    import crossing_search as cs
+    import crossing_search_run3 as C
+    import frs_guard as g
+    import frs_machine as fm
+    import frs_run as fr
+    import frs_verify as fv
+    import m8_rd_stub as stub
+    import run3_manifest as rm
+    import run3_search_tests as r3t
+
+    lab, out, run1, run2, exe = Path(a["lab"]), Path(a["out"]), Path(a["run1"]), Path(a["run2"]), Path(a["exe"])
+    run_dir = out / "run"
+    params = C.Params3(**a["params"])
+    code = a.get("run3_code_digest") or rm.code_digest(rm.run3_code_manifest())
+    P = C.plan_and_write(lab, run1, run2, out, params, stub.analyse, code_digest=code)
+    frozen = {"frozen_sha256": a["frozen"], "exe_copy_sha256": a["exe_copy"]}
+    fk = {"exe": a["exe"], "frozen": a["frozen"]}
+
+    def spec(rank: int) -> Dict[str, Any]:
+        return dict(r3t.worker_spec(lab, fk, rank, int(a["port_base"]), run_dir / "failures", dict(FLAGS, **(a.get("worker_flags") or {}))),
+                    guard=g.LabGuard.spec(), run3_selfcheck=True)
+
+    env = fr.LabEnv(worker_spec=spec, replay=fv.make_real_replay(exe, lab / "run_replays", FLAGS, frozen), analyse=stub.analyse,
+                    readiness=lambda: {"ok": True, "problems": []}, battleship_pids=lambda: [], snapshot=fm.tree_snapshot, import_problems=lambda: [],
+                    wait_no_battleship=lambda t: [], code_manifest=fr.code_manifest, backend="real", sample_s=0.25, row_every_s=0.5,
+                    caps=dict(fm.CAPS_MB, main_private=1e9))
+    cfg = cs.SearchConfig(lab_root=lab, out=out, run_dir=run_dir, frontier_dir=run1, n_workers=3, max_ticks=10 ** 9, max_wall_s=1200.0, expect_code=None,
+                          stop_grace_s=60.0, verify_floor_s=5.0, verify_s_per_clear=2.0, write_reserve_s=2.0, progress_every_s=2.0, seed_parallel=3)
+    text = rx.make_text_replay(exe, run_dir / "text_replays") if a.get("text_replay", True) else None
+    rc = C.Run3Night(cfg, env, P, params, text_replay=text, anomaly_build={"exe": "fake", "platform": sys.platform}).run()
+    return {"code": rc, "violations": g.LabGuard.violations[:3], "bound": P["bound"], "best": P["best"]["completion_input_tick"],
+            "start": P["plan"]["run3"]["start"], "eligible": P["plan"]["archive"]["eligible"]}
+
+
+def run2_child(a: Mapping[str, Any]) -> Dict[str, Any]:
+    import crossing_search as cs
+    import crossing_search_run2 as r2
+    import frs_guard as g
+    import frs_machine as fm
+    import frs_run as fr
+    import m8_rd_stub as stub
+
+    lab, out, run1 = Path(a["lab"]), Path(a["out"]), Path(a["run1"])
+    run_dir = out / "run"
+    params = r2.Params2(**a["params"])
+    P = r2.plan_and_write(lab, run1, out, params, stub.analyse)
+    env = fr.LabEnv(worker_spec=lambda rank: {"rank": rank, "backend": "m8_rd_stub:StubBackend", "world": "easy", "inject": {}, "failure_dir": str(run_dir / "failures"),
+                                              "guard": g.LabGuard.spec()},
+                    replay=lambda words, label, slot: stub.replay_trace("easy", words, label), analyse=stub.analyse,
+                    readiness=lambda: {"ok": True, "problems": []}, battleship_pids=lambda: [], snapshot=fm.tree_snapshot, import_problems=lambda: [],
+                    wait_no_battleship=lambda t: [], code_manifest=fr.code_manifest, backend="stub", sample_s=0.25, row_every_s=0.5,
+                    caps=dict(fm.CAPS_MB, main_private=1e9))
+    cfg = cs.SearchConfig(lab_root=lab, out=out, run_dir=run_dir, frontier_dir=run1, n_workers=2, max_ticks=10 ** 9, max_wall_s=600.0, expect_code=None,
+                          stop_grace_s=10.0, verify_floor_s=5.0, verify_s_per_clear=2.0, write_reserve_s=2.0, progress_every_s=2.0, seed_parallel=2)
+    rc = r2.ResumeSearch(cfg, env, P, params).run()
+    return {"code": rc, "violations": g.LabGuard.violations[:3], "best": P["best"]["completion_input_tick"]}
+
+
+def read_jsonl(p: Path) -> List[Dict[str, Any]]:
+    return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()] if p.is_file() else []
+
+
+def synthetic_run1_all_seeds(lab: Path, max_dispatches: int) -> Path:
+    """crossing_search_run2_tests.synthetic_run1 with every key of the frontier's two deepest levels as a seed (32 instead of 12): the
+    level-8 seeds bring lineages that reach level-9 keys through different targets, so group moves can happen (the vacuity guard)."""
+    import crossing_search_run2_tests as r2t
+
+    syn = r2t.cst.synthetic_frontier(lab)
+    out = lab / "crossing_syn"
+    prm = {"seeds": 32, "seed_order": "level", "level_decay": 0.5, "novelty_exp": 1.0, "seen_exp": 1.0, "bonus_exp": 1.0, "pace_exp": 0.5, "max_segments": 3,
+           "retire_after": 0, "max_cells": 100000, "max_dispatches": max_dispatches, "rng_seed": 3}
+    res = r2t.fst.run_child(r2t.cst.child_code(lab, out, syn["out"], "run", prm, expect=syn["expect"]))
+    check(res["code"] == 0 and not res["violations"], f"the synthetic run 1: {res}")
+    s = json.loads((out / "run" / "summary.json").read_text(encoding="utf-8"))
+    check(s["clears"]["verified"] >= 1 and s["status"] == "DISPATCH_CAP", f"the synthetic run 1 needs a verified clear and a clean stop: {s['status']} {s['clears']['verified']}")
+    return out
+
+
+def _fake_exe_path(lab: Path) -> Path:
+    return lab / "fake" / "exe" / ("BattleShip.cmd" if os.name == "nt" else "BattleShip")
+
+
+def _fk_hashes(lab: Path) -> Dict[str, Any]:
+    import m8_rd_worker as mw
+
+    exe = _fake_exe_path(lab)
+    return {"frozen": {n: mw.sha256_file(exe.parent / n) for n in mw.FROZEN_FILES},
+            "exe_copy": {n: mw.sha256_file(exe.parent / n) for n in (exe.name, "BattleShip.o2r", "f3d.o2r", "gamecontrollerdb.txt")}}
+
+
+class Bench3:
+    """A synthetic run 1 (run 1's engine, stub world) and a synthetic run 2 on it (run 2's engine, stub world), then run 3 on the fake game."""
+
+    def __init__(self) -> None:
+        import crossing_search_run2_tests as r2t
+        import run3_search_tests as r3t
+
+        self.attempts: List[str] = []
+        reuse = os.environ.get("RUN3_LAB")                 # a kept fixture lab (RUN3_KEEP=1 of an earlier run): its runs 1 + 2 are reused
+        if reuse:
+            self.lab, self.run1, self.run2 = Path(reuse), Path(reuse) / "crossing_syn", Path(reuse) / "crossing_syn_run2"
+            for d in sorted(self.lab.glob("run3_*")):
+                cleanup(d)
+            self.attempts.append("reused")
+            self.fk = r3t.fake_setup(self.lab) if not (self.lab / "fake").is_dir() else {"exe": str(_fake_exe_path(self.lab)), **_fk_hashes(self.lab)}
+            self.port = 44000
+            self.runs: Dict[str, Dict[str, Any]] = {}
+            return
+        for _ in range(4):                       # run 1's engine is not deterministic: a run without a verified clear is retried
+            self.lab = tmpdir("run3_night_lab_")
+            try:
+                self.run1 = synthetic_run1_all_seeds(self.lab, max_dispatches=200)
+                self.run2 = self.lab / "crossing_syn_run2"
+                res = run_child("run2_child", self.lab, {"lab": str(self.lab), "out": str(self.run2), "run1": str(self.run1), "params": RUN2_PARAMS})
+                s2 = json.loads((self.run2 / "run" / "summary.json").read_text(encoding="utf-8"))
+                check(res["code"] == 0 and s2["status"] == "DISPATCH_CAP" and not res["violations"], f"the synthetic run 2: {res} {s2['status']}")
+                self.attempts.append("ok")
+                break
+            except AssertionError as exc:
+                self.attempts.append(str(exc)[:160])
+                cleanup(self.lab)
+        else:
+            raise AssertionError(f"no usable synthetic runs 1 + 2 in 4 attempts: {self.attempts}")
+        self.fk = r3t.fake_setup(self.lab)
+        self.port = 44000
+        self.runs: Dict[str, Dict[str, Any]] = {}
+
+    def run(self, name: str, prm: Mapping[str, Any] = RUN3_PARAMS, **extra: Any) -> Dict[str, Any]:
+        if name in self.runs:
+            return self.runs[name]
+        out = self.lab / f"run3_{name}"
+        self.port += 1000
+        res = run_child("engine3_child", self.lab, dict({"lab": str(self.lab), "out": str(out), "run1": str(self.run1), "run2": str(self.run2), "exe": self.fk["exe"],
+                                                         "frozen": self.fk["frozen"], "exe_copy": self.fk["exe_copy"], "params": dict(prm), "port_base": self.port}, **extra))
+        d = out / "run"
+        res.update({"dir": d, "summary": json.loads((d / "summary.json").read_text(encoding="utf-8")), "config": json.loads((d / "config.json").read_text(encoding="utf-8")),
+                    "dispatches": read_jsonl(d / "dispatches.jsonl"), "cells": read_jsonl(d / "cells.jsonl"), "hourly": read_jsonl(d / "hourly.jsonl"),
+                    "triggers": read_jsonl(d / "triggers.jsonl"), "exports": read_jsonl(d / "exports.jsonl"), "text": read_jsonl(d / "text_replays.jsonl"),
+                    "bursts": read_jsonl(d / "anomaly_bursts.jsonl"), "verifications": read_jsonl(d / "verifications.jsonl")})
+        self.runs[name] = res
+        return res
+
+    def close(self) -> None:
+        if os.environ.get("RUN3_KEEP") == "1":
+            print(f"kept: {self.lab}")
+            return
+        cleanup(self.lab)
+
+
+_BENCH: Optional[Bench3] = None
+
+
+def bench() -> Bench3:
+    global _BENCH
+    if _BENCH is None:
+        _BENCH = Bench3()
+    return _BENCH
+
+
+RECORD_VOLATILE = ("utc", "best_verified", "verified", "status", "elapsed_s", "dispatches")
+
+
+def _record_sig(rows: Sequence[Mapping[str, Any]]) -> List[str]:
+    return [json.dumps({k: v for k, v in r.items() if k not in RECORD_VOLATILE}, sort_keys=True, default=str) for r in rows]
+
+
+def e2e_same_seed_runs() -> Dict[str, Any]:
+    """Two same-seed run 3s on the fake game (reorder window, step jitter): >= 5 group moves (vacuity guard), and the same dispatches (with
+    stream, group, niche), cell rows (with niche, group, moved_from), end records, hourly records and triggers."""
+    import crossing_search_run3 as C
+
+    b = bench()
+    A, B = b.run("a"), b.run("b")
+    for r in (A, B):
+        s = r["summary"]
+        check(r["code"] == 0 and not r["violations"] and s["status"] == "DISPATCH_CAP" and s["work"]["dispatches"] == RUN3_PARAMS["max_dispatches"]
+              and s["contract"] == C.RUN3_CONTRACT, f"a clean stop at the dispatch cap: {r['code']} {r['violations']} {s['status']} {s['stop']} (folder {r['dir']})")
+        check(s["integrity"]["prefix_mismatches"] == 0 and s["integrity"]["run3_code_digest_end"] == r["config"]["run3"]["code"]["digest"], "integrity")
+        check(all(d.get("stream") in rs.STREAMS and d.get("group") and d.get("niche") is not None for d in r["dispatches"]), "every dispatch row carries stream, group, niche")
+        check(all(x.get("niche") is not None and x.get("group") for x in r["cells"] if x["ev"] in ("new", "replaced")), "every NEW / REPLACED row carries niche and group")
+    moves = [x for x in A["cells"] if x.get("moved_from")]
+    check(len(moves) >= 5, f"vacuity guard: {len(moves)} group moves (>= 5 needed)")
+    dsig = lambda r: [s + (d.get("stream"), d.get("group"), d.get("niche"), json.dumps(d.get("draw"), sort_keys=True)) for s, d in
+                      zip(det.dispatch_signature(r["dispatches"]), sorted(r["dispatches"], key=lambda d: int(d["n"])))]
+    check(dsig(A) == dsig(B), "the same dispatches (with stream, group, niche, draw)")
+    csig = lambda r: [s + (x.get("niche"), x.get("group"), x.get("moved_from")) for s, x in zip(det.cells_signature(r["cells"]), r["cells"])]
+    check(csig(A) == csig(B), "the same cell rows (with niche, group, moved_from)")
+    ends = lambda r: [(x["cid"], x["digest"], x["n"], [v for i, v in enumerate(x["end"]) if i != mcell.HOST_FRAME]) for x in r["cells"] if x["ev"] == "end_record"]
+    check(ends(A) == ends(B), "the same end records")
+    check(len(A["hourly"]) >= 4 and _record_sig(A["hourly"]) == _record_sig(B["hourly"]), f"the same hourly records ({len(A['hourly'])})")
+    tsig = lambda r: [json.dumps({k: v for k, v in t.items() if k != "utc"}, sort_keys=True) for t in r["triggers"]]
+    check(tsig(A) == tsig(B), "the same triggers")
+    rec = A["hourly"][0]
+    check({"groups", "earliest_by_level", "demotions", "breadth", "triggers", "period"} <= set(rec) and all("anchors_detail" in g_ and "share" in g_ and "fall_rate" in g_
+                                                                                                         for g_ in rec["groups"]), "the record's fields")
+    md = (A["dir"] / "hourly.md").read_text(encoding="utf-8")
+    check(all(x in md for x in ("### Groups", "### Demotions and exits", "### Anchors", "### Breadth", "### Anomaly triggers", "Earliest arrival per level")),
+          "hourly.md sections")
+    sel = A["summary"]["run3"]["selection"]
+    streams = sel["streams"]
+    check(streams.get("breadth", 0) + streams.get("trigger", 0) >= 10 and streams.get("rank", 0) >= 10, f"both streams used: {streams}")
+    # the merged start: run 3's archive = runs 1 + 2
+    check(A["summary"]["run3"]["best_start"]["completion_input_tick"] == A["best"] and A["config"]["e7"]["bound_max_L"] == A["bound"], "the start's best and bound")
+    for v in A["verifications"]:
+        if v["verdict"] == "VERIFIED":
+            ex = [x for x in A["exports"] if x["n"] == v["n"]]
+            check(ex and ex[0]["roundtrip_ok"] and Path(ex[0]["bk2"]).is_file() and Path(ex[0]["btti"]).is_file(), f"verified clear {v['n']}: exported")
+    for t in A["text"]:
+        check(t.get("equal") is True, f"text replay of a new best: {t}")
+    return {"moves": len(moves), "dispatches": len(A["dispatches"]), "streams": streams, "hourly": len(A["hourly"]), "triggers": len(A["triggers"]),
+            "verified": sum(1 for v in A["verifications"] if v["verdict"] == "VERIFIED"), "exports": len(A["exports"]), "text_replays": len(A["text"]),
+            "eligible_at_start": A["eligible"], "groups_at_start": len([r for r in A["start"] if r["eligible"]]), "events": len(sel["events"])}
+
+
+def e2e_nonfinite_trigger() -> Dict[str, Any]:
+    """Non-finite replies on the fake game (FAKEGAME_NONFINITE_*), rule (b) of 2026-11-06: every non-finite burst that triggers queues one
+    cell, the burst's last kept eligible cell or, when it kept none, the dispatched cell; the queued cells are served as trigger draws within
+    the cap and the records show them; the runs stop cleanly with no prefix mismatch."""
+    b = bench()
+    # 1. observation.position_x (in the record and the key) past every eligible prefix: rarity stops the triggers at 3; each queues one cell
+    first = b.run("a")
+    bound = int(first["bound"])
+    r0 = b.run("nf0", dict(RUN3_PARAMS, summary_every_dispatches=40), worker_flags={"FAKEGAME_NONFINITE_P": "0.01", "FAKEGAME_NONFINITE_SEED": "3",
+                                                                                    "FAKEGAME_NONFINITE_FIELD": "observation.position_x",
+                                                                                    "FAKEGAME_NONFINITE_MIN_STEP": str(bound + 2)})
+    s0 = r0["summary"]
+    check(r0["code"] == 0 and s0["status"] == "DISPATCH_CAP" and s0["integrity"]["prefix_mismatches"] == 0, f"a clean stop: {r0['code']} {s0['status']} {s0['stop']}")
+    check([d for d in r0["dispatches"] if d.get("outcome") == "nonfinite"], "at least one burst met a non-finite reply")
+    t0 = r0["triggers"]
+    check(len(t0) == 3 and all(t["classes"] == ["nonfinite"] for t in t0) and s0["run3"]["selection"]["classes_seen"]["nonfinite"] > 3,
+          f"rarity: exactly 3 triggers of the class {[(t['n'], t['classes']) for t in t0]} {s0['run3']['selection']['classes_seen']}")
+    # 2. spatial.update_tic (in neither the record nor the key) from tick 1, rarity 50: triggers at eligible ticks queue cells, served in turn
+    r = b.run("nf", dict(RUN3_PARAMS, summary_every_dispatches=40, trigger_rarity=50), worker_flags={"FAKEGAME_NONFINITE_P": "0.002", "FAKEGAME_NONFINITE_SEED": "5",
+                                                                                                     "FAKEGAME_NONFINITE_FIELD": "spatial.update_tic",
+                                                                                                     "FAKEGAME_NONFINITE_MIN_STEP": "1"})
+    s = r["summary"]
+    check(r["code"] == 0 and s["status"] == "DISPATCH_CAP" and s["integrity"]["prefix_mismatches"] == 0, f"a clean stop: {r['code']} {s['status']} {s['stop']}")
+    nf = [d for d in r["dispatches"] if d.get("outcome") == "nonfinite"]
+    check(nf, "at least one burst met a non-finite reply")
+    trig = r["triggers"]
+    check(trig and all(t["classes"] == ["nonfinite"] for t in trig) and len(trig) <= 50, f"triggers: {[(t['n'], t['classes'], t['cells']) for t in trig]}")
+    sel = s["run3"]["selection"]
+    given = sum(t["draws_given"] for t in sel["triggers"])
+    queued = sum(t["draws_queued"] for t in sel["triggers"])
+    check(sel["streams"].get("trigger", 0) == given and given <= 0.1 * (sel["streams"].get("trigger", 0) + sel["streams"].get("breadth", 0)) + 1e-9,
+          f"trigger draws {given} (queued {queued}) within 10 % of breadth draws {sel['streams']}")
+    check(sel["classes_seen"].get("nonfinite", 0) >= len(trig), f"classes seen {sel['classes_seen']}")
+    md = (r["dir"] / "hourly.md").read_text(encoding="utf-8")
+    check("Trigger 0:" in md or not queued, "hourly.md lists the trigger")
+    served = [d for d in r["dispatches"] if d.get("stream") == "trigger"]
+    cells_q = {c for t in trig for c, _t in t["cells"]}
+    check(all(d["cid"] in cells_q for d in served), "every trigger draw is a queued cell")
+    by_n = {int(d["n"]): d for d in r["dispatches"]}
+    check(len(trig) == len(nf) and all(t["first_tick"] == int(by_n[t["n"]]["start_tick"]) + int(by_n[t["n"]]["words_played"]) for t in trig),
+          f"one trigger per non-finite burst (rarity 50), at the burst's cut tick: {len(trig)} triggers, {len(nf)} bursts")
+    # rule (b): one cell per trigger, the burst's last kept cell (one of its kept cell ids, the latest) or the dispatched cell
+    rules: Counter = Counter()
+    for t_ in trig:
+        d = by_n[int(t_["n"])]
+        check(len(t_["cells"]) == 1 and t_["draws_queued"] == 3, f"trigger {t_['index']}: one cell, 3 draws {t_}")
+        cid, tick = t_["cells"][0]
+        rules[t_["rule"][0]] += 1
+        if t_["rule"] == ["last_kept_before_null"]:
+            check(cid in d["kept"]["cids"] and tick < t_["first_tick"] + 1, f"trigger {t_['index']}: a kept cell of the burst before the null {t_} {d['kept']}")
+        else:
+            check(t_["rule"] == ["dispatched_cell"] and cid == int(d["cid"]) and not [c for c in d["kept"]["cids"]], f"trigger {t_['index']}: the dispatched cell {t_} {d['kept']}")
+    for t_ in t0:
+        check(len(t_["cells"]) == 1 and t_["rule"][0] in ("last_kept_before_null", "dispatched_cell"), f"nf0 trigger {t_['index']}: one cell {t_}")
+    check(queued > 0 and given >= 1 and len(served) == given, f"cells were queued ({queued} draws) and served ({given} trigger draws, {len(served)} rows)")
+    for run_ in (r0, r):
+        check(not run_["violations"], f"no guard violation: {run_['violations']}")
+        for v_ in run_["verifications"]:
+            if v_["verdict"] == "VERIFIED":
+                ex_ = [x for x in run_["exports"] if x["n"] == v_["n"]]
+                check(ex_ and ex_[0].get("roundtrip_ok") is True and not ex_[0].get("error"), f"verified clear {v_['n']}: exported {ex_}")
+        check(all(t_.get("equal") is True for t_ in run_["text"]), f"text replays of new bests: {run_['text']}")
+    check("Trigger 0:" in md and "draws queued" in md, "hourly.md lists the triggers")
+    return {"run_nf0_triggers": len(t0), "nonfinite_bursts": len(nf), "triggers": len(trig), "queued": queued, "given": given, "rules": dict(rules),
+            "streams": sel["streams"]}
+
+
+def guarded_exports_child(a: Mapping[str, Any]) -> Dict[str, Any]:
+    """In a child with the lab guard installed (as the engine runs): the export writer and one fake-game text replay of real words."""
+    import frs_guard as g
+
+    lab = Path(a["lab"])
+    words = bytes.fromhex(a["words_hex"])
+    ex = rx.export_clear(g.LabFS(lab), lab / "guarded" / "clears", "clear_test", words, {"n": 1})
+    rep = rx.make_text_replay(Path(a["exe"]), lab / "guarded" / "text_replays")(words, "best")
+    v = rx.text_replay_verdict(rep, int(a["cit"]), int(a["ctp"]))
+    return {"export": ex, "verdict": v, "violations": g.LabGuard.violations[:5]}
+
+
+def e2e_exports_under_guard() -> Dict[str, Any]:
+    """The .btt.txt / .bk2 export and the text replay under the lab guard: no path holds the provenance fragment '.btti', nothing is
+    refused, the round trip holds and the text replay gives the verified clocks (a defect found 2026-11-06: the guard refused '.btti')."""
+    import crossing_search_run2 as r2
+
+    b = bench()
+    R1 = r2.read_run1(b.run1)
+    best = r2.best_verified_of(R1["verifications"], 10 ** 9)
+    res = run_child("guarded_exports_child", b.lab, {"lab": str(b.lab), "exe": b.fk["exe"], "words_hex": bytes(best["words"]).hex(),
+                                                     "cit": best["completion_input_tick"], "ctp": best["completion_time_passed"]})
+    ex, v = res["export"], res["verdict"]
+    check(not res["violations"], f"no guard refusal: {res['violations']}")
+    check(ex.get("roundtrip_ok") is True and ex["btti"].endswith(rx.TEXT_SUFFIX) and ".btti" not in ex["btti"] and Path(ex["bk2"]).is_file()
+          and Path(ex["btti"]).is_file(), f"the export: {ex}")
+    check(v["equal"] is True, f"the guarded text replay gives the verified clocks: {v}")
+    return {"export": Path(ex["btti"]).name, "clocks": v["clocks_text"]}
+
+
+def unit_export_clear() -> Dict[str, Any]:
+    """The export writer through the lab's guarded file system: a .btti and a .bk2 under the run folder, the round trip, the digests."""
+    import frs_guard as g
+
+    lab = tmpdir("run3_export_lab_")
+    try:
+        fs = g.LabFS(lab)
+        words = bytes((5 * i + 1) % mcell.TRACK1_WORDS for i in range(300))
+        ex = rx.export_clear(fs, lab / "run" / "clears", "clear_n7_t300", words, {"n": 7, "completion_input_tick": 300})
+        check(ex["roundtrip_ok"] and Path(ex["bk2"]).is_file() and Path(ex["btti"]).is_file() and ex["frames"] == 300
+              and ex["words_digest"] == mcell.words_digest(words), f"export {ex}")
+        check(rx.bk2_rows(Path(ex["bk2"]).read_bytes()) and len(Path(ex["btti"]).read_text(encoding="ascii").splitlines()) == 303, "the files' contents")
+    finally:
+        cleanup(lab)
+    return {"bk2_sha256": ex["bk2_sha256"][:16]}
+
+
+def e2e_text_replay() -> Dict[str, Any]:
+    """The native text-replay path on the fake game: run 1's best verified clear replayed from its words gives its verified clocks; a
+    truncated copy gives no clear."""
+    import crossing_search_run2 as r2
+
+    b = bench()
+    R1 = r2.read_run1(b.run1)
+    best = r2.best_verified_of(R1["verifications"], 10 ** 9)
+    fn = rx.make_text_replay(Path(b.fk["exe"]), b.lab / "text_replay_test")
+    rep = fn(bytes(best["words"]), "best")
+    v = rx.text_replay_verdict(rep, best["completion_input_tick"], best["completion_time_passed"])
+    check(v["equal"] is True, f"the text replay gives the verified clocks: {v} {rep}")
+    cut = rx.text_replay_verdict(fn(bytes(best["words"])[:-5], "cut"), best["completion_input_tick"], best["completion_time_passed"])
+    check(cut["equal"] is False and cut["outcome"] is None, f"a cut copy: no clear {cut}")
+    return {"clocks": v["clocks_text"], "wall_s": rep.get("wall_s")}
+
+
+UNIT = {"unit_niche_inheritance": unit_niche_inheritance, "unit_moves": unit_moves, "unit_demotion_and_shares": unit_demotion_and_shares,
+        "unit_e_and_anchor_success": unit_e_and_anchor_success, "unit_draws": unit_draws, "unit_triggers": unit_triggers, "unit_bk2_roundtrip": unit_bk2_roundtrip,
+        "unit_export_clear": unit_export_clear, "unit_params": unit_params}
+REAL = {"real_niches_equal_offline": real_niches_equal_offline, "real_start_table": real_start_table}
+E2E = {"e2e_same_seed_runs": e2e_same_seed_runs, "e2e_nonfinite_trigger": e2e_nonfinite_trigger, "e2e_text_replay": e2e_text_replay,
+       "e2e_exports_under_guard": e2e_exports_under_guard}
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    groups = {"unit": UNIT, "real": REAL, "e2e": E2E}
+    tests = dict(groups[args[0]]) if args[:1] and args[0] in groups else dict(UNIT, **REAL, **E2E)
+    rest = [x for x in args if x not in groups]
+    try:
+        code = run_suite("run3 night tests", tests, rest)
+    finally:
+        if _BENCH is not None:
+            _BENCH.close()
+    sys.exit(code)

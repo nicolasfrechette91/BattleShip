@@ -4,8 +4,8 @@ of the lab manifest).
 
     what        {repo-relative path: sha256} of EVERY repository file that run 3's entry modules import (tools/frs, tools/glitch and rl/
                 alike), determined in a FRESH interpreter, so the set does not depend on what the caller imported. The entries:
-                  - the engine (run3_search) and the worker module (run3_worker, the spawned processes' entry point); the run 3
-                    command-line module joins them in step 8;
+                  - the engine (run3_search), the worker module (run3_worker, the spawned processes' entry point) and the run 3
+                    command-line module (crossing_search_run3, step 8: it imports run3_select, run3_load and run3_export);
                   - the modules run 3 imports INSIDE functions, which an import-time closure cannot see: the lab runner's explicit list
                     (rl/frs_run.CODE_MODULES: the launcher, client, standby, runtime, trace and crossing modules) plus
                     m7q_status_table (m8_rd_cells.Classifier, every worker), m7g_spatial (m8_rd_select2.y_floor_min) and m7f_targets
@@ -36,7 +36,7 @@ from typing import Dict, Mapping, Sequence
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 MANIFEST_CONTRACT = "run3_code_manifest_v1"
-RUN3_MODULES = ("run3_search", "run3_worker")
+RUN3_MODULES = ("run3_search", "run3_worker", "crossing_search_run3")
 LAB_RUNTIME_MODULES = ("frs_guard", "frs_machine", "frs_archive", "frs_worker", "frs_verify", "frs_report", "frs_run", "frs_lab", "m7f_trace",
                        "m7n_crossing", "battleship_process", "battleship_client", "m7_standby", "m7_runtime")   # = rl/frs_run.CODE_MODULES
 LAZY_MODULES = ("m7q_status_table", "m7g_spatial", "m7f_targets")
