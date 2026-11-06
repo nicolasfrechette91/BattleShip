@@ -21,6 +21,9 @@ The owner's conditions (2026-11-05):
                  the pre-change file read from git); the existing suites are run separately
     4 O10 + D4   the stored end record is used by every later dispatch of the representative (full comparison); D4 accepts the archive;
                  two same-seed runs with fused first dispatches give the same dispatches, cells and end records (`e2e_fused_runs`)
+    code digest  (2026-11-05) the run 3 manifest (tools/frs/run3_manifest.py) covers every run 3 file; a wrong recorded digest is
+                 refused at the open; every run records it and finds it unchanged at the close (`unit_run3_manifest`,
+                 `e2e_code_digest_refusal`, `_clean`)
     stored       (2026-11-05, before step 6) forced redraws: >= 30 later dispatches compare against a record stored in the run, and in a
                  second run >= 30 against records read from cells.jsonl, one of which has a single compared field changed: a prefix_end
                  mismatch naming that field, 0 burst words, L steps, quarantined (`e2e_stored_records`, `unit_end_record_import`)
@@ -493,6 +496,9 @@ def engine_child(a: Mapping[str, Any]) -> Dict[str, Any]:
                           stop_grace_s=60.0, verify_floor_s=5.0, verify_s_per_clear=2.0, write_reserve_s=2.0, progress_every_s=2.0, seed_parallel=3)
     if a.get("end_record_files"):
         P["end_record_files"] = list(a["end_record_files"])
+    import run3_manifest as rm
+
+    P["run3_code_digest"] = a["run3_code_digest"] if "run3_code_digest" in a else rm.code_digest(rm.run3_code_manifest())   # what the plan records
     cls, forced = r3.Run3Search, None
     if a.get("forced_k"):
         forced = forced_cells(P["archive"], int(a["forced_k"]))
@@ -604,6 +610,9 @@ def _clean(r: Mapping[str, Any], dispatches: int) -> None:
     s = r["summary"]
     check(r["code"] == 0 and not r["violations"] and s["status"] == "DISPATCH_CAP" and s["work"]["dispatches"] == dispatches and s["contract"] == r3.RUN3_CORE_CONTRACT,
           f"a clean stop at the dispatch cap: {r['code']} {r['violations']} {s['status']} {s['stop']} {s['work']['dispatches']} (folder {r['dir']})")
+    code = r["config"]["run3"]["code"]
+    check(code["digest"] == code["expected"] == s["integrity"]["run3_code_digest_end"] and not s["integrity"]["run3_code_changed_during_run"]
+          and "tools/glitch/detect.py" in code["files"] and "tools/frs/run3_worker.py" in code["files"], "the run 3 code digest recorded and unchanged at the close")
 
 
 def e2e_fused_runs() -> Dict[str, Any]:
@@ -852,12 +861,67 @@ def e2e_stored_records() -> Dict[str, Any]:
             "y_from_disk": len(from_disk), "victim": [victim, field, int(final1[victim]["tick"])], "y_mismatch_n": d["n"]}
 
 
+def unit_run3_manifest() -> Dict[str, Any]:
+    """The run 3 code manifest: deterministic; every run 3 file outside rl/ (tools/frs, tools/glitch) and the rl/ files run 3 imports, each
+    of those in the lab manifest too; on a copied tree, a one-line edit to tools/glitch/detect.py changes the digest and only that file."""
+    import frs_run as fr
+    import run3_manifest as rm
+
+    m1, m2 = rm.run3_code_manifest(), rm.run3_code_manifest()
+    check(m1 == m2, "deterministic")
+    must = {f"tools/frs/{n}.py" for n in ("run3_search", "run3_worker", "run3_anomaly", "run3_archive", "run3_manifest", "det_schedule", "crossing_search",
+                                         "crossing_search_run2")} | {f"tools/glitch/{n}.py" for n in ("detect", "analysis", "geometry", "vpk0")} \
+        | {"rl/frs_worker.py", "rl/m8_rd_cells.py", "rl/m8_rd_worker.py", "rl/battleship_process.py", "rl/port_lease.py", "rl/battleship_client.py",
+           "rl/m7_standby.py", "rl/m7f_trace.py", "rl/m7q_status_table.py", "rl/m7f_targets.py", "rl/m7g_spatial.py"}
+    check(must <= set(m1), f"missing: {sorted(must - set(m1))}")
+    check(not [k for k in m1 if "test" in Path(k).name or k.startswith("runs/")], f"no test or evidence file: {[k for k in m1 if 'test' in k]}")
+    stems = {Path(k).stem for k in m1}
+    open_lazy = {n: w for n, w in rm.lazy_imports(m1).items() if n not in stems and n not in rm.LAZY_EXCLUDED}
+    check(not open_lazy, f"a function-level import of a repository module is neither in the manifest nor excluded: {open_lazy}")
+    check(tuple(fr.CODE_MODULES) == rm.LAB_RUNTIME_MODULES, "the lab runner's module list is run 3's too")
+    lab = fr.code_manifest()
+    not_in_run3 = sorted(set(lab) - set(m1))
+    check(not_in_run3 == ["rl/frs_tests.py"] and all(m1[k] == lab[k] for k in set(lab) & set(m1)),
+          f"every lab-manifest file but the lab's own tests is in run 3's, with the same hash: {not_in_run3}")
+    d = tmpdir("run3_manifest_")
+    try:
+        for sub in ("rl", "tools/frs", "tools/glitch"):
+            (d / sub).mkdir(parents=True)
+            for f in (REPO / sub).glob("*.py"):
+                shutil.copy2(f, d / sub / f.name)
+        c1 = rm.run3_code_manifest(d)
+        check(c1 == m1, "the copied tree gives the same manifest")
+        p = d / "tools" / "glitch" / "detect.py"
+        p.write_bytes(p.read_bytes() + b"\n# probe\n")
+        c2 = rm.run3_code_manifest(d)
+        check(rm.code_digest(c2) != rm.code_digest(c1) and [k for k in c1 if c1[k] != c2.get(k)] == ["tools/glitch/detect.py"]
+              and rm.changed_files(c1, d) == ["tools/glitch/detect.py"], "an edit to the live scanner changes the digest, and only that file")
+    finally:
+        cleanup(d)
+    return {"files": len(m1), "digest": rm.code_digest(m1)[:16], "outside_rl": len([k for k in m1 if not k.startswith("rl/")]),
+            "rl_not_in_lab_manifest": sorted(set(m1) - set(lab)), "lazy_excluded": sorted(rm.LAZY_EXCLUDED)}
+
+
+def e2e_code_digest_refusal() -> Dict[str, Any]:
+    """A recorded run 3 code digest that is not the tree's: refused at the open, nothing launched, no run folder."""
+    b = bench()
+    out = b.lab / "run3_refused"
+    res = run_child("engine_child", b.lab, {"lab": str(b.lab), "out": str(out), "run1": str(b.run1), "exe": b.fk["exe"], "frozen": b.fk["frozen"],
+                                            "exe_copy": b.fk["exe_copy"], "params": dict(RUN3_PARAMS), "port_base": 39000, "run3_code_digest": "0" * 64})
+    refused = sorted(out.glob("refused_*.json"))
+    check(res["code"] == 2 and refused and not (out / "run").exists(), f"refused before the open: {res} {refused}")
+    why = json.loads(refused[0].read_text(encoding="utf-8"))["reason"]
+    check("run 3 code digest" in why, f"the reason names the run 3 code digest: {why}")
+    return {"code": res["code"], "reason": why[:120]}
+
+
 UNIT = {"unit_digest_covers_compared_fields": unit_digest_covers_compared_fields, "unit_worker_refusals": unit_worker_refusals,
         "unit_stub_fused_equals_stored": unit_stub_fused_equals_stored, "unit_run2_path_equals_pre_change": unit_run2_path_equals_pre_change,
         "unit_merge_end_records": unit_merge_end_records, "unit_d4_reads_no_lazy_check": unit_d4_reads_no_lazy_check,
-        "unit_end_record_import": unit_end_record_import}
+        "unit_end_record_import": unit_end_record_import, "unit_run3_manifest": unit_run3_manifest}
 FAKE = {"fake_field_by_field": fake_field_by_field}
-E2E = {"e2e_fused_runs": e2e_fused_runs, "e2e_fused_mismatch": e2e_fused_mismatch, "e2e_stored_records": e2e_stored_records}
+E2E = {"e2e_code_digest_refusal": e2e_code_digest_refusal, "e2e_fused_runs": e2e_fused_runs, "e2e_fused_mismatch": e2e_fused_mismatch,
+       "e2e_stored_records": e2e_stored_records}
 
 if __name__ == "__main__":
     args = sys.argv[1:]

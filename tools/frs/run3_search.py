@@ -21,6 +21,9 @@ command line, the reports, the step 7 rules) is step 8; until then the tests bui
     D4              `Run3Search(DeterministicSchedule, AnomalyIngest, Run3Core)`: keyed draws, in-order ingest, as-of answers.
     key family      `<archive id>|crossing3|<prefix digest>`, iteration 0, 1, ... per representative: no run 1 or run 2 burst is repeated.
     workers         tools/frs/run3_worker.Run3Pool (the transparent proxy, D6, the live detectors).
+    code digest     tools/frs/run3_manifest: every repository file run 3 imports. The plan records its digest (P["run3_code_digest"]); the
+                    open refuses, before launching anything, when it is missing or differs from the tree; a change during the run is
+                    SEARCH_INVALID at the close. The lab code digest (rl/ only) is still recorded as before.
 
 Two dispatches of one representative can both be fused (the second selected before the first is ingested). Both passed the digest check;
 at ingest the second's end record must equal the stored one in the 16 compared fields (else SEARCH_INVALID: the prefix would not be
@@ -50,6 +53,7 @@ import frs_worker as fw  # noqa: E402
 import m8_rd_cells as mcell  # noqa: E402
 import run3_anomaly as ra  # noqa: E402
 import run3_archive as rar  # noqa: E402
+import run3_manifest as rm  # noqa: E402
 import run3_worker as r3w  # noqa: E402
 
 RUN3_CORE_CONTRACT = "frs_run3_core_v1"
@@ -117,6 +121,9 @@ class Run3Core(r2.ResumeSearch):
             if rep["end_conflicts"]:
                 raise SearchError(f"refused: end records that differ for one representative: cells {rep['end_conflicts'][:5]}")
             self.end_import = {"files": rep["files"], "records": rep["records"], "imported": self.archive.import_end_records(ends)}
+        self.run3_expect: Optional[str] = P.get("run3_code_digest")
+        self.run3_code: Dict[str, str] = {}
+        self.run3_code_dig = ""
         self.fused_n: Set[int] = set()
         self.c.update({"fused": 0, "fused_ok": 0, "fused_mismatch": 0, "fused_repeat": 0, "fused_stale": 0, "fused_cut": 0, "end_records": 0})
 
@@ -141,6 +148,13 @@ class Run3Core(r2.ResumeSearch):
         self.code_dig = fr.code_digest(self.code)
         if cfg.expect_code and self.code_dig != cfg.expect_code:
             raise Refused(f"lab code digest {self.code_dig[:16]} differs from the expected {cfg.expect_code[:16]}")
+        self.run3_code = rm.run3_code_manifest()
+        self.run3_code_dig = rm.code_digest(self.run3_code)
+        if not self.run3_expect:
+            raise Refused("no recorded run 3 code digest (the plan records P['run3_code_digest'])")
+        if self.run3_code_dig != self.run3_expect:
+            raise Refused(f"run 3 code digest {self.run3_code_dig[:16]} differs from the recorded {str(self.run3_expect)[:16]} "
+                          f"({len(self.run3_code)} files; the tree is not the planned one)")
         self.fs.mkdir(self.dir)
         self.fs.write_json(self.dir / "config.json", self.config_record(ready))
         self.sampler = fm.Sampler(lambda r: self.fs.append_jsonl(self.dir / "memory.jsonl", r), interval=env.sample_s, row_every=env.row_every_s,
@@ -300,8 +314,19 @@ class Run3Core(r2.ResumeSearch):
                                          "at L) and its observed end record is stored at ingest as an end_record row of cells.jsonl")
         rec["origins"]["draw_id"] = f"<archive id>|{KEY_FAMILY}|<prefix words digest>, iteration k = 0.. per representative (a new family)"
         rec["run3"] = {"contract": RUN3_CORE_CONTRACT, "end_mode": fw.FUSED_END_MODE, "end_record_ev": END_RECORD_EV, "checks": "none (no eager or lazy check)",
-                       "workers": r3w.RUN3_WORKER_CONTRACT, "end_import": dict(self.end_import)}
+                       "workers": r3w.RUN3_WORKER_CONTRACT, "end_import": dict(self.end_import),
+                       "code": {"contract": rm.MANIFEST_CONTRACT, "entries": list(rm.ENTRY_MODULES), "digest": self.run3_code_dig,
+                                "expected": self.run3_expect, "files": dict(self.run3_code)}}
         return rec
+
+    def write_summary(self) -> Dict[str, Any]:
+        if self.run3_code and "run3_code_digest_end" not in self.integrity:
+            end = rm.code_digest(rm.run3_code_manifest())
+            changed = rm.changed_files(self.run3_code)
+            self.integrity.update({"run3_code_digest": self.run3_code_dig, "run3_code_digest_end": end, "run3_code_changed_during_run": changed})
+            if end != self.run3_code_dig or changed:
+                self.mark("SEARCH_INVALID", f"the run 3 code changed during the run: {changed[:6] or 'the imported set changed'}")
+        return super().write_summary()
 
     def summary(self) -> Dict[str, Any]:
         s = super().summary()
