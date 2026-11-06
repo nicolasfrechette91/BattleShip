@@ -623,3 +623,102 @@ implementing; then the plan of the single rebuild. Nothing native without a go.
   registered runtime files in a lab probe folder, then M6, Raphnet, the A/B replay against 30a3913b, a stored-chain probe and one
   launcher episode. Preconditions checked (zero ticks): D: archive 6/6 OK, no native file differs from HEAD, submodules clean.
   A build would copy the checkout-root `f3d.o2r` (bf16e8dd) over the registered one (73ab91ef) in `build-us/Release`.
+
+## 15. 2026-11-05: run 3 code manifest; step 6 deferred; step 7 opened
+
+**Owner:** (1) separate run 3 manifest approved, without the run-time check of loaded files; (2) step 6 deferred: run 3 runs on
+30a3913b as is, record the plan and the `f3d.o2r` hazard; (3) step 7: sort the run 3 decisions into DECISIVE (one at a time) and MINOR
+(one table).
+
+### 15.1 Run 3 code manifest (`tools/frs/run3_manifest.py`)
+
+- Every repository file run 3 imports, computed in a fresh interpreter, recorded by the plan as `P["run3_code_digest"]`; the open
+  refuses (nothing launched) when it is missing or differs; recomputed at the close (a change is SEARCH_INVALID); recorded in
+  `config.json` (`run3.code`). The lab manifest is recorded as before and unchanged (`81b88be6`).
+- **Finding: an import-time closure misses run-time code.** `rl/battleship_process.py` (the launcher) and `rl/port_lease.py` were
+  missing from the first version: `m8_rd_worker` imports the launcher inside a function. So did `m7q_status_table`
+  (`m8_rd_cells.Classifier`, every worker) and `m7f_targets` (`m7g_fixture.crossing_evidence`, every verification) - neither is in
+  the lab manifest either.
+- **Rule:** the entries are run 3's modules, the lab runner's explicit list (`frs_run.CODE_MODULES`) and three function-level
+  imports on run 3's paths (`m7q_status_table`, `m7g_spatial`, `m7f_targets`). Nine function-level imports are excluded by name, each
+  with the function that holds it (`m8_rd_session`'s rd gates and reports; four fixture and study helpers). Following every
+  function-level import instead would add 87 training and gate files.
+- **Today:** 50 files (38 `rl/`, 8 `tools/frs/`, 4 `tools/glitch/`), digest `7d8d6fd1`. Every lab-manifest file except
+  `rl/frs_tests.py` is in it, with the same hash.
+- **Tests:** `unit_run3_manifest` (determinism; the files; every function-level import covered or excluded; on a copied tree an
+  edit to `tools/glitch/detect.py` changes the digest and names only that file); `e2e_code_digest_refusal` (a wrong recorded digest:
+  exit 2, `refused_*.json`, no run folder); every engine run checks the recorded digest and its unchanged value at the close.
+
+### 15.2 Step 6 deferred
+
+Recorded in `docs/rl_decisions_2026-11-04.md` §4: run 3 on `30a3913b` (port leases block the race, identity `unverified`,
+`BATTLESHIP_REQUIRE_IDENTITY` not set), the rebuild plan as prepared, and the hazard: a build in `build-us` copies the checkout-root
+`f3d.o2r` (`bf16e8dd`) over the registered `73ab91ef` in `build-us/Release`. The stored-chain probe and the launcher script are not
+built.
+
+## 16. Step 7: run 3 decisions
+
+### 16.1 MINOR table: approved as a whole (2026-11-05)
+
+Runs 1 + 2 merged as the start (37,294 cells, best 1,245 replayed at open, reference 1,885); eligibility bound 1,220 fixed for the run;
+O2, O3 closed; D4 on; O5, O8, O9, O11 deferred; secondary representatives off (Q6); text replay for new verified bests only, a bk2 for
+every verified clear; claims replayed only when faster (Q10); run 2's CONT arm (120 words, 6 segments, window 20); 5 workers +
+standby, 480 min, 80 M ticks, mismatch limit 3, registered memory budget, plateau rule Q11; lab digest recorded, run 3 digest
+enforced, identity unverified, no native log sink; anomaly keeping on; tools committed before the launch, lab backed up after;
+Q8 registration and the 123 breaks' replay not before run 3.
+
+### 16.2 DECISIVE 1, selection inside a level: approved as recommended (2026-11-05)
+
+- Level weights unchanged (decay 0.5). Group share: rate rho = (breaks + new earliest arrivals at the next level + 1) / (dispatches
+  + 2) over the group's last 200 dispatches, warm-started from run 2; normalised, then floored at 1 / (4 x groups at the level).
+- Cell weight: (1 + arrival rank in the group)^-1 x max(0.05, 1 / (1 + dispatches since the representative was set)) x 0.1 per
+  claimed clear; run 2's seen, bonus and pace terms dropped; dispatch counts carried from runs 1 + 2 reset (kept as information).
+- **Addition (owner):** every hour the run summary records each group's share, the top 10 cells' share per group and the earliest
+  arrival per level; every parameter is recorded in config.json.
+- Real numbers behind it: the review's formula as written gives every run 2 group the floor (rates 0.0001-0.042 < phi 0.083), equal
+  thirds; normalised then floored: level 9 masks 64 / 2 / 256 = 8 / 51 / 42 %, level 8 masks 66 / 258 / 320 = 32 / 60 / 8 %. The 10
+  earliest cells of each group got 0.1-1.6 % of its dispatches in run 2; simulated with the approved weight, 28 % of (9, 2), 61 % of
+  (9, 256), 10 % of (8, 258).
+
+### 16.3 Eligibility answer, warm-start fix, DECISIVE 2 (demotion): approved (2026-11-05)
+
+- **Eligibility (E7, 1,220):** a strict bound for a gain of at least the 24-tick margin; the remaining time is taken as its minimum,
+  1 tick (completion >= L + 1), not estimated. It does cut the 511 level-9 cells at 1,221-1,244 that could beat 1,245 by less than
+  24 ticks. **Owner: the margin is kept** (the goal needs gains of about 780 ticks, so new routes, not trimmed endings).
+- **Warm-start fix (refines DECISIVE 1):** each group's 200-dispatch window starts as 200 pseudo-dispatches at the group's whole-run-2
+  rate; run 3's own dispatches then roll the window. Reason: the literal last-200 warm start put (9, 2) (90 of run 2's 136 clears, 0
+  in its last 200) on the floor: level 9 masks 64 / 2 / 256 = 14 / 14 / 71 %; with the fix 14 / 46 / 40 %, level 8 masks 66 / 258 /
+  320 = 34 / 58 / 8 %.
+- **DECISIVE 2:** a group is demoted when, over its whole history (run 2 + run 3), it has >= 1,000 dispatches, 0 breaks, 0 new
+  earliest arrivals at the next level and >= 75 % falls; a demoted group gets a quarter of the floor (phi / 4); it exits on its first
+  break or new earliest arrival. On run 2's data it demotes exactly (9, 64) (8,078 dispatches, 91 % falls, 20.1 % of the ticks) and
+  (8, 320) (1,011, 81 %); start shares with the fix: level 9 masks 2 / 256 / 64 = 52 / 46 / 2 %, level 8 masks 66 / 258 / 320 =
+  36 / 62 / 2 %. P(0 breaks in 1,000) at the lowest productive level-9 rate (46 / 4,879) = 7.7e-5.
+- **Addition (owner):** every demotion and exit goes in the hourly summary with the group's counters at that moment; the run summary
+  gives each group's fall rate, so the 75 % threshold can be checked on run 3's data.
+
+### 16.4 DECISIVE 3, anchors: approved as recommended (2026-11-05)
+
+- **Anchor set:** in each (level, mask) group, the 3 earliest eligible cells of each resource class (Q5); no descendant rule. A cell
+  stops being an anchor when 3 faster arrivals of its class displace it or when it becomes ineligible.
+- **Share:** a group draw goes to its anchors with probability 0.5 x w, w = the highest weight among them; otherwise the DECISIVE 1
+  rank draw. Each anchor's weight starts at 1 when it becomes an anchor (all anchors at run 3's start), halves after each of its
+  bursts without success (Q4), floor 1/8, resets to 1 on success. Success = the burst creates a new anchor in a deeper group (at level
+  9: a claimed clear faster than every earlier claim).
+- **Draw:** highest weight, then fewest anchor bursts, then earliest arrival, then cell id (rotation, replacing the review's "most
+  lead"). Demoted groups: the same rule inside their reduced share.
+- **Records:** hourly per group the anchors' share of draws, bursts, successes and each anchor's class, tick, weight and bursts;
+  config.json: k, start share 0.5, floor 1/8, success rule, draw order.
+- **Real numbers behind it (zero ticks):** break rate per dispatch by class, levels 7 / 9: A0 0.61 / 0.45 %, A1 1.75 / 0.73 %, A2
+  2.86 / 0.91 %; every run 2 lineage link after level 6 is A2; the earliest cell is A0 in 4 of 11 groups. The review's "most lead"
+  draw piles anchor draws on one cell ((7, 322) A0 at 493: 30 -> 153 a night). The descendant rule adds 5 anchors to 121. Simulated
+  night (no successes): anchors take 6-10 % of each group's draws; the 3 earliest A2 / G cells of (7, 322) get 42 / 43 dispatches
+  (rank draw alone 12 / 18), of (8, 258) 92 / 86 (26 / 16); top-10 shares move by 0 to 2 points. Limits: anchors cover 3 of the 12
+  run 2 lineage links at levels 8-9 (class ranks 0-56); the crossing's parent (L7 @ 978, A2) was at class rank 1,177 (DECISIVE 4).
+
+### 16.5 Analysis scripts
+
+The numbers in 16.1-16.4 come from `tools/analysis/run3_design/` (README there: which script backs which decision). These are
+zero-tick, read-only scripts; their results go to `logs/run3_design/` (Git-ignored). Re-run from that folder on 2026-11-05, they
+reproduce every number quoted above (the D1-D2 ones were inline commands in the session before; the D3 simulation assumes 80 %
+exploitation, as when it was decided).

@@ -1,0 +1,25 @@
+# Run 3 design analyses
+
+These scripts back the step 7 run 3 decisions (`SESSION_LOG_2026-11-04.md` §16).
+
+- Zero native ticks. They read `C:/BattleShip_lab` read-only.
+- Each script writes its JSON results to `--out`. The default, `logs/run3_design/`, is Git-ignored.
+- Standard library only, except numpy for `run3_model.py` and its drivers.
+
+```
+python -B tools/analysis/run3_design/<script>.py [--lab C:/BattleShip_lab] [--out logs/run3_design]
+```
+
+Run `d3_anchor_replay.py` before the scripts that read `d3_dispatch_log.json`.
+
+| script | backs | what it measures |
+| --- | --- | --- |
+| `d1_census.py` | DECISIVE 1 (§16.2), MINOR table (§16.1) | Run 2's outcomes and ticks, and the dispatches, breaks, falls and clears per level and per group. Cells per level, both all and eligible at 1,220. The share of each group's dispatches that went to its 10 earliest cells, against the share the rank draw gives them. |
+| `d1_group_shares.py` | DECISIVE 1 (§16.2) | The earliest arrival per level over run 2, and b, e and ρ per group. The review's share as written (every group on the floor) against normalised-then-floored shares. |
+| `d1_rank_draw_sim.py` | DECISIVE 1 (§16.2) | One simulated night of the cell weight (1 + rank)^-α × max(ν, 1 / (1 + draws)), with α = 1, ν = 0.05 against the alternatives. |
+| `d2_demotion.py` | E7 answer, warm-start fix, DECISIVE 2 (§16.3) | Level-9 cells around the bound and the shortest final segments. Per group, the whole-run and last-200 counters. Start shares under the literal warm start, the 200-pseudo-dispatch fix, and the fix plus demotion. |
+| `d3_anchor_replay.py` | DECISIVE 3 (§16.4), DECISIVE 4 | Replays run 2 dispatch by dispatch over run 1's archive. Records the class and group rank of each dispatch, its yield by rank, and the waits of new earliest arrivals. Also the anchor bursts, the new class-top-3 arrivals, and the anchor sets at run 3's start. Writes `d3_dispatch_log.json`. |
+| `d3_class_lineage.py` | DECISIVE 3 (§16.4) | Break and fall rates by resource class. The lineage of every verified clear. The ranks of each link of run 2's bests at the dispatch that made the next link. |
+| `d3_anchor_sim.py` | DECISIVE 3 (§16.4) | One simulated night with the rank draw alone, with lead-order anchors, and with rotating anchors (floors 1/8, 1/4, 1/16). Also counts the descendant rule. |
+| `run3_model.py` | (module) | The selection model the simulations share. Its docstring states every assumption. |
+| `_common.py` | (module) | Paths, row readers, the bound and the margin. |
