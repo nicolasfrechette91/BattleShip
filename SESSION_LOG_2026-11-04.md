@@ -722,3 +722,92 @@ The numbers in 16.1-16.4 come from `tools/analysis/run3_design/` (README there: 
 zero-tick, read-only scripts; their results go to `logs/run3_design/` (Git-ignored). Re-run from that folder on 2026-11-05, they
 reproduce every number quoted above (the D1-D2 ones were inline commands in the session before; the D3 simulation assumes 80 %
 exploitation, as when it was decided).
+
+### 16.6 DECISIVE 4, breadth: approved as recommended (2026-11-06)
+
+**Owner's brief:** start from the cell that made run 2's crossing; do not take 20 % as a given; cover new target orders, demoted
+groups, anomaly bursts and the eligibility bound; options with simulated cost and effect, then a recommendation.
+
+- **Share:** 20 % of dispatches are breadth draws; the other 80 % are DECISIVE 1-3 (exploitation).
+- **Draw:** count-based, weight 1 / (1 + dispatches of the cell id in runs 1-3), the count growing with run 3's own dispatches
+  (exploitation and breadth); eligible cells only (levels 6-9, tick <= 1,220: a cell above the bound can only lead to arrivals
+  above it); demoted groups excluded.
+- **Anomaly trigger, not a share:** a burst with an event of a class seen fewer than 3 times in the run so far (line_crossing,
+  inside_solid, floor_switch_unlinked, D6 non-finite) gives each of its kept cells at or after the event up to 3 breadth draws, the
+  trigger draws capped at 10 % of the breadth budget. break_occluded and the ordinary classes are recorded only.
+- **No separate order-niche stream** (the order question is answered by 4b's unit).
+- **Records:** hourly, breadth draws by level, group and niche; the never-dispatched eligible pool; useful breaks from breadth
+  against exploitation; every trigger (class, burst, cells, draws given, cap). config.json: share, weight rule, eligibility,
+  exclusion, trigger classes, rarity threshold, draws per cell, cap.
+- **Real numbers behind it (zero ticks, `d4_breadth.py`):**
+  - The crossing cell (cid 7092, L7 @ 978, A2, mask 322) was made at run 1 ingest 23,281, never dispatched in run 1, and first
+    dispatched at run 2 n 14,659 (a fall that reached level 8 at 1,042): 22,075 dispatches of waiting. At that moment 19,029 cells
+    were eligible at levels 6-9, 8,635 of them never dispatched. At run 3's start its representative is at 935 (group rank 4,734 of
+    7,331).
+  - Expected dispatches until a 20 % breadth draw reaches it, at that moment: uniform 95,145, level-uniform 133,380, group-uniform
+    296,505, count-based (never-dispatched first) 43,175.
+  - Run 2's useful (7, 322) bursts came only from cells at ticks 897-1,178.
+  - One simulated night (39,309 dispatches, mask groups), expected useful breaks u6 / u7 / u8 / clears: no breadth 47.7 / 45.3 /
+    690.3 / 98.3; count-based 20 % 135.6 / 95.3 / 586.4 / 79.6; uniform 20 % 113.5 / 91.9 / 623.6 / 80.5; order-niche stream 20 %
+    53.1 / 61.5 / 609.6 / 85.7. The (7, 322) productive band: 164 draws with no breadth, 668 count-based. Cost of count-based 20 %:
+    level-9 draws 16,787 (20,965), the 10 earliest of (9, 2) 2,523 (3,375), A2 / G anchors of (8, 258) 178 (232).
+  - Demoted groups in the breadth pool: uniform 20 % gives them 937 draws (524 without) for slightly fewer useful breaks.
+
+### 16.7 DECISIVE 4b, budget unit (level, mask, order niche): approved (2026-11-06)
+
+- **Unit:** DECISIVE 1-3 (the group rate and share, the floor phi, demotion, anchors) are computed per (level, mask, order niche)
+  instead of (level, mask). The DECISIVE 1 rate counts useful breaks only: a break whose next-level arrival is <= 1,220; at level 9 a
+  claimed clear <= 1,220. e is unchanged (a new earliest arrival in a deeper group, now a niche group; at level 9 a claimed clear
+  faster than every earlier claim).
+- **Order niche of a representative:** (the mask of the run 1 seed its lineage starts from, the targets broken after the seed, in
+  break order). A child = its parent representative's niche + the targets its burst broke at or before the child's tick, ordered by
+  break tick, ties by target id; a seed = (mask, ()). Same-mask seeds share a niche (the pre-seed order is not archived). Run 3 writes
+  `niche` on NEW / REPLACED rows and derives it at open for inherited rows.
+- **A cell's group** = (level, mask, niche of its current representative); level and mask never change, so a cell moves only when a
+  replacement's lineage has another order. On a move from A to B:
+  - every dispatch stays credited to the group of the representative dispatched (the 200-dispatch window, DECISIVE 2's counters);
+    nothing transfers;
+  - demotion stays with the group (the exit rule is unchanged);
+  - staleness (DECISIVE 1) resets as for any replacement; the breadth count (DECISIVE 4) is kept by cell id;
+  - ranks: removed from A, inserted into B by tick;
+  - anchors recomputed in both groups: a new anchor starts at w 1 / 0 bursts, a displaced third anchor loses status and weight;
+  - a group with no eligible cell drops out of the draw (phi recomputed) and returns with its history.
+- **Four rules (owner, approved):** (1) a same-niche replacement of an anchor resets it to w 1 / 0 bursts; (2) a new niche group's
+  window starts as 200 pseudo-dispatches at its level's pooled rate; (3) DECISIVE 2 stays on all breaks; (4) level 9 literal: only
+  claimed clears <= 1,220 are useful.
+- **Corrections from the exact attribution** (`d4b_niche_units.py`: each run 2 dispatch credited to the niche of the representative
+  actually dispatched, 39,309 / 39,309 found by start tick):
+  - the dead level-7 niche (7, 322, '322:') has 4 useful breaks in 3,084 dispatches (0.13 %), the productive (7, 322, '326:2') 55 in
+    1,628 (3.4 %); `d4_breadth.py`'s approximation (the current representative's niche) gave 0 / 2,704 and 59 / 1,987;
+  - group moves are common: 15,770 of run 2's 71,237 replacements (22 %; levels 7 / 8 / 9: 4,362 / 6,344 / 5,064); run 1 2,607 of
+    73,126;
+  - the niche derivation: 5,221 / 5,221 single-target steps agree with the bursts' break lists; 168 multi-target steps are ordered by
+    break tick.
+- **Start (runs 1 + 2, bound 1,220):** 14 groups (11 mask groups), 153 anchors (121). rho0 = (200 x (bu + e) / n + 1) / 202.
+
+  | group (level, mask, niche) | eligible | anchors | run 2 n / falls / b / bu / e | rho0 | share | demoted |
+  | --- | ---: | ---: | --- | ---: | ---: | --- |
+  | (9, 2, 326:2-6-8) | 433 | 12 | 4,155 / 72 % / 22 / 0 / 2 | 0.0054 | 51.2 % | no |
+  | (9, 256, 326:2-6-1) | 53 | 10 | 4,153 / 72 % / 46 / 0 / 0 | 0.0050 | 46.7 % | no |
+  | (9, 64, 326:2-8-1) | 1,054 | 6 | 7,996 / 91 % / 0 / 0 / 0 | 0.0050 | 2.1 % | yes |
+  | (8, 258, 326:2-6) | 1,422 | 12 | 1,859 / 66 % / 67 / 52 / 11 | 0.0385 | 52.1 % | no |
+  | (8, 66, 326:2-8) | 2,519 | 12 | 4,838 / 68 % / 93 / 92 / 3 | 0.0244 | 33.0 % | no |
+  | (8, 258, 322:6) | 320 | 11 | 2,637 / 13 % / 118 / 0 / 3 | 0.0061 | 8.2 % | no |
+  | (8, 320, 326:2-1) | 127 | 9 | 695 / 96 % / 0 / 0 / 0 | 0.0050 | 6.7 % | no (n < 1,000) |
+  | (7, 322, 326:2) | 3,555 | 12 | 1,628 / 50 % / 58 / 55 / 7 | 0.0427 | 66.9 % | no |
+  | (7, 322, 322:) | 3,603 | 12 | 3,084 / 37 % / 34 / 4 / 0 | 0.0062 | 9.8 % | no |
+  | (7, 70, 326:8) | 397 | 12 | 157 / 15 % / 0 / 0 / 0 | 0.0050 | 7.8 % | no |
+  | (7, 266, 330:6) | 139 | 12 | 226 / 1 % / 2 / 0 / 0 | 0.0050 | 7.8 % | no |
+  | (7, 322, 330:3) | 173 | 9 | 113 / 57 % / 0 / 0 / 0 | 0.0050 | 7.8 % | no |
+  | (6, 330, 330:) | 4,434 | 12 | 1,277 / 43 % / 30 / 30 / 3 | 0.0305 | 51.2 % | no |
+  | (6, 326, 326:) | 4,235 | 12 | 1,312 / 38 % / 30 / 30 / 2 | 0.0291 | 48.8 % | no |
+
+  phi: level 9 1/12, level 8 1/16, level 7 1/20, level 6 1/8; no group is on the floor. Against the mask groups: level 9 52.4 /
+  45.6 / 2.1 % (almost the same); level 8 (8, 258) splits into 52.1 % productive and 8.2 % unproductive; level 7 (7, 322) had 56.3 %,
+  two thirds of it drawn into the dead niche. Demotion is the same with bu in place of b; with bu, (9, 256) would sit 3 points of fall
+  rate from demotion, hence rule (3). Level 9 with any claimed clear counted: 39.3 / 58.6 / 2.1 %.
+- **Tests (approved):** niche inheritance (units; the engine's derivation equals the offline one on all 37,294 cells of runs 1 + 2);
+  moves (a scripted A -> B move: membership, ranks, anchors in both groups, a displaced third anchor, staleness reset, breadth count
+  kept, both groups' windows / counters / demotion unchanged, an emptied group leaving and returning, the pooled warm start of a new
+  niche); end to end on the fake game: two same-seed runs with group moves identical under D4 (dispatch rows except clock fields,
+  cells.jsonl rows with niche and group, end records, hourly records), with a vacuity guard of >= 5 group moves.
