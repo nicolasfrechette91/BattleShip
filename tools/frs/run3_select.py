@@ -38,9 +38,9 @@ in-order ingest of the result, so every decision here is a function of the plan,
     triggers        a burst with an event of a trigger class (default line_crossing, inside_solid, floor_switch_unlinked, nonfinite)
                     seen in fewer than trigger_rarity (3) earlier bursts of the run queues, for a detector class, its kept (new or
                     replaced), eligible cells whose tick is >= the event's first state (step_from + 1: the state before the
-                    anomalous transition); for a non-finite reply (the burst is cut before it; owner 2026-11-06, rule b) the burst's
-                    last kept eligible cell, or the dispatched cell when it kept none; trigger_draws_per_cell (3) breadth draws each,
-                    served in turn;
+                    anomalous transition); when there is none, and for a non-finite reply (the burst is cut before it), the burst's
+                    last kept eligible cell, or the dispatched cell when it kept none (owner 2026-11-06: rule b, then the same
+                    fallback for detector classes); trigger_draws_per_cell (3) breadth draws each, served in turn;
                     a breadth slot serves the queue while trigger draws stay <= trigger_cap (10 %) of breadth draws. Entries whose
                     cell was replaced or became ineligible are dropped (counted). Demotion does not exclude a triggered cell.
 
@@ -579,23 +579,31 @@ class Run3Selector:
         t0 = min(int(ev.get("step_from", ev.get("step", 0))) + 1 for ev in mine if str(ev["kind"]) in rare)
         picked: Set[Tuple[int, int]] = set()
         how: List[str] = []
-        detector = [k for k in rare if k != NONFINITE]
-        if detector:                                               # a detector event: the kept cells at or after its first state
-            t1 = min(int(ev.get("step_from", ev.get("step", 0))) + 1 for ev in mine if str(ev["kind"]) in detector)
-            picked |= {(int(c.tick), int(c.cid)) for _v, c, _n in kept if int(c.tick) >= t1 and self.a.eligible(c)}
-            how.append("kept_at_or_after_event")
-        if NONFINITE in rare:                                      # owner 2026-11-06, rule (b): the burst is cut before the null
+
+        def fallback(label: str) -> None:                          # owner 2026-11-06, rule (b): the last kept cell, else the dispatched one
             before = [(int(c.tick), int(c.cid)) for _v, c, _n in kept if self.a.eligible(c)]
             if before:
                 picked.add(max(before))
-                how.append("last_kept_before_null")
+                how.append(label)
+                return
+            c0 = self.a.cells[int(dispatched_cid)] if dispatched_cid is not None else None
+            if c0 is not None and int(c0.cid) in self.group and self.a.eligible(c0):
+                picked.add((int(c0.tick), int(c0.cid)))
+                how.append("dispatched_cell")
             else:
-                c0 = self.a.cells[int(dispatched_cid)] if dispatched_cid is not None else None
-                if c0 is not None and int(c0.cid) in self.group and self.a.eligible(c0):
-                    picked.add((int(c0.tick), int(c0.cid)))
-                    how.append("dispatched_cell")
-                else:
-                    how.append("none_eligible")
+                how.append("none_eligible")
+
+        detector = [k for k in rare if k != NONFINITE]
+        if detector:                                               # a detector event: the kept cells at or after its first state
+            t1 = min(int(ev.get("step_from", ev.get("step", 0))) + 1 for ev in mine if str(ev["kind"]) in detector)
+            after = {(int(c.tick), int(c.cid)) for _v, c, _n in kept if int(c.tick) >= t1 and self.a.eligible(c)}
+            if after:
+                picked |= after
+                how.append("kept_at_or_after_event")
+            else:                                                  # owner 2026-11-06: the same fallback as rule (b)
+                fallback("last_kept_cell")
+        if NONFINITE in rare and not picked:                       # the burst is cut before the null
+            fallback("last_kept_before_null")
         cells = sorted(picked)
         ti = len(self.triggers)
         rec = {"index": ti, "n": int(n), "ingested": self.n_ingested, "classes": rare, "all_classes": classes,

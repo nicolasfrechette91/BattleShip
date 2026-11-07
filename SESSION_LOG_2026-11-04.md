@@ -952,4 +952,73 @@ the anomaly triggers; then a 20-30 min native smoke run proposed (a go for it, a
   e2e engine runs now plan through the child as `run` does. The full suite from scratch: 16/16 (unit 9, real 3, e2e 4: 154 group moves,
   same-seed runs identical; 38 non-finite triggers, 114 draws queued, 3 served). `run3_search_tests.py` unit_run3_manifest then flagged the
   plan child's function-level import of `m8_rd_stub` (tests only): excluded by name in `run3_manifest.LAZY_EXCLUDED` with its function;
-  after it `run3_search_tests.py` unit 8/8 and this suite's unit 9/9.
+  after it `run3_search_tests.py` unit 8/8 and this suite's unit 9/9. Committed 1da9c2e.
+
+### 17.7 The native smoke run (2026-11-06, 20:42-21:03 local; owner's go)
+
+- **Command:** plan, then `run --workers 3 --max-wall-min 25 --rng-seed 1 --summary-every-s 600` into
+  `C:/BattleShip_lab/crossing_2026-11-06_run3_smoke` (code digest `9a6660e0`, tree 1da9c2e). Readiness before: free commit 11,809 MB; at the
+  open: 11,621 MB, main process 203 MB.
+- **Open:** reference 1,885 / 1,884 replayed exactly (1.7 s); the best at the start 1,245 / 1,244 (run 2) replayed exactly; bound 1,220.
+- **Stop:** WALL_CAP, exit 0; search 1,182 s, close 26 s. 1,398 dispatches (4,258 per hour, 3 workers), 1,586,138 ticks (prefix
+  1,401,876, burst 178,740). Integrity clean: 0 prefix mismatches, 0 tick-0 inequalities, 0 lifecycle failures, 0 guard violations,
+  no game process left, lab digest `81b88be6` and run 3 digest unchanged at the close.
+- **End records:** 665 fused first dispatches, all reproduced (0 mismatches), 661 stored (3 repeats, 1 replaced in flight).
+- **New verified best: 1,196 / 1,195** (gain 49 on 1,245; dispatch 928, rank draw in (9, 2, 326:2-6-8), from the level-9 cell 12331 at
+  tick 1,114, rank 18 of 681; pace L8 1,013, L9 1,093). Replayed twice from tick 0 with the verify flags (chains equal), exported as
+  `clears/clear_n928_t1196.btt.txt` and `.bk2` (round trip ok), `best_times.jsonl` written; its native text replay at the close gave
+  1,196 / 1,195. Claims: 6, 1 replayed, 5 not (1,205, 1,244, 1,276, 1,278, 1,305: none faster than the best at the decision).
+- **Selection:** streams rank 817, anchor 304, breadth 277 (19.8 %); 614 group moves; no demotion or exit; plateau signals: a faster clear,
+  and (7, 322, 330:3) earliest 718 -> 687. Level split of exploitation 54.5 / 25.3 / 13.0 / 7.1 % (levels 9-6; design 53.3 / 26.7 /
+  13.3 / 6.7). Group shares within levels against the plan's start shares, no obvious deviation (the shares move with the windows):
+  level 9 56.5 / 41.4 / 2.1 % (plan 51.2 / 46.7 / 2.1); level 8 53.9 / 29.2 / 8.5 / 8.5 (52.1 / 33.0 / 8.2 / 6.7); level 7 55.5 / 9.6 /
+  13.7 / 11.6 / 9.6 (66.9 / 9.8 / 7.8 / 7.8 / 7.8); level 6 53.7 / 46.3 (51.2 / 48.8).
+- **Anomalies:** 1,310 events in 800 bursts, 0 non-finite, 0 scan errors. Two line_crossing triggers (dispatches 151 and 1024, the same
+  level-9 cell, event tick 1,065): both bursts kept no cell, so nothing was queued (the detector rule queues kept cells only).
+- **Records:** hourly.md / hourly.jsonl with the 10-minute record and the closing one; report.md and progress.md written; the run log has
+  no error line.
+- **Memory peak against the registered budget:** main process 425 MB (soft 2,560, cap 3,072); process tree private 2,619 MB (soft 8,192,
+  cap 9,216); tree working set 957 MB (soft 3,584, cap 4,096); lowest system available 8,372 MB (minimum 1,536 soft, 1,024 cap); lowest
+  free commit 9,097 MB (minimum 3,072 soft, 2,048 cap); no soft, hard or process breach. Peak 16 processes, 6 of them BattleShip.
+- **Text replay of the 1,245** on the pinned executable after the close (owner's go): 1,245 / 1,244, equal to the verified clocks, exit 0,
+  24 s (`text_replay_best_1245.json` in the run folder).
+
+### 17.8 2026-11-06, owner: trigger fallback, the night's start (option c), the freeze deferred, the night prepared
+
+- **Trigger fallback (approved, built):** a detector trigger whose burst kept no eligible cell at or after the event queues the burst's
+  last kept eligible cell, otherwise the dispatched cell (the rule (b) fallback). The trigger row records `last_kept_cell` or
+  `dispatched_cell`. Tests: `unit_trigger_fallback`; `e2e_detector_trigger_fallback` (fake game, trigger classes the stub world raises
+  for that run only, rarity 50).
+- **The night's start, option (c) (approved, built):** the archive stays runs 1 + 2; the best and the bound come from every verified clear,
+  including the clean run 3 folders given with `--best-from` (their archives are NOT inherited). A source folder must have a clean stop and
+  integrity record on the same reference, archive id and margin, and a best taken from it needs its equal native text replay; otherwise
+  the plan refuses. With the smoke run: best 1,196 / 1,195 (`run3:crossing_2026-11-06_run3_smoke`), bound 1,171, fastest claim 1,196.
+  The 1,196's start cell (12331, level 9, tick 1,114) stays eligible. Test: `real_best_from_smoke` (with both refusals).
+- **CLAIMS_FROZEN deferred** to 2026-11-07, before any run inherits from tonight's. **Tonight's run must not be inherited** (archive, end
+  records or `--best-from`) until the freeze, and the end-record import's refusal of a non-clean run, are built and tested.
+- **The night's start table** (bound 1,171; useful = next-level arrival <= 1,171, at level 9 a claimed clear <= 1,171):
+
+  | group (level, mask, niche) | eligible | anchors | share | rho | demoted |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | (9, 2, 326:2-6-8) | 117 | 12 | 96.9 % | 0.0054 | no |
+  | (9, 64, 326:2-8-1) | 568 | 6 | 3.1 % | 0.0050 | yes |
+  | (8, 66, 326:2-8) | 2,016 | 12 | 42.5 % | 0.0244 | no |
+  | (8, 258, 326:2-6) | 775 | 12 | 38.3 % | 0.0220 | no |
+  | (8, 258, 322:6) | 57 | 10 | 10.6 % | 0.0061 | no |
+  | (8, 320, 326:2-1) | 5 | 3 | 8.6 % | 0.0050 | no |
+  | (7, 322, 326:2) | 3,098 | 12 | 65.3 % | 0.0396 | no |
+  | (7, 322, 322:) | 3,577 | 12 | 10.3 % | 0.0062 | no |
+  | (7, 70, 326:8) | 341 | 12 | 8.2 % | 0.0050 | no |
+  | (7, 266, 330:6) | 117 | 12 | 8.2 % | 0.0050 | no |
+  | (7, 322, 330:3) | 173 | 9 | 8.2 % | 0.0050 | no |
+  | (6, 330, 330:) | 4,432 | 12 | 51.2 % | 0.0305 | no |
+  | (6, 326, 326:) | 4,235 | 12 | 48.8 % | 0.0291 | no |
+
+  Eligible per level: 685 / 2,853 / 7,306 / 8,667 (levels 9-6), 19,511 in all; 13 groups, 136 anchors; only (9, 64, 326:2-8-1) demoted;
+  phi = 1/8, 1/16, 1/20, 1/8 (levels 9-6). Against the 1,220 start: (9, 256, 326:2-6-1) has no eligible cell left (its earliest is
+  1,178), so level 9 is (9, 2) with 117 cells and the demoted (9, 64) at phi / 4; (8, 258, 326:2-6)'s useful breaks fall from 52 to 21.
+- **Tests:** `crossing_search_run3_tests.py` 19/19 from scratch (unit 10, real 4, e2e 5; the detector fallback: 57 triggers, 32 at or
+  after the event, 11 last kept cells, 14 dispatched cells, 3 served; non-finite: 39 triggers, 117 draws queued); `run3_search_tests.py`
+  unit 8/8. `git diff --check` clean.
+- **The night (prepared, not launched):** 5 workers + standby, 480 min, 80 M ticks, rng seed 2, records every 3,600 s, `--best-from` the
+  smoke run; the owner's go is required to launch.

@@ -288,7 +288,7 @@ def unit_triggers() -> Dict[str, Any]:
           f"kept cells at ticks >= step_from + 1 (50), 3 draws each; break_occluded records only {t}")
     occl = sel.on_ingest(info_of(sel, 7), QUIET, [], [{"kind": "break_occluded", "step": 5, "step_from": 4}], 2)
     check(occl["trigger"] is None, "break_occluded never triggers")
-    for i in range(2):
+    for i in range(2):                                         # nothing kept: the fallback queues the dispatched cell (7) each time
         sel.on_ingest(info_of(sel, 7), QUIET, [], [{"kind": "line_crossing", "step": 1, "step_from": 0}], 3 + i)
     fourth = sel.on_ingest(info_of(sel, 7), QUIET, [], [{"kind": "line_crossing", "step": 1, "step_from": 0}], 5)
     check(fourth["trigger"] is None and sel.trig_seen["line_crossing"] == 4, "a class seen in 3 earlier bursts no longer triggers")
@@ -306,8 +306,8 @@ def unit_triggers() -> Dict[str, Any]:
         sel.on_dispatch(c, d, 10 + i)
         served.append((d["stream"], c.cid))
     trig = [cid for s_, cid in served if s_ == "trigger"]
-    check(sel.cnt["trigger_draws"] <= 0.5 * sel.cnt["breadth_draws"] and trig[:4] == [k[1].cid, k[2].cid, c_nf.cid, 8], f"served in turn within the cap: {served[:8]}")
-    check(Counter(trig) == Counter({k[1].cid: 3, k[2].cid: 3, c_nf.cid: 3, 8: 3}) and not sel.tq, f"3 draws per cell: {Counter(trig)}")
+    check(sel.cnt["trigger_draws"] <= 0.5 * sel.cnt["breadth_draws"] and trig[:6] == [k[1].cid, k[2].cid, 7, 7, c_nf.cid, 8], f"served in turn within the cap: {served[:8]}")
+    check(Counter(trig) == Counter({k[1].cid: 3, k[2].cid: 3, 7: 6, c_nf.cid: 3, 8: 3}) and not sel.tq, f"3 draws per queued entry: {Counter(trig)}")
     # a queued cell replaced before its draw is dropped
     a2, sel2 = fixture(trigger_cap=1.0)
     c30 = add(a2, 7, 7, "A1", 55)
@@ -316,6 +316,24 @@ def unit_triggers() -> Dict[str, Any]:
     c, d = sel2.select(Seq([0.1, 0.5]))
     check(d["stream"] == "breadth" and sel2.cnt["trigger_dropped"] == 1, f"a replaced queued cell is dropped: {d}")
     return {"served": len(trig), "triggers": len(sel.triggers)}
+
+
+def unit_trigger_fallback() -> Dict[str, Any]:
+    """Detector classes (owner 2026-11-06): the kept cells at or after the event; when there is none, the burst's last kept eligible cell;
+    when the burst kept none, the dispatched cell. The rule used is recorded."""
+    a, sel = fixture()
+    early, late = add(a, 7, 7, "A1", 40), add(a, 7, 7, "A1", 60)
+    o1 = sel.on_ingest(info_of(sel, 7), QUIET, [(rs.NEW, early, A_N), (rs.NEW, late, A_N)], [{"kind": "inside_solid", "step": 100, "step_from": 99}], 1)
+    t1 = sel.triggers[o1["trigger"]]
+    check(t1["cells"] == [[late.cid, 60]] and t1["rule"] == ["last_kept_cell"], f"nothing kept after the event: the last kept cell {t1}")
+    o2 = sel.on_ingest(info_of(sel, 8), QUIET, [], [{"kind": "floor_switch_unlinked", "step": 70, "step_from": 69}], 2)
+    t2 = sel.triggers[o2["trigger"]]
+    check(t2["cells"] == [[8, 60]] and t2["rule"] == ["dispatched_cell"], f"nothing kept at all: the dispatched cell {t2}")
+    after = add(a, 7, 7, "A1", 90)
+    o3 = sel.on_ingest(info_of(sel, 7), QUIET, [(rs.NEW, early, A_N), (rs.NEW, after, A_N)], [{"kind": "inside_solid", "step": 85, "step_from": 84}], 3)
+    t3 = sel.triggers[o3["trigger"]]
+    check(t3["cells"] == [[after.cid, 90]] and t3["rule"] == ["kept_at_or_after_event"], f"a cell kept after the event: the usual rule {t3}")
+    return {"rules": [t1["rule"][0], t2["rule"][0], t3["rule"][0]]}
 
 
 def unit_bk2_roundtrip() -> Dict[str, Any]:
@@ -808,6 +826,36 @@ def unit_export_clear() -> Dict[str, Any]:
     return {"bk2_sha256": ex["bk2_sha256"][:16]}
 
 
+def e2e_detector_trigger_fallback() -> Dict[str, Any]:
+    """Detector triggers on the fake game (owner 2026-11-06): with classes the stub world raises (position_snap, beyond_camera_bounds)
+    as trigger classes for this run only and rarity 50, every trigger queues one or more cells: the kept cells at or after the event, or
+    else the burst's last kept cell, or else the dispatched cell; the fallbacks are exercised and the queued cells are served."""
+    b = bench()
+    r = b.run("det", dict(RUN3_PARAMS, trigger_classes=["position_snap", "beyond_camera_bounds"], trigger_rarity=50))
+    s = r["summary"]
+    check(r["code"] == 0 and s["status"] == "DISPATCH_CAP" and s["integrity"]["prefix_mismatches"] == 0 and not r["violations"],
+          f"a clean stop: {r['code']} {s['status']} {s['stop']} {r['violations']}")
+    trig = r["triggers"]
+    by_n = {int(d["n"]): d for d in r["dispatches"]}
+    rules: Counter = Counter()
+    for t in trig:
+        d = by_n[int(t["n"])]
+        rules[t["rule"][0]] += 1
+        check(t["cells"] and t["rule"][0] in ("kept_at_or_after_event", "last_kept_cell", "dispatched_cell"), f"trigger {t['index']} queues a cell: {t}")
+        if t["rule"] == ["last_kept_cell"]:
+            check(len(t["cells"]) == 1 and t["cells"][0][0] in d["kept"]["cids"] and t["cells"][0][1] < t["first_tick"] + 1 + 10 ** 6,
+                  f"trigger {t['index']}: the burst's last kept cell {t} {d['kept']}")
+        if t["rule"] == ["dispatched_cell"]:
+            check(t["cells"] == [[int(d["cid"]), t["cells"][0][1]]] and not d["kept"]["cids"], f"trigger {t['index']}: the dispatched cell {t} {d['kept']}")
+    check(trig and (rules["last_kept_cell"] + rules["dispatched_cell"]) >= 1, f"the fallback was exercised: {dict(rules)} over {len(trig)} triggers")
+    sel = s["run3"]["selection"]
+    served = [d for d in r["dispatches"] if d.get("stream") == "trigger"]
+    queued = {c for t in trig for c, _t in t["cells"]}
+    check(served and all(d["cid"] in queued for d in served) and len(served) <= 0.1 * (sel["streams"].get("breadth", 0) + len(served)) + 1e-9,
+          f"queued cells served within the cap: {len(served)} of {sel['streams']}")
+    return {"triggers": len(trig), "rules": dict(rules), "served": len(served)}
+
+
 def e2e_text_replay() -> Dict[str, Any]:
     """The native text-replay path on the fake game: run 1's best verified clear replayed from its words gives its verified clocks; a
     truncated copy gives no clear."""
@@ -826,7 +874,7 @@ def e2e_text_replay() -> Dict[str, Any]:
 
 
 UNIT = {"unit_niche_inheritance": unit_niche_inheritance, "unit_moves": unit_moves, "unit_demotion_and_shares": unit_demotion_and_shares,
-        "unit_e_and_anchor_success": unit_e_and_anchor_success, "unit_draws": unit_draws, "unit_triggers": unit_triggers, "unit_bk2_roundtrip": unit_bk2_roundtrip,
+        "unit_e_and_anchor_success": unit_e_and_anchor_success, "unit_draws": unit_draws, "unit_triggers": unit_triggers, "unit_trigger_fallback": unit_trigger_fallback, "unit_bk2_roundtrip": unit_bk2_roundtrip,
         "unit_export_clear": unit_export_clear, "unit_params": unit_params}
 CELL_ATTRS = ("cid", "key", "level", "tick", "lead", "words", "end", "end_digest", "chain", "digest", "origin", "created_at", "seen", "dispatched", "fresh",
               "breaks", "new_children", "replaced", "quarantined", "retired", "next_k", "first_level_reach", "previous", "inherited", "verified", "pending",
@@ -870,10 +918,57 @@ def real_plan_via_child_equal() -> Dict[str, Any]:
     return {"cells": len(b.cells), "attributes_compared": len(CELL_ATTRS), "groups": len(el)}
 
 
+SMOKE_REAL = LAB / "crossing_2026-11-06_run3_smoke"
+
+
+def real_best_from_smoke() -> Dict[str, Any]:
+    """Option (c), owner 2026-11-06: the archive of runs 1 + 2, the best and the bound from every verified clear, the smoke run's included
+    (1,196 -> bound 1,171); the cell that produced the 1,196 stays eligible; a source folder that is not clean, or whose best has no equal
+    text replay, is refused (copies under a temporary folder of the lab, removed)."""
+    if not (SMOKE_REAL / "run" / "summary.json").is_file():
+        return {"skipped": f"no smoke run under {SMOKE_REAL}"}
+    import crossing_search as cs
+    import crossing_search_run3 as C
+
+    P = C.build_plan(LAB, RUN1_REAL, RUN2_REAL, C.Params3(rng_seed=2), code_digest="test", best_from=[SMOKE_REAL])
+    p = P["plan"]
+    check(p["best"]["completion_input_tick"] == 1196 and p["best"]["source"] == "run3:crossing_2026-11-06_run3_smoke" and p["e7"]["bound_max_L"] == 1171
+          and P["bound"] == 1171 and p["run3"]["best_claim"] == 1196 and p["archive"]["inherited"] == 37294, f"{p['e7']} {p['best']}")
+    c = P["archive"].cells[12331]
+    check(c.level == 9 and c.tick == 1114 and P["archive"].eligible(c), f"the 1,196's start cell: level {c.level} tick {c.tick}")
+    el = [r for r in p["run3"]["start"] if r["eligible"]]
+    check(all(r["earliest_eligible"] <= 1171 for r in el) and sum(r["eligible"] for r in el) == p["archive"]["eligible"], "eligibility at 1,171")
+    tmp = LAB / "probes" / f"run3_best_from_test_{os.getpid()}"
+    refused = {}
+    try:
+        for name, edit in (("unclean", lambda d: _json_edit(d / "run" / "summary.json", status="SEARCH_INVALID")),
+                           ("no_text_replay", lambda d: (d / "run" / "text_replays.jsonl").unlink())):
+            d = tmp / name
+            (d / "run").mkdir(parents=True)
+            for f in ("plan.json", "run/summary.json", "run/config.json", "run/verifications.jsonl", "run/text_replays.jsonl", "run/dispatches.jsonl"):
+                (d / f).write_bytes((SMOKE_REAL / f).read_bytes())
+            edit(d)
+            try:
+                C.build_plan(LAB, RUN1_REAL, RUN2_REAL, C.Params3(rng_seed=2), code_digest="test", best_from=[d])
+                refused[name] = None
+            except cs.SearchError as exc:
+                refused[name] = str(exc)[:120]
+    finally:
+        cleanup(tmp)
+    check(all(refused.values()), f"refusals: {refused}")
+    return {"bound": P["bound"], "eligible": p["archive"]["eligible"], "groups": len(el), "refused": sorted(refused)}
+
+
+def _json_edit(path: Path, **kw: Any) -> None:
+    obj = json.loads(path.read_text(encoding="utf-8"))
+    obj.update(kw)
+    path.write_text(json.dumps(obj), encoding="utf-8")
+
+
 REAL = {"real_niches_equal_offline": real_niches_equal_offline, "real_start_table": real_start_table,
-        "real_plan_via_child_equal": real_plan_via_child_equal}
-E2E = {"e2e_same_seed_runs": e2e_same_seed_runs, "e2e_nonfinite_trigger": e2e_nonfinite_trigger, "e2e_text_replay": e2e_text_replay,
-       "e2e_exports_under_guard": e2e_exports_under_guard}
+        "real_plan_via_child_equal": real_plan_via_child_equal, "real_best_from_smoke": real_best_from_smoke}
+E2E = {"e2e_same_seed_runs": e2e_same_seed_runs, "e2e_nonfinite_trigger": e2e_nonfinite_trigger,
+       "e2e_detector_trigger_fallback": e2e_detector_trigger_fallback, "e2e_text_replay": e2e_text_replay, "e2e_exports_under_guard": e2e_exports_under_guard}
 
 if __name__ == "__main__":
     args = sys.argv[1:]
