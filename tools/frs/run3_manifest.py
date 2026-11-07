@@ -49,7 +49,8 @@ LAZY_EXCLUDED = {"m7u_gate": "m8_rd_session: rd-session gate m7u (never run by r
                  "btti_replay": "m7f_trace.tas_actions and m7g_fixture.load_sequence (text replays, fixture loading; run 3 replays words)",
                  "m7f_validate": "m7g_fixture.returns_v1_v2 (fixture validation, not called by m7n_crossing.analyse_trace)",
                  "experiment_config": "m7n_crossing.summarise (a report of the M7n study, not called by run 3)",
-                 "m7k_target2": "m7n_crossing.replay_candidate (an M7n replay, not called by run 3)"}
+                 "m7k_target2": "m7n_crossing.replay_candidate (an M7n replay, not called by run 3)",
+                 "m8_rd_stub": "crossing_search_run3._plan_child (the stub world's analyse, only when a test passes analyse='stub')"}
 
 
 def sha256_file(p: Path) -> str:

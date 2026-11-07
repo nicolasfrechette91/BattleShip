@@ -36,6 +36,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping as _MappingABC
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 assert sys.flags.dont_write_bytecode, "run with python -B"
@@ -210,6 +211,113 @@ def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, 
     return {"plan": plan, "seeds": [], "R": R, "meta": meta, "bound": bound, "bound_run1": bound_check, "best": best, "R1": R1, "archive": archive,
             "cleared": M["cleared"], "run3_code_digest": code,
             "run3": {"niches": D["niches"], "history": H["groups"], "cid_dispatches": M["cid_dispatches"], "best_claim": M["best_claim"]}}
+
+
+# -- the plan in a child process (2026-11-06: the run's footprint at the open) -------------------------------------------------------------------
+#
+# build_plan reads every row of both runs (181,657 cell rows, 70,008 dispatch rows) to derive the niches and run 2's history. In the run's
+# main process that peaked at 1.53 GB of private bytes and left 1.34 GB committed at the open (CPython keeps the memory it freed), against
+# 584 MB for run 2. `run` therefore builds the plan in a short-lived child process, which writes a compact payload: the plan, the reference
+# record, the best clear, and one record per inherited cell holding exactly what ResumeArchive.load_run1 reads (its run 1 seed root
+# included). The main process rebuilds the archive from it with load_run1 itself, then the engine compares its start table with the plan's.
+
+PAYLOAD_CONTRACT = "run3_plan_payload_v1"
+
+
+def plan_payload(P: Mapping[str, Any]) -> Dict[str, Any]:
+    """The compact, picklable form of build_plan's result (child side)."""
+    a = P["archive"]
+    cells = [(c.cid, list(c.key), c.level, c.tick, c.lead, bytes(c.words), c.end_digest.hex(), c.chain.hex(), c.digest, dict(c.origin), c.seen,
+              c.replaced, c.dispatched, c.breaks, c.cleared, c.root) for c in a.cells]
+    R1 = P["R1"]
+    return {"contract": PAYLOAD_CONTRACT, "plan": P["plan"], "R": P["R"], "meta": P["meta"], "bound": P["bound"], "bound_run1": P["bound_run1"],
+            "best": P["best"], "R1": {"dir": str(R1["dir"]), "plan": R1["plan"], "config": R1["config"], "summary": R1["summary"], "rows": R1["rows"]},
+            "archive_id": a.archive_id, "arrival": dict(a.arrival), "cells": cells, "cleared": P["cleared"], "run3": P["run3"],
+            "run3_code_digest": P["run3_code_digest"]}
+
+
+class _LazyFinal(_MappingABC):
+    """The final representatives as load_run1 reads them, one row dict built per access (no 37,294 hex strings held at once)."""
+
+    def __init__(self, cells: Sequence[Sequence[Any]]):
+        self._cells = {int(t[0]): t for t in cells}
+
+    def __getitem__(self, cid: int) -> Dict[str, Any]:
+        (_cid, key, level, tick, lead, words, end_digest, chain, digest, origin, seen, replaced, *_rest) = self._cells[cid]
+        return {"words_hex": words.hex(), "key": key, "level": level, "tick": tick, "lead": lead, "digest": digest, "end_digest": end_digest,
+                "chain": chain, "origin": origin, "seen": seen, "replaced": replaced}
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(self._cells)
+
+    def __len__(self) -> int:
+        return len(self._cells)
+
+
+def plan_from_payload(X: Mapping[str, Any], params: Params3) -> Dict[str, Any]:
+    """build_plan's result rebuilt from a payload (main side): the archive is loaded by load_run1 itself from the same rows; each cell's
+    lineage root comes from the payload (computed by load_run1 in the child from both runs' origins)."""
+    if X.get("contract") != PAYLOAD_CONTRACT:
+        raise SearchError(f"refused: a plan payload of contract {X.get('contract')!r}")
+    archive = r2.ResumeArchive(X["archive_id"], {int(k): int(v) for k, v in X["arrival"].items()}, int(X["bound"]), params)
+    cells = X["cells"]
+    origins = {(int(t[0]), str(t[8])): {"kind": "seed", "fsid": t[15]} for t in cells}
+    disp = {str(t[8]): [int(t[12]), int(t[13])] for t in cells}
+    cleared = {int(t[0]): int(t[14]) for t in cells if t[14]}
+    archive.load_run1({"final": _LazyFinal(cells), "origins": origins, "dispatch_stats": disp}, int(X["bound_run1"]), cleared,
+                      reset_novelty=params.reset_novelty)
+    bad = [int(t[0]) for t in cells if archive.cells[int(t[0])].root != t[15] or archive.cells[int(t[0])].digest != t[8]]
+    if bad or len(archive.cells) != len(cells):
+        raise SearchError(f"refused: the rebuilt archive differs from the plan's ({len(bad)} cells)")
+    return {"plan": X["plan"], "seeds": [], "R": X["R"], "meta": X["meta"], "bound": int(X["bound"]), "bound_run1": int(X["bound_run1"]),
+            "best": X["best"], "R1": X["R1"], "archive": archive, "cleared": X["cleared"], "run3": X["run3"], "run3_code_digest": X["run3_code_digest"]}
+
+
+PLAN_CHILD = ("import json, sys\nsys.path.insert(0, %r); sys.path.insert(0, %r)\nimport frs_guard as g\nfrom pathlib import Path\n"
+              "a = json.loads(sys.argv[1])\ng.LabGuard.install(Path(a['lab_root']))\nimport crossing_search_run3 as C\nC._plan_child(a)\n")
+
+
+def _plan_child(a: Mapping[str, Any]) -> None:
+    import pickle
+
+    analyse = fv.real_analyse
+    if a.get("analyse") == "stub":
+        import m8_rd_stub as stub
+
+        analyse = stub.analyse
+    P = build_plan(Path(a["lab_root"]), Path(a["run1"]), Path(a["run2"]), Params3(**a["params"]), analyse, code_digest=a.get("code_digest"))
+    data = pickle.dumps(plan_payload(P), protocol=pickle.HIGHEST_PROTOCOL)
+    with open(a["payload"], "wb") as f:
+        f.write(data)
+
+
+def plan_via_child(lab_root: Path, run1_dir: Path, run2_dir: Path, out: Path, params: Params3, *, code_digest: Optional[str],
+                   analyse: str = "real", timeout: float = 900.0) -> Dict[str, Any]:
+    """build_plan in a fresh child process (same code, same inputs), its payload read back and removed; the main process holds only
+    what the run keeps."""
+    import os
+    import pickle
+    import subprocess
+
+    payload = Path(out) / "plan_payload.pkl"
+    if payload.exists():
+        raise SearchError(f"refused: {payload} exists (a previous plan child did not clean up)")
+    pdict = {k: (list(v) if isinstance(v, tuple) else v) for k, v in params.__dict__.items()}
+    args = {"lab_root": str(lab_root), "run1": str(run1_dir), "run2": str(run2_dir), "params": pdict, "code_digest": code_digest,
+            "analyse": analyse, "payload": str(payload)}
+    code = PLAN_CHILD % (str(REPO / "rl"), str(HERE))
+    r = subprocess.run([sys.executable, "-B", "-c", code, json.dumps(args)], capture_output=True, text=True, timeout=timeout, cwd=str(HERE))
+    try:
+        if r.returncode != 0 or not payload.is_file():
+            raise SearchError(f"the plan child failed (exit {r.returncode}): {(r.stderr or r.stdout)[-1500:]}")
+        with open(payload, "rb") as f:
+            X = pickle.loads(f.read())
+    finally:
+        if payload.exists():
+            os.remove(payload)
+    if X.get("plan", {}).get("params") != params.as_dict():
+        raise SearchError("refused: the plan child used other parameters")
+    return plan_from_payload(X, params)
 
 
 def plan_and_write(lab_root: Path, run1_dir: Path, run2_dir: Path, out: Path, params: Params3, analyse: fv.Analyse = fv.real_analyse, *,
@@ -734,7 +842,7 @@ def cmd_run(lab_root: Path, run1: Path, run2: Path, out: Path, a: argparse.Names
         return 2
     params = params_from_args(a)
     old = json.loads(saved.read_text(encoding="utf-8"))
-    P = build_plan(lab_root, run1, run2, params, code_digest=old.get("run3", {}).get("code_digest"))
+    P = plan_via_child(lab_root, run1, run2, out, params, code_digest=old.get("run3", {}).get("code_digest"))
     if old.get("archive_set_digest") != P["plan"]["archive_set_digest"]:
         print("refused: the archive set differs from the saved plan")
         return 2

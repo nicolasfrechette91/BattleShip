@@ -925,3 +925,31 @@ the anomaly triggers; then a 20-30 min native smoke run proposed (a go for it, a
 - **Go:** commit step 8 locally (no push), check readiness, then the smoke run as proposed (plan; run with 3 workers, 25 min, rng seed 1,
   records every 600 s); after it, the checks plus the group shares against the plan table, the native text replay of the 1,245 and the
   memory peak against the registered budget. The full night needs its own go.
+- Step 8 committed 1a4a2b7 (local). Readiness then refused (free commit 9,577 MB < 10,240 MB): stopped, nothing planned.
+- **2026-11-06, second attempt (owner closed Steam and the NVIDIA overlay; CLAIMS_FROZEN approved, to build after the smoke run and
+  before the night, with the end-record import refusing a non-clean run unless a plan flag names it; the full 14/14 suite before the
+  night):** readiness passed before launching (free commit 11,171 MB). The plan was written (zero ticks:
+  `C:/BattleShip_lab/crossing_2026-11-06_run3_smoke/plan.json`, start table = 4b, run 3 code digest `400a9c9c`). The run then refused
+  at its own open, before launching anything: `readiness: free commit 9905 MB < 10240 MB` (`refused_20261106T232856Z.json`, exit 2).
+  The run's main process rebuilds the plan (both runs' archives) before the open's check, and held about 1.34 GB of commit by then
+  (11,241 MB free again after it exited). Run 2's main process was at 584 MB at its open. So free commit must be about 11.6 GB before
+  launching. Stopped as instructed; no game process ran.
+
+### 17.6 The run's footprint at the open (owner, 2026-11-06: reduce it now, before the smoke run; the threshold untouched)
+
+- **Measured** (private bytes of the main process, zero ticks, `run`'s path up to the open's readiness check): imports 22 MB; the
+  reference loaded 196 (+174); `r2.read_run1` 489 (+294); `run3_load.load` (both runs' 181,657 cell rows and 70,008 dispatch rows,
+  merge, niches, run 2 replay) 1,433 (+943); archive 1,512 (+80); selector 1,525. Dropping the intermediates gives back only 183 MB
+  (CPython keeps freed memory): 1,342 MB at the open, the measured refusal. What the engine keeps is small (the reference record is
+  words and clocks; `R1` is stored, never used).
+- **Change:** `run` builds the plan in a short-lived child process (`plan_via_child`: the same `build_plan`, under the lab guard). The child
+  writes a compact payload (the plan, the reference record, the best clear, one record per cell with exactly what
+  `ResumeArchive.load_run1` reads, and its root lineage), which the main process reads, removes, and loads with `load_run1` itself.
+  The engine still checks its start table against the plan's.
+- **Before / after** at the open's readiness check: **1,352 MB -> 196 MB** (run 2: 584 MB). The plan step takes 35 s instead of 24 s.
+- **Tests:** `real_plan_via_child_equal`: both routes on the lab's runs 1 + 2 give the same 29 attributes for all 37,294 cells, the same
+  archive indexes and counters, plan, best, reference, and start table (14 groups, 153 anchors, only (9, 64, 326:2-8-1) demoted). The
+  e2e engine runs now plan through the child as `run` does. The full suite from scratch: 16/16 (unit 9, real 3, e2e 4: 154 group moves,
+  same-seed runs identical; 38 non-finite triggers, 114 draws queued, 3 served). `run3_search_tests.py` unit_run3_manifest then flagged the
+  plan child's function-level import of `m8_rd_stub` (tests only): excluded by name in `run3_manifest.LAZY_EXCLUDED` with its function;
+  after it `run3_search_tests.py` unit 8/8 and this suite's unit 9/9.

@@ -493,7 +493,8 @@ def engine3_child(a: Mapping[str, Any]) -> Dict[str, Any]:
     run_dir = out / "run"
     params = C.Params3(**a["params"])
     code = a.get("run3_code_digest") or rm.code_digest(rm.run3_code_manifest())
-    P = C.plan_and_write(lab, run1, run2, out, params, stub.analyse, code_digest=code)
+    C.plan_and_write(lab, run1, run2, out, params, stub.analyse, code_digest=code)                 # the `plan` command
+    P = C.plan_via_child(lab, run1, run2, out, params, code_digest=code, analyse="stub")             # what `run` does since 2026-11-06
     frozen = {"frozen_sha256": a["frozen"], "exe_copy_sha256": a["exe_copy"]}
     fk = {"exe": a["exe"], "frozen": a["frozen"]}
 
@@ -827,7 +828,50 @@ def e2e_text_replay() -> Dict[str, Any]:
 UNIT = {"unit_niche_inheritance": unit_niche_inheritance, "unit_moves": unit_moves, "unit_demotion_and_shares": unit_demotion_and_shares,
         "unit_e_and_anchor_success": unit_e_and_anchor_success, "unit_draws": unit_draws, "unit_triggers": unit_triggers, "unit_bk2_roundtrip": unit_bk2_roundtrip,
         "unit_export_clear": unit_export_clear, "unit_params": unit_params}
-REAL = {"real_niches_equal_offline": real_niches_equal_offline, "real_start_table": real_start_table}
+CELL_ATTRS = ("cid", "key", "level", "tick", "lead", "words", "end", "end_digest", "chain", "digest", "origin", "created_at", "seen", "dispatched", "fresh",
+              "breaks", "new_children", "replaced", "quarantined", "retired", "next_k", "first_level_reach", "previous", "inherited", "verified", "pending",
+              "cleared", "root", "check_attempts")
+
+
+def real_plan_via_child_equal() -> Dict[str, Any]:
+    """The run's plan route (a child process, payload, archive rebuilt here) gives exactly build_plan's result: every attribute of all
+    37,294 cells, the archive's indexes and counters, the plan, the start table. The payload is written to a temporary folder under the
+    lab root (the child runs under the lab guard) and removed."""
+    if not (LAB / "import" / "import_manifest.json").is_file() or not RUN2_REAL.is_dir():
+        return {"skipped": f"no lab import or runs under {LAB}"}
+    import crossing_search_run3 as C
+
+    params = C.Params3(rng_seed=1, summary_every_s=600.0)
+    A = C.build_plan(LAB, RUN1_REAL, RUN2_REAL, params, code_digest="test")
+    tmp = LAB / "probes" / f"run3_plan_child_test_{os.getpid()}"
+    tmp.mkdir(parents=True)
+    try:
+        B = C.plan_via_child(LAB, RUN1_REAL, RUN2_REAL, tmp, params, code_digest="test")
+        check(not any(tmp.iterdir()), f"the payload was removed: {list(tmp.iterdir())}")
+    finally:
+        cleanup(tmp)
+    a, b = A["archive"], B["archive"]
+    diffs = [(c.cid, k) for c, d in zip(a.cells, b.cells) for k in CELL_ATTRS if getattr(c, k, None) != getattr(d, k, None)]
+    check(len(a.cells) == len(b.cells) == 37294 and not diffs, f"{len(diffs)} cell attributes differ, first {diffs[:5]}")
+    for k in ("by_key", "by_level", "counts", "_pos", "inherited", "bound", "arrival", "archive_id", "words_bytes", "root_by_rep"):
+        check(getattr(a, k) == getattr(b, k), f"the archive's {k} differs")
+    check({lv: (e["tick"], e["cid"]) for lv, e in a.earliest.items()} == {lv: (e["tick"], e["cid"]) for lv, e in b.earliest.items()}, "earliest per level")
+    plan_a = {k: v for k, v in A["plan"].items() if k != "utc"}
+    plan_b = {k: v for k, v in B["plan"].items() if k != "utc"}
+    check(json.dumps(plan_a, sort_keys=True, default=str) == json.dumps(plan_b, sort_keys=True, default=str), "the same plan")
+    for k in ("bound", "bound_run1", "cleared", "run3_code_digest"):
+        check(A[k] == B[k], f"P[{k!r}] differs")
+    check(A["best"] == B["best"] and A["R"] == B["R"] and A["meta"] == B["meta"] and A["run3"] == B["run3"], "best, reference, meta, run 3 inputs")
+    sa = rs.Run3Selector(a, params, niches=A["run3"]["niches"], history=A["run3"]["history"], cid_dispatches=A["run3"]["cid_dispatches"], best_claim=A["run3"]["best_claim"])
+    sb = rs.Run3Selector(b, params, niches=B["run3"]["niches"], history=B["run3"]["history"], cid_dispatches=B["run3"]["cid_dispatches"], best_claim=B["run3"]["best_claim"])
+    check(sa.start == sb.start, "the same start table")
+    el = [r for r in sb.start if r["eligible"]]
+    check(len(el) == 14 and sum(r["anchors"] for r in el) == 153 and [r["group"] for r in el if r["demoted"]] == ["9|64|326:2-8-1"], "14 groups, 153 anchors, (9, 64) demoted")
+    return {"cells": len(b.cells), "attributes_compared": len(CELL_ATTRS), "groups": len(el)}
+
+
+REAL = {"real_niches_equal_offline": real_niches_equal_offline, "real_start_table": real_start_table,
+        "real_plan_via_child_equal": real_plan_via_child_equal}
 E2E = {"e2e_same_seed_runs": e2e_same_seed_runs, "e2e_nonfinite_trigger": e2e_nonfinite_trigger, "e2e_text_replay": e2e_text_replay,
        "e2e_exports_under_guard": e2e_exports_under_guard}
 
