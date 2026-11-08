@@ -1125,3 +1125,39 @@ Built as proposed and approved (17.5, 17.8), on 6ca6cb8, in a separate worktree 
   four real-lab tests ran with a test-only `sitecustomize.py` on PYTHONPATH that points `m7g_fixture` at the main tree's stage source
   (decomp at the same pinned commit e4f06348, clean); every other suite ran without it (the shim breaks `unit_run3_manifest`'s
   copied-tree comparison). `git diff --check` clean. The run 3 code digest becomes `d4b27450` (54 files): the next run needs a new plan.
+- **Committed 2026-11-08 (owner's go):** 332b537 on `run3/claims-frozen`, `run3/integration` fast-forwarded to it; this log 26cadf8. The four
+  real-lab tests rerun in the main tree (decomp checked out, no shim): 4/4.
+
+### 18.2 DECISIVE 2 revised: demotion on a rolling window (owner 2026-11-08)
+
+- **Decision (approved in principle, built after the replay found 0 false demotions):** a group is demoted while its last 1,000
+  dispatches (run 2 then run 3, ingest order) hold 0 bursts with any break, 0 e and >= 75 % falls; it exits when that stops holding (a
+  break or an e enters, or the falls drop below 75 %). The thresholds are DECISIVE 2's. Second clause: a burst whose kept cells give a
+  demoted group a new earliest eligible cell (earlier than every alive cell of the group before the burst) queues that cell, one per group
+  per burst, for 3 draws through the trigger queue (class `demoted_new_earliest`, the same 10 % cap).
+- **Replay before building** (`tools/analysis/run3_design/d2_rolling_replay.py`, zero ticks, 20 s). Every run 2 dispatch and every
+  dispatch of the night was rebuilt with the selector's counters; the run 2 totals equal the night plan's history and the night's per-group
+  totals equal the run's own (23 groups). The whole-history rule replayed beside it reproduces the night's three real demotions at the same
+  dispatches (16,551, 29,179, 37,939).
+
+  | data | rolling rule: demotions (dispatch) | exits | false demotions |
+  | --- | --- | --- | ---: |
+  | run 2 alone | (9, 64, 326:2-8-1) at 5,730; (9, 256, 326:2-6-1) at 21,451 | (9, 256) at 29,753 (a break, not useful) | 0 |
+  | night (run 2 history + run 3) | (9, 256) at 16,277; (8, 320, 326:2-1) at 16,551; (9, 4, 326:8-6-1) at 29,179; (9, 64, 322:8-1) at 37,215; (9, 256) again at 41,720 | (9, 256) at 34,970 (falls 749 of 1,000) | 0 |
+
+  On run 2 alone both rules give the same events. On the night the rolling rule adds (9, 256): demoted from dispatch 16,277 to 34,970 and
+  from 41,720; its own dispatches in those spans had 0 breaks, 0 useful breaks, 0 e. The groups' own dispatches while demoted: 0 useful
+  breaks and 0 e in every group (the one break, in run 2, is the exit). The second clause would have queued 2 cells of (9, 256) in the
+  night (6 draws) and 2 of (9, 64, 326:2-8-1) in run 2.
+- **Built:** `tools/frs/run3_select.py` (contract `run3_select_v2`; window of `demote_min_dispatches` codes per group, `window_code`,
+  `window_counts`, the demotion events carry the window's counters; `_landing_trigger`; `on_ingest` returns `landing_triggers`; the
+  history sequences must match the history counters or the selector refuses), `tools/frs/run3_load.py` (`run2_history` returns each group's
+  per-dispatch sequence, `tails`), `tools/frs/crossing_search_run3.py` (the plan passes the sequences to the selector and the engine,
+  records their sha256 in plan.json's history, the rule text; the engine writes landing triggers to triggers.jsonl). No new parameter.
+- **Tests:** `unit_rolling_demotion` (a group whose older history holds 5 breaks and an e is demoted when the window reaches 750 falls,
+  exits at 749, and after a break is demoted again exactly 1,000 dispatches later; a sequence that disagrees with its counters is refused),
+  `unit_new_earliest_in_demoted_group` (one cell per group per burst, its earliest; not for a later cell nor a non-demoted group; 3 draws
+  served within the cap). The fixture's histories now carry sequences.
+- **Verified (main tree, no shim, 2026-11-08):** `crossing_search_run3_tests.py` 25/25 (unit 15, real 4: the start table unchanged, 14
+  groups, 153 anchors, only (9, 64, 326:2-8-1) demoted; e2e 6); `run3_search_tests.py` 13/13; `run3_archive_tests.py` 2/2;
+  `run3_anomaly_tests.py` 10/10. `git diff --check` clean. Run 3 code digest `b043d6bd` (54 files).
