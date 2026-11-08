@@ -1022,3 +1022,106 @@ the anomaly triggers; then a 20-30 min native smoke run proposed (a go for it, a
   unit 8/8. `git diff --check` clean.
 - **The night (prepared, not launched):** 5 workers + standby, 480 min, 80 M ticks, rng seed 2, records every 3,600 s, `--best-from` the
   smoke run; the owner's go is required to launch.
+
+## 18. The night: run 3 (2026-11-07 20:33 to 2026-11-08 04:31 local; owner's go)
+
+- **Command:** `python -B tools/frs/crossing_search_run3.py run --lab-root C:/BattleShip_lab --run1 C:/BattleShip_lab/crossing_2026-10-15
+  --run2 C:/BattleShip_lab/crossing_2026-10-15_run2 --out C:/BattleShip_lab/crossing_2026-11-06_run3 --workers 5 --max-ticks 80000000
+  --max-wall-min 480 --rng-seed 2 --summary-every-s 3600 --best-from C:/BattleShip_lab/crossing_2026-11-06_run3_smoke` (tree 6ca6cb8,
+  run 3 code digest `6399222b`). Readiness re-checked just before the launch; at the open free commit 11,498 MB, main process 204 MB.
+  The main tree was not edited during the run (the CLAIMS_FROZEN work stayed in the `run3/claims-frozen` worktree, tests not run).
+- **Open (18 s):** reference 1,885 / 1,884 replayed exactly; the start's best 1,196 / 1,195 (the smoke run) replayed exactly; E7 bound
+  1,171; 37,294 inherited cells, eligible 685 / 2,853 / 7,306 / 8,667 (levels 9-6).
+- **Stop:** WALL_CAP, exit 0; search 28,482 s, close 175 s. 41,737 dispatches (5,275 per hour), 46,285,631 ticks (prefix 41,280,755,
+  burst 4,984,437); outcomes 19,186 falls, 22,461 out of words, 90 claimed clears. Integrity clean: 0 prefix mismatches, 0 tick-0
+  inequalities, 0 lifecycle failures, 0 guard violations, no game process left, lab digest `81b88be6` and run 3 digest `6399222b`
+  unchanged at the close.
+- **End records:** 4,320 fused first dispatches, all reproduced (0 mismatches; 5 repeats, 1 stale), 4,314 stored; nothing imported.
+- **Verified clears: 8; the best 978 / 977**, 218 under the start's 1,196 and 907 under the 1,885 reference. All eight are rank draws in
+  (9, 2, 326:2-6-8). Each was replayed twice from tick 0 with the verify flags (chains equal), exported as `run/clears/*.btt.txt` and
+  `.bk2` (round trips ok), and replayed natively from its text file at the close with equal clocks (`text_replays.jsonl`, 20-23 s each):
+
+  | dispatch | clear | gain | start cell (tick) | rank | pace L8 / L9 | local time |
+  | ---: | ---: | ---: | --- | ---: | --- | --- |
+  | 1,035 | 1,186 | 10 | 9711 (1,125) | 49 | - | 20:46 |
+  | 1,103 | 1,157 | 29 | 9279 (1,125) | 48 | - | 20:47 |
+  | 1,849 | 1,141 | 16 | 9709 (1,118) | 40 | - | 20:55 |
+  | 18,721 | 1,126 | 15 | 9709 (1,084) | 67 | - | 00:20 |
+  | 22,868 | 1,088 | 38 | 8589 (1,030) | 0 | - | 01:05 |
+  | 38,068 | 1,004 | 84 | 8739 (978) | 98 | 869 / 939 | 03:49 |
+  | 39,217 | 999 | 5 | 9279 (961) | 32 | 869 / 925 | 04:01 |
+  | 40,597 | 978 | 21 | 9709 (949) | 22 | 869 / 937 | 04:16 |
+
+  Claims: 90; 8 replayed, 82 not (none faster than the best at the decision; the closest, 979 at dispatch 40,898, came after the 978).
+- **Where the last three came from:** all three pass level 8 at 869, the arrival found at dispatch 35,865 (a level-7 rank draw in
+  (7, 322, 326:2) from its cell at 809, breaking target 6). From there (8, 258, 326:2-6) broke target 8 at 925-951 (dispatches 36,001
+  to 36,537), giving (9, 2) its level-9 cells, and target 1 followed within 26-38 words. (8, 258, 326:2-6)'s rate rose to 0.104 and its
+  share of level 8 to 65 % by the close.
+- **Earliest arrival per level, record by record** (levels 9 / 8 / 7 / 6; start 1,051 / 974 / 493 / 461):
+
+  | record (local) | dispatches | best | earliest 9 / 8 / 7 / 6 | level-9 share | demotion |
+  | --- | ---: | ---: | --- | ---: | --- |
+  | 0 (21:33) | 5,094 | 1,141 | 1,051 / 974 / 493 / 461 | 41.7 % | |
+  | 1 (22:33) | 9,834 | 1,141 | 1,051 / 974 / 493 / 461 | 43.1 % | |
+  | 2 (23:33) | 14,905 | 1,141 | 1,051 / 960 / 493 / 461 | 42.4 % | |
+  | 3 (00:33) | 19,953 | 1,126 | 1,030 / 960 / 493 / 461 | 43.0 % | (8, 320, 326:2-1) |
+  | 4 (01:33) | 25,457 | 1,088 | 1,030 / 873 / 493 / 461 | 42.4 % | |
+  | 5 (02:33) | 30,984 | 1,088 | 1,014 / 873 / 493 / 461 | 43.0 % | (9, 4, 326:8-6-1) |
+  | 6 (03:33) | 36,588 | 1,088 | 925 / 869 / 493 / 461 | 41.6 % | |
+  | close (04:31) | 41,737 | 978 | 925 / 869 / 493 / 461 | 42.0 % | (9, 64, 322:8-1) |
+
+  The 2-hour flag (levels 9 and 7-8 all unchanged) was raised once, at record 1, and cleared at record 2. Levels 7 and 6 never moved.
+- **Selection:** streams rank 29,710, breadth 8,257 (19.8 %), anchor 3,761, trigger 9; useful breaks rank 255, breadth 143, anchor 37;
+  new earliest arrivals 29 / 8 / 7; 5,632 group moves. Level split of exploitation 52.6 / 27.0 / 13.5 / 6.9 % (design 53.3 / 26.7 / 13.3 /
+  6.7). Demotions 3, no exit: (8, 320, 326:2-1) at 16,551 (911 of 1,000 falls); (9, 4, 326:8-6-1) at 29,179 (1,000 of 1,000);
+  (9, 64, 322:8-1) at 37,939 (900 of 1,200). Triggers 3 (dispatches 147, 160, 226: line_crossing on cell 25599 at tick 1,053, rule
+  `dispatched_cell`, 9 draws); the class then passed the rarity limit of 3 (21 sightings in all).
+- **Group shares within levels against the plan's start shares:** level 9 (9, 2) 63.7 % (plan 96.9), (9, 64, 326:2-8-1) 2.0 (3.1),
+  groups outside the plan 34.3 ((9, 256, 326:2-6-1) 21.8, (9, 64, 322:8-1) 6.5, (9, 4, 326:8-6-1) 6.0); level 8 (8, 66, 326:2-8) 20.3
+  (42.5), (8, 258, 326:2-6) 38.6 (38.3), (8, 258, 322:6) 7.4 (10.6), (8, 320, 326:2-1) 3.8 (8.6), outside the plan 32.9; level 7
+  (7, 322, 326:2) 30.6 (65.3), (7, 322, 322:) 11.0 (10.3), (7, 70, 326:8) 26.6 (8.2), (7, 266, 330:6) 9.4 (8.2), (7, 322, 330:3) 8.1 (8.2),
+  outside the plan 14.2; level 6 38.1 / 61.9 (51.2 / 48.8). The deviations come from the design: shares follow the windows, and ten
+  groups with no eligible cell at the start (bound 1,171) entered during the night.
+- **Finding (to propose, not built): always-falling groups at the floor.** Whenever (9, 2)'s window of 200 held no useful break, every
+  active level-9 group sat at the rho floor and the level was shared equally. (9, 256, 326:2-6-1) took 21.8 % of level 9 (3,846
+  dispatches; in run 3 0 breaks and 88 % falls) and D2 could not demote it, because its whole history holds run 2's breaks. It also held
+  level 9's earliest arrival from record 5 to record 6 (1,014, reached from (8, 258, 326:2-6)), so a rule on recent dispatches alone would
+  have set that cell aside.
+- **Anomalies:** 55,325 events in 26,505 bursts, 0 non-finite, 0 scan errors.
+- **Memory peak against the registered budget:** main process 560 MB (soft 2,560, cap 3,072); process tree private 4,341 MB (soft
+  8,192, cap 9,216); tree working set 1,645 MB (soft 3,584, cap 4,096); lowest system available 7,673 MB (minimum 1,536 soft, 1,024 cap);
+  lowest free commit 6,979 MB (minimum 3,072 soft, 2,048 cap); no soft, hard or process breach. Peak 27 processes, 10 of them BattleShip.
+  The main process grew 204 -> 560 MB over the night.
+- **Records:** report.md, progress.md, hourly.md / hourly.jsonl (7 hourly records and the closing one), text_replays.jsonl,
+  best_times.jsonl, exports.jsonl; the run log has no error line.
+- **Inheritance:** as recorded in 17.8, this run is not to be inherited (archive, end records or `--best-from`) until CLAIMS_FROZEN and the
+  end-record refusal of a non-clean run are built and tested.
+
+### 18.1 CLAIMS_FROZEN and the end-record refusal (built 2026-11-07/08 in worktree `BattleShip_freeze`, branch `run3/claims-frozen`)
+
+Built as proposed and approved (17.5, 17.8), on 6ca6cb8, in a separate worktree while the night ran (no test run there before the close).
+
+- **Files:** `tools/frs/crossing_search_run3.py`, `tools/frs/run3_archive.py`, `tools/frs/run3_search.py`, the tests in
+  `tools/frs/crossing_search_run3_tests.py` and one fixture in `tools/frs/run3_search_tests.py`. No inherited file edited.
+- **The freeze:** a native text replay of a verified best with other clocks than its two stepping replays sets status `CLAIMS_FROZEN`
+  (exit code 5, ranked with SEARCH_INVALID; registered in the inherited module's tables at import). Every verified clear of the run is
+  frozen (frozen rows appended to `best_times.jsonl` and `exports.jsonl`), the remaining text replays are skipped, the summary's best is the
+  start's (the unconfirmed one kept as `best_unconfirmed`), `faster_than_start` 0, the plateau reading does not count the clear,
+  `archive_status` = `to_investigate`, and report.md / progress.md open with a CLAIMS FROZEN banner. The archive is left intact.
+- **Inheritance refusals:** a later plan refuses a `--best-from` folder whose status is not clean (exit code 0 statuses only: COMPLETED,
+  ARCHIVE_EMPTY, TICK_CAP, WALL_CAP, CELLS_CAP, DISPATCH_CAP, MEMORY_BUDGET), and the engine refuses end records (`P["end_record_files"]`)
+  from a cells.jsonl whose run folder has no summary or a non-clean status, unless the plan's `--accept-run` names that folder (its output
+  folder or its run folder); the plan records `accept_runs` and `accepted_non_clean` per source. There is still no CLI flag that sets
+  end-record files: the refusal sits in the engine, so any future path is covered.
+- **Choice made inside the decision (listed so it can be changed):** `run` refuses `--best-from` or `--accept-run` folders that differ
+  from those its saved plan.json records (added, dropped or reordered), so a non-clean folder is admitted only by the plan, never by a flag
+  given at `run` alone. Last night's plan and run had the same flags (checked on its plan.json).
+- **Fixture change:** `e2e_stored_records` fed the importer a corrupted cells file loose in the lab root (no summary beside it), which the
+  new refusal blocks; the file now sits in a run folder beside a copy of the source run's clean summary.json. The rule is unchanged.
+- **Tests (worktree, 2026-11-08, after the night):** `crossing_search_run3_tests.py` 23/23 (unit 13: new `unit_claims_frozen`,
+  `unit_non_clean_sources_refused`, `unit_plan_flags_match_saved_plan`; e2e 6: new `e2e_frozen_run_not_inherited`, a CLAIMS_FROZEN copy of
+  a real fake-game run refused as a best source and as an end-record source, admitted with `--accept-run` (637 records); real 4/4);
+  `run3_search_tests.py` 13/13; `run3_archive_tests.py` 2/2; `run3_anomaly_tests.py` 10/10. The worktree has no decomp checkout, so the
+  four real-lab tests ran with a test-only `sitecustomize.py` on PYTHONPATH that points `m7g_fixture` at the main tree's stage source
+  (decomp at the same pinned commit e4f06348, clean); every other suite ran without it (the shim breaks `unit_run3_manifest`'s
+  copied-tree comparison). `git diff --check` clean. The run 3 code digest becomes `d4b27450` (54 files): the next run needs a new plan.
