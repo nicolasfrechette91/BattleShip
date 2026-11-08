@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import sys
 from dataclasses import dataclass
@@ -135,7 +136,10 @@ SELECTION_RULES = {
              "rescaled to 1 - demoted x phi x demote_share_factor; a demoted group gets phi x demote_share_factor",
     "useful": "u = a break whose next-level arrival is <= the E7 bound; level 9: a claimed clear <= the bound (literal)",
     "e": "a kept cell at a deeper level earlier than every alive cell of its group before the burst; level 9: a claimed clear faster than every earlier claim",
-    "demotion": "whole history (run 2 + run 3): n >= demote_min_dispatches, 0 bursts with any break, 0 e, falls >= demote_fall_rate x n; exit when it stops holding",
+    "demotion": "owner 2026-11-08: the group's last demote_min_dispatches dispatches (run 2 then run 3): the window full, 0 bursts with any break, 0 e, "
+                "falls >= demote_fall_rate x the window; exit when it stops holding",
+    "demoted_new_earliest": "a burst whose kept cells give a demoted group a new earliest eligible cell (earlier than every alive cell of the group before "
+                            "the burst) queues that cell, one per group per burst, for trigger_draws_per_cell draws through the trigger queue (same cap)",
     "cell": "(1 + rank)^-rank_exp x max(novelty_floor, 1 / (1 + dispatches selected since the representative was set)) x cleared_weight^clears",
     "anchors": "the anchor_k earliest eligible cells per resource class per group; anchor draw with probability anchor_share x w_max: highest w, fewest anchor "
                "bursts (counted when selected), earliest tick, cell id; w = 1 on success (a kept deeper cell that is an anchor of its group; level 9: a claimed "
@@ -230,7 +234,8 @@ def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, 
     load = archive.load_run1({"final": M["final"], "origins": M["origins"], "dispatch_stats": M["dispatch_stats"]}, bound_check, M["cleared"],
                              reset_novelty=params.reset_novelty)
     best_claim = min(x for x in [M["best_claim"], int(best["completion_input_tick"])] + [X["claims_min"] for X in extra] if x is not None)
-    sel = rs.Run3Selector(archive, params, niches=D["niches"], history=H["groups"], cid_dispatches=M["cid_dispatches"], best_claim=best_claim)
+    sel = rs.Run3Selector(archive, params, niches=D["niches"], history=H["groups"], cid_dispatches=M["cid_dispatches"], best_claim=best_claim,
+                          history_tails=H["tails"])
     digest = r2.archive_set_digest(M["final"], best, bound)
     code = code_digest if code_digest is not None else rm.code_digest(rm.run3_code_manifest())
     s1, s2 = R1["summary"], D["R2"]["summary"]
@@ -259,7 +264,8 @@ def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, 
             "eager": {"cells": 0, "levels_deep": [], "per_level": {}, "cids": [], "ticks": 0, "note": "run 3: no native check, every inherited cell's first dispatch is fused"},
             "check_fit": {}, "throughput_fit": {}, "archive_set_digest": digest, "seed_set_digest": digest, "seeds": 0, "seed_ticks": 0, "frontier": None,
             "run3": {"contract": RUN3_CONTRACT, "select_contract": rs.SELECT_CONTRACT, "start": sel.start, "rules": SELECTION_RULES, "code_digest": code,
-                     "niche_stats": D["niche_stats"], "history": {"groups": H["groups"], "attribution": H["attribution"], "moves": H["moves"]},
+                     "niche_stats": D["niche_stats"], "history": {"groups": H["groups"], "attribution": H["attribution"], "moves": H["moves"],
+                                                                  "tails_sha256": hashlib.sha256(json.dumps(H["tails"], sort_keys=True).encode("utf-8")).hexdigest()},
                      "best_claim": best_claim, "claims": M["claims"], "groups": len(sel.start),
                      "best_from": [{k: X[k] for k in ("dir", "status", "accepted_non_clean", "utc_start", "utc_end", "verified", "best_in_folder",
                                                        "claims_min", "verifications_sha256")} for X in extra],
@@ -267,7 +273,7 @@ def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, 
                      "anchors": sum(r["anchors"] for r in sel.start if r["eligible"]), "demoted": [r["group"] for r in sel.start if r["demoted"]]}}
     return {"plan": plan, "seeds": [], "R": R, "meta": meta, "bound": bound, "bound_run1": bound_check, "best": best, "R1": R1, "archive": archive,
             "cleared": M["cleared"], "run3_code_digest": code, "accept_runs": [str(Path(x)) for x in accept_runs],
-            "run3": {"niches": D["niches"], "history": H["groups"], "cid_dispatches": M["cid_dispatches"], "best_claim": best_claim}}
+            "run3": {"niches": D["niches"], "history": H["groups"], "history_tails": H["tails"], "cid_dispatches": M["cid_dispatches"], "best_claim": best_claim}}
 
 
 # -- the plan in a child process (2026-11-06: the run's footprint at the open) -------------------------------------------------------------------
@@ -414,7 +420,7 @@ class Run3Engine(r3.Run3Core):
         self.p3 = params
         X = P["run3"]
         self.selector = rs.Run3Selector(self.archive, params, niches=X["niches"], history=X["history"], cid_dispatches=X["cid_dispatches"],
-                                        best_claim=X["best_claim"])
+                                        best_claim=X["best_claim"], history_tails=X["history_tails"])
         diffs = rs.start_table_check(self.selector.start, self.plan["run3"]["start"])
         if diffs:
             raise SearchError(f"refused: the engine's start table is not the plan's: {diffs[:4]}")
@@ -514,6 +520,11 @@ class Run3Engine(r3.Run3Core):
             self.fs.append_jsonl(self.dir / "triggers.jsonl", dict(t, utc=g.utc()))
             self.event(f"anomaly trigger {t['index']}: dispatch {t['n']} classes {t['classes']}, {len(t['cells'])} kept cells queued for "
                        f"{t['draws_queued']} breadth draws")
+        for ti in out.get("landing_triggers") or []:            # owner 2026-11-08: a new earliest eligible cell of a demoted group
+            t = self.selector.triggers[ti]
+            self.fs.append_jsonl(self.dir / "triggers.jsonl", dict(t, utc=g.utc()))
+            self.event(f"demoted-group trigger {t['index']}: dispatch {t['n']} gave {t['group']} its new earliest cell {t['cells'][0]}, "
+                       f"queued for {t['draws_queued']} breadth draws")
         for ev in self.selector.events[self._events_logged:]:
             self.event(f"group {ev['group']} {ev['kind']} at dispatch {ev['n']}: {ev['history']}")
         self._events_logged = len(self.selector.events)

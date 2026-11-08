@@ -229,6 +229,7 @@ def run2_history(run1: Mapping[str, Any], run2: Mapping[str, Any], niches: Niche
     for r in run2["rows"]:
         ev_by_n[int(r["origin"]["n"])].append(r)
     st: Dict[rs.GKey, Counter] = defaultdict(Counter)
+    seq: Dict[rs.GKey, List[str]] = defaultdict(list)          # owner 2026-11-08: the per-dispatch (fall, b, e) codes for the rolling demotion window
     attr: Counter = Counter()
     for d in run2["dispatches"]:
         cid = int(d["cid"])
@@ -257,10 +258,12 @@ def run2_history(run1: Mapping[str, Any], run2: Mapping[str, Any], niches: Niche
             e = 1
             best_claim = int(ct)
         s["e"] += e
+        seq[g].append(str(rs.window_code(int(d.get("outcome") == "fall"), int(bool(d.get("breaks_after_start"))), e)))
         for r in ev_by_n.get(int(d["n"]), []):
             put(int(r["cid"]), r)
     return {"groups": {rs.glabel(g): {k: int(v.get(k, 0)) for k in rs.HIST_FIELDS} for g, v in sorted(st.items())}, "attribution": dict(attr),
-            "moves": dict(moves), "final_digests": {cid: str(r["digest"]) for cid, r in cur.items()}}
+            "moves": dict(moves), "final_digests": {cid: str(r["digest"]) for cid, r in cur.items()},
+            "tails": {rs.glabel(g): "".join(v) for g, v in sorted(seq.items())}}
 
 
 def load(run1_dir: Path, run2_dir: Path, bound: int, *, run1_rows: Optional[int] = None, run1_utc_start: Optional[str] = None) -> Dict[str, Any]:

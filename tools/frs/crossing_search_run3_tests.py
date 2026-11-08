@@ -87,7 +87,17 @@ A_N, B_N, C_N = (15, (3,)), (23, (4,)), (15, ())          # level 7 mask 7 via t
 GA, GB, GC = (7, 7, "15:3"), (7, 7, "23:4"), (6, 15, "15:")
 
 
-def fixture(history: Optional[Mapping[str, Mapping[str, int]]] = None, **pkw: Any) -> Tuple[FA, rs.Run3Selector]:
+def tails_of(hist: Mapping[str, Mapping[str, int]]) -> Dict[str, str]:
+    """A per-dispatch sequence matching each group's counters (oldest first): its falls first, its breaks and e last."""
+    out = {}
+    for gl, h in hist.items():
+        n, f, b, e = int(h["n"]), int(h["fall"]), int(h["b"]), int(h["e"])
+        out[gl] = "".join(str(rs.window_code(i < f, i >= n - b, i >= n - e)) for i in range(n))
+    return out
+
+
+def fixture(history: Optional[Mapping[str, Mapping[str, int]]] = None, tails: Optional[Mapping[str, str]] = None,
+            **pkw: Any) -> Tuple[FA, rs.Run3Selector]:
     cells = [FC(0, 7, 7, "A0", 100), FC(1, 7, 7, "A0", 110), FC(2, 7, 7, "A0", 120), FC(3, 7, 7, "A0", 130),   # group A
              FC(4, 7, 7, "A0", 105), FC(5, 7, 7, "A0", 115), FC(6, 7, 7, "A0", 125),                         # group B
              FC(7, 6, 15, "A1", 50), FC(8, 6, 15, "A1", 60)]                                                  # group C
@@ -96,7 +106,8 @@ def fixture(history: Optional[Mapping[str, Mapping[str, int]]] = None, **pkw: An
                                                 rs.glabel(GB): {"n": 400, "fall": 100, "b": 2, "bu": 2, "e": 0},
                                                 rs.glabel(GC): {"n": 400, "fall": 100, "b": 4, "bu": 4, "e": 0}}
     a = FA(cells, 1000)
-    return a, rs.Run3Selector(a, params(**pkw), niches=niches, history=hist, cid_dispatches={1: 7}, best_claim=None)
+    return a, rs.Run3Selector(a, params(**pkw), niches=niches, history=hist, cid_dispatches={1: 7}, best_claim=None,
+                              history_tails=tails if tails is not None else tails_of(hist))
 
 
 def info_of(sel: rs.Run3Selector, cid: int, stream: str = "rank") -> Dict[str, Any]:
@@ -208,6 +219,77 @@ def unit_demotion_and_shares() -> Dict[str, Any]:
     sel.on_ingest(info_of(sel, 0), useful, [], [], 3)
     check(sum(sel.win[GA]) == before + 1 and sel.hist[GA]["bu"] == 1, "a useful break (next arrival <= the bound) counts in the window")
     return {"events": [e["kind"] for e in sel.events]}
+
+
+FALL = {"outcome": "fall", "levels": {}, "advanced": False}
+BREAK = {"outcome": "fall", "levels": {}, "advanced": True}
+
+
+def unit_rolling_demotion() -> Dict[str, Any]:
+    """Demotion on the group's last 1,000 dispatches (owner 2026-11-08): a group whose older history holds breaks and an e is demoted when
+    the window slides to 75 % falls with no break and no e (the whole-history rule never would); it exits when the falls drop below 75 %,
+    and after a break it is demoted again exactly when that break leaves the window. Sequences that disagree with the counters refuse."""
+    hist = {rs.glabel(GA): {"n": 1500, "fall": 1200, "b": 5, "bu": 5, "e": 1}, rs.glabel(GB): {"n": 400, "fall": 100, "b": 2, "bu": 2, "e": 0},
+            rs.glabel(GC): {"n": 400, "fall": 100, "b": 4, "bu": 4, "e": 0}}
+    seq_a = [6, 2, 2, 2, 2] + [1] * 451 + [0] * 44 + [0] + [1] * 749 + [0] * 250     # breaks in the first 500; the window: 749 falls, oldest quiet
+    tails = dict(tails_of(hist), **{rs.glabel(GA): "".join(map(str, seq_a))})
+    a, sel = fixture(hist, tails)
+    check(GA not in sel.dem and sel.window_counts(GA) == {"n": 1000, "fall": 749, "b": 0, "e": 0}, f"the start window: {sel.window_counts(GA)}")
+    sel.on_ingest(info_of(sel, 0), FALL, [], [], 1)
+    ev = sel.events[-1]
+    check(GA in sel.dem and ev["kind"] == "demoted" and ev["window"] == {"n": 1000, "fall": 750, "b": 0, "e": 0} and ev["history"]["b"] == 5,
+          f"the window reaches 750 falls: demoted although the whole history holds 5 breaks {ev}")
+    sh, phi = sel.shares(7)
+    check(abs(sh[GA] - phi / 4) < 1e-12, "a demoted group gets phi / 4")
+    sel.on_ingest(info_of(sel, 0), QUIET, [], [], 2)
+    check(GA not in sel.dem and sel.events[-1]["kind"] == "exit" and sel.events[-1]["window"]["fall"] == 749, f"falls below 75 %: exit {sel.events[-1]}")
+    sel.on_ingest(info_of(sel, 0), BREAK, [], [], 3)
+    k = 0
+    while GA not in sel.dem and k < 2000:
+        k += 1
+        sel.on_ingest(info_of(sel, 0), FALL, [], [], 3 + k)
+    check(k == 1000 and sel.window_counts(GA) == {"n": 1000, "fall": 1000, "b": 0, "e": 0}, f"demoted again when the break left the window: {k}")
+    bad = dict(tails, **{rs.glabel(GB): tails[rs.glabel(GB)][:-1]})
+    try:
+        fixture(hist, bad)
+        raise AssertionError("a sequence shorter than its counters was accepted")
+    except ValueError as exc:
+        check("does not match" in str(exc), f"refused: {exc}")
+    return {"refall_after_break": k, "events": [e["kind"] for e in sel.events]}
+
+
+def unit_new_earliest_in_demoted_group() -> Dict[str, Any]:
+    """A burst that gives a DEMOTED group a new earliest eligible cell queues that cell for 3 trigger draws (owner 2026-11-08), one cell per
+    group per burst (its earliest); not for a cell that is not the group's earliest, nor in a group that is not demoted; served in turn
+    through breadth slots within the trigger cap."""
+    hist = {rs.glabel(GA): {"n": 1000, "fall": 1000, "b": 0, "bu": 0, "e": 0}, rs.glabel(GB): {"n": 400, "fall": 100, "b": 2, "bu": 2, "e": 0},
+            rs.glabel(GC): {"n": 400, "fall": 100, "b": 4, "bu": 4, "e": 0}}
+    a, sel = fixture(hist, trigger_cap=0.5)
+    check(sel.dem == {GA}, f"A demoted at the start: {sel.dem}")
+    c90, c95 = FC(9, 7, 7, "A1", 90), FC(10, 7, 7, "A1", 95)    # level 7 cells of A's niche, from a level-6 dispatch (cell 7, group C)
+    a.cells += [c90, c95]
+    out = sel.on_ingest(info_of(sel, 7), QUIET, [(rs.NEW, c95, A_N), (rs.NEW, c90, A_N)], [], 1)
+    t = sel.triggers[out["landing_triggers"][0]] if out["landing_triggers"] else {}
+    check(len(out["landing_triggers"]) == 1 and t.get("classes") == [rs.LANDING_CLASS] and t.get("cells") == [[9, 90]] and t.get("draws_queued") == 3
+          and t.get("group") == rs.glabel(GA) and out["e"] == 1 and list(sel.tq) == [[9, c90.digest, 3, t["index"]]],
+          f"one cell (the earliest, 90) queued for 3 draws: {out} {t}")
+    c92 = FC(11, 7, 7, "A1", 92)
+    a.cells.append(c92)
+    out2 = sel.on_ingest(info_of(sel, 7), QUIET, [(rs.NEW, c92, A_N)], [], 2)
+    check(out2["landing_triggers"] == [], "not earlier than the group's earliest (90): nothing queued")
+    c101 = FC(12, 7, 7, "A1", 101)
+    a.cells.append(c101)
+    out3 = sel.on_ingest(info_of(sel, 7), QUIET, [(rs.NEW, c101, B_N)], [], 3)
+    check(out3["landing_triggers"] == [] and out3["e"] == 1 and GB not in sel.dem, "B's new earliest cell (101 < 105): B is not demoted, nothing queued")
+    served: List[Tuple[str, int]] = []
+    for i in range(12):
+        c, d = sel.select(Seq([0.1, 0.5]))
+        sel.on_dispatch(c, d, 10 + i)
+        served.append((d["stream"], c.cid))
+    trig = [cid for s_, cid in served if s_ == "trigger"]
+    check(trig == [9, 9, 9] and not sel.tq and sel.cnt["trigger_draws"] <= 0.5 * sel.cnt["breadth_draws"] and sel.cnt["landing_triggers"] == 1,
+          f"3 draws within the cap: {served}")
+    return {"queued": 1, "served": len(trig)}
 
 
 def unit_e_and_anchor_success() -> Dict[str, Any]:
@@ -1046,6 +1128,7 @@ def e2e_text_replay() -> Dict[str, Any]:
 
 
 UNIT = {"unit_niche_inheritance": unit_niche_inheritance, "unit_moves": unit_moves, "unit_demotion_and_shares": unit_demotion_and_shares,
+        "unit_rolling_demotion": unit_rolling_demotion, "unit_new_earliest_in_demoted_group": unit_new_earliest_in_demoted_group,
         "unit_e_and_anchor_success": unit_e_and_anchor_success, "unit_draws": unit_draws, "unit_triggers": unit_triggers, "unit_trigger_fallback": unit_trigger_fallback, "unit_claims_frozen": unit_claims_frozen,
         "unit_non_clean_sources_refused": unit_non_clean_sources_refused, "unit_plan_flags_match_saved_plan": unit_plan_flags_match_saved_plan,
         "unit_bk2_roundtrip": unit_bk2_roundtrip,
@@ -1084,8 +1167,10 @@ def real_plan_via_child_equal() -> Dict[str, Any]:
     for k in ("bound", "bound_run1", "cleared", "run3_code_digest"):
         check(A[k] == B[k], f"P[{k!r}] differs")
     check(A["best"] == B["best"] and A["R"] == B["R"] and A["meta"] == B["meta"] and A["run3"] == B["run3"], "best, reference, meta, run 3 inputs")
-    sa = rs.Run3Selector(a, params, niches=A["run3"]["niches"], history=A["run3"]["history"], cid_dispatches=A["run3"]["cid_dispatches"], best_claim=A["run3"]["best_claim"])
-    sb = rs.Run3Selector(b, params, niches=B["run3"]["niches"], history=B["run3"]["history"], cid_dispatches=B["run3"]["cid_dispatches"], best_claim=B["run3"]["best_claim"])
+    sa = rs.Run3Selector(a, params, niches=A["run3"]["niches"], history=A["run3"]["history"], cid_dispatches=A["run3"]["cid_dispatches"], best_claim=A["run3"]["best_claim"],
+                         history_tails=A["run3"]["history_tails"])
+    sb = rs.Run3Selector(b, params, niches=B["run3"]["niches"], history=B["run3"]["history"], cid_dispatches=B["run3"]["cid_dispatches"], best_claim=B["run3"]["best_claim"],
+                         history_tails=B["run3"]["history_tails"])
     check(sa.start == sb.start, "the same start table")
     el = [r for r in sb.start if r["eligible"]]
     check(len(el) == 14 and sum(r["anchors"] for r in el) == 153 and [r["group"] for r in el if r["demoted"]] == ["9|64|326:2-8-1"], "14 groups, 153 anchors, (9, 64) demoted")

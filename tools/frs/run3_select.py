@@ -21,8 +21,12 @@ in-order ingest of the result, so every decision here is a function of the plan,
                     pooled rate (the windows of the level's groups; else every level's; else 0). Normalised over the non-demoted
                     groups, floored at phi = phi_factor / (groups at the level), rescaled to 1 - (demoted) x phi / 4; a demoted
                     group gets phi x demote_share_factor (DECISIVE 1, the warm-start fix, 4b rule 2).
-    demotion        whole history (run 2 + run 3) of the group: n >= 1,000, 0 bursts that broke a target (any break, 4b rule 3),
-                    0 e, falls >= 75 % of n. Exit: the condition stops holding (its first break or e). Events logged.
+    demotion        (owner 2026-11-08, replacing the whole-history rule) the group's LAST demote_min_dispatches (1,000) dispatches, run 2
+                    then run 3 in ingest order: the window full, 0 bursts that broke a target (any break, 4b rule 3), 0 e, falls >= 75 %
+                    of the window. Exit: the condition stops holding (a break or an e enters, or the falls drop below 75 %). Events
+                    logged with the window's counters. A burst whose kept cells give a DEMOTED group a new earliest eligible cell (earlier
+                    than every alive cell of that group before the burst) queues that cell (one per group per burst) with
+                    trigger_draws_per_cell (3) draws through the trigger queue (class demoted_new_earliest, same cap).
     cell weight     (1 + rank)^-rank_exp x max(novelty_floor, 1 / (1 + dispatches selected since the representative was set))
                     x cleared_weight^(claimed clears of the representative); rank = position by (tick, cell id) among the group's
                     eligible cells. The staleness count is taken when a dispatch is SELECTED (deterministic under D4), so the
@@ -53,12 +57,18 @@ import math
 from collections import Counter, deque
 from typing import Any, Deque, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
-SELECT_CONTRACT = "run3_select_v1"
+SELECT_CONTRACT = "run3_select_v2"            # v2 (owner 2026-11-08): rolling demotion window + new earliest cells of demoted groups
 TARGETS_TOTAL = 10
 NEW, REPLACED = "new", "replaced"
 STREAMS = ("rank", "anchor", "breadth", "trigger")
 NONFINITE = "nonfinite"
 HIST_FIELDS = ("n", "fall", "b", "bu", "e")
+LANDING_CLASS = "demoted_new_earliest"
+
+
+def window_code(fall: int, b: int, e: int) -> int:
+    """One dispatch in the demotion window: bit 0 fall, bit 1 a break, bit 2 an e (a digit 0-7 in the plan's tails)."""
+    return (1 if fall else 0) | (2 if b else 0) | (4 if e else 0)
 Niche = Tuple[int, Tuple[int, ...]]
 GKey = Tuple[int, int, str]
 
@@ -113,7 +123,7 @@ class Run3Selector:
     """The run 3 draw and its state. `archive`: the engine's archive (cells, eligible(), bound); `p`: Params3 (crossing_search_run3)."""
 
     def __init__(self, archive: Any, p: Any, *, niches: Mapping[int, Niche], history: Mapping[Any, Mapping[str, int]],
-                 cid_dispatches: Mapping[int, int], best_claim: Optional[int]):
+                 cid_dispatches: Mapping[int, int], best_claim: Optional[int], history_tails: Optional[Mapping[Any, str]] = None):
         self.a = archive
         self.p = p
         self.bound = int(archive.bound)
@@ -128,6 +138,18 @@ class Run3Selector:
             gk = tuple(g) if not isinstance(g, str) else _parse_glabel(g)
             self.hist[(int(gk[0]), int(gk[1]), str(gk[2]))] = Counter({k: int(h.get(k, 0)) for k in HIST_FIELDS})
         self.hist_start = {g: dict(h) for g, h in self.hist.items()}
+        self.DW = int(p.demote_min_dispatches)
+        self.dwin: Dict[GKey, Deque[int]] = {}
+        self.dcnt: Dict[GKey, List[int]] = {}                  # [falls, breaks, e] over the window
+        tails = {(tuple(g) if not isinstance(g, str) else _parse_glabel(g)): str(t) for g, t in (history_tails or {}).items()}
+        for g, h in self.hist.items():                         # every group with a history has its sequence, and they agree
+            t = tails.get(g, "")
+            codes = [int(ch) for ch in t]
+            if len(codes) != h["n"] or sum(c & 1 for c in codes) != h["fall"] or sum((c >> 1) & 1 for c in codes) != h["b"] \
+                    or sum((c >> 2) & 1 for c in codes) != h["e"]:
+                raise ValueError(f"group {glabel(g)}: its history sequence ({len(codes)} codes) does not match its counters {dict(h)}")
+            for c in codes[-self.DW:]:
+                self._push(g, c)
         self.hist3: Dict[GKey, Counter] = {}
         self.win: Dict[GKey, Deque[float]] = {}
         self.warm: Dict[GKey, Dict[str, Any]] = {}
@@ -262,12 +284,29 @@ class Run3Selector:
 
     # -- demotion -----------------------------------------------------------------------------------------------------------------------------
 
+    def _push(self, g: GKey, code: int) -> None:
+        w = self.dwin.setdefault(g, deque())
+        c = self.dcnt.setdefault(g, [0, 0, 0])
+        w.append(int(code))
+        c[0] += code & 1
+        c[1] += (code >> 1) & 1
+        c[2] += (code >> 2) & 1
+        while len(w) > self.DW:
+            old = w.popleft()
+            c[0] -= old & 1
+            c[1] -= (old >> 1) & 1
+            c[2] -= (old >> 2) & 1
+
+    def window_counts(self, g: GKey) -> Dict[str, int]:
+        c = self.dcnt.get(g, [0, 0, 0])
+        return {"n": len(self.dwin.get(g, ())), "fall": c[0], "b": c[1], "e": c[2]}
+
     def _demoted(self, g: GKey) -> bool:
-        h = self.hist.get(g)
-        if not h:
+        w = self.dwin.get(g)
+        if not w or len(w) < self.DW:
             return False
-        p = self.p
-        return h["n"] >= p.demote_min_dispatches and h["b"] == 0 and h["e"] == 0 and h["fall"] >= p.demote_fall_rate * h["n"]
+        falls, breaks, e = self.dcnt[g]
+        return breaks == 0 and e == 0 and falls >= self.p.demote_fall_rate * len(w)
 
     def _check_demotion(self, g: GKey, n: int) -> None:
         now = self._demoted(g)
@@ -281,6 +320,7 @@ class Run3Selector:
         self._pool = None
         h = self.hist[g]
         ev = {"kind": "demoted" if now else "exit", "n": int(n), "ingested": self.n_ingested, "group": glabel(g), "history": dict(h),
+              "window": self.window_counts(g),
               "fall_rate": round(h["fall"] / h["n"], 4) if h["n"] else None, "run3": dict(self.hist3.get(g, {}))}
         self.events.append(ev)
         self.period["events"].append(ev)
@@ -494,11 +534,17 @@ class Run3Selector:
             nxt = (row.get("levels") or {}).get(str(lv + 1))
             u = int(nxt is not None and int(nxt) <= self.bound)
         e = 0
+        landings: Dict[GKey, Tuple[int, int]] = {}             # the earliest kept cell beating each group's earliest alive cell
         for _v, c, niche in kept:
-            if c.level > lv:
-                lst = self.gall.get(self.gkey_of(c, niche))
-                if not lst or int(c.tick) < lst[0][0]:
-                    e = 1
+            g2 = self.gkey_of(c, niche)
+            lst = self.gall.get(g2)
+            earliest = not lst or int(c.tick) < lst[0][0]
+            if c.level > lv and earliest:
+                e = 1
+            if earliest and c.level < TARGETS_TOTAL:
+                t2 = (int(c.tick), int(c.cid))
+                if g2 not in landings or t2 < landings[g2]:
+                    landings[g2] = t2
         new_best_claim = claimed is not None and (self.best_claim is None or int(claimed) < self.best_claim)
         if new_best_claim:
             self.best_claim = int(claimed)
@@ -517,6 +563,7 @@ class Run3Selector:
         w.append(float(u + e))
         while len(w) > self.W:
             w.popleft()
+        self._push(g, window_code(fall, b, e))
         self._check_demotion(g, n)
         # the kept cells: niches, moves, ranks, anchors
         affected: Set[GKey] = set()
@@ -555,6 +602,9 @@ class Run3Selector:
                 st["successes"] += int(success)
                 self.period["anchor_bursts_ingested"][glabel(g)] += 1
                 self.period["anchor_successes"][glabel(g)] += int(success)
+        # new earliest eligible cells of demoted groups (owner 2026-11-08): trigger draws
+        landed = [self._landing_trigger(g2, cid, n) for g2, (_t, cid) in sorted(landings.items())
+                  if g2 in self.dem and self.group.get(cid) == g2 and cid in self.members(g2)]
         # triggers
         trig = self._trigger(kept, events, n, cid0)
         # counters for the records
@@ -563,7 +613,21 @@ class Run3Selector:
             d["e"][stream] += e
             d["breaks"][stream] += b
         self.period["ingested"] += 1
-        return {"u": u, "e": e, "b": b, "moves": len(moves), "anchor_success": success, "trigger": trig}
+        return {"u": u, "e": e, "b": b, "moves": len(moves), "anchor_success": success, "trigger": trig, "landing_triggers": landed}
+
+    def _landing_trigger(self, g: GKey, cid: int, n: int) -> int:
+        p = self.p
+        c = self.a.cells[cid]
+        ti = len(self.triggers)
+        rec = {"index": ti, "n": int(n), "ingested": self.n_ingested, "classes": [LANDING_CLASS], "all_classes": [LANDING_CLASS], "event_ids": [],
+               "first_tick": int(c.tick), "rule": ["new_earliest_in_demoted_group"], "group": glabel(g), "cells": [[int(cid), int(c.tick)]],
+               "draws_queued": int(p.trigger_draws_per_cell), "draws_given": 0, "dropped": 0}
+        self.triggers.append(rec)
+        self.period["triggers"].append(ti)
+        self.cnt["landing_triggers"] += 1
+        if int(p.trigger_draws_per_cell) > 0:
+            self.tq.append([int(cid), c.digest, int(p.trigger_draws_per_cell), ti])
+        return ti
 
     def _trigger(self, kept: Sequence[Tuple[str, Any, Niche]], events: Sequence[Mapping[str, Any]], n: int,
                  dispatched_cid: Optional[int] = None) -> Optional[int]:
