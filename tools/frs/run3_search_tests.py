@@ -830,7 +830,10 @@ def e2e_stored_records() -> Dict[str, Any]:
     check(len(hit) == 1, f"the victim's end_record row: {hit}")
     true_v = cells_x[hit[0]]["end"][xi]
     cells_x[hit[0]]["end"][xi] = math.nextafter(true_v, math.inf)
-    corrupted = b.lab / "x_cells_corrupted.jsonl"
+    cdir = b.lab / "x_corrupted" / "run"            # beside a copy of x's summary.json: end records come only from a run that stopped cleanly
+    cdir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(X["dir"] / "summary.json", cdir / "summary.json")
+    corrupted = cdir / "cells.jsonl"
     with open(corrupted, "w", encoding="utf-8", newline="\n") as fh:
         for x in cells_x:
             fh.write(json.dumps(x, separators=(",", ":")) + "\n")

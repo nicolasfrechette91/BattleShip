@@ -116,6 +116,9 @@ class Run3Core(r2.ResumeSearch):
         self.archive = adopt_archive(self.archive)
         self.end_import: Dict[str, Any] = {"files": [], "records": 0, "imported": 0}
         files = [Path(f) for f in (P.get("end_record_files") or [])]
+        bad = rar.end_record_source_problems(files, P.get("accept_runs") or [])      # owner 2026-11-06: never from a non-clean run
+        if bad:
+            raise SearchError(f"refused: end records from a run that did not stop cleanly: {bad[:3]}")
         if files:
             ends, rep = rar.end_records(files)
             if rep["end_conflicts"]:

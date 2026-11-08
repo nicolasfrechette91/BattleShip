@@ -23,6 +23,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -334,6 +335,126 @@ def unit_trigger_fallback() -> Dict[str, Any]:
     t3 = sel.triggers[o3["trigger"]]
     check(t3["cells"] == [[after.cid, 90]] and t3["rule"] == ["kept_at_or_after_event"], f"a cell kept after the event: the usual rule {t3}")
     return {"rules": [t1["rule"][0], t2["rule"][0], t3["rule"][0]]}
+
+
+class _Rec:
+    def __init__(self) -> None:
+        self.rows: List[Tuple[str, Dict[str, Any]]] = []
+
+    def append_jsonl(self, path: Any, row: Mapping[str, Any]) -> None:
+        self.rows.append((Path(path).name, dict(row)))
+
+
+class _Env:
+    def wait_no_battleship(self, t: float) -> List[int]:
+        return []
+
+    def log(self, s: str) -> None:
+        pass
+
+    def now(self) -> float:
+        return 0.0
+
+
+def unit_claims_frozen() -> Dict[str, Any]:
+    """CLAIMS_FROZEN (owner 2026-11-06), on a stub engine at the close: a text replay with other clocks freezes every verified clear of the
+    run (status CLAIMS_FROZEN, exit code 5), the remaining text replays are skipped, best_times and exports get frozen rows, the banner."""
+    import crossing_search as cs
+    import crossing_search_run3 as C
+
+    check(cs.EXIT[C.CLAIMS_FROZEN] == 5 and cs.STATUS_RANK[C.CLAIMS_FROZEN] == cs.STATUS_RANK["SEARCH_INVALID"], "the status and its exit code")
+    eng = object.__new__(C.Run3Engine)
+    rec = _Rec()
+    calls: List[str] = []
+
+    def lying_replay(words: bytes, label: str) -> Dict[str, Any]:
+        calls.append(label)
+        return {"ok": True, "result": {"outcome": "clear", "completion_input_tick": 101, "completion_time_passed": 100}}
+
+    for k, v in {"best_history": [{"n": 5}, {"n": 9}], "text_replay_fn": lying_replay, "env": _Env(), "fs": rec, "dir": Path("run"), "text_replays": [],
+                 "claims_frozen": None, "status": "WALL_CAP", "notes": [], "stopping": True, "stop_reason": "wall", "pool": None, "t0": 0.0, "phase": "close",
+                 "c": {"dispatches": 0}, "events": [],
+                 "vrows": [{"n": 5, "verdict": "VERIFIED", "words_hex": "00" * 100, "completion_input_tick": 100, "completion_time_passed": 99},
+                           {"n": 9, "verdict": "VERIFIED", "words_hex": "00" * 90, "completion_input_tick": 90, "completion_time_passed": 89}]}.items():
+        setattr(eng, k, v)
+    eng.run_text_replays()
+    check(eng.status == C.CLAIMS_FROZEN and cs.EXIT[eng.status] == 5, f"status {eng.status}")
+    cf = eng.claims_frozen
+    check(cf and cf["frozen_clears"] == [5, 9] and cf["clocks_text"] == [101, 100] and cf["clocks_verified"] == [100, 99] and cf["archive"] == "to_investigate",
+          f"the freeze record {cf}")
+    check(len(calls) == 1 and eng.text_replays[0]["equal"] is False and eng.text_replays[1].get("skipped", "").startswith("claims frozen"),
+          f"one text replay, the next one skipped: {calls} {eng.text_replays}")
+    frozen = [(f, r["n"]) for f, r in rec.rows if r.get("frozen")]
+    check(sorted(frozen) == sorted([("best_times.jsonl", 5), ("best_times.jsonl", 9), ("exports.jsonl", 5), ("exports.jsonl", 9)]), f"frozen rows {frozen}")
+    banner = C.frozen_banner({"run3": {"claims_frozen": cf}})
+    check(banner and "CLAIMS FROZEN" in banner[0] and "--accept-run" in banner[0], "the banner")
+    check(C.frozen_banner({"run3": {"claims_frozen": None}}) == [], "no banner without a freeze")
+    return {"status": eng.status, "frozen": cf["frozen_clears"]}
+
+
+def _run3_folder(root: Path, name: str, status: Optional[str], *, archive_id: str = "A", ref: int = 100) -> Path:
+    import crossing_search_run3 as C
+
+    d = root / name
+    (d / "run").mkdir(parents=True)
+    (d / "plan.json").write_text(json.dumps({"contract": C.RUN3_CONTRACT, "archive_id": archive_id, "e7": {"reference_completion_input_tick": ref, "margin": 24}}),
+                                 encoding="utf-8")
+    (d / "run" / "config.json").write_text("{}", encoding="utf-8")
+    (d / "run" / "cells.jsonl").write_text("", encoding="utf-8")
+    if status is not None:
+        (d / "run" / "summary.json").write_text(json.dumps({"contract": C.RUN3_CONTRACT, "mode": "lab", "status": status,
+                                                            "integrity": {"reference_ok": True, "run3_code_digest": "x", "run3_code_digest_end": "x"}}), encoding="utf-8")
+    return d
+
+
+def unit_non_clean_sources_refused() -> Dict[str, Any]:
+    """A run 3 folder that did not stop cleanly (CLAIMS_FROZEN, SEARCH_INVALID, no summary) is refused as a --best-from source and as an
+    end-record source, unless the owner's decision names it (--accept-run, recorded in the plan)."""
+    import crossing_search as cs
+    import crossing_search_run3 as C
+    import run3_archive as rar
+
+    root = tmpdir("run3_sources_")
+    try:
+        ok, frozen, invalid = _run3_folder(root, "ok", "WALL_CAP"), _run3_folder(root, "frozen", C.CLAIMS_FROZEN), _run3_folder(root, "invalid", "SEARCH_INVALID")
+        nosum = _run3_folder(root, "nosum", None)
+        check(C.read_best_source(ok, 100, "A")["accepted_non_clean"] is False, "a clean folder is read")
+        refused = []
+        for d in (frozen, invalid):
+            try:
+                C.read_best_source(d, 100, "A")
+            except cs.SearchError as exc:
+                refused.append(d.name)
+                check("--accept-run" in str(exc), f"the refusal names the flag: {exc}")
+        check(refused == ["frozen", "invalid"], f"non-clean folders refused as best sources: {refused}")
+        check(C.read_best_source(frozen, 100, "A", accepted=[frozen])["accepted_non_clean"] is True, "admitted when the plan names it")
+        files = [d / "run" / "cells.jsonl" for d in (ok, frozen, invalid, nosum)]
+        bad = rar.end_record_source_problems(files)
+        check(len(bad) == 3 and "CLAIMS_FROZEN" in bad[0] and "SEARCH_INVALID" in bad[1] and "no summary" in bad[2], f"end-record sources: {bad}")
+        bad2 = rar.end_record_source_problems(files, [frozen, invalid / "run"])
+        check(len(bad2) == 1 and "no summary" in bad2[0], f"named folders admitted (the output folder or its run folder): {bad2}")
+    finally:
+        cleanup(root)
+    return {"refused_best_sources": refused, "end_record_problems": len(bad)}
+
+
+def unit_plan_flags_match_saved_plan() -> Dict[str, Any]:
+    """`run` refuses --best-from / --accept-run folders that differ from those its saved plan records: a non-clean folder is admitted only by
+    the plan (owner 2026-11-06), never by a flag given at `run` alone; a flag dropped at `run` is refused too."""
+    import crossing_search_run3 as C
+
+    a, f = Path("C:/lab/crossing_a_run3"), Path("C:/lab/crossing_f_run3")
+    saved = {"run3": {"best_from": [{"dir": str(a)}, {"dir": str(f)}], "accept_runs": [str(f)]}}
+    check(C.plan_flag_problems(saved, [a, f], [f]) is None, "the same flags pass")
+    check(C.plan_flag_problems(saved, [Path(str(a).upper()), f], [f]) is None, "path case and separators do not matter")
+    cases = {"accept_at_run_only": C.plan_flag_problems({"run3": {"best_from": [{"dir": str(f)}]}}, [f], [f]),
+             "accept_dropped": C.plan_flag_problems(saved, [a, f], []),
+             "best_from_added": C.plan_flag_problems(saved, [a, f, Path("C:/lab/x")], [f]),
+             "best_from_order": C.plan_flag_problems(saved, [f, a], [f])}
+    check(all(cases.values()), f"every difference refused: {cases}")
+    check("--accept-run" in cases["accept_at_run_only"] and "--best-from" in cases["best_from_added"], f"the refusal names the flag: {cases}")
+    check(C.plan_flag_problems({"run3": {"best_from": []}}, [], []) is None, "an old plan without accept_runs and no flags passes")
+    return {"refused": sorted(cases)}
 
 
 def unit_bk2_roundtrip() -> Dict[str, Any]:
@@ -856,6 +977,57 @@ def e2e_detector_trigger_fallback() -> Dict[str, Any]:
     return {"triggers": len(trig), "rules": dict(rules), "served": len(served)}
 
 
+def e2e_frozen_run_not_inherited() -> Dict[str, Any]:
+    """A run 3 folder marked CLAIMS_FROZEN (a copy of a real fake-game run with that status) is refused by a later plan as a --best-from
+    source and by the engine as an end-record source, and admitted only when the plan's --accept-run names it (owner 2026-11-06)."""
+    import crossing_search as cs
+    import crossing_search_run3 as C
+    import frs_guard as g
+    import frs_machine as fm
+    import frs_run as fr
+    import frs_verify as fv
+    import m8_rd_stub as stub
+    import run3_manifest as rm
+    import run3_search_tests as r3t
+
+    b = bench()
+    A = b.run("a")
+    frz = b.lab / "run3_frz_copy"
+    if frz.exists():
+        cleanup(frz)
+    shutil.copytree(A["dir"].parent, frz)
+    _json_edit(frz / "run" / "summary.json", status=C.CLAIMS_FROZEN, run3=dict(A["summary"]["run3"], claims_frozen={"n": 0, "archive": "to_investigate"}))
+    params = C.Params3(**RUN3_PARAMS)
+    code = rm.code_digest(rm.run3_code_manifest())
+    try:
+        C.build_plan(b.lab, b.run1, b.run2, params, stub.analyse, code_digest=code, best_from=[frz])
+        raise AssertionError("a CLAIMS_FROZEN folder was accepted as a best source")
+    except cs.SearchError as exc:
+        check("--accept-run" in str(exc), f"refused with the flag named: {exc}")
+    P = C.build_plan(b.lab, b.run1, b.run2, params, stub.analyse, code_digest=code, best_from=[frz], accept_runs=[frz])
+    check(P["plan"]["run3"]["best_from"][0]["accepted_non_clean"] is True and P["accept_runs"] == [str(frz)], "admitted when named, recorded in the plan")
+    run_dir = b.lab / "run3_frz_engine" / "run"
+    fk = {"exe": b.fk["exe"], "frozen": b.fk["frozen"]}
+    env = fr.LabEnv(worker_spec=lambda rank: r3t.worker_spec(b.lab, fk, rank, 47000, run_dir / "failures", FLAGS),
+                    replay=fv.make_real_replay(Path(b.fk["exe"]), b.lab / "run_replays", FLAGS, {"frozen_sha256": b.fk["frozen"], "exe_copy_sha256": b.fk["exe_copy"]}),
+                    analyse=stub.analyse, readiness=lambda: {"ok": True, "problems": []}, battleship_pids=lambda: [], snapshot=fm.tree_snapshot,
+                    import_problems=lambda: [], wait_no_battleship=lambda t: [], code_manifest=fr.code_manifest, backend="real", sample_s=0.25, row_every_s=0.5,
+                    caps=dict(fm.CAPS_MB, main_private=1e9))
+    cfg = cs.SearchConfig(lab_root=b.lab, out=run_dir.parent, run_dir=run_dir, frontier_dir=b.run1, n_workers=1, max_ticks=10 ** 9, max_wall_s=60.0, expect_code=None)
+    P2 = C.build_plan(b.lab, b.run1, b.run2, params, stub.analyse, code_digest=code)
+    P2["end_record_files"] = [str(frz / "run" / "cells.jsonl")]
+    try:
+        C.Run3Night(cfg, env, P2, params, text_replay=None, anomaly_build={})
+        raise AssertionError("end records of a CLAIMS_FROZEN run were imported")
+    except cs.SearchError as exc:
+        check("did not stop cleanly" in str(exc), f"the end-record import refused: {exc}")
+    P3 = C.build_plan(b.lab, b.run1, b.run2, params, stub.analyse, code_digest=code, accept_runs=[frz])
+    P3["end_record_files"] = [str(frz / "run" / "cells.jsonl")]
+    eng = C.Run3Night(cfg, env, P3, params, text_replay=None, anomaly_build={})
+    check(eng.end_import["records"] >= 1 and not run_dir.exists() and not g.LabGuard.violations, f"admitted when the plan names it: {eng.end_import}")
+    return {"refused": 2, "admitted_records": eng.end_import["records"]}
+
+
 def e2e_text_replay() -> Dict[str, Any]:
     """The native text-replay path on the fake game: run 1's best verified clear replayed from its words gives its verified clocks; a
     truncated copy gives no clear."""
@@ -874,7 +1046,9 @@ def e2e_text_replay() -> Dict[str, Any]:
 
 
 UNIT = {"unit_niche_inheritance": unit_niche_inheritance, "unit_moves": unit_moves, "unit_demotion_and_shares": unit_demotion_and_shares,
-        "unit_e_and_anchor_success": unit_e_and_anchor_success, "unit_draws": unit_draws, "unit_triggers": unit_triggers, "unit_trigger_fallback": unit_trigger_fallback, "unit_bk2_roundtrip": unit_bk2_roundtrip,
+        "unit_e_and_anchor_success": unit_e_and_anchor_success, "unit_draws": unit_draws, "unit_triggers": unit_triggers, "unit_trigger_fallback": unit_trigger_fallback, "unit_claims_frozen": unit_claims_frozen,
+        "unit_non_clean_sources_refused": unit_non_clean_sources_refused, "unit_plan_flags_match_saved_plan": unit_plan_flags_match_saved_plan,
+        "unit_bk2_roundtrip": unit_bk2_roundtrip,
         "unit_export_clear": unit_export_clear, "unit_params": unit_params}
 CELL_ATTRS = ("cid", "key", "level", "tick", "lead", "words", "end", "end_digest", "chain", "digest", "origin", "created_at", "seen", "dispatched", "fresh",
               "breaks", "new_children", "replaced", "quarantined", "retired", "next_k", "first_level_reach", "previous", "inherited", "verified", "pending",
@@ -968,7 +1142,8 @@ def _json_edit(path: Path, **kw: Any) -> None:
 REAL = {"real_niches_equal_offline": real_niches_equal_offline, "real_start_table": real_start_table,
         "real_plan_via_child_equal": real_plan_via_child_equal, "real_best_from_smoke": real_best_from_smoke}
 E2E = {"e2e_same_seed_runs": e2e_same_seed_runs, "e2e_nonfinite_trigger": e2e_nonfinite_trigger,
-       "e2e_detector_trigger_fallback": e2e_detector_trigger_fallback, "e2e_text_replay": e2e_text_replay, "e2e_exports_under_guard": e2e_exports_under_guard}
+       "e2e_detector_trigger_fallback": e2e_detector_trigger_fallback, "e2e_frozen_run_not_inherited": e2e_frozen_run_not_inherited,
+       "e2e_text_replay": e2e_text_replay, "e2e_exports_under_guard": e2e_exports_under_guard}
 
 if __name__ == "__main__":
     args = sys.argv[1:]

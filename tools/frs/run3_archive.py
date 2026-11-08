@@ -29,6 +29,7 @@ if str(_RL) not in sys.path:
 import m8_rd_cells as mcell  # noqa: E402
 
 UNKNOWN = "unknown"
+CLEAN_STATUSES = ("COMPLETED", "ARCHIVE_EMPTY", "TICK_CAP", "WALL_CAP", "CELLS_CAP", "DISPATCH_CAP", "MEMORY_BUDGET")
 END_RECORD_EV = "end_record"
 TARGETS_TOTAL = 10
 
@@ -138,6 +139,29 @@ def end_records(cells_files: Sequence[Path]) -> Tuple[Dict[Tuple[int, str], List
     report["records"] = len(out)
     report["end_conflicts"] = sorted(set(report["end_conflicts"]))
     return out, report
+
+
+def end_record_source_problems(cells_files: Sequence[Path], accepted: Iterable[Any] = ()) -> List[str]:
+    """Why each cells.jsonl file may not give end records to a later run (owner 2026-11-06): its run folder must have stopped with a clean
+    status (not SEARCH_INVALID, SEARCH_INCOMPLETE or CLAIMS_FROZEN), unless the owner's decision names that folder (`accepted`: run
+    folders or their parent output folders, as recorded in the plan)."""
+    import os
+
+    acc = {os.path.normcase(str(Path(a).resolve())) for a in accepted}
+    out: List[str] = []
+    for f in cells_files:
+        run = Path(f).resolve().parent
+        sp = run / "summary.json"
+        if not sp.is_file():
+            out.append(f"{f}: no summary.json beside it (a run that did not close)")
+            continue
+        status = json.loads(sp.read_text(encoding="utf-8")).get("status")
+        if status in CLEAN_STATUSES:
+            continue
+        if os.path.normcase(str(run)) in acc or os.path.normcase(str(run.parent)) in acc:
+            continue
+        out.append(f"{f}: its run stopped with status {status} and no plan flag names it")
+    return out
 
 
 def group_of(level: int, cell: Optional[Mapping[str, Any]]) -> Tuple[int, Any]:

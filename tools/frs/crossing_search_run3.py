@@ -62,6 +62,11 @@ import run3_search as r3  # noqa: E402
 import run3_select as rs  # noqa: E402
 
 RUN3_CONTRACT = "frs_crossing_search_run3_v1"
+# owner 2026-11-06 (CLAIMS_FROZEN): a native text replay of a verified best that gives other clocks freezes every claim of the run. The status
+# joins the engine's tables at import (the inherited module's dicts, no inherited file edited): ranked with SEARCH_INVALID, exit code 5.
+CLAIMS_FROZEN = "CLAIMS_FROZEN"
+cs.EXIT.setdefault(CLAIMS_FROZEN, 5)
+cs.STATUS_RANK.setdefault(CLAIMS_FROZEN, cs.STATUS_RANK["SEARCH_INVALID"])
 SearchError, Refused = cs.SearchError, cs.Refused
 TRIGGER_CLASSES = ("line_crossing", "inside_solid", "floor_switch_unlinked", "nonfinite")
 UNUSED_INHERITED = ("seeds", "seed_order", "novelty_exp", "seen_exp", "bonus_exp", "pace_exp", "check_queue_max", "eager_levels", "eager_max_min",
@@ -147,7 +152,7 @@ SELECTION_RULES = {
 # -- the plan (zero native ticks) ---------------------------------------------------------------------------------------------------------------
 
 
-def read_best_source(d: Path, ref_t: int, archive_id: str) -> Dict[str, Any]:
+def read_best_source(d: Path, ref_t: int, archive_id: str, accepted: Sequence[Path] = ()) -> Dict[str, Any]:
     """A run 3 folder whose verified clears join the best and the bound (owner 2026-11-06, option c; its archive is NOT inherited): it
     must have stopped cleanly with a clean integrity record, on the same reference, archive id and margin. Read only."""
     d = Path(d)
@@ -159,8 +164,9 @@ def read_best_source(d: Path, ref_t: int, archive_id: str) -> Dict[str, Any]:
     summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
     if summary.get("contract") != RUN3_CONTRACT or summary.get("mode") != "lab" or plan.get("contract") != RUN3_CONTRACT:
         raise SearchError(f"refused: {d} is not a {RUN3_CONTRACT} lab run")
-    if summary.get("status") not in rl3.CLEAN_STATUSES:
-        raise SearchError(f"refused: {d} did not stop cleanly (status {summary.get('status')})")
+    named = g.norm(d) in {g.norm(Path(a)) for a in accepted}
+    if summary.get("status") not in rl3.CLEAN_STATUSES and not named:
+        raise SearchError(f"refused: {d} did not stop cleanly (status {summary.get('status')}); only an explicit --accept-run naming it admits it")
     integ = summary.get("integrity") or {}
     if integ.get("guard_violations_main") or integ.get("prefix_mismatches") or integ.get("battleship_left") or integ.get("reference_ok") is not True \
             or integ.get("run3_code_changed_during_run") or integ.get("run3_code_digest_end") != integ.get("run3_code_digest"):
@@ -175,13 +181,14 @@ def read_best_source(d: Path, ref_t: int, archive_id: str) -> Dict[str, Any]:
     claims = [int(x["claimed"]["completion_input_tick"]) for x in rl3.read_jsonl(dp)
               if x.get("outcome") == "clear" and (x.get("claimed") or {}).get("completion_input_tick") is not None] if dp.is_file() else []
     ok = [v for v in ver if v.get("kind") == "clear" and v.get("verdict") == fv.VERIFIED]
-    return {"dir": str(d), "status": summary.get("status"), "utc_start": summary.get("utc_start"), "utc_end": summary.get("utc_end"), "verifications": ver,
+    return {"dir": str(d), "status": summary.get("status"), "accepted_non_clean": bool(named and summary.get("status") not in rl3.CLEAN_STATUSES),
+            "utc_start": summary.get("utc_start"), "utc_end": summary.get("utc_end"), "verifications": ver,
             "verified": len(ok), "best_in_folder": min((int(v["completion_input_tick"]) for v in ok), default=None), "text": text,
             "claims_min": min(claims) if claims else None, "verifications_sha256": g.sha256_file(vp) if vp.is_file() else None}
 
 
 def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, analyse: fv.Analyse = fv.real_analyse, *,
-               code_digest: Optional[str] = None, best_from: Sequence[Path] = ()) -> Dict[str, Any]:
+               code_digest: Optional[str] = None, best_from: Sequence[Path] = (), accept_runs: Sequence[Path] = ()) -> Dict[str, Any]:
     params.check()
     R, meta = cs.read_reference(lab_root, analyse)
     R1 = r2.read_run1(run1_dir)
@@ -195,7 +202,7 @@ def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, 
     if int(p1["e7"]["reference_completion_input_tick"]) != ref_t or int(p1["e7"]["margin"]) != cs.MARGIN:
         raise SearchError("refused: run 1's E7 block is not the registered reference and margin")
     v2 = list(rl3.read_jsonl(Path(run2_dir) / "run" / "verifications.jsonl")) if (Path(run2_dir) / "run" / "verifications.jsonl").is_file() else []
-    extra = [read_best_source(Path(x), ref_t, meta["archive_id"]) for x in best_from]
+    extra = [read_best_source(Path(x), ref_t, meta["archive_id"], accept_runs) for x in best_from]
     best = r2.best_verified_of(list(R1["verifications"]) + v2 + [v for X in extra for v in X["verifications"]], ref_t)
 
     def is_best(v: Mapping[str, Any]) -> bool:
@@ -254,11 +261,12 @@ def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, 
             "run3": {"contract": RUN3_CONTRACT, "select_contract": rs.SELECT_CONTRACT, "start": sel.start, "rules": SELECTION_RULES, "code_digest": code,
                      "niche_stats": D["niche_stats"], "history": {"groups": H["groups"], "attribution": H["attribution"], "moves": H["moves"]},
                      "best_claim": best_claim, "claims": M["claims"], "groups": len(sel.start),
-                     "best_from": [{k: X[k] for k in ("dir", "status", "utc_start", "utc_end", "verified", "best_in_folder", "claims_min",
-                                                       "verifications_sha256")} for X in extra],
+                     "best_from": [{k: X[k] for k in ("dir", "status", "accepted_non_clean", "utc_start", "utc_end", "verified", "best_in_folder",
+                                                       "claims_min", "verifications_sha256")} for X in extra],
+                     "accept_runs": [str(Path(x)) for x in accept_runs],
                      "anchors": sum(r["anchors"] for r in sel.start if r["eligible"]), "demoted": [r["group"] for r in sel.start if r["demoted"]]}}
     return {"plan": plan, "seeds": [], "R": R, "meta": meta, "bound": bound, "bound_run1": bound_check, "best": best, "R1": R1, "archive": archive,
-            "cleared": M["cleared"], "run3_code_digest": code,
+            "cleared": M["cleared"], "run3_code_digest": code, "accept_runs": [str(Path(x)) for x in accept_runs],
             "run3": {"niches": D["niches"], "history": H["groups"], "cid_dispatches": M["cid_dispatches"], "best_claim": best_claim}}
 
 
@@ -282,7 +290,7 @@ def plan_payload(P: Mapping[str, Any]) -> Dict[str, Any]:
     return {"contract": PAYLOAD_CONTRACT, "plan": P["plan"], "R": P["R"], "meta": P["meta"], "bound": P["bound"], "bound_run1": P["bound_run1"],
             "best": P["best"], "R1": {"dir": str(R1["dir"]), "plan": R1["plan"], "config": R1["config"], "summary": R1["summary"], "rows": R1["rows"]},
             "archive_id": a.archive_id, "arrival": dict(a.arrival), "cells": cells, "cleared": P["cleared"], "run3": P["run3"],
-            "run3_code_digest": P["run3_code_digest"]}
+            "run3_code_digest": P["run3_code_digest"], "accept_runs": list(P.get("accept_runs") or [])}
 
 
 class _LazyFinal(_MappingABC):
@@ -319,7 +327,8 @@ def plan_from_payload(X: Mapping[str, Any], params: Params3) -> Dict[str, Any]:
     if bad or len(archive.cells) != len(cells):
         raise SearchError(f"refused: the rebuilt archive differs from the plan's ({len(bad)} cells)")
     return {"plan": X["plan"], "seeds": [], "R": X["R"], "meta": X["meta"], "bound": int(X["bound"]), "bound_run1": int(X["bound_run1"]),
-            "best": X["best"], "R1": X["R1"], "archive": archive, "cleared": X["cleared"], "run3": X["run3"], "run3_code_digest": X["run3_code_digest"]}
+            "best": X["best"], "R1": X["R1"], "archive": archive, "cleared": X["cleared"], "run3": X["run3"], "run3_code_digest": X["run3_code_digest"],
+            "accept_runs": list(X.get("accept_runs") or [])}
 
 
 PLAN_CHILD = ("import json, sys\nsys.path.insert(0, %r); sys.path.insert(0, %r)\nimport frs_guard as g\nfrom pathlib import Path\n"
@@ -335,14 +344,14 @@ def _plan_child(a: Mapping[str, Any]) -> None:
 
         analyse = stub.analyse
     P = build_plan(Path(a["lab_root"]), Path(a["run1"]), Path(a["run2"]), Params3(**a["params"]), analyse, code_digest=a.get("code_digest"),
-                   best_from=[Path(x) for x in a.get("best_from") or []])
+                   best_from=[Path(x) for x in a.get("best_from") or []], accept_runs=[Path(x) for x in a.get("accept_runs") or []])
     data = pickle.dumps(plan_payload(P), protocol=pickle.HIGHEST_PROTOCOL)
     with open(a["payload"], "wb") as f:
         f.write(data)
 
 
 def plan_via_child(lab_root: Path, run1_dir: Path, run2_dir: Path, out: Path, params: Params3, *, code_digest: Optional[str],
-                   analyse: str = "real", timeout: float = 900.0, best_from: Sequence[Path] = ()) -> Dict[str, Any]:
+                   analyse: str = "real", timeout: float = 900.0, best_from: Sequence[Path] = (), accept_runs: Sequence[Path] = ()) -> Dict[str, Any]:
     """build_plan in a fresh child process (same code, same inputs), its payload read back and removed; the main process holds only
     what the run keeps."""
     import os
@@ -354,7 +363,7 @@ def plan_via_child(lab_root: Path, run1_dir: Path, run2_dir: Path, out: Path, pa
         raise SearchError(f"refused: {payload} exists (a previous plan child did not clean up)")
     pdict = {k: (list(v) if isinstance(v, tuple) else v) for k, v in params.__dict__.items()}
     args = {"lab_root": str(lab_root), "run1": str(run1_dir), "run2": str(run2_dir), "params": pdict, "code_digest": code_digest,
-            "analyse": analyse, "payload": str(payload), "best_from": [str(x) for x in best_from]}
+            "analyse": analyse, "payload": str(payload), "best_from": [str(x) for x in best_from], "accept_runs": [str(x) for x in accept_runs]}
     code = PLAN_CHILD % (str(REPO / "rl"), str(HERE))
     r = subprocess.run([sys.executable, "-B", "-c", code, json.dumps(args)], capture_output=True, text=True, timeout=timeout, cwd=str(HERE))
     try:
@@ -371,8 +380,8 @@ def plan_via_child(lab_root: Path, run1_dir: Path, run2_dir: Path, out: Path, pa
 
 
 def plan_and_write(lab_root: Path, run1_dir: Path, run2_dir: Path, out: Path, params: Params3, analyse: fv.Analyse = fv.real_analyse, *,
-                   code_digest: Optional[str] = None, best_from: Sequence[Path] = ()) -> Dict[str, Any]:
-    P = build_plan(Path(lab_root), Path(run1_dir), Path(run2_dir), params, analyse, code_digest=code_digest, best_from=best_from)
+                   code_digest: Optional[str] = None, best_from: Sequence[Path] = (), accept_runs: Sequence[Path] = ()) -> Dict[str, Any]:
+    P = build_plan(Path(lab_root), Path(run1_dir), Path(run2_dir), params, analyse, code_digest=code_digest, best_from=best_from, accept_runs=accept_runs)
     fs = g.LabFS(lab_root)
     saved = Path(out) / "plan.json"
     if saved.is_file():
@@ -423,6 +432,7 @@ class Run3Engine(r3.Run3Core):
         self._final_record = False
         self.exports: List[Dict[str, Any]] = []
         self.text_replays: List[Dict[str, Any]] = []
+        self.claims_frozen: Optional[Dict[str, Any]] = None
         orig_keep = self.archive.keep
 
         def keep(key: Sequence[Any], level: int, tick: int, words: bytes, end: Sequence[Any], end_digest: bytes, chain: bytes, origin: Mapping[str, Any],
@@ -582,7 +592,9 @@ class Run3Engine(r3.Run3Core):
             v = by_n.get(int(b["n"]))
             if v is None:
                 continue
-            if left:
+            if self.claims_frozen is not None:
+                rec = {"n": b["n"], "skipped": "claims frozen by an earlier text replay of this run"}
+            elif left:
                 rec = {"n": b["n"], "skipped": f"game processes still running: {left}"}
             else:
                 try:
@@ -591,10 +603,26 @@ class Run3Engine(r3.Run3Core):
                     rep = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
                 rec = dict(rx.text_replay_verdict(rep, int(v["completion_input_tick"]), int(v["completion_time_passed"])), n=v["n"], btti_sha256=rep.get("btti_sha256"))
                 if rep.get("ok") and not rec["equal"]:
-                    self.mark("SEARCH_INVALID", f"verified best {v['n']} ({v['completion_input_tick']}): the native text replay gave {rec['clocks_text']}")
+                    self.freeze_claims(v, rec)
             rec["utc"] = g.utc()
             self.text_replays.append(rec)
             self.fs.append_jsonl(self.dir / "text_replays.jsonl", rec)
+
+    def freeze_claims(self, v: Mapping[str, Any], rec: Mapping[str, Any]) -> None:
+        """CLAIMS_FROZEN (owner 2026-11-06): every verified clear of this run is frozen (no verified best, no registration), the remaining
+        text replays are skipped, the summary carries a loud flag; the archive is kept intact and marked to investigate."""
+        frozen = [int(x["n"]) for x in self.vrows if x["verdict"] == fv.VERIFIED]
+        self.claims_frozen = {"reason": "the native text replay of a verified best gave other clocks than its two stepping replays",
+                              "n": int(v["n"]), "completion_input_tick": int(v["completion_input_tick"]), "clocks_verified": rec.get("clocks_verified"),
+                              "clocks_text": rec.get("clocks_text"), "frozen_clears": frozen, "archive": "to_investigate", "utc": g.utc()}
+        self.mark(CLAIMS_FROZEN, f"verified best {v['n']} ({v['completion_input_tick']}): the native text replay gave {rec.get('clocks_text')}; "
+                                 f"every claim of the run is frozen ({len(frozen)} verified clears)")
+        for x in self.vrows:
+            if x["verdict"] == fv.VERIFIED:
+                row = {"frozen": True, "n": x["n"], "completion_input_tick": x["completion_input_tick"], "reason": self.claims_frozen["reason"], "utc": g.utc()}
+                self.fs.append_jsonl(self.dir / "best_times.jsonl", row)
+                self.fs.append_jsonl(self.dir / "exports.jsonl", row)
+        self.event(f"CLAIMS FROZEN: {self.claims_frozen}")
 
     # -- hourly records ---------------------------------------------------------------------------------------------------------------------------
 
@@ -631,10 +659,11 @@ class Run3Engine(r3.Run3Core):
         start = {r["group"]: r["earliest_eligible"] for r in self.plan["run3"]["start"] if r["eligible"]}
         now = {r["group"]: r["earliest_eligible"] for r in self.selector.table() if r["eligible"]}
         improved = {gl: [start.get(gl), t] for gl, t in sorted(now.items()) if t is not None and (start.get(gl) is None or t < start[gl])}
-        faster = int(self.best["completion_input_tick"]) < int(self.best_start["completion_input_tick"])
+        faster = int(self.best["completion_input_tick"]) < int(self.best_start["completion_input_tick"]) and self.claims_frozen is None
         return {"rule": "Q11: read on verified clears and on the earliest arrival per group; three nights without progress end the line",
-                "faster_verified_clear": faster, "best_start": int(self.best_start["completion_input_tick"]), "best_end": int(self.best["completion_input_tick"]),
-                "groups_earliest_improved": improved, "progress": bool(faster or improved)}
+                "faster_verified_clear": faster, "best_start": int(self.best_start["completion_input_tick"]),
+                "best_end": int(self.best_start["completion_input_tick"] if self.claims_frozen else self.best["completion_input_tick"]),
+                "claims_frozen": self.claims_frozen is not None, "groups_earliest_improved": improved, "progress": bool(faster or improved)}
 
     def config_record(self, ready: Mapping[str, Any]) -> Dict[str, Any]:
         rec = super().config_record(ready)
@@ -654,8 +683,11 @@ class Run3Engine(r3.Run3Core):
         s = super().summary()
         s["contract"] = RUN3_CONTRACT
         verified = self.verified_clears()
-        s["run3"].update({"best": {k: v for k, v in self.best.items() if k != "words"}, "best_start": self.best_start, "best_history": list(self.best_history),
-                          "faster_than_start": sum(1 for v in verified if int(v["completion_input_tick"]) < int(self.best_start["completion_input_tick"])),
+        best = self.best_start if self.claims_frozen else {k: v for k, v in self.best.items() if k != "words"}
+        s["run3"].update({"best": best, "best_start": self.best_start, "best_history": list(self.best_history), "claims_frozen": self.claims_frozen,
+                          "archive_status": "to_investigate" if self.claims_frozen else "clean",
+                          "best_unconfirmed": {k: v for k, v in self.best.items() if k != "words"} if self.claims_frozen else None,
+                          "faster_than_start": 0 if self.claims_frozen else sum(1 for v in verified if int(v["completion_input_tick"]) < int(self.best_start["completion_input_tick"])),
                           "selection": self.selector.summary(), "start": self.plan["run3"]["start"], "plateau": self.plateau(), "niche_live": dict(self.niche_live),
                           "exports": list(self.exports), "text_replays": list(self.text_replays), "hourly_records": list(self.hourly)})
         return s
@@ -778,6 +810,16 @@ def hourly_md(rec: Mapping[str, Any]) -> str:
     return "\n".join(L) + "\n"
 
 
+def frozen_banner(s: Mapping[str, Any]) -> List[str]:
+    cf = (s.get("run3") or {}).get("claims_frozen")
+    if not cf:
+        return []
+    return [f"**CLAIMS FROZEN: the native text replay of verified best {cf['n']} ({cf['completion_input_tick']}) gave {cf['clocks_text']} instead of "
+            f"{cf['clocks_verified']}. Every claim of this run is frozen ({len(cf['frozen_clears'])} verified clears): no verified best, no registration. "
+            "The archive is kept intact and marked to investigate; no later run inherits it, its best or its end records without an explicit "
+            "plan flag (--accept-run) naming this folder.**", ""]
+
+
 def _status_lines(s: Mapping[str, Any]) -> List[str]:
     r3s = s["run3"]
     b, b0 = r3s["best"], r3s["best_start"]
@@ -824,7 +866,7 @@ def _records_lines(s: Mapping[str, Any]) -> List[str]:
 
 
 def progress_md3(s: Mapping[str, Any], *, final: bool) -> str:
-    L = [f"# Crossing search run 3: progress ({s.get('utc_end')})", "", "Final." if final else "Running.", ""] + _status_lines(s)
+    L = [f"# Crossing search run 3: progress ({s.get('utc_end')})", ""] + frozen_banner(s) + ["Final." if final else "Running.", ""] + _status_lines(s)
     eb = s["run3"]["selection"]["earliest_by_level"]
     L += ["", "## Earliest arrival per level", "", " · ".join(f"L{lv} {_f(d['tick'])} ({d['group']})" for lv, d in eb.items() if int(lv) >= 6) + "."]
     L += [""] + _selection_lines(s) + [""] + _records_lines(s)
@@ -832,7 +874,8 @@ def progress_md3(s: Mapping[str, Any], *, final: bool) -> str:
 
 
 def report_md3(s: Mapping[str, Any]) -> str:
-    L = [f"# Crossing search run 3 ({s.get('utc_start')} - {s.get('utc_end')})", "", "THE RULES: SESSION_LOG_2026-11-04.md section 16; config.json holds every parameter.", ""]
+    L = [f"# Crossing search run 3 ({s.get('utc_start')} - {s.get('utc_end')})", ""] + frozen_banner(s) + [
+        "THE RULES: SESSION_LOG_2026-11-04.md section 16; config.json holds every parameter.", ""]
     L += _status_lines(s) + [""] + _selection_lines(s) + [""] + _records_lines(s)
     L += ["", "## Verified clears", ""]
     for v in s["clears"]["rows"]:
@@ -852,16 +895,27 @@ def params_from_args(a: argparse.Namespace) -> Params3:
     return p
 
 
+def plan_flag_problems(saved_plan: Mapping[str, Any], best_from: Sequence[Path], accept_runs: Sequence[Path]) -> Optional[str]:
+    """`run` takes exactly the --best-from and --accept-run folders its saved plan records (owner 2026-11-06: admitting a run that did not
+    stop cleanly is a plan decision, so a flag given only at `run` is refused, and so is one dropped there)."""
+    r3p = saved_plan.get("run3") or {}
+    pairs = (("--best-from", best_from, [X.get("dir") for X in r3p.get("best_from") or []]), ("--accept-run", accept_runs, list(r3p.get("accept_runs") or [])))
+    for flag, given, planned in pairs:
+        if [g.norm(Path(x)) for x in given] != [g.norm(Path(str(x))) for x in planned]:
+            return f"{flag} {[str(x) for x in given]} differs from the saved plan's {[str(x) for x in planned]}: plan again with the same flags"
+    return None
+
+
 def run_command(lab_root: Path, run1: Path, run2: Path, out: Path, a: argparse.Namespace) -> str:
     return (f"python -B tools/frs/crossing_search_run3.py run --lab-root {Path(lab_root).as_posix()} --run1 {Path(run1).as_posix()} --run2 {Path(run2).as_posix()} "
             f"--out {Path(out).as_posix()} --workers {a.workers} --max-ticks {a.max_ticks} --max-wall-min {a.max_wall_min:g} --rng-seed {a.rng_seed} "
             f"--summary-every-s {a.summary_every_s:g}" + (f" --max-dispatches {a.max_dispatches}" if a.max_dispatches else "")
-            + "".join(f" --best-from {Path(x).as_posix()}" for x in a.best_from))
+            + "".join(f" --best-from {Path(x).as_posix()}" for x in a.best_from) + "".join(f" --accept-run {Path(x).as_posix()}" for x in a.accept_run))
 
 
 def cmd_plan(lab_root: Path, run1: Path, run2: Path, out: Path, a: argparse.Namespace) -> int:
     params = params_from_args(a)
-    P = plan_and_write(lab_root, run1, run2, out, params, best_from=a.best_from)
+    P = plan_and_write(lab_root, run1, run2, out, params, best_from=a.best_from, accept_runs=a.accept_run)
     p = P["plan"]
     print(json.dumps({k: p[k] for k in ("e7", "best", "archive_set_digest")}, separators=(",", ":"), default=str))
     print(json.dumps({"params": p["params"], "arm": p["arm"]}, separators=(",", ":"), default=str))
@@ -893,7 +947,12 @@ def cmd_run(lab_root: Path, run1: Path, run2: Path, out: Path, a: argparse.Names
         return 2
     params = params_from_args(a)
     old = json.loads(saved.read_text(encoding="utf-8"))
-    P = plan_via_child(lab_root, run1, run2, out, params, code_digest=old.get("run3", {}).get("code_digest"), best_from=a.best_from)
+    bad = plan_flag_problems(old, a.best_from, a.accept_run)
+    if bad:
+        print(f"refused: {bad}")
+        return 2
+    P = plan_via_child(lab_root, run1, run2, out, params, code_digest=old.get("run3", {}).get("code_digest"), best_from=a.best_from,
+                       accept_runs=a.accept_run)
     if old.get("archive_set_digest") != P["plan"]["archive_set_digest"]:
         print("refused: the archive set differs from the saved plan")
         return 2
@@ -924,6 +983,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--run2", required=True, help="run 2's output folder (planned on --run1)")
     ap.add_argument("--best-from", action="append", default=[], help="a clean run 3 folder whose verified clears join the best and the bound "
                                                                      "(its archive is not inherited); repeatable")
+    ap.add_argument("--accept-run", action="append", default=[], help="the owner's decision to admit a run 3 folder that did not stop cleanly "
+                                                                      "(CLAIMS_FROZEN, SEARCH_INVALID ...) as a --best-from source or an end-record source; repeatable")
     ap.add_argument("--out", default=None, help="default <lab root>/crossing_<date>_run3")
     ap.add_argument("--workers", type=int, default=5)
     ap.add_argument("--level-decay", type=float, default=Params3.level_decay)
@@ -945,6 +1006,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         run1 = g.validate_run_dir(Path(a.run1), lab)
         run2 = g.validate_run_dir(Path(a.run2), lab)
         a.best_from = [g.validate_run_dir(Path(x), lab) for x in a.best_from]
+        a.accept_run = [g.validate_run_dir(Path(x), lab) for x in a.accept_run]
     except g.LabRootError as exc:
         raise SystemExit(str(exc))
     for d in (run1, run2):
