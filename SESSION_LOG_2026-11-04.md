@@ -1212,3 +1212,19 @@ on their start cell's first dispatch, the others on the second or third, 4 to 23
 exploitation draws, static archive): current split L9 17,808 draws (39 cells: mean 457, min 104, the earliest 4,009), flat 8,348 (mean
 214, min 50), 7-8 first (0.20 / 0.35 / 0.35 / 0.10) 6,678 (mean 171, min 38); expected u + e at level 7: 7.8 / 14.6 / 20.4, at level 8:
 419 / 393 / 550.
+
+### 19.4 2026-11-09, owner: "7-8 first" approved; hourly per-level record; backup; GO for the backup and the smoke run
+
+- **Level split approved:** 0.20 / 0.35 / 0.35 / 0.10 for the deepest eligible level and the three below it (9 / 8 / 7 / 6 at 953).
+  **Built:** `Params3.level_weights` (`--level-weights 0.20,0.35,0.35,0.10`; default `()` = `level_decay` 0.5, numerically unchanged;
+  levels past the list get 0; the deepest level's weight must be positive), recorded in the plan's parameters;
+  `Run3Selector.level_weights`. Test: `unit_level_weights` (counting from the deepest level, the draw frequency, the refusals, the
+  parameter record, the hourly per-level record).
+- **Hourly record per level (owner):** weight, eligible cells, dispatched, ingested, u, e, (u + e) per 1,000 ingested at this run's bound,
+  earliest arrival (`levels` in each hourly record and a "Levels" table in hourly.md). The owner's flag: level 8's earliest arrival not
+  below its start value (869) after 4 hours (in the session's hourly summary script).
+- **Lab backup:** `D:/BattleShip_lab_backup/2026-11-09` (lab/, SHA256SUMS.txt from the sources with Python hashlib, README.txt): 2,489
+  files, 1,800,244,362 bytes; Python re-hash of the copies 2,489 / 2,489 equal, sources unchanged after the copy; PowerShell
+  Get-FileHash 2,489 equal, 0 differ, 0 missing. The empty folder port_leases holds no file.
+- **Verified (main tree, 2026-11-09):** `crossing_search_run3_tests.py` 30/30 (unit 18, real 5, e2e 7); `run3_search_tests.py` 13/13;
+  `run3_archive_tests.py` 2/2; `run3_anomaly_tests.py` 10/10. `git diff --check` clean. Run 3 code digest `d0cdde51` (54 files).
