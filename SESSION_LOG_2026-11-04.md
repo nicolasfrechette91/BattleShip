@@ -1161,3 +1161,54 @@ Built as proposed and approved (17.5, 17.8), on 6ca6cb8, in a separate worktree 
 - **Verified (main tree, no shim, 2026-11-08):** `crossing_search_run3_tests.py` 25/25 (unit 15, real 4: the start table unchanged, 14
   groups, 153 anchors, only (9, 64, 326:2-8-1) demoted; e2e 6); `run3_search_tests.py` 13/13; `run3_archive_tests.py` 2/2;
   `run3_anomaly_tests.py` 10/10. `git diff --check` clean. Run 3 code digest `b043d6bd` (54 files).
+
+## 19. 2026-11-09: the right side is frozen by construction; the inheritance loader; the level weights
+
+### 19.1 The owner's strategic question (answered)
+
+- **A level is the number of targets broken** (`rl/m8_rd_cells.py` `level_of_mask`); level 10 = the clear. Runs 1-3 dispatch only from
+  levels 6-9 (all 41,737 of the night's dispatches).
+- **Why:** run 1's archive started from 48 seeds, `crossing_seed_v1` = the frontier search's states at level 7 (21) and level 6 (27)
+  (`docs/frs_crossing_search_2026-10-15.md`, "The design as run"); runs 2 and 3 continue that archive. Not the bound, not the level weights.
+  The right side was deferred, not excluded: the 2026-10-16 strategy review's stage 2, "the right-side arm" (`docs/frs_strategy_2026-10-16.md`
+  §6 option 3). By construction (a burst only moves forward, no cell below level 6) level 6 can never beat 461 and level 7 only from the
+  461 cell in under 32 ticks.
+- **The 978, segment by segment** (traced cell by cell): targets 4, 0, 5, 7, 9, 3 at 29, 80, 167, 184, 305, 461 = the run 1 seed's own
+  prefix (frontier search, sid 579); 2 at 530 (night 1,551); **6 at 869 (339 ticks, 35 %; night 1,667 -> 25,119 -> 35,865)**; 8 at 937; 1 at
+  978. 480 ticks needs a different route, not only a faster start (the last four targets alone take 517).
+- **Earliest arrival per level anywhere:** 1: 26 (the M8 import), 2: 78, 3: 120, 4: 184, 5: 280 (frontier search), 6: 461, 7: 493 (frontier
+  search = run 1 seeds), 8: 869, 9: 925, clear 978 (the night). Levels 1-5 are not in the run 1-3 archive.
+
+### 19.2 The inheritance loader (approved 2026-11-09 with rule a; built)
+
+- **Owner's decision:** merge runs 1 + 2 + the night in chronological order with cells, end records and per-dispatch history; niche
+  continuity; refuse a non-clean folder unless `--accept-run`; rule (a) for the D1 windows (the last 200 real dispatches, u recomputed at
+  this plan's bound, padded with the group's whole-history rate); the smoke run stays out of the chain; a lab backup before the run.
+- **Built:** `tools/frs/run3_load.py` (`read_run3`, `merge(run1, run2, *later)`, `inherited_history`, `load(..., inherit, accepted)`;
+  run 2's history also returns the D1 window values), `tools/frs/run3_select.py` (`history_windows`: rule a when given, DECISIVE 1's
+  warm start otherwise; the values must match the counters), `tools/frs/crossing_search_run3.py` (`--inherit`, repeatable, chronological;
+  `inherit_chain_problems`: one linear chain, checked from the plans before any row is read and again with the cell rows; a folder in
+  both `--best-from` and `--inherit` is refused; the inherited folders' clears join the best; `P["end_record_files"]` = their cells files;
+  the plan records each folder's checks and `windows_rule`; `run` takes exactly the saved plan's `--inherit`).
+- **Checks at the plan, on the real night:** every one of its 74,924 rows gets its recorded niche from the exact lineage; its 41,737
+  dispatches replay over the archive it started from, each credited to the group of the representative dispatched, to its own per-group
+  totals (23 groups); 4,314 end-record rows; best 978 (text replay equal) -> bound 953; 46,240 cells, 15,800 eligible. The start table
+  equals the zero-tick prototype's in every field: (9, 2, 326:2-6-8) 39 eligible from 925; (8, 258, 326:2-6) 224 from 869; six level-7
+  groups at 1/6 each (all at the rho floor at 953); level 6 55.6 / 44.4 %; 10 groups, 107 anchors, none demoted.
+- **Tests (new):** `unit_real_windows`, `unit_inherit_chain` (sibling, wrong order, another run 2, twice; `run` flag), `real_inherit_night_table`
+  (the table above, the night's checks), `e2e_inherit_a_to_b` (fake game: B's archive is A's final one, B's new ids continue, A's end
+  records imported, B's history = run 2's + A's own totals, rule a; a CLAIMS_FROZEN copy refused unless `--accept-run`, an altered niche
+  label refused, a sibling after A refused).
+- **Verified (main tree, 2026-11-09):** `crossing_search_run3_tests.py` 29/29 (unit 17, real 5, e2e 7); `run3_search_tests.py` 13/13;
+  `run3_archive_tests.py` 2/2; `run3_anomaly_tests.py` 10/10. `git diff --check` clean. Run 3 code digest `44ce752e` (54 files).
+
+### 19.3 The level weights at 953 (proposed, waiting for the owner)
+
+`tools/analysis/run3_design/d5_level_weights.py`, zero ticks. Yield per 1,000 dispatches of the night at the 953 definition (u + e), from
+cells at or under 953: level 9 3.8 (261 dispatches, 1 e: the 978), level 8 47.1 (531, 24 level-9 arrivals <= 953), level 7 1.7 (5,154,
+2 level-8 arrivals <= 953 + 7 e), level 6 29.1 (5,571, mostly level-7 arrivals <= 953, which are plentiful). Six of the eight bests came
+on their start cell's first dispatch, the others on the second or third, 4 to 231 level-9 dispatches after the cell appeared (the 999:
+1,372). Earliest level 9 moved only in hours 4, 6 and 7, each time after level 8 moved. DECISIVE 4's model on the real 953 start (33,390
+exploitation draws, static archive): current split L9 17,808 draws (39 cells: mean 457, min 104, the earliest 4,009), flat 8,348 (mean
+214, min 50), 7-8 first (0.20 / 0.35 / 0.35 / 0.10) 6,678 (mean 171, min 38); expected u + e at level 7: 7.8 / 14.6 / 20.4, at level 8:
+419 / 393 / 550.
