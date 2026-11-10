@@ -14,7 +14,9 @@ in-order ingest of the result, so every decision here is a function of the plan,
                     a level (decay 0.5 from the deepest eligible level), a group by its share, then an anchor (DECISIVE 3) with
                     probability anchor_share x w_max, else the rank draw (DECISIVE 1). When no cell is eligible for breadth the
                     dispatch falls back to exploitation (recorded).
-    shares          rho = (sum of the window + 1) / (window length + 2); the window holds the group's last 200 dispatches, each
+    shares          (with an inherited run 3 folder, owner 2026-11-09, rule a: the window starts as the group's last 200 REAL dispatches of
+                    runs 2 and 3 with u at this run's bound, the front padded with its whole-history rate; otherwise as follows)
+                    rho = (sum of the window + 1) / (window length + 2); the window holds the group's last 200 dispatches, each
                     worth u + e (u: a useful break, next-level arrival <= the bound, at level 9 a claimed clear <= the bound; e: a new
                     earliest arrival in a deeper group, at level 9 a claimed clear faster than every earlier claim). It starts as 200
                     pseudo-dispatches at the group's whole-run-2 rate (u + e) / n, or, for a group with no history, at its level's
@@ -123,7 +125,8 @@ class Run3Selector:
     """The run 3 draw and its state. `archive`: the engine's archive (cells, eligible(), bound); `p`: Params3 (crossing_search_run3)."""
 
     def __init__(self, archive: Any, p: Any, *, niches: Mapping[int, Niche], history: Mapping[Any, Mapping[str, int]],
-                 cid_dispatches: Mapping[int, int], best_claim: Optional[int], history_tails: Optional[Mapping[Any, str]] = None):
+                 cid_dispatches: Mapping[int, int], best_claim: Optional[int], history_tails: Optional[Mapping[Any, str]] = None,
+                 history_windows: Optional[Mapping[Any, str]] = None):
         self.a = archive
         self.p = p
         self.bound = int(archive.bound)
@@ -150,6 +153,13 @@ class Run3Selector:
                 raise ValueError(f"group {glabel(g)}: its history sequence ({len(codes)} codes) does not match its counters {dict(h)}")
             for c in codes[-self.DW:]:
                 self._push(g, c)
+        self.real_windows: Optional[Dict[GKey, str]] = None    # rule a (owner 2026-11-09): with an inherited run, the D1 window is real
+        if history_windows is not None:
+            self.real_windows = {(tuple(g) if not isinstance(g, str) else _parse_glabel(g)): str(w) for g, w in history_windows.items()}
+            for g, h in self.hist.items():
+                w = self.real_windows.get(g, "")
+                if len(w) != h["n"] or sum(int(ch) for ch in w) != h["bu"] + h["e"]:
+                    raise ValueError(f"group {glabel(g)}: its D1 window values ({len(w)}) do not match its counters {dict(h)}")
         self.hist3: Dict[GKey, Counter] = {}
         self.win: Dict[GKey, Deque[float]] = {}
         self.warm: Dict[GKey, Dict[str, Any]] = {}
@@ -248,6 +258,13 @@ class Run3Selector:
         if g in self.win:
             return
         h = self.hist.get(g)
+        if self.real_windows is not None and h and h["n"] > 0:          # rule a: the last W real values, the front padded with the whole-history rate
+            vals = [float(int(ch)) for ch in self.real_windows.get(g, "")[-self.W:]]
+            rate = (h["bu"] + h["e"]) / h["n"]
+            self.win[g] = deque([rate] * (self.W - len(vals)) + vals)
+            self.warm[g] = {"rate": rate, "source": "real_window", "real": len(vals), "at_ingest": self.n_ingested}
+            self.hist.setdefault(g, Counter({k: 0 for k in HIST_FIELDS}))
+            return
         if h and h["n"] > 0:
             rate, src = (h["bu"] + h["e"]) / h["n"], "run2"
         else:

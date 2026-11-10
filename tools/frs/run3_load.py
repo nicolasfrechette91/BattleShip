@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Run 3's start: runs 1 + 2 merged (2026-11-06 session, step 8; MINOR table O1, DECISIVE 4b). Zero native ticks; reads the two run
-folders only.
+"""Run 3's start: runs 1 + 2 merged (2026-11-06 session, step 8; MINOR table O1, DECISIVE 4b), then the inherited run 3 folders in
+chronological order (owner 2026-11-09, `--inherit`). Zero native ticks; reads the run folders only.
 
     run 2           its folder is checked like run 1's (rl contract, a clean stop, a clean integrity record, the configuration = the plan)
                     and must have been planned on THIS run 1 (cell rows and start time recorded in its plan).
@@ -15,6 +15,14 @@ folders only.
                     dispatch's start tick), with n, falls, b (a burst that broke a target), bu (a useful break: next-level arrival <=
                     the bound; level 9: a claimed clear <= the bound) and e (a new earliest arrival in a deeper group; level 9: a
                     claimed clear faster than every earlier claim). Group moves (a replacement into another niche) are counted.
+                    Per group it also keeps each dispatch's (fall, b, e) code (the rolling demotion window) and its u + e (the D1 window).
+    inherited       (owner 2026-11-09) each inherited run 3 folder: every kept representative with its words, the dispatch rows with the
+                    group the run recorded. Its rows join the merge after the runs before it (its new cell ids must continue theirs); the
+                    niche of every one of its rows, recomputed from the exact lineage over all runs, must equal the niche the run recorded;
+                    its dispatches are replayed in dispatch order over the archive the run started from (each credited to the group it
+                    recorded, which must be the group of the representative dispatched), and their per-group totals must equal the run's
+                    own summary table (n, falls, b, u at the run's own bound, e). u for the counters and the D1 window is recomputed at
+                    THIS plan's bound (rule a).
 
 Standard library only.
 """
@@ -33,6 +41,8 @@ RUN1_CONTRACT = "frs_crossing_search_v1"
 RUN2_FILES = ("plan.json", "run/config.json", "run/summary.json", "run/cells.jsonl", "run/dispatches.jsonl")   # verifications.jsonl: only once a claim is replayed
 CLEAN_STATUSES = ("COMPLETED", "ARCHIVE_EMPTY", "TICK_CAP", "WALL_CAP", "CELLS_CAP", "DISPATCH_CAP", "MEMORY_BUDGET")
 FAMILY = {1: "crossing", 2: "crossing2"}
+RUN3_CONTRACT = "frs_crossing_search_run3_v1"          # crossing_search_run3.RUN3_CONTRACT (checked there at import)
+RUN3_FAMILY = "crossing3"
 LIGHT_DISPATCH = ("n", "cid", "k", "level", "start_tick", "outcome", "levels", "breaks_after_start", "advanced", "claimed", "draw_id")
 
 
@@ -103,11 +113,62 @@ def read_run(d: Path, run: int, *, run1_rows: Optional[int] = None, run1_utc_sta
             "verifications": ver}
 
 
-def merge(run1: Mapping[str, Any], run2: Mapping[str, Any]) -> Dict[str, Any]:
-    """The final representatives of runs 1 + 2 (with their words), origins, dispatch statistics, cleared counts, the fastest claim."""
+def read_run3(d: Path, run: int, *, accepted: Sequence[Any] = ()) -> Dict[str, Any]:
+    """An inherited run 3 folder (owner 2026-11-09), light like read_run: every kept representative without its words (the last words per
+    cell id apart), the dispatch rows' selection fields with the group the run recorded, the counts of its end-record rows. Its status
+    must be clean unless `accepted` names it (the plan's --accept-run); the plan also reads it as a best source (status, integrity,
+    reference, archive id, margin, text replays: crossing_search_run3.read_best_source)."""
+    import os
+
+    d = Path(d)
+    for f in ("plan.json", "run/config.json", "run/summary.json", "run/cells.jsonl", "run/dispatches.jsonl"):
+        if not (d / f).is_file():
+            raise LoadError(f"refused: {d} is not a run 3 output folder (missing {f})")
+    plan = json.loads((d / "plan.json").read_text(encoding="utf-8"))
+    config = json.loads((d / "run" / "config.json").read_text(encoding="utf-8"))
+    summary = json.loads((d / "run" / "summary.json").read_text(encoding="utf-8"))
+    for name, obj in (("plan.json", plan), ("run/summary.json", summary)):
+        if obj.get("contract") != RUN3_CONTRACT or obj.get("mode") != "lab":
+            raise LoadError(f"refused: {d / name} is not a {RUN3_CONTRACT} lab record")
+    acc = {os.path.normcase(str(Path(a).resolve())) for a in accepted}
+    if summary.get("status") not in CLEAN_STATUSES and os.path.normcase(str(d.resolve())) not in acc:
+        raise LoadError(f"refused: {d} did not stop cleanly (status {summary.get('status')}); only an explicit --accept-run naming it admits it")
+    if config.get("params") != plan.get("params"):
+        raise LoadError(f"refused: {d}'s run configuration is not its plan's")
+    rows: List[Dict[str, Any]] = []
+    words_last: Dict[int, str] = {}
+    end_rows = 0
+    for i, r in enumerate(read_jsonl(d / "run" / "cells.jsonl")):
+        if r.get("ev") == "end_record":
+            end_rows += 1
+            continue
+        if r.get("ev") not in (rs.NEW, rs.REPLACED) or not r.get("words_hex") or not r.get("key") or not r.get("niche"):
+            raise LoadError(f"{d} cells.jsonl row {i + 1}: not a kept representative with its key, words and niche")
+        words_last[int(r["cid"])] = r.pop("words_hex")
+        r["_run"] = run
+        rows.append(r)
+    disp: List[Dict[str, Any]] = []
+    for r in read_jsonl(d / "run" / "dispatches.jsonl"):
+        if r.get("kind", "burst") != "burst":
+            continue
+        fam = str(r.get("draw_id", "")).split("|")
+        if len(fam) != 3 or fam[1] != RUN3_FAMILY or not r.get("group"):
+            raise LoadError(f"{d} dispatch {r.get('n')}: key family {r.get('draw_id')} / group {r.get('group')} is not run 3's")
+        x = {k: r.get(k) for k in LIGHT_DISPATCH + ("group",)}
+        x["digest"] = fam[2]
+        disp.append(x)
+    disp.sort(key=lambda x: int(x["n"]))
+    return {"dir": d, "run": run, "plan": plan, "config": config, "summary": summary, "rows": rows, "words_last": words_last, "dispatches": disp,
+            "end_record_rows": end_rows}
+
+
+def merge(run1: Mapping[str, Any], run2: Mapping[str, Any], *later: Mapping[str, Any]) -> Dict[str, Any]:
+    """The final representatives of runs 1 + 2 and of the inherited run 3 folders after them (with their words), origins, dispatch
+    statistics, cleared counts, the fastest claim."""
+    runs = (run1, run2) + tuple(later)
     final: Dict[int, Dict[str, Any]] = {}
     origins: Dict[Tuple[int, str], Dict[str, Any]] = {}
-    for R in (run1, run2):
+    for R in runs:
         for r in R["rows"]:
             cid = int(r["cid"])
             if cid not in final and cid != len(final):
@@ -115,7 +176,7 @@ def merge(run1: Mapping[str, Any], run2: Mapping[str, Any]) -> Dict[str, Any]:
             final[cid] = r
             origins[(cid, str(r["digest"]))] = r["origin"]
     words: Dict[int, str] = {}
-    for R in (run1, run2):
+    for R in runs:
         words.update(R["words_last"])
     out_final: Dict[int, Dict[str, Any]] = {}
     for cid, r in final.items():
@@ -126,7 +187,7 @@ def merge(run1: Mapping[str, Any], run2: Mapping[str, Any]) -> Dict[str, Any]:
     by_cid: Counter = Counter()
     cleared: Counter = Counter()
     claims: List[int] = []
-    for R in (run1, run2):
+    for R in runs:
         for d in R["dispatches"]:
             st = by_digest.setdefault(str(d["digest"]), [0, 0])
             st[0] += 1
@@ -230,6 +291,7 @@ def run2_history(run1: Mapping[str, Any], run2: Mapping[str, Any], niches: Niche
         ev_by_n[int(r["origin"]["n"])].append(r)
     st: Dict[rs.GKey, Counter] = defaultdict(Counter)
     seq: Dict[rs.GKey, List[str]] = defaultdict(list)          # owner 2026-11-08: the per-dispatch (fall, b, e) codes for the rolling demotion window
+    win: Dict[rs.GKey, List[str]] = defaultdict(list)          # owner 2026-11-09 (rule a): the per-dispatch u + e at this bound, the D1 window
     attr: Counter = Counter()
     for d in run2["dispatches"]:
         cid = int(d["cid"])
@@ -247,7 +309,8 @@ def run2_history(run1: Mapping[str, Any], run2: Mapping[str, Any], niches: Niche
         s["n"] += 1
         s["fall"] += int(d.get("outcome") == "fall")
         s["b"] += int(bool(d.get("breaks_after_start")))
-        s["bu"] += int(ct is not None and int(ct) <= bound) if lv == rs.TARGETS_TOTAL - 1 else int(nxt is not None and int(nxt) <= bound)
+        u = int(ct is not None and int(ct) <= bound) if lv == rs.TARGETS_TOTAL - 1 else int(nxt is not None and int(nxt) <= bound)
+        s["bu"] += u
         e = 0
         for r in ev_by_n.get(int(d["n"]), []):
             if int(r["level"]) > lv:
@@ -259,23 +322,118 @@ def run2_history(run1: Mapping[str, Any], run2: Mapping[str, Any], niches: Niche
             best_claim = int(ct)
         s["e"] += e
         seq[g].append(str(rs.window_code(int(d.get("outcome") == "fall"), int(bool(d.get("breaks_after_start"))), e)))
+        win[g].append(str(u + e))
         for r in ev_by_n.get(int(d["n"]), []):
             put(int(r["cid"]), r)
     return {"groups": {rs.glabel(g): {k: int(v.get(k, 0)) for k in rs.HIST_FIELDS} for g, v in sorted(st.items())}, "attribution": dict(attr),
             "moves": dict(moves), "final_digests": {cid: str(r["digest"]) for cid, r in cur.items()},
-            "tails": {rs.glabel(g): "".join(v) for g, v in sorted(seq.items())}}
+            "tails": {rs.glabel(g): "".join(v) for g, v in sorted(seq.items())}, "windows": {rs.glabel(g): "".join(v) for g, v in sorted(win.items())},
+            "_state": {"cur": cur, "hist": hist, "groups": groups, "put": put, "gk": gk}}
 
 
-def load(run1_dir: Path, run2_dir: Path, bound: int, *, run1_rows: Optional[int] = None, run1_utc_start: Optional[str] = None) -> Dict[str, Any]:
-    """Everything run 3's plan needs from the two run folders (zero native ticks)."""
+def inherited_history(R3: Mapping[str, Any], state: Mapping[str, Any], bound: int) -> Dict[str, Any]:
+    """One inherited run 3 folder replayed in dispatch order over the archive it started from (`state`: run2_history's, then the previous
+    inherited folder's), every dispatch credited to the group the run recorded, which must be the group (exact-lineage niche) of the
+    representative dispatched. Per group: n, falls, b (advanced), bu at THIS bound, e, the (fall, b, e) codes and the u + e window values;
+    the totals with u at the run's own bound must equal the run's own summary table."""
+    cur, hist, groups, put, gk = state["cur"], state["hist"], state["groups"], state["put"], state["gk"]
+    own_bound = int(R3["plan"]["e7"]["bound_max_L"])
+    best_claim = R3["plan"]["run3"].get("best_claim")
+    best_claim = int(best_claim) if best_claim is not None else 10 ** 9
+    ev_by_n: Dict[int, List[Mapping[str, Any]]] = defaultdict(list)
+    for r in R3["rows"]:
+        ev_by_n[int(r["origin"]["n"])].append(r)
+    st: Dict[rs.GKey, Counter] = defaultdict(Counter)
+    own: Dict[str, Counter] = defaultdict(Counter)
+    seq: Dict[rs.GKey, List[str]] = defaultdict(list)
+    win: Dict[rs.GKey, List[str]] = defaultdict(list)
+    wrong_group: List[int] = []
+    for d in R3["dispatches"]:
+        cid = int(d["cid"])
+        rep = next((x for x in reversed(hist.get(cid, [])) if int(x["tick"]) == int(d["start_tick"])), None) or cur.get(cid)
+        g = tuple(rs._parse_glabel(d["group"]))
+        if rep is None or gk(rep) != g:
+            wrong_group.append(int(d["n"]))
+        lv = g[0]
+        claimed = (d.get("claimed") or {}).get("completion_input_tick") if d.get("outcome") == "clear" else None
+        nxt = (d.get("levels") or {}).get(str(lv + 1))
+
+        def useful(b_: int) -> int:
+            return int(claimed is not None and int(claimed) <= b_) if lv >= rs.TARGETS_TOTAL - 1 else int(nxt is not None and int(nxt) <= b_)
+
+        e = 0
+        for r in ev_by_n.get(int(d["n"]), []):
+            if int(r["level"]) > lv:
+                lst = groups.get(gk(r))
+                if not lst or int(r["tick"]) < lst[0][0]:
+                    e = 1
+        if claimed is not None and int(claimed) < best_claim:
+            best_claim = int(claimed)
+            if lv >= rs.TARGETS_TOTAL - 1:
+                e = 1
+        fall, b, u = int(d.get("outcome") == "fall"), int(bool(d.get("advanced"))), useful(int(bound))
+        st[g].update({"n": 1, "fall": fall, "b": b, "bu": u, "e": e})
+        own[rs.glabel(g)].update({"n": 1, "fall": fall, "b": b, "bu": useful(own_bound), "e": e})
+        seq[g].append(str(rs.window_code(fall, b, e)))
+        win[g].append(str(u + e))
+        for r in ev_by_n.get(int(d["n"]), []):
+            put(int(r["cid"]), r)
+    table = {r["group"]: r.get("run3") or {} for r in (R3["summary"].get("run3") or {}).get("selection", {}).get("table", [])}
+    differ = sorted(gl for gl in set(own) | {gl for gl, h in table.items() if int(h.get("n", 0))}
+                    if {k: int(own.get(gl, {}).get(k, 0)) for k in rs.HIST_FIELDS} != {k: int(table.get(gl, {}).get(k, 0)) for k in rs.HIST_FIELDS})
+    if wrong_group or differ:
+        raise LoadError(f"refused: {R3['dir']}'s dispatches do not replay to its own records (groups credited elsewhere at dispatches "
+                        f"{wrong_group[:5]}, per-group totals that differ: {differ[:5]})")
+    return {"groups": {rs.glabel(g): {k: int(v.get(k, 0)) for k in rs.HIST_FIELDS} for g, v in sorted(st.items())},
+            "tails": {rs.glabel(g): "".join(v) for g, v in sorted(seq.items())}, "windows": {rs.glabel(g): "".join(v) for g, v in sorted(win.items())},
+            "groups_checked": len(own), "dispatches": len(R3["dispatches"])}
+
+
+def _concat(a: Mapping[str, Mapping[str, int]], b: Mapping[str, Mapping[str, int]]) -> Dict[str, Dict[str, int]]:
+    return {gl: {k: int(a.get(gl, {}).get(k, 0)) + int(b.get(gl, {}).get(k, 0)) for k in rs.HIST_FIELDS} for gl in sorted(set(a) | set(b))}
+
+
+def load(run1_dir: Path, run2_dir: Path, bound: int, *, run1_rows: Optional[int] = None, run1_utc_start: Optional[str] = None,
+         inherit: Sequence[Path] = (), accepted: Sequence[Any] = ()) -> Dict[str, Any]:
+    """Everything run 3's plan needs from runs 1 + 2 and the inherited run 3 folders, in that order (zero native ticks)."""
     R1 = read_run(Path(run1_dir), 1)
     R2 = read_run(Path(run2_dir), 2, run1_rows=run1_rows if run1_rows is not None else len(R1["rows"]),
                   run1_utc_start=run1_utc_start if run1_utc_start is not None else R1["summary"].get("utc_start"))
-    M = merge(R1, R2)
-    nx = NicheIndex([R1, R2])
+    R3s = [read_run3(Path(d), 3 + i, accepted=accepted) for i, d in enumerate(inherit)]
+    M = merge(R1, R2, *R3s)
+    nx = NicheIndex([R1, R2] + R3s)
+    reports: List[Dict[str, Any]] = []
+    for R3 in R3s:                                             # niche continuity: the exact lineage gives every inherited row its recorded niche
+        differ = [int(r["cid"]) for r in R3["rows"] if rs.niche_label(nx.of(r)) != str(r["niche"])]
+        if differ:
+            raise LoadError(f"refused: {R3['dir']}: {len(differ)} of {len(R3['rows'])} rows have another niche than the run recorded "
+                            f"(cells {differ[:5]})")
+        reports.append({"dir": str(R3["dir"]), "rows": len(R3["rows"]), "niche_equal": len(R3["rows"]), "end_record_rows": R3["end_record_rows"],
+                        "dispatches": len(R3["dispatches"]), "new_cells": sum(1 for r in R3["rows"] if r.get("ev") == rs.NEW),
+                        "cells_sha256": _sha256_file(Path(R3["dir"]) / "run" / "cells.jsonl"),
+                        "dispatches_sha256": _sha256_file(Path(R3["dir"]) / "run" / "dispatches.jsonl")})
     niches = {cid: nx.of(r) for cid, r in M["final"].items()}
     H = run2_history(R1, R2, nx, int(bound))
-    bad = [cid for cid, dg in H["final_digests"].items() if str(M["final"][cid]["digest"]) != dg]
-    if bad or len(H["final_digests"]) != len(M["final"]):
-        raise LoadError(f"refused: the replayed run 2 archive is not the merged one ({len(bad)} cells differ)")
-    return {"R1": R1, "R2": R2, "M": M, "niches": niches, "niche_stats": dict(nx.stats), "history": H}
+    state = H.pop("_state")
+    for R3, rep in zip(R3s, reports):
+        h3 = inherited_history(R3, state, int(bound))
+        H["groups"] = _concat(H["groups"], h3["groups"])
+        for k in ("tails", "windows"):
+            H[k] = {gl: H[k].get(gl, "") + h3[k].get(gl, "") for gl in sorted(set(H[k]) | set(h3[k]))}
+        rep.update({"history_groups_checked": h3["groups_checked"], "history_dispatches": h3["dispatches"]})
+    final_digests = {cid: str(r["digest"]) for cid, r in state["cur"].items()}
+    bad = [cid for cid, dg in final_digests.items() if str(M["final"][cid]["digest"]) != dg]
+    if bad or len(final_digests) != len(M["final"]):
+        raise LoadError(f"refused: the replayed archive is not the merged one ({len(bad)} cells differ)")
+    H["final_digests"] = final_digests
+    return {"R1": R1, "R2": R2, "R3s": R3s, "M": M, "niches": niches, "niche_stats": dict(nx.stats), "history": H, "inherited": reports}
+
+
+def _sha256_file(p: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()

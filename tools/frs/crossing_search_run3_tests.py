@@ -539,6 +539,58 @@ def unit_plan_flags_match_saved_plan() -> Dict[str, Any]:
     return {"refused": sorted(cases)}
 
 
+def unit_real_windows() -> Dict[str, Any]:
+    """Rule a (owner 2026-11-09): with an inherited run the D1 window is the group's last 200 real values (u + e at the plan's bound), the front
+    padded with the group's whole-history rate; a window string that disagrees with the counters is refused; without one, DECISIVE 1's warm
+    start is unchanged."""
+    hist = {rs.glabel(GA): {"n": 50, "fall": 10, "b": 5, "bu": 4, "e": 1}, rs.glabel(GB): {"n": 300, "fall": 100, "b": 20, "bu": 12, "e": 3},
+            rs.glabel(GC): {"n": 400, "fall": 100, "b": 4, "bu": 4, "e": 0}}
+    wa = "0" * 44 + "1" * 3 + "2" + "0" * 2               # 50 values, sum 5 = bu 4 + e 1, the 2 near the end
+    wb = "1" * 15 + "0" * 285                              # 300 values, sum 15 = bu 12 + e 3, all in the first 100 (outside the last 200)
+    wc = "1" * 4 + "0" * 396
+    win = {rs.glabel(GA): wa, rs.glabel(GB): wb, rs.glabel(GC): wc}
+    a = FA(fixture()[0].cells, 1000)
+    niches = {0: A_N, 1: A_N, 2: A_N, 3: A_N, 4: B_N, 5: B_N, 6: B_N, 7: C_N, 8: C_N}
+    sel = rs.Run3Selector(a, params(), niches=niches, history=hist, cid_dispatches={}, best_claim=None, history_tails=tails_of(hist), history_windows=win)
+    wA, wB = list(sel.win[GA]), list(sel.win[GB])
+    check(len(wA) == 200 and wA[:150] == [5 / 50] * 150 and wA[150:] == [float(ch) for ch in wa], "A: 150 padded at its rate 0.1, then its 50 real values")
+    check(wB == [0.0] * 200 and sel.warm[GB]["source"] == "real_window" and sel.warm[GB]["real"] == 200, "B: its last 200 real values (all 0)")
+    check(abs(sel.rho(GB) - 1 / 202) < 1e-12, "B's rate is its real recent one, not its whole-history 0.05")
+    try:
+        rs.Run3Selector(a, params(), niches=niches, history=hist, cid_dispatches={}, best_claim=None, history_tails=tails_of(hist),
+                        history_windows=dict(win, **{rs.glabel(GA): wa[:-1]}))
+        raise AssertionError("a window shorter than the counters was accepted")
+    except ValueError as exc:
+        check("do not match" in str(exc), f"refused: {exc}")
+    plain = rs.Run3Selector(a, params(), niches=niches, history=hist, cid_dispatches={}, best_claim=None, history_tails=tails_of(hist))
+    check(list(plain.win[GB]) == [15 / 300] * 200 and plain.warm[GB]["source"] == "run2", "no inherited run: DECISIVE 1's warm start")
+    return {"rho_B_real": round(sel.rho(GB), 6), "rho_B_warm": round(plain.rho(GB), 6)}
+
+
+def unit_inherit_chain() -> Dict[str, Any]:
+    """The inherited folders must form one linear chain after runs 1 + 2 (owner 2026-11-09): each planned on the same runs 1 and 2 and on
+    exactly the folders before it; a sibling (planned on the same predecessors as an earlier one), a folder planned on another run 2 and a
+    folder given twice are refused."""
+    import crossing_search_run3 as C
+
+    r1, r2 = {"dir": "C:/lab/run1", "cell_rows": 10}, {"dir": "C:/lab/run2", "cell_rows": 20}
+    A, B, S = Path("C:/lab/a"), Path("C:/lab/b"), Path("C:/lab/s")
+    pa = {"run1": dict(r1), "run2": dict(r2), "run3": {}}
+    pb = {"run1": dict(r1), "run2": dict(r2), "run3": {"inherit": [{"dir": str(A)}]}}
+    ps = {"run1": dict(r1), "run2": dict(r2), "run3": {"inherit": []}}
+    check(C.inherit_chain_problems(r1, r2, [(A, pa), (B, pb)]) == [], "a then b (planned on a): one chain")
+    cases = {"sibling": C.inherit_chain_problems(r1, r2, [(A, pa), (S, ps)]),
+             "wrong_order": C.inherit_chain_problems(r1, r2, [(B, pb), (A, pa)]),
+             "other_run2": C.inherit_chain_problems(r1, r2, [(A, dict(pa, run2={"dir": "C:/lab/other", "cell_rows": 20}))]),
+             "twice": C.inherit_chain_problems(r1, r2, [(A, pa), (A, pa)])}
+    check(all(cases.values()) and "sibling" in cases["sibling"][0] and "another run2" in cases["other_run2"][0] and "twice" in cases["twice"][0],
+          f"every broken chain refused: {cases}")
+    saved = {"run3": {"best_from": [], "accept_runs": [], "inherit": [{"dir": str(A)}]}}
+    check(C.plan_flag_problems(saved, [], [], [A]) is None and "--inherit" in (C.plan_flag_problems(saved, [], [], []) or ""),
+          "`run` takes exactly the saved plan's --inherit")
+    return {"refused": sorted(cases)}
+
+
 def unit_bk2_roundtrip() -> Dict[str, Any]:
     import importlib.util
 
@@ -714,8 +766,9 @@ def engine3_child(a: Mapping[str, Any]) -> Dict[str, Any]:
     run_dir = out / "run"
     params = C.Params3(**a["params"])
     code = a.get("run3_code_digest") or rm.code_digest(rm.run3_code_manifest())
-    C.plan_and_write(lab, run1, run2, out, params, stub.analyse, code_digest=code)                 # the `plan` command
-    P = C.plan_via_child(lab, run1, run2, out, params, code_digest=code, analyse="stub")             # what `run` does since 2026-11-06
+    inherit, accept = [Path(x) for x in a.get("inherit") or []], [Path(x) for x in a.get("accept_runs") or []]
+    C.plan_and_write(lab, run1, run2, out, params, stub.analyse, code_digest=code, inherit=inherit, accept_runs=accept)   # the `plan` command
+    P = C.plan_via_child(lab, run1, run2, out, params, code_digest=code, analyse="stub", inherit=inherit, accept_runs=accept)   # what `run` does
     frozen = {"frozen_sha256": a["frozen"], "exe_copy_sha256": a["exe_copy"]}
     fk = {"exe": a["exe"], "frozen": a["frozen"]}
 
@@ -732,7 +785,9 @@ def engine3_child(a: Mapping[str, Any]) -> Dict[str, Any]:
     text = rx.make_text_replay(exe, run_dir / "text_replays") if a.get("text_replay", True) else None
     rc = C.Run3Night(cfg, env, P, params, text_replay=text, anomaly_build={"exe": "fake", "platform": sys.platform}).run()
     return {"code": rc, "violations": g.LabGuard.violations[:3], "bound": P["bound"], "best": P["best"]["completion_input_tick"],
-            "start": P["plan"]["run3"]["start"], "eligible": P["plan"]["archive"]["eligible"]}
+            "start": P["plan"]["run3"]["start"], "eligible": P["plan"]["archive"]["eligible"], "inherited": P["plan"]["archive"]["inherited"],
+            "inherit": P["plan"]["run3"].get("inherit"), "windows_rule": P["plan"]["run3"].get("windows_rule"), "end_record_files": P.get("end_record_files"),
+            "history": P["run3"]["history"]}
 
 
 def run2_child(a: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1110,6 +1165,78 @@ def e2e_frozen_run_not_inherited() -> Dict[str, Any]:
     return {"refused": 2, "admitted_records": eng.end_import["records"]}
 
 
+def e2e_inherit_a_to_b() -> Dict[str, Any]:
+    """Run B inherits run A on the fake game (owner 2026-11-09): B's archive is A's final one (every cell id, A's new cells included), B's new
+    cells continue the ids after them, A's end records are imported, B's history for every group is run 2's plus A's own totals (n, falls,
+    b, e), rule a for the windows; B stops cleanly. A CLAIMS_FROZEN copy of A is refused unless --accept-run names it, a copy with one
+    niche label altered is refused, and A followed by a sibling (a copy of A) is refused."""
+    import crossing_search as cs
+    import crossing_search_run3 as C
+    import m8_rd_stub as stub
+    import run3_manifest as rm
+
+    b = bench()
+    A = b.run("a")
+    adir = A["dir"].parent
+    B = b.run("b_inherits_a", inherit=[str(adir)])
+    check(B["code"] == 0 and not B["violations"] and B["summary"]["status"] in ("DISPATCH_CAP", "WALL_CAP"), f"run B: {B['code']} {B['summary']['status']}")
+    a_new = sum(1 for r in A["cells"] if r.get("ev") == "new")
+    a_rows = sum(1 for r in A["cells"] if r.get("ev") in ("new", "replaced"))
+    a_plan_archive = json.loads((adir / "plan.json").read_text(encoding="utf-8"))["archive"]
+    rep = (B["inherit"] or [{}])[0]
+    check(rep.get("rows") == rep.get("niche_equal") == a_rows and rep.get("new_cells") == a_new and rep.get("history_dispatches") == len(A["dispatches"]),
+          f"A's rows, niches and dispatches: {rep} vs rows {a_rows} new {a_new} dispatches {len(A['dispatches'])}")
+    check(B["inherited"] == int(a_plan_archive["inherited"]) + a_new, f"B inherits A's final archive: {B['inherited']} = {a_plan_archive['inherited']} + {a_new}")
+    b_new = [int(r["cid"]) for r in B["cells"] if r.get("ev") == "new"]
+    check(not b_new or min(b_new) == B["inherited"], f"B's new cell ids continue after A's: {min(b_new) if b_new else None} vs {B['inherited']}")
+    e = B["summary"]["run3"]["end_records"]
+    check(B["end_record_files"] == [str(adir / "run" / "cells.jsonl")] and e["imported"] >= 1, f"A's end records imported: {e}")
+    a_tab = {r["group"]: r["run3"] for r in A["summary"]["run3"]["selection"]["table"]}
+    a_plan = json.loads((adir / "plan.json").read_text(encoding="utf-8"))
+    hist0 = a_plan["run3"]["history"]["groups"]
+    bad = [gl for gl, h in B["history"].items() if any(int(h[k]) != int(hist0.get(gl, {}).get(k, 0)) + int(a_tab.get(gl, {}).get(k, 0)) for k in ("n", "fall", "b", "e"))]
+    check(not bad, f"B's history = run 2's + A's own totals: {bad[:4]}")
+    check(str(B["windows_rule"]).startswith("a:"), "rule a")
+    # refusals, plan only
+    params = C.Params3(**RUN3_PARAMS)
+    code = rm.code_digest(rm.run3_code_manifest())
+    refused: Dict[str, str] = {}
+    frz = b.lab / "run3_inherit_frozen"
+    shutil.copytree(adir, frz)
+    _json_edit(frz / "run" / "summary.json", status=C.CLAIMS_FROZEN)
+    try:
+        C.build_plan(b.lab, b.run1, b.run2, params, stub.analyse, code_digest=code, inherit=[frz])
+        raise AssertionError("a CLAIMS_FROZEN folder was inherited")
+    except (cs.SearchError, C.rl3.LoadError) as exc:
+        refused["frozen"] = str(exc)[-400:]
+    Pf = C.build_plan(b.lab, b.run1, b.run2, params, stub.analyse, code_digest=code, inherit=[frz], accept_runs=[frz])
+    check(Pf["plan"]["run3"]["inherit"][0]["accepted_non_clean"] is True, "a frozen folder named by --accept-run is admitted and recorded")
+    alt = b.lab / "run3_inherit_altered"
+    shutil.copytree(adir, alt)
+    lines = (alt / "run" / "cells.jsonl").read_text(encoding="utf-8").splitlines()
+    i = next(k for k, x in enumerate(lines) if json.loads(x).get("ev") in ("new", "replaced"))
+    r = json.loads(lines[i])
+    r["niche"] = r["niche"] + "-0"
+    lines[i] = json.dumps(r, separators=(",", ":"))
+    (alt / "run" / "cells.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        C.build_plan(b.lab, b.run1, b.run2, params, stub.analyse, code_digest=code, inherit=[alt])
+        raise AssertionError("a folder whose recorded niche differs was inherited")
+    except (cs.SearchError, C.rl3.LoadError) as exc:
+        refused["niche"] = str(exc)[-400:]
+    sib = b.lab / "run3_inherit_sibling"
+    shutil.copytree(adir, sib)
+    try:
+        C.build_plan(b.lab, b.run1, b.run2, params, stub.analyse, code_digest=code, inherit=[adir, sib])
+        raise AssertionError("a sibling folder was inherited after A")
+    except (cs.SearchError, C.rl3.LoadError) as exc:
+        refused["sibling"] = str(exc)[-400:]
+    check("--accept-run" in refused["frozen"] and "niche" in refused["niche"] and "sibling" in refused["sibling"], f"the refusals: {refused}")
+    for d in (frz, alt, sib):
+        cleanup(d)
+    return {"inherited": B["inherited"], "a_new": a_new, "end_imported": e["imported"], "refused": sorted(refused)}
+
+
 def e2e_text_replay() -> Dict[str, Any]:
     """The native text-replay path on the fake game: run 1's best verified clear replayed from its words gives its verified clocks; a
     truncated copy gives no clear."""
@@ -1131,6 +1258,7 @@ UNIT = {"unit_niche_inheritance": unit_niche_inheritance, "unit_moves": unit_mov
         "unit_rolling_demotion": unit_rolling_demotion, "unit_new_earliest_in_demoted_group": unit_new_earliest_in_demoted_group,
         "unit_e_and_anchor_success": unit_e_and_anchor_success, "unit_draws": unit_draws, "unit_triggers": unit_triggers, "unit_trigger_fallback": unit_trigger_fallback, "unit_claims_frozen": unit_claims_frozen,
         "unit_non_clean_sources_refused": unit_non_clean_sources_refused, "unit_plan_flags_match_saved_plan": unit_plan_flags_match_saved_plan,
+        "unit_real_windows": unit_real_windows, "unit_inherit_chain": unit_inherit_chain,
         "unit_bk2_roundtrip": unit_bk2_roundtrip,
         "unit_export_clear": unit_export_clear, "unit_params": unit_params}
 CELL_ATTRS = ("cid", "key", "level", "tick", "lead", "words", "end", "end_digest", "chain", "digest", "origin", "created_at", "seen", "dispatched", "fresh",
@@ -1218,6 +1346,34 @@ def real_best_from_smoke() -> Dict[str, Any]:
     return {"bound": P["bound"], "eligible": p["archive"]["eligible"], "groups": len(el), "refused": sorted(refused)}
 
 
+NIGHT_REAL = LAB / "crossing_2026-11-06_run3"
+NIGHT_953 = [("9|2|326:2-6-8", 39, 925, 6, 1.0, 0.005), ("8|258|326:2-6", 224, 869, 8, 1.0, 0.0545), ("7|70|326:8", 418, 894, 12, 0.167, 0.005),
+             ("7|262|326:6", 385, 789, 12, 0.167, 0.005), ("7|266|330:6", 210, 879, 12, 0.167, 0.005), ("7|322|322:", 2002, 493, 12, 0.167, 0.005),
+             ("7|322|326:2", 2992, 499, 12, 0.167, 0.005), ("7|322|330:3", 162, 651, 9, 0.167, 0.005), ("6|326|326:", 4847, 461, 12, 0.556, 0.0495),
+             ("6|330|330:", 4521, 486, 12, 0.444, 0.0396)]
+
+
+def real_inherit_night_table() -> Dict[str, Any]:
+    """The plan inheriting run 3's night (owner 2026-11-09) reproduces the 953 start table shown before the build (zero-tick prototype): best
+    978 from the night, bound 953, 46,240 cells, 15,800 eligible, the ten groups' eligible cells, earliest, anchors, shares and rates; every
+    night row keeps its recorded niche; the night's 41,737 dispatches replay to its own per-group totals; its cells file gives the end records."""
+    import crossing_search_run3 as C
+
+    P = C.build_plan(LAB, RUN1_REAL, RUN2_REAL, C.Params3(rng_seed=3), code_digest="test", inherit=[NIGHT_REAL])
+    p = P["plan"]
+    check(P["bound"] == 953 and p["best"]["completion_input_tick"] == 978 and p["best"]["source"] == "run3:crossing_2026-11-06_run3",
+          f"best and bound: {p['best']} {P['bound']}")
+    check(p["archive"]["inherited"] == 46240 and p["archive"]["eligible"] == 15800, f"the archive: {p['archive']['inherited']} / {p['archive']['eligible']}")
+    el = [r for r in p["run3"]["start"] if r["eligible"]]
+    got = [(r["group"], r["eligible"], r["earliest_eligible"], r["anchors"], round(r["share"], 3), round(r["rho"], 4)) for r in el]
+    check(got == NIGHT_953 and not [r for r in el if r["demoted"]], f"the 953 table: {got}")
+    rep = p["run3"]["inherit"][0]
+    check(rep["rows"] == rep["niche_equal"] == 74924 and rep["history_dispatches"] == 41737 and rep["history_groups_checked"] == 23
+          and rep["end_record_rows"] == 4314 and P["end_record_files"] == [str(NIGHT_REAL / "run" / "cells.jsonl")], f"the night's checks: {rep}")
+    check(p["run3"]["windows_rule"].startswith("a:"), "rule a")
+    return {"groups": len(el), "eligible": p["archive"]["eligible"], "niche_equal": rep["niche_equal"]}
+
+
 def _json_edit(path: Path, **kw: Any) -> None:
     obj = json.loads(path.read_text(encoding="utf-8"))
     obj.update(kw)
@@ -1225,10 +1381,11 @@ def _json_edit(path: Path, **kw: Any) -> None:
 
 
 REAL = {"real_niches_equal_offline": real_niches_equal_offline, "real_start_table": real_start_table,
-        "real_plan_via_child_equal": real_plan_via_child_equal, "real_best_from_smoke": real_best_from_smoke}
+        "real_plan_via_child_equal": real_plan_via_child_equal, "real_best_from_smoke": real_best_from_smoke,
+        "real_inherit_night_table": real_inherit_night_table}
 E2E = {"e2e_same_seed_runs": e2e_same_seed_runs, "e2e_nonfinite_trigger": e2e_nonfinite_trigger,
        "e2e_detector_trigger_fallback": e2e_detector_trigger_fallback, "e2e_frozen_run_not_inherited": e2e_frozen_run_not_inherited,
-       "e2e_text_replay": e2e_text_replay, "e2e_exports_under_guard": e2e_exports_under_guard}
+       "e2e_inherit_a_to_b": e2e_inherit_a_to_b, "e2e_text_replay": e2e_text_replay, "e2e_exports_under_guard": e2e_exports_under_guard}
 
 if __name__ == "__main__":
     args = sys.argv[1:]
