@@ -591,6 +591,42 @@ def unit_inherit_chain() -> Dict[str, Any]:
     return {"refused": sorted(cases)}
 
 
+def unit_level_weights() -> Dict[str, Any]:
+    """level_weights (owner 2026-11-09, "7-8 first"): w[k] for the level k below the deepest eligible one, 0 past the list, normalised by the draw;
+    the default () keeps level_decay; the value is recorded in the plan's parameters; the hourly record gives per level the weight, the
+    dispatches, u + e per 1,000 ingested and the earliest arrival."""
+    import random
+
+    import crossing_search as cs
+    import crossing_search_run3 as C
+
+    _a, plain = fixture()
+    check(plain.level_weights([6, 7]) == {7: 1.0, 6: 0.5}, "default: level_decay 0.5")
+    _a, sel = fixture(level_weights=(0.20, 0.35, 0.35, 0.10), breadth_share=0.0)
+    check(sel.level_weights([6, 7, 8, 9]) == {9: 0.20, 8: 0.35, 7: 0.35, 6: 0.10} and sel.level_weights([5, 6, 7, 8, 9])[5] == 0.0,
+          "w[k] counted down from the deepest eligible level, 0 past the list")
+    check(sel.level_weights([6, 7]) == {7: 0.20, 6: 0.35}, "the fixture's levels 7 and 6 get w[0] and w[1]")
+    rng = random.Random(5)
+    lv = Counter(int(sel.select(rng)[1]["level"]) for _ in range(4000))
+    f7 = lv[7] / 4000
+    check(abs(f7 - 0.20 / 0.55) < 0.03, f"draws follow the normalised weights: level 7 {f7:.3f} (expected {0.20 / 0.55:.3f})")
+    for bad in ((0.0, 1.0), (0.5, -0.1)):
+        try:
+            C.Params3(level_weights=bad).check()
+            raise AssertionError(f"level_weights {bad} accepted")
+        except cs.SearchError:
+            pass
+    check(C.Params3(level_weights=(0.2, 0.35, 0.35, 0.1)).as_dict()["level_weights"] == [0.2, 0.35, 0.35, 0.1] and C.Params3().as_dict()["level_weights"] == [],
+          "the value is in the plan's parameters")
+    sel.on_ingest(info_of(sel, 0), {"outcome": "fall", "levels": {"8": 900}, "advanced": True}, [], [], 1)
+    sel.on_ingest(info_of(sel, 1), QUIET, [], [], 2)
+    rec = sel.snapshot({})
+    l7 = rec["levels"]["7"]
+    check(l7["ingested"] == 2 and l7["u"] == 1 and l7["per_1000"] == 500.0 and l7["earliest"] == 100 and abs(l7["weight"] - 0.20 / 0.55) < 1e-6,
+          f"the hourly record per level: {rec['levels']}")
+    return {"level7_share": round(f7, 3), "levels": rec["levels"]}
+
+
 def unit_bk2_roundtrip() -> Dict[str, Any]:
     import importlib.util
 
@@ -1258,7 +1294,7 @@ UNIT = {"unit_niche_inheritance": unit_niche_inheritance, "unit_moves": unit_mov
         "unit_rolling_demotion": unit_rolling_demotion, "unit_new_earliest_in_demoted_group": unit_new_earliest_in_demoted_group,
         "unit_e_and_anchor_success": unit_e_and_anchor_success, "unit_draws": unit_draws, "unit_triggers": unit_triggers, "unit_trigger_fallback": unit_trigger_fallback, "unit_claims_frozen": unit_claims_frozen,
         "unit_non_clean_sources_refused": unit_non_clean_sources_refused, "unit_plan_flags_match_saved_plan": unit_plan_flags_match_saved_plan,
-        "unit_real_windows": unit_real_windows, "unit_inherit_chain": unit_inherit_chain,
+        "unit_real_windows": unit_real_windows, "unit_inherit_chain": unit_inherit_chain, "unit_level_weights": unit_level_weights,
         "unit_bk2_roundtrip": unit_bk2_roundtrip,
         "unit_export_clear": unit_export_clear, "unit_params": unit_params}
 CELL_ATTRS = ("cid", "key", "level", "tick", "lead", "words", "end", "end_digest", "chain", "digest", "origin", "created_at", "seen", "dispatched", "fresh",

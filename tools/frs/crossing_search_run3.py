@@ -99,6 +99,7 @@ class Params3(r2.Params2):
     trigger_cap: float = 0.1            # DECISIVE 4: trigger draws <= 10 % of breadth draws
     summary_every_s: float = 3600.0     # owner: hourly records
     summary_every_dispatches: int = 0   # tests: a record every k ingested dispatches instead (deterministic); 0 = by wall time
+    level_weights: Tuple[float, ...] = ()   # owner 2026-11-09: explicit exploitation weights for the deepest eligible level, the next, ...; () = level_decay
 
     def check(self) -> None:
         super().check()
@@ -116,6 +117,8 @@ class Params3(r2.Params2):
             raise SearchError("refused: DECISIVE 1 resets the carried dispatch counts (reset_novelty)")
         if self.summary_every_s < 0 or self.summary_every_dispatches < 0 or (self.summary_every_s and self.summary_every_dispatches):
             raise SearchError("refused: hourly records by wall time OR by ingested dispatches, not both")
+        if self.level_weights and (any(not 0.0 <= float(w) for w in self.level_weights) or not float(self.level_weights[0]) > 0.0):
+            raise SearchError("refused: --level-weights are not negative and the deepest level's is positive")
 
     def as_dict(self) -> Dict[str, Any]:
         d = super().as_dict()
@@ -123,6 +126,7 @@ class Params3(r2.Params2):
                                                 "demote_share_factor", "anchor_k", "anchor_share", "anchor_w_floor", "trigger_rarity", "trigger_draws_per_cell",
                                                 "trigger_cap", "summary_every_s", "summary_every_dispatches")})
         d["trigger_classes"] = list(self.trigger_classes)
+        d["level_weights"] = [float(w) for w in self.level_weights]
         d["key_family"] = r3.KEY_FAMILY
         d["unused_inherited"] = list(UNUSED_INHERITED)
         return d
@@ -130,7 +134,8 @@ class Params3(r2.Params2):
 
 SELECTION_RULES = {
     "streams": "breadth with probability breadth_share (else exploitation); a breadth dispatch with no eligible cell outside demoted groups falls back to exploitation",
-    "level": "decay level_decay^(deepest eligible level - level) over levels with an eligible cell (run 2's)",
+    "level": "decay level_decay^(deepest eligible level - level) over levels with an eligible cell (run 2's); or (owner 2026-11-09) level_weights[k] for "
+             "the level k below the deepest eligible one (0 past the list), normalised",
     "group": "(level, mask, order niche) of the current representative (DECISIVE 4b)",
     "share": "rho = (window sum + 1) / (window length + 2), window = the last `window` dispatches worth u + e, warm start = `window` pseudo-dispatches at the "
              "whole-run-2 rate (u + e) / n (no history: the level's pooled rate); normalised over non-demoted groups, floored at phi = phi_factor / groups, "
@@ -847,6 +852,12 @@ def hourly_md(rec: Mapping[str, Any]) -> str:
     L.append(f"- This period: {_f(per['dispatches'])} dispatched, {_f(per['ingested'])} ingested; streams rank {st.get('rank', 0)}, anchor {st.get('anchor', 0)}, "
              f"breadth {st.get('breadth', 0)}, trigger {st.get('trigger', 0)} (breadth fallbacks {per['fallback_exploit']}); useful breaks "
              f"{json.dumps(per['useful'])}; new earliest arrivals {json.dumps(per['e'])}; group moves {per['moves']} (total {_f(rec['moves_total'])}).")
+    if rec.get("levels"):                                      # owner 2026-11-09: per level, at this run's bound
+        L += ["", "### Levels", "", "| level | weight | eligible | dispatched | ingested | u | e | (u + e) per 1,000 | earliest |",
+              "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+        for lv, x in rec["levels"].items():
+            L.append(f"| {lv} | {x['weight']:.3f} | {_f(x['eligible'])} | {_f(x['dispatched'])} | {_f(x['ingested'])} | {x['u']} | {x['e']} | "
+                     f"{'-' if x['per_1000'] is None else format(x['per_1000'], '.2f')} | {_f(x['earliest'])} |")
     L += ["", "### Groups", ""] + group_table_md(rec["groups"], period=True)
     L += ["", "### Demotions and exits", ""]
     if rec["demotions"]:
@@ -955,7 +966,8 @@ def report_md3(s: Mapping[str, Any]) -> str:
 def params_from_args(a: argparse.Namespace) -> Params3:
     p = Params3(level_decay=a.level_decay, max_segments=a.max_segments, max_cells=a.max_cells, max_dispatches=a.max_dispatches, rng_seed=a.rng_seed,
                 cleared_weight=a.cleared_weight, check_slots=a.check_slots, breadth_share=a.breadth_share, summary_every_s=a.summary_every_s,
-                summary_every_dispatches=a.summary_every_dispatches)
+                summary_every_dispatches=a.summary_every_dispatches,
+                level_weights=tuple(float(x) for x in a.level_weights.split(",")) if a.level_weights else ())
     p.check()
     return p
 
@@ -976,6 +988,7 @@ def run_command(lab_root: Path, run1: Path, run2: Path, out: Path, a: argparse.N
     return (f"python -B tools/frs/crossing_search_run3.py run --lab-root {Path(lab_root).as_posix()} --run1 {Path(run1).as_posix()} --run2 {Path(run2).as_posix()} "
             f"--out {Path(out).as_posix()} --workers {a.workers} --max-ticks {a.max_ticks} --max-wall-min {a.max_wall_min:g} --rng-seed {a.rng_seed} "
             f"--summary-every-s {a.summary_every_s:g}" + (f" --max-dispatches {a.max_dispatches}" if a.max_dispatches else "")
+            + (f" --level-weights {a.level_weights}" if a.level_weights else "")
             + "".join(f" --best-from {Path(x).as_posix()}" for x in a.best_from) + "".join(f" --accept-run {Path(x).as_posix()}" for x in a.accept_run)
             + "".join(f" --inherit {Path(x).as_posix()}" for x in a.inherit))
 
@@ -1057,6 +1070,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--out", default=None, help="default <lab root>/crossing_<date>_run3")
     ap.add_argument("--workers", type=int, default=5)
     ap.add_argument("--level-decay", type=float, default=Params3.level_decay)
+    ap.add_argument("--level-weights", default="", help="exploitation weights for the deepest eligible level, the next, ... (comma list, e.g. "
+                                                        "0.20,0.35,0.35,0.10); empty = --level-decay")
     ap.add_argument("--max-segments", type=int, default=Params3.max_segments)
     ap.add_argument("--cleared-weight", type=float, default=Params3.cleared_weight)
     ap.add_argument("--check-slots", type=int, default=Params3.check_slots)

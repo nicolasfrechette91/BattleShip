@@ -11,7 +11,8 @@ in-order ingest of the result, so every decision here is a function of the plan,
     group           (level, mask, niche label) of a cell's CURRENT representative; level and mask never change, so a cell moves only
                     when a replacement's lineage has another order (DECISIVE 4b). History stays with the group dispatched.
     streams         per dispatch: with probability breadth_share (0.2) a breadth draw (DECISIVE 4), otherwise exploitation:
-                    a level (decay 0.5 from the deepest eligible level), a group by its share, then an anchor (DECISIVE 3) with
+                    a level (decay 0.5 from the deepest eligible level; or, owner 2026-11-09, `level_weights` w[k] for the level k below the
+                    deepest eligible one, levels past the list at 0), a group by its share, then an anchor (DECISIVE 3) with
                     probability anchor_share x w_max, else the rank draw (DECISIVE 1). When no cell is eligible for breadth the
                     dispatch falls back to exploitation (recorded).
     shares          (with an inherited run 3 folder, owner 2026-11-09, rule a: the window starts as the group's last 200 REAL dispatches of
@@ -118,7 +119,8 @@ def _new_period() -> Dict[str, Any]:
     return {"dispatches": 0, "ingested": 0, "by_group": {}, "by_level": Counter(), "streams": Counter(), "breadth_by_level": Counter(),
             "breadth_by_group": Counter(), "breadth_by_niche": Counter(), "useful": Counter(), "e": Counter(), "breaks": Counter(),
             "moves": 0, "move_samples": [], "events": [], "triggers": [], "trigger_dropped": 0, "fallback_exploit": 0,
-            "anchor_successes": Counter(), "anchor_bursts_ingested": Counter()}
+            "anchor_successes": Counter(), "anchor_bursts_ingested": Counter(),
+            "ingested_by_level": Counter(), "useful_by_level": Counter(), "e_by_level": Counter()}
 
 
 class Run3Selector:
@@ -176,7 +178,8 @@ class Run3Selector:
         self.events: List[Dict[str, Any]] = []
         self.niche_stats: Counter = Counter()
         self.period = _new_period()
-        self.cum = {"streams": Counter(), "useful": Counter(), "e": Counter(), "breaks": Counter(), "dispatches_by_group": Counter()}
+        self.cum = {"streams": Counter(), "useful": Counter(), "e": Counter(), "breaks": Counter(), "dispatches_by_group": Counter(),
+                    "ingested_by_level": Counter(), "useful_by_level": Counter(), "e_by_level": Counter()}
         self._pool: Optional[List[int]] = None
         self.n_ingested = 0
         for c in archive.cells:
@@ -387,11 +390,22 @@ class Run3Selector:
             fallback = True
         return self._exploit(rng, lv_groups, fallback)
 
+    def level_weights(self, levels: Sequence[int]) -> Dict[int, float]:
+        """The exploitation weight of each level with an eligible cell (not normalised; the draw normalises): level_decay^(deepest - level),
+        or (owner 2026-11-09) the explicit level_weights[deepest - level] (0 past the list)."""
+        levels = sorted(levels)
+        top = levels[-1]
+        lw_param = tuple(getattr(self.p, "level_weights", ()) or ())
+        if lw_param:
+            lw = {lv: (float(lw_param[top - lv]) if top - lv < len(lw_param) else 0.0) for lv in levels}
+        else:
+            lw = {lv: self.p.level_decay ** (top - lv) for lv in levels}
+        return lw
+
     def _exploit(self, rng: Any, lv_groups: Mapping[int, List[GKey]], fallback: bool) -> Tuple[Any, Dict[str, Any]]:
         p = self.p
         levels = sorted(lv_groups)
-        top = levels[-1]
-        lw = {lv: p.level_decay ** (top - lv) for lv in levels}
+        lw = self.level_weights(levels)
         total = sum(lw.values())
         r = rng.random() * total
         lv = levels[-1]
@@ -581,6 +595,10 @@ class Run3Selector:
         while len(w) > self.W:
             w.popleft()
         self._push(g, window_code(fall, b, e))
+        for d_ in (self.period, self.cum):                     # owner 2026-11-09: the per-level yield in the hourly record
+            d_["ingested_by_level"][str(lv)] += 1
+            d_["useful_by_level"][str(lv)] += u
+            d_["e_by_level"][str(lv)] += e
         self._check_demotion(g, n)
         # the kept cells: niches, moves, ranks, anchors
         affected: Set[GKey] = set()
@@ -751,6 +769,17 @@ class Run3Selector:
                                anchors_detail=self.anchor_rows(gk), anchor_bursts_ingested=int(per["anchor_bursts_ingested"].get(gl, 0)),
                                anchor_successes=int(per["anchor_successes"].get(gl, 0))))
         pool = self.breadth_pool()
+        lvg = self.levels()
+        lw0 = self.level_weights(list(lvg)) if lvg else {}
+        lw = {lv: w / sum(lw0.values()) for lv, w in lw0.items()} if lw0 else {}
+        eb = self.earliest_by_level()
+        levels_rec = {}
+        for lv in sorted({int(x) for x in list(per["by_level"]) + list(per["ingested_by_level"])} | set(lw), reverse=True):
+            k = str(lv)
+            ing, u_, e_ = int(per["ingested_by_level"].get(k, 0)), int(per["useful_by_level"].get(k, 0)), int(per["e_by_level"].get(k, 0))
+            levels_rec[k] = {"weight": round(lw.get(lv, 0.0), 6), "dispatched": int(per["by_level"].get(k, 0)), "ingested": ing, "u": u_, "e": e_,
+                             "per_1000": round(1000.0 * (u_ + e_) / ing, 3) if ing else None, "earliest": (eb.get(k) or {}).get("tick"),
+                             "eligible": sum(len(self.members(g)) for g in lvg.get(lv, []))}
         rec = dict(meta)
         rec.update({"contract": SELECT_CONTRACT, "ingested_total": self.n_ingested, "groups": groups, "earliest_by_level": self.earliest_by_level(),
                     "period": {"dispatches": per["dispatches"], "ingested": per["ingested"], "streams": dict(per["streams"]), "by_level": dict(per["by_level"]),
@@ -767,7 +796,7 @@ class Run3Selector:
                                  "trigger_draws": int(self.cnt["trigger_draws"]), "breadth_draws": int(self.cnt["breadth_draws"]),
                                  "allowed_now": math.floor(self.p.trigger_cap * self.cnt["breadth_draws"]), "dropped": int(per["trigger_dropped"]),
                                  "classes_seen": dict(self.trig_seen)},
-                    "moves_total": int(self.cnt["moves"]), "best_claim": self.best_claim})
+                    "moves_total": int(self.cnt["moves"]), "best_claim": self.best_claim, "levels": levels_rec})
         self.period = _new_period()
         return rec
 
