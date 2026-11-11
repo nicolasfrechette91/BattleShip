@@ -1248,3 +1248,58 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
 - **Memory peak:** main 467 MB, process tree 2,638 MB private / 1,122 MB working set, lowest free commit 8,728 MB, lowest available
   8,572 MB; no breach (soft budget 2,560 / 8,192 / 3,584, minimums 3,072 / 1,536).
 - The smoke folder is a sibling of the night planned next: it is not inherited.
+
+### 19.6 Night 2 of run 3: `crossing_2026-11-10_run3b` (2026-11-10 22:46 to 2026-11-11 06:43 local; owner's go)
+
+- **Before launch:** section 19.5 committed locally (`7de827f`). Readiness at the plan: free commit 11,172 MB, available 9,104 MB; re-checked
+  in the launch command just before the run: free commit 11,154 MB, available 9,038 MB, no game process, no lab lock.
+- **Command:** `python -B tools/frs/crossing_search_run3.py plan` then `run --lab-root C:/BattleShip_lab --run1 C:/BattleShip_lab/crossing_2026-10-15
+  --run2 C:/BattleShip_lab/crossing_2026-10-15_run2 --out C:/BattleShip_lab/crossing_2026-11-10_run3b --workers 5 --max-ticks 80000000
+  --max-wall-min 480 --rng-seed 3 --summary-every-s 3600 --level-weights 0.20,0.35,0.35,0.10 --inherit C:/BattleShip_lab/crossing_2026-11-06_run3`
+  (tree `7de827f`, run 3 code digest `d0cdde51`). Plan: the smoke's start table exactly (bound 953; eligible 39 / 224 / 6,169 / 9,368; 10 groups,
+  107 anchors, none demoted). No manifest-covered file was edited during the night.
+- **Open (20 s):** 1,885 / 1,884 and the start's 978 / 977 replayed exactly; 46,240 inherited cells.
+- **Stop:** WALL_CAP, exit 0; search 28,479 s, close 43 s. 43,549 dispatches (5,505 per hour), 40,766,318 ticks (prefix 35,195,315, burst
+  5,564,278); 14,254 falls, 35 claimed clears. Integrity clean: 0 prefix mismatches, 0 tick-0 inequalities, 0 lifecycle failures, 0 seed
+  failures, 0 guard violations, no game process left (checked again after the close), lab lock released, lab digest `81b88be6` and run 3
+  digest `d0cdde51` unchanged at the close (and in the tree afterwards). End records: 766 fused first dispatches, all reproduced.
+- **Verified clears: 2; best 959 / 958** (19 under the start's 978, 926 under the reference). Both replayed twice from tick 0 with equal
+  chains, exported (`run/clears/*.btt.txt` + `.bk2`, round trips ok) and replayed natively from the text file at the close with equal clocks:
+
+  | dispatch | clear | gain | start cell (tick) | stream, rank | local time |
+  | ---: | ---: | ---: | --- | --- | --- |
+  | 9,506 | 972 / 971 | 6 | 10387 (894) | rank 6 in (9, 2, 326:2-6-8) | 00:30 |
+  | 23,283 | 959 / 958 | 13 | 12331 (916) | rank 79 in (9, 2, 326:2-6-8) | 03:02 |
+
+  The 959 breaks 4, 0, 5, 7, 9, 3, 2 exactly as the 978 (to 530), then 6 at 826, 8 at 900, 1 at 959: the crossing is 43 ticks faster
+  (296 against 339), the left side 24 slower (133 against 109). Claims: 35; 2 replayed, 33 not (none faster than the best at the time).
+- **Earliest arrivals:** level 8 869 -> 826 (dispatch 2,179, a breadth draw, rank 1,756 of 15,910, from cell 7088 at 706 on the 978's own
+  lineage: seed 461 -> 2 at 530 -> take-off cell 571 -> 706) -> 813 (40,489, rank draw from cell 20201 at 778) -> **803** (41,720, 06:23, a
+  breadth draw from cell 26702 at 796); level 9 925 -> 888 (hour 1) -> **869** (42,513, 06:31). Levels 7 and 6 unchanged (493 / 461). The 813
+  and 803 started a cascade of level-9 arrivals at 869 to 887 in the last 40 minutes; none had time to be carried to a clear.
+- **Levels, start -> end** (exploitation split observed 0.200 / 0.349 / 0.351 / 0.100; breadth 20.1 %):
+
+  | level | eligible | earliest | dispatches | u | e | (u + e) per 1,000 | falls |
+  | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 9 | 39 -> 382 | 925 -> 869 | 6,977 | 0 | 2 | 0.3 | 3,120 |
+  | 8 | 224 -> 1,002 | 869 -> 803 | 12,210 | 1,281 | 10 | 105.7 | 4,535 |
+  | 7 | 6,169 -> 7,553 | 493 -> 493 | 15,109 | 30 | 9 | 2.6 | 3,250 |
+  | 6 | 9,368 -> 10,302 | 461 -> 461 | 9,253 | 180 | 2 | 19.7 | 3,349 |
+
+- **Hourly flag (owner):** level 8 below 869 from hour 1 (826), so the "still at 869 after 4 hours" flag never applied.
+- **Demotions and exits: 11 events, all (9, 256, 326:2-6-1), flapping at the threshold.** The group was already demoted at the start; it
+  exited at 22,391, 22,914, 25,515, 25,717, 37,110 and 39,329 and was demoted again 23 to 78 dispatches later (five times). Every exit was
+  the rolling window reaching 749 falls of 1,000 (b 0, e 0), every re-demotion 750. The rolling rule has no hysteresis. The group had 1
+  to 11 eligible cells; it took 178 run-3 dispatches up to its last exit and 535 by the close (54.0 % falls, 0 breaks), ending the night
+  not demoted with a full share of level 9's groups. To propose: exit only on b or e, or a lower exit threshold (for example 70 %).
+- **Triggers:** 4 (1 demoted_new_earliest: cell 21451 at 943, 3 draws; 3 line_crossing at 35,048-35,065 from cells 31607 at 627 and 27422
+  at 714, 9 draws); 12 trigger draws, 0 useful, 0 dropped. Anomalies 34,790 events, 0 non-finite.
+- **Memory peak (engine):** main 522 MB, process tree 4,345 MB private / 1,854 MB working set, 10 game processes; lowest free commit
+  6,106 MB, lowest available 6,629 MB; no soft, hard or process breach.
+- **Zero-tick census with this night added** (right-side arm proposal, `docs/frs_right_side_arm_proposal_2026-11-10.md`, step 1 of its
+  recommendation): this night broke target 6 72 times; the four breaks from level-7 mask-322 lineages all come from the 978's 530 end (now
+  870 dispatches, 6 crossings), the shortest 273 ticks (530 -> 803). Level-7 ends earlier than 530: 92 ends, 11,480 dispatches over all
+  runs, still 0 crossings; the resourceful ones: 21 ends, 2,701 dispatches, the two most tested (521 A1 at the 978's own cell, 1,009; 521
+  A1, 907) 0 crossings each, 19 still under 300.
+- This night's archive is clean (WALL_CAP, 0 mismatches) and can be inherited after runs 1 + 2 + night 1 (bound 959 - 24 - 1 = 934 at the
+  registered rule); not planned, waiting for the owner.
