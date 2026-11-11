@@ -1228,3 +1228,23 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
   Get-FileHash 2,489 equal, 0 differ, 0 missing. The empty folder port_leases holds no file.
 - **Verified (main tree, 2026-11-09):** `crossing_search_run3_tests.py` 30/30 (unit 18, real 5, e2e 7); `run3_search_tests.py` 13/13;
   `run3_archive_tests.py` 2/2; `run3_anomaly_tests.py` 10/10. `git diff --check` clean. Run 3 code digest `d0cdde51` (54 files).
+
+### 19.5 The smoke run inheriting the night (2026-11-10, 08:41-09:01 local; owner's go)
+
+- **Command:** plan, then `run --workers 3 --max-wall-min 25 --rng-seed 1 --summary-every-s 600 --level-weights 0.20,0.35,0.35,0.10
+  --inherit C:/BattleShip_lab/crossing_2026-11-06_run3` into `C:/BattleShip_lab/crossing_2026-11-09_run3b_smoke` (tree cb98184, run 3
+  code digest `d0cdde51`). Readiness first refused (free commit 9,758 < 10,240 MB); after the owner closed Chrome and the NVIDIA overlay:
+  free commit 11,535 MB, available 9,375 MB.
+- **Open (19 s):** reference 1,885 / 1,884 and the night's 978 / 977 replayed exactly; bound 953; 46,240 cells, eligible 39 / 224 /
+  6,169 / 9,368 (levels 9-6), 1,907 cells without an end record (32,529 end records attached from the night's cells file).
+- **Stop:** WALL_CAP, exit 0; 1,358 dispatches (4,142 per hour), 1,251,479 ticks. Integrity clean (0 prefix mismatches, 0 tick-0
+  inequalities, 0 lifecycle failures, 0 guard violations, no game process left; lab digest `81b88be6` and run 3 digest `d0cdde51`
+  unchanged); 43 fused first dispatches, all reproduced. No faster clear: one claim (1,002, not replayed), no verified clear, so no text
+  replay. One trigger (line_crossing, 3 draws). Anomalies 782 events, 0 non-finite.
+- **Levels (exploitation split observed against 0.20 / 0.35 / 0.35 / 0.10):** level 9 0.209 (228 dispatches over 40 cells, at most 18
+  on one; u + e 0; earliest 925); level 8 0.352 (385; 33 level-9 arrivals at or under 953 = 85.7 per 1,000, all at 925-926, so no new
+  earliest; earliest 869); level 7 0.330 (457 with breadth; no level-8 arrival; earliest 493); level 6 0.108 (288; 27.8 per 1,000;
+  earliest 461). Breadth 19.7 %.
+- **Memory peak:** main 467 MB, process tree 2,638 MB private / 1,122 MB working set, lowest free commit 8,728 MB, lowest available
+  8,572 MB; no breach (soft budget 2,560 / 8,192 / 3,584, minimums 3,072 / 1,536).
+- The smoke folder is a sibling of the night planned next: it is not inherited.
