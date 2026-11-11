@@ -8,7 +8,7 @@ Subcommands (outputs default to the Git-ignored logs/glitch/):
   analyze  [--geometry G | --decomp | --trace T] [--trace T] [--ecb top,center,bottom,width]
                                                candidate checks -> JSON + Markdown (names places: detection only)
   compare  --geometry G --trace T              ROM line table against the table the port loaded natively
-  detect   --trace T [--trace T ...] | --trace-dir D [--geometry G]
+  detect   --trace T [--trace T ...] | --trace-dir D [--geometry G] [--states TABLE|decomp]
                                                per-tick anomaly events (btt_glitch_event_v1 JSONL)
 
 Read-only towards the game, the ROM and the lab folders. Standard library only.
@@ -152,8 +152,17 @@ def cmd_detect(a: argparse.Namespace) -> int:
     if not paths:
         raise SystemExit("give --trace or --trace-dir")
     geo = gm.load_geometry_json(Path(a.geometry)) if a.geometry else None
+    state_table = None
+    if a.states:
+        if a.states == "decomp":
+            sys.path.insert(0, str(HERE / "states"))
+            import decomp_states  # tools/glitch/states/decomp_states.py
+            state_table = decomp_states.build_table(REPO / "decomp")
+        else:
+            state_table = json.loads(Path(a.states).read_text(encoding="utf-8"))
     p = detect.Params(snap_threshold=a.snap_threshold, cross_margin=a.cross_margin, body_reach=a.body_reach,
-                      weapon_radius=a.weapon_radius, target_half_extent=a.target_half_extent, all_snaps=a.all_snaps)
+                      weapon_radius=a.weapon_radius, target_half_extent=a.target_half_extent, all_snaps=a.all_snaps,
+                      state_table=state_table)
     out = Path(a.out) if a.out else OUT / "events.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
     summaries = []
@@ -220,6 +229,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     s.add_argument("--weapon-radius", type=float, default=100.0)
     s.add_argument("--target-half-extent", type=float, default=150.0)
     s.add_argument("--all-snaps", action="store_true")
+    s.add_argument("--states", help="also run the state-machine signals: a table JSON from "
+                                    "tools/glitch/states/mario_states.py extract, or 'decomp' to build it now")
     s.set_defaults(fn=cmd_detect)
     a = ap.parse_args(argv)
     try:

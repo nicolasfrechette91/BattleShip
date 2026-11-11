@@ -13,6 +13,7 @@ Git-ignored `logs/glitch/`. Standard-library Python 3.9+ only.
 | `detect.py` | per-tick anomaly detector over lab traces; writes `btt_glitch_event_v1` JSONL |
 | `test_glitch.py` | 36 tests, no ROM needed (`python -I tools/glitch/test_glitch.py`) |
 | `transn_cos_check.c` | D1 on Mario's Super Jump Punch: libultra `__cosf` against the host `cosf` on the exact stick-derived inputs |
+| `states/` | Mario's state machine (`STATE_MACHINE_CANDIDATES.md`): static status table from the decomp, state signals over traces (`glitch.py detect --states`) |
 
 The `analyze` output names places on the stage. It is for explaining and detecting what an agent did. Do not turn it
 into rewards, goals, curricula or input sequences.

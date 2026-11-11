@@ -37,6 +37,9 @@ class Params:
     platform_window: int = 30           # ticks back to look for the D1 path
     all_snaps: bool = False             # emit every snap, not only unexplained / edge snaps
     default_ecb: Tuple[float, float, float, float] = (320.0, 190.0, 0.0, 150.0)  # 203_MarioMain.c map_coll
+    # state-machine signals (tools/glitch/states/state_detect.py): the static table from `mario_states.py extract`
+    state_table: Optional[Mapping[str, Any]] = None
+    only_states: bool = False           # skip the geometric detectors (mario_states.py detect)
 
 
 @dataclass
@@ -82,6 +85,28 @@ class State:
         self.attack_active = int(ef.get("attack_active", 0) or 0)
         self.stick_x = int(inp.get("stick_x", 0) or 0)
         self.flags = {k: int((r.get(k) or {}).get("anomaly_flags", 0) or 0) for k in ("spatial", "entity", "targets")}
+        # fields the state-machine signals read (absent fields keep neutral defaults)
+        self.jumps_used = _opt_int(o.get("jumps_used"))
+        self.time_passed = _opt_int(o.get("time_passed"))
+        self.game_status = _opt_int(o.get("game_status"))
+        self.targets_remaining = _opt_int(o.get("targets_remaining"))
+        self.status_tics = _opt_int(ef.get("status_total_tics"))
+        self.jumps_max = _opt_int(ef.get("jumps_max"))
+        self.fastfall = int(ef.get("fastfall", 0) or 0)
+        self.stick_y = int(inp.get("stick_y", 0) or 0)
+        self.button_hold = int(inp.get("button_hold", 0) or 0)
+        self.button_tap = int(inp.get("button_tap", 0) or 0)
+        self.button_release = int(inp.get("button_release", 0) or 0)
+        self.tap_stick_y = _opt_int(inp.get("tap_stick_y"))
+        self.tics_since_last_z = _opt_int(inp.get("tics_since_last_z"))
+        self.anim_frame = None if inp.get("anim_frame") is None else float(inp["anim_frame"])
+        self.anim_speed = None if inp.get("anim_speed") is None else float(inp["anim_speed"])
+        self.motion_flag1 = _opt_int(inp.get("motion_flag1"))
+        self.has_input_block = bool(inp)
+
+
+def _opt_int(v: Any) -> Optional[int]:
+    return None if v is None else int(v)
 
 
 def _point(s: State, ecb: Tuple[float, float, float, float], which: str) -> Tuple[float, float]:
@@ -135,7 +160,8 @@ class Detector:
         return tags
 
     def emit(self, kind: str, mechanisms: Sequence[str], prev: State, cur: State, score: float, threshold: float,
-             evidence: Mapping[str, Any], tick_to: Optional[int] = None) -> None:
+             evidence: Mapping[str, Any], tick_to: Optional[int] = None,
+             detector: Optional[Mapping[str, Any]] = None) -> None:
         key = json.dumps([self.geo.sha256(), self.source.get("trace"), kind, cur.index, evidence.get("key")], default=str)
         ev = {
             "schema": EVENT_SCHEMA,
@@ -155,7 +181,7 @@ class Detector:
             "fighter": {"prev": _snapshot(prev), "curr": _snapshot(cur)},
             "evidence": {k: v for k, v in evidence.items() if k != "key"},
             "platform_sensitive": self._platform(cur.index),
-            "detector": DETECTOR,
+            "detector": dict(detector or DETECTOR),
             "needs_replay": True,
         }
         self.events.append(ev)
@@ -353,13 +379,24 @@ class Detector:
             if b.index != a.index + 1:
                 self.counts["tick_gap"] = self.counts.get("tick_gap", 0) + 1
                 continue
+            if self.p.only_states:
+                continue
             self.line_crossings(a, b)
             self.bounds(a, b)
             self.snaps(a, b)
             self.floor_switch(a, b)
             self.target_breaks(a, b)
             self.native_flags(b)
-        self.solid_occupancy()
+        if not self.p.only_states:
+            self.solid_occupancy()
+        if self.p.state_table is not None:
+            import os
+            import sys
+            here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "states")
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import state_detect  # tools/glitch/states/state_detect.py (STATE_MACHINE_CANDIDATES.md section 5)
+            state_detect.run_signals(self, self.p.state_table)
         self.events.sort(key=lambda e: (e["step"], e["kind"]))
         return {"schema": "btt_glitch_scan_v1", "source": self.source, "geometry_sha256": self.geo.sha256(),
                 "ecb": list(self.ecb), "live_ticks": len(live), "solids": len(self.solids), "counts": self.counts,
