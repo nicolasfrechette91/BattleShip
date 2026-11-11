@@ -89,6 +89,7 @@ class Params3(r2.Params2):
     phi_factor: float = 0.25            # DECISIVE 1: phi = 1 / (4 x groups at the level)
     demote_min_dispatches: int = 1000   # DECISIVE 2
     demote_fall_rate: float = 0.75      # DECISIVE 2
+    demote_exit_fall_rate: float = 0.70  # owner 2026-11-11: hysteresis, a demoted group exits on a break, an e, or falls < 70 % of the window
     demote_share_factor: float = 0.25   # DECISIVE 2: a demoted group gets phi / 4
     anchor_k: int = 3                   # DECISIVE 3
     anchor_share: float = 0.5           # DECISIVE 3: 0.5 x w_max
@@ -109,6 +110,8 @@ class Params3(r2.Params2):
             raise SearchError("refused: --window and --demote-min-dispatches are positive; --anchor-k, --trigger-rarity, --trigger-draws-per-cell are not negative")
         if not 0.0 < self.phi_factor <= 1.0 or not 0.0 < self.demote_share_factor <= 1.0 or not 0.0 <= self.demote_fall_rate <= 1.0 or self.rank_exp < 0 or not 0.0 <= self.novelty_floor <= 1.0:
             raise SearchError("refused: a selection parameter is out of range")
+        if not 0.0 <= self.demote_exit_fall_rate <= self.demote_fall_rate:
+            raise SearchError("refused: the demotion exit threshold is in [0, the demotion threshold]")
         if self.cleared_weight <= 0.0:
             raise SearchError("refused: run 3 keeps cleared starts eligible (--cleared-weight > 0)")
         if self.retire_after != 0:
@@ -123,7 +126,7 @@ class Params3(r2.Params2):
     def as_dict(self) -> Dict[str, Any]:
         d = super().as_dict()
         d.update({k: getattr(self, k) for k in ("breadth_share", "window", "rank_exp", "novelty_floor", "phi_factor", "demote_min_dispatches", "demote_fall_rate",
-                                                "demote_share_factor", "anchor_k", "anchor_share", "anchor_w_floor", "trigger_rarity", "trigger_draws_per_cell",
+                                                "demote_exit_fall_rate", "demote_share_factor", "anchor_k", "anchor_share", "anchor_w_floor", "trigger_rarity", "trigger_draws_per_cell",
                                                 "trigger_cap", "summary_every_s", "summary_every_dispatches")})
         d["trigger_classes"] = list(self.trigger_classes)
         d["level_weights"] = [float(w) for w in self.level_weights]
@@ -143,7 +146,8 @@ SELECTION_RULES = {
     "useful": "u = a break whose next-level arrival is <= the E7 bound; level 9: a claimed clear <= the bound (literal)",
     "e": "a kept cell at a deeper level earlier than every alive cell of its group before the burst; level 9: a claimed clear faster than every earlier claim",
     "demotion": "owner 2026-11-08: the group's last demote_min_dispatches dispatches (run 2 then run 3): the window full, 0 bursts with any break, 0 e, "
-                "falls >= demote_fall_rate x the window; exit when it stops holding",
+                "falls >= demote_fall_rate x the window; exit (owner 2026-11-11, hysteresis) when a break or an e enters the window or the falls drop below "
+                "demote_exit_fall_rate x the window; the status at the start = the rule replayed over the group's whole sequence",
     "demoted_new_earliest": "a burst whose kept cells give a demoted group a new earliest eligible cell (earlier than every alive cell of the group before "
                             "the burst) queues that cell, one per group per burst, for trigger_draws_per_cell draws through the trigger queue (same cap)",
     "cell": "(1 + rank)^-rank_exp x max(novelty_floor, 1 / (1 + dispatches selected since the representative was set)) x cleared_weight^clears",

@@ -25,8 +25,11 @@ in-order ingest of the result, so every decision here is a function of the plan,
                     groups, floored at phi = phi_factor / (groups at the level), rescaled to 1 - (demoted) x phi / 4; a demoted
                     group gets phi x demote_share_factor (DECISIVE 1, the warm-start fix, 4b rule 2).
     demotion        (owner 2026-11-08, replacing the whole-history rule) the group's LAST demote_min_dispatches (1,000) dispatches, run 2
-                    then run 3 in ingest order: the window full, 0 bursts that broke a target (any break, 4b rule 3), 0 e, falls >= 75 %
-                    of the window. Exit: the condition stops holding (a break or an e enters, or the falls drop below 75 %). Events
+                    then run 3 in ingest order: the window full, 0 bursts that broke a target (any break, 4b rule 3), 0 e, falls >=
+                    demote_fall_rate (75 %) of the window. Exit (owner 2026-11-11, hysteresis): a break or an e enters the window (as in
+                    DECISIVE 2), or the falls drop below demote_exit_fall_rate (70 %) of the window; between 70 and 75 % the status
+                    stays what it was. The status at the start is the rule replayed over the group's whole sequence (its history
+                    tail, oldest first), so a run boundary changes nothing. Events
                     logged with the window's counters. A burst whose kept cells give a DEMOTED group a new earliest eligible cell (earlier
                     than every alive cell of that group before the burst) queues that cell (one per group per burst) with
                     trigger_draws_per_cell (3) draws through the trigger queue (class demoted_new_earliest, same cap).
@@ -60,7 +63,8 @@ import math
 from collections import Counter, deque
 from typing import Any, Deque, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
-SELECT_CONTRACT = "run3_select_v2"            # v2 (owner 2026-11-08): rolling demotion window + new earliest cells of demoted groups
+SELECT_CONTRACT = "run3_select_v3"            # v2 (owner 2026-11-08): rolling demotion window + new earliest cells of demoted groups;
+#                                               v3 (owner 2026-11-11): demotion hysteresis (exit on a break, an e, or falls < demote_exit_fall_rate)
 TARGETS_TOTAL = 10
 NEW, REPLACED = "new", "replaced"
 STREAMS = ("rank", "anchor", "breadth", "trigger")
@@ -72,6 +76,15 @@ LANDING_CLASS = "demoted_new_earliest"
 def window_code(fall: int, b: int, e: int) -> int:
     """One dispatch in the demotion window: bit 0 fall, bit 1 a break, bit 2 an e (a digit 0-7 in the plan's tails)."""
     return (1 if fall else 0) | (2 if b else 0) | (4 if e else 0)
+
+
+def demotion_next(was: bool, n: int, falls: int, breaks: int, e: int, full: int, enter_rate: float, exit_rate: float) -> bool:
+    """The demotion status after a dispatch, from the window's counters (n dispatches, `full` = the window size). Not demoted: demoted when
+    the window is full with 0 breaks, 0 e and falls >= enter_rate x n. Demoted: stays while 0 breaks, 0 e and falls >= exit_rate x n
+    (owner 2026-11-11). exit_rate == enter_rate is the 2026-11-08 rule (no hysteresis)."""
+    if n < full or breaks or e:
+        return False
+    return falls >= (exit_rate if was else enter_rate) * n
 Niche = Tuple[int, Tuple[int, ...]]
 GKey = Tuple[int, int, str]
 
@@ -147,14 +160,19 @@ class Run3Selector:
         self.dwin: Dict[GKey, Deque[int]] = {}
         self.dcnt: Dict[GKey, List[int]] = {}                  # [falls, breaks, e] over the window
         tails = {(tuple(g) if not isinstance(g, str) else _parse_glabel(g)): str(t) for g, t in (history_tails or {}).items()}
+        dem0: Set[GKey] = set()
         for g, h in self.hist.items():                         # every group with a history has its sequence, and they agree
             t = tails.get(g, "")
             codes = [int(ch) for ch in t]
             if len(codes) != h["n"] or sum(c & 1 for c in codes) != h["fall"] or sum((c >> 1) & 1 for c in codes) != h["b"] \
                     or sum((c >> 2) & 1 for c in codes) != h["e"]:
                 raise ValueError(f"group {glabel(g)}: its history sequence ({len(codes)} codes) does not match its counters {dict(h)}")
-            for c in codes[-self.DW:]:
+            st = False                                         # owner 2026-11-11: the status is the rule replayed over the whole sequence
+            for c in codes:
                 self._push(g, c)
+                st = self._next_demoted(g, st)
+            if st:
+                dem0.add(g)
         self.real_windows: Optional[Dict[GKey, str]] = None    # rule a (owner 2026-11-09): with an inherited run, the D1 window is real
         if history_windows is not None:
             self.real_windows = {(tuple(g) if not isinstance(g, str) else _parse_glabel(g)): str(w) for g, w in history_windows.items()}
@@ -190,7 +208,7 @@ class Run3Selector:
         with_history = [g for g in sorted(self.gall) if self.hist.get(g, Counter()).get("n", 0) > 0]
         for g in with_history + [g for g in sorted(self.gall) if g not in set(with_history)]:
             self._ensure_window(g)                                   # history first: a group without one starts at the pooled rate
-        self.dem = {g for g in self.gall if self._demoted(g)}
+        self.dem = dem0
         for g in sorted(self.gall):
             self._recompute_anchors(g)
         self.start = self.table()
@@ -321,16 +339,16 @@ class Run3Selector:
         c = self.dcnt.get(g, [0, 0, 0])
         return {"n": len(self.dwin.get(g, ())), "fall": c[0], "b": c[1], "e": c[2]}
 
-    def _demoted(self, g: GKey) -> bool:
+    def _next_demoted(self, g: GKey, was: bool) -> bool:
         w = self.dwin.get(g)
-        if not w or len(w) < self.DW:
+        if not w:
             return False
         falls, breaks, e = self.dcnt[g]
-        return breaks == 0 and e == 0 and falls >= self.p.demote_fall_rate * len(w)
+        return demotion_next(was, len(w), falls, breaks, e, self.DW, self.p.demote_fall_rate, self.p.demote_exit_fall_rate)
 
     def _check_demotion(self, g: GKey, n: int) -> None:
-        now = self._demoted(g)
         was = g in self.dem
+        now = self._next_demoted(g, was)
         if now == was:
             return
         if now:
