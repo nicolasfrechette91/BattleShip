@@ -1,7 +1,7 @@
 # Option D, order discovery from tick 0: detailed design (2026-11-11)
 
-**Status: proposal only. No code, zero native ticks. The owner's decisions are recorded in section 12 as they are made (from
-2026-11-12).** Written during night 3 of run 3
+**Status: all 9 open questions settled by the owner on 2026-11-12 (section 12); the design is decided. Zero native ticks so far.**
+Written during night 3 of run 3
 (`C:/BattleShip_lab/crossing_2026-11-11_run3c`, launched 22:21 local) in a separate git worktree
 (`C:/Users/kill_/Bureau/gitRepo/Smash_pc_port/BattleShip_optionD`, branch `design/option-d` from `cbc64a4`). No file of the main tree
 was modified, and the run 3 manifest (54 files, digest `73cbde95`) was not touched. The lab was read only, and the running night's folder
@@ -668,3 +668,6 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
    is an integrity finding and the night is "not a test of M1"; no fallback to the next arrival for now. Rationale: the per-tick chain
    already covers the 16 compared end-record fields, so (b) adds nothing; an in-run reading alone is not enough for a gate.
 9. **Hand-off:** designed and built only after a verified M1 (recommended), or designed now.
+   **Decided 2026-11-12 (owner): deferred.** The hand-off (section 6.4) is built only after a verified M1 or a verified D clear faster
+   than the frontier's best; each hand-off night remains a plan the owner approves. Deferring keeps about a day and a run 3 manifest
+   change out of the build, and loses no data: D's `cells.jsonl` keeps every kept cell with its inputs, chain, end record and order.
