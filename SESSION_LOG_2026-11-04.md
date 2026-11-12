@@ -1351,3 +1351,57 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
 - **Night 3 planned, not launched:** `C:/BattleShip_lab/crossing_2026-11-11_run3c`, 5 workers, 480 min, 80 M ticks, seed 4, records
   every 3,600 s, the same level split, `--inherit` both nights; the plan equals the smoke's start exactly (bound 934, digest `1a353ed9`).
   Waiting for the owner's go.
+
+### 19.8 2026-11-11: zero-break demotion, night 3 re-planned, the second smoke run (new best 929)
+
+- **Committed (owner):** section 19.7 and the proposal's addendum 2 `9fe7560`.
+- **Zero-break demotion (owner: the gap in DECISIVE 2; built and committed `4d14586`, contract `run3_select_v4`, digest `73cbde95`).**
+  Demoted when the window of the group's last 1,000 dispatches is full with 0 breaks and 0 e, whatever the falls
+  (`Params3.demote_fall_rate` 0, was 0.75). Exit when a break or an e enters the window. The v3 falls exit (below 70 %) is retired
+  (`demote_exit_fall_rate` 0): with no falls criterion to enter, a falls exit would re-demote on the next dispatch. The window is its own
+  hysteresis: after an exit the group cannot be demoted again before the break or e leaves the window, 1,000 of its dispatches later.
+  Start status = the rule replayed over the whole sequence (unchanged). The v3 thresholds stay reproducible by parameters.
+- **Replay** (`tools/analysis/run3_design/d2_zero_break_replay.py`, run 2 + night 1 + night 2 as the next plan builds them, 27 groups):
+  events v3 10, zero-break 11. End status changed for 3 groups, all with eligible cells at 934: (9, 256, 326:2-6-1) (8,558 dispatches,
+  46 breaks all in run 2, 4,482 without a break), (7, 322, 330:3) (0 breaks in 2,114) and (7, 74, 330:8) (2 breaks, then 1,184 without).
+  Already demoted under both rules: (8, 320), (9, 4), (9, 64) x 2 (no eligible cell). **False demotions: 0 by the useful definition**
+  (`d2_rolling_replay.py`'s: a useful break or an e while demoted, at the 934 bound from the plan's D1 window values); **2 by the strict
+  one** (any break or e after a demotion): (7, 322, 322:) demoted at its dispatch 5,903 (night 2), exit 709 dispatches later on a breadth
+  dispatch of cell 30392 (start 944, ineligible at 934) whose break reached level 8 at 975 (not useful even at night 2's 953), and
+  (9, 256) demoted at its 1,000th dispatch in run 2, exit 1,392 later on a level-9 break (a clear) in run 2 (bound 1,404 then; not useful
+  at 934). Window sensitivity (strict false demotions / demoted at night 3's start): 1,000: 2 / 3 groups; 1,250-1,500: 2 / 2 (not
+  (7, 74)); 1,750-2,000: 1 / 2; 2,500: 0 / 1 ((9, 256) only). Whole-history break rates of the groups with eligible cells: 0.15 % to
+  9.6 %; (9, 2, 326:2-6-8) 0.67 % (P(0 in 1,000) 0.12 %, longest without a break 662), (7, 266, 330:6) 0.39 % (2.1 %, 859), (8, 6) 0.48 %
+  (0.8 %, 656): the owner's 0.008 % holds near a 0.94 % rate, and several groups sit below it.
+- **Tests:** `unit_zero_break_demotion` ((9, 256)'s case at 40 % falls demoted at the start, the other group of the level takes
+  1 - phi / 4, a window filling at 33 % falls demotes, a break 10 inside holds it off exactly 11 dispatches, break and e exits, the v3
+  thresholds demote nothing); `unit_rolling_demotion` rewritten for the rule (0 falls, demoted when the last break leaves, again 1,000
+  after the exit); `unit_demotion_hysteresis` pinned to the v3 thresholds; `unit_params` (defaults 0 / 0, v4); new
+  `real_two_nights_zero_break` (night 3's plan under both rules: same archive and 14 groups, demoted exactly the 3, (9, 2) 0.5 -> 0.969).
+  Suites: run 3 33/33 (unit 20, real 6, e2e 7), search 13/13, archive 2/2, anomaly 10/10. `git diff --check` clean.
+- **Night 3 re-planned** (`C:/BattleShip_lab/crossing_2026-11-11_run3c`, digest `73cbde95`, bound 934 from the 959, both nights
+  inherited; the superseded v3 plan copied to `logs/run3_design/plan_run3c_v3_superseded.json`): 14 groups, 137 anchors, demoted
+  (9, 256), (7, 74, 330:8), (7, 322, 330:3); (9, 2) 0.969 of level 9 (was 0.5); the five other level-7 groups 0.196 each (was 0.143).
+- **Smoke run 2** (owner: code changed): plan then `run --workers 3 --max-wall-min 25 --rng-seed 1 --summary-every-s 600 --level-weights
+  0.20,0.35,0.35,0.10 --inherit crossing_2026-11-06_run3 --inherit crossing_2026-11-10_run3b` into
+  `C:/BattleShip_lab/crossing_2026-11-11_run3c_smoke2`, 19:40-20:00 local (readiness 11,031 MB free commit). WALL_CAP, exit 0, 1,410
+  dispatches; 0 prefix mismatches, 0 tick-0 inequalities, 0 seed failures, no game process left, digests unchanged, 8 end records fused
+  (all ok), 0 triggers. Demoted at start and close: the 3; 0 demotion events. Level 9 exploitation: (9, 2) 228 of 236 (0.966; first smoke
+  112 of 228, 0.491), (9, 256) 8 (0.034; was 116, 0.509). Level 7: the two demoted groups 2 and 3 draws (were 48 and 36). Split 0.209 /
+  0.352 / 0.330 / 0.110. **New best verified clear 929 / 928** (dispatch 1,139, cell 10388, level 9 at 873, group (9, 2)): breaks 4@29,
+  0@80, 5@167, 7@184, 9@305, 3@461, 2@530, 6@813, 8@873, 1@929 (the 959: 6@826, 8@900, 1@959); chains r1 = r2, native text replay
+  equal, export round trip ok; a 967 claim not replayed (slower than the best then). Memory peak main 475 MB, tree 2,658 MB private /
+  1,003 MB working set, lowest free commit 8,249 MB.
+- **Night 3 and the 929 (preview, `build_plan` only, nothing written):** (A) as planned: best 959, bound 934, 17,813 eligible, 14
+  groups, 3 demoted. (B) `--best-from` the smoke: best 929, bound 904, 16,313 eligible, 11 groups ((9, 256), (7, 74), (8, 6) lose every
+  eligible cell), level 9 = (9, 2) alone with 93 cells (earliest 869), level 8 300 (803), demoted (7, 322, 330:3) only. (C) `--inherit`
+  night 1, night 2, the smoke (a linear chain; the smoke's 8 cells and 1,410 dispatches join): best 929, bound 904, 16,386 eligible, 11
+  groups, the same demotion. Waiting for the owner's choice and go; `run3c/plan.json` is (A).
+- **Owner decisions:** option D approved in principle, option A abandoned; D's detailed design to be written during night 3 in a separate
+  git worktree (proposal only, no code). Queued, not urgent: replay the 4 `ceiling_velocity_kept` events (native ticks, so not during a
+  night); in `tools/glitch/states/`, the jump squat's nominal length (3 ticks, not the 7-frame animation) and the EscapeB -> SpecialLw edge.
+- **Owner, 2026-11-11 evening: night 3 = choice C** (inherit night 1, night 2 and the smoke; best 929, bound 904); 5 workers, 480 min,
+  seed 4, hourly records, split 0.20 / 0.35 / 0.35 / 0.10; this section committed before the launch. D's design, during the night in a
+  separate worktree: the target order must be discovered by the agent itself (no human route, no order suggested from the owner's
+  knowledge of the stage). The session ends after night 3 with `docs/handoff_2026-11-12.md` (new file; `docs/project_handoff.md` keeps
+  the owner's local changes).
