@@ -441,6 +441,9 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
   record. This is the "verified arrival" standard of rd2's wall-top landing. Only the first qualifying arrival per milestone is
   verified. A disagreeing replay is an integrity finding, and the night is then not a test of M1 (section 7.4); there is no fallback
   to a later arrival (section 12, D-Q8).
+- **Standalone verification: deferred** (owner, 2026-11-12). `run/cells.jsonl` keeps every kept cell at ingest (level, tick, inputs,
+  chain), so a night that dies before its close loses no data. A standalone `verify-milestones` command (reading only the folder's
+  plan and cell rows, calling the close's verification step; native, the owner's go) is built only if that ever happens.
 - **Exports.** A text replay (`.btt.txt`) of each verified milestone prefix, so the owner can watch it in the replay lab.
 - **Records.** The per-level table at start against end, the memory peak, and a backup of the folder (Python sums against
   `Get-FileHash`, as the 2026-10-16 backup).
@@ -610,6 +613,10 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
    already justify s.
 2. **Level weights:** (a) 0.4 / 0.3 / 0.2 / 0.1 over the four deepest eligible levels (recommended); (b) flat over all eligible levels;
    (c) another list.
+   **Decided 2026-11-12 (owner): (a)**, 0.4 / 0.3 / 0.2 / 0.1 deepest first over the four deepest levels with an eligible, non-retired
+   cell, renormalised when fewer exist. It does not touch the gate (M1 depends on s only), so it can be revisited after the pilot from
+   the hourly per-level readout. Run 3's 0.20 / 0.35 / 0.35 / 0.10 was excluded: it was chosen from where the incumbent route's
+   archive yielded most (session log §19.3).
 3. **Equality mechanism:** (a) deterministic least-count for sets and orders (recommended); (b) keyed uniform draws.
 4. **Dead ends:** (a) per-cell retirement at R = 300 (recommended); (b) run 3's zero-break demotion per order; (c) neither.
 5. **Breadth and triggers:** (a) breadth 0.2 as run 3, anomaly detectors on and recorded, trigger draws off (recommended, "detect without
