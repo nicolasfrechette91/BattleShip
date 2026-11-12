@@ -41,7 +41,8 @@ Sources:
   4. the **order** of that set with the fewest dispatches;
   5. a cell of that order, by run 3's rank draw and anchors.
 
-  The accounting unit is one dispatch. No rule names a target, a position or an order.
+  The accounting unit is one exploitation draw; breadth is a separate, set-blind stream on top. No rule names a target, a position or
+  an order.
 - **Pace rule.** Eligible and kept at level L if `tick <= (G × L) // 10 + s`, with G = 480 and s = 120.
   - G is the owner's goal: completion at input tick 480 or earlier is a clock under 8.00 s.
   - The linear shape is the only per-level pace that assumes nothing about which targets are cheap.
@@ -136,8 +137,11 @@ CONT explorer (the `m8_rd_explore_v1` keyed stream, 120-word segments).
 5. **Cell:** within the order (= run 3's group), run 3's machinery unchanged. Anchors (the 3 earliest eligible cells per resource class)
    are drawn with probability `anchor_share × w_max`. Otherwise the rank draw `(1 + rank)^-1 × max(0.05, 1 / (1 + draws since set))`.
 
-**Budget count.** The number of dispatches selected for the set, or for the order, counted when the dispatch is **selected** (run 3's
-convention under D4, so the reorder window cannot give one unit ten draws in a row). Breadth dispatches count too.
+**Budget count.** The number of **exploitation** dispatches selected for the set, or for the order, counted when the dispatch is
+**selected** (run 3's convention under D4, so the reorder window cannot give one unit ten draws in a row). Breadth dispatches do not
+count: breadth is a separate, set-blind stream on top (D-Q3). Counting them would break "within 1", because breadth can give one set more
+than exploitation can rebalance, and levels outside the level draw get breadth only. "Within 1" and the hourly bug flag therefore apply
+to the levels currently in the level draw.
 
 **New units join at their siblings' minimum.** A set or order that appears mid-night starts at the lowest budget count among its
 siblings, not at 0. It gets an equal share from then on, without a catch-up burst that would starve the others. A unit that loses its
@@ -384,7 +388,8 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
      - digests unchanged at the close;
      - no game process left;
      - every end record fused;
-     - the set/order counts equal within 1 per unit (checked from the dispatch rows).
+     - the set/order counts equal within 1 per unit at every level in the level draw (exploitation draws, checked from the dispatch
+       rows).
    - Measured:
      - dispatches per hour;
      - new cells per dispatch;
@@ -420,7 +425,8 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
   - for the owner only, the first-break and set tables (descriptive; nothing reads them).
 - **Flags** (reported, never acted on automatically):
   - the deepest eligible level has not grown in 2 hours;
-  - a set's or order's budget count is off the minimum by more than 1, which would be a bug;
+  - a set's or order's budget count (exploitation draws) is off the minimum by more than 1 at a level in the level draw, which would be
+    a bug;
   - breadth outside 0.18 to 0.22 of the hour;
   - memory above 80 % of the soft budget.
 - **Stop rules, as run 3:**
@@ -507,7 +513,9 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
 - **U4 set then order:**
   - least budget count at each stage;
   - ties by earliest eligible arrival, then mask, then label;
-  - over 10,000 simulated draws on a fixed archive, every set's count and every order's count within its set differ by at most 1;
+  - counts are exploitation draws only: a breadth draw changes no set or order count;
+  - over 10,000 simulated draws (breadth included) on a fixed archive, at every level in the level draw, every set's count and every
+    order's count within its set differ by at most 1; a level outside the level draw is not checked;
   - a set with one order and a set with ten orders get equal set counts.
 - **U5 newcomers:**
   - a set or order created mid-run joins at its siblings' minimum;
@@ -562,7 +570,7 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
 - **E3 pace and budget:**
   - a fake game with fast and slow orders;
   - behind-pace reaches are never kept;
-  - every set with an eligible cell is drawn, and counts stay equal within 1;
+  - every set with an eligible cell is drawn, and counts stay equal within 1 at every level in the level draw;
   - the slow orders leave the rotation when their cells fall behind.
 - **E4 milestone:**
   - a fake level-6 arrival at 408 triggers M1;
@@ -621,6 +629,12 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
    the hourly per-level readout. Run 3's 0.20 / 0.35 / 0.35 / 0.10 was excluded: it was chosen from where the incumbent route's
    archive yielded most (session log §19.3).
 3. **Equality mechanism:** (a) deterministic least-count for sets and orders (recommended); (b) keyed uniform draws.
+   **Decided 2026-11-12 (owner): (a)**, deterministic least-count, set then order, with budgets counting exploitation draws only;
+   breadth is a separate, set-blind stream on top. "Within 1" and the hourly bug flag apply only to the levels currently in the level
+   draw; U4 is updated. How it stops an early-deep order from extending its lead: while it is alone at a level it takes that level's
+   whole share (nothing else is there); the moment a second set reaches the level it joins at the leader's count, and least-count then
+   alternates between them, so the head start is not paid back but is not extended by a single draw. Set before order means a set with
+   ten orders gets no more than a set with one.
 4. **Dead ends:** (a) per-cell retirement at R = 300 (recommended); (b) run 3's zero-break demotion per order; (c) neither.
    **Decided 2026-11-12 (owner): (a), with one condition:** a cell retires after 300 dispatches none of which kept a cell (new, or a
    faster representative) at a deeper level. Retired cells stay in the archive and in breadth; a set, order or level with only retired
