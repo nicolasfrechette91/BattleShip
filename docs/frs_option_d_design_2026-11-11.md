@@ -1,6 +1,7 @@
 # Option D, order discovery from tick 0: detailed design (2026-11-11)
 
-**Status: proposal only. No code, zero native ticks, nothing decided.** Written during night 3 of run 3
+**Status: proposal only. No code, zero native ticks. The owner's decisions are recorded in section 12 as they are made (from
+2026-11-12).** Written during night 3 of run 3
 (`C:/BattleShip_lab/crossing_2026-11-11_run3c`, launched 22:21 local) in a separate git worktree
 (`C:/Users/kill_/Bureau/gitRepo/Smash_pc_port/BattleShip_optionD`, branch `design/option-d` from `cbc64a4`). No file of the main tree
 was modified, and the run 3 manifest (54 files, digest `73cbde95`) was not touched. The lab was read only, and the running night's folder
@@ -57,7 +58,6 @@ Sources:
 - **Pilot night.** The frontier is paused for one night. The prerequisites are:
   - every test passes;
   - the frontier digest is unchanged;
-  - a zero-tick census;
   - a 25-minute smoke with pass criteria;
   - the owner's go.
 
@@ -292,8 +292,8 @@ history's concentration: 10 of the 120 first-five permutations were ever played,
 Seeding D with their level 1 to 5 states would start D with deep cells in exactly those orders. The least-count budget would treat them
 equally, but they would hold the deepest levels from minute one and take the 0.4.
 
-The pilot starts from tick 0 alone. Records are read only for the census report (section 7.1), never as cells. Seeding remains an option
-(Q6).
+The pilot starts from tick 0 alone. D reads no earlier record of any kind except the frontier's best verified clear, as the claim
+threshold (section 12: D-Q6 decided; the census report was dropped under D-Q1).
 
 ### 5.3 The search's random seeds
 
@@ -370,14 +370,13 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
    - the four run 3 suites unchanged (33 / 13 / 2 / 10);
    - the run 3 digest still `73cbde95`;
    - `git diff --check` clean.
-2. **Census at the plan (zero ticks), printed and saved in plan.json:**
+2. **The plan (zero ticks), printed and saved in plan.json:**
    - the root;
    - the pace table (line per level);
    - the parameters;
-   - the frontier reference read;
-   - for the owner only, what the records would keep at s = 60 / 90 / 120 / 150 (frontier search states and order prefixes per level).
+   - the frontier reference read (the claim threshold).
 
-   The census is a report and enters no rule.
+   The census of earlier records (what they would keep at each slack) was dropped: see section 12, D-Q1.
 3. **Smoke** (owner's go): 3 workers, 25 minutes, `--rng-seed 1`, into `order_<date>_smoke`.
    - Pass criteria:
      - 0 prefix mismatches and 0 tick-0 inequalities (the root included);
@@ -562,8 +561,7 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
 
 **Real lab, zero ticks:**
 
-- **R1 census:** the plan's census on the frontier search and route records (read only) gives the per-slack counts. A check asserts
-  that the census values appear in no rule input (a parameter digest computed without the census equals the plan's).
+- **R1 census: dropped** (section 12, D-Q1).
 - **R2 run 3 untouched:** the four run 3 suites pass unchanged.
 
 **Native (each with the owner's go):** the smoke run (7.1 step 3), then the pilot (7.2).
@@ -575,7 +573,7 @@ Each phase is verified before the next (CLAUDE.md: one independently verifiable 
 | phase | content | verified by |
 | --- | --- | --- |
 | 1 (about 1 day) | `order_select.py`: pace rule, set/order least-count budget, newcomers, level weights, retirement, milestones; built on `run3_select` without editing it | U1 to U10, U12, T-M1 |
-| 2 (1 to 1.5 days) | `order_search.py`: plan (tick-0 root, census, reference read) and run (open with the root check, F3 with the pace filter, records, hourly tables, verified arrivals, exports); D's manifest | U11, U13, T-M2, E1 to E6, R1, R2 |
+| 2 (1 to 1.5 days) | `order_search.py`: plan (tick-0 root, reference read) and run (open with the root check, F3 with the pace filter, records, hourly tables, verified arrivals, exports); D's manifest | U11, U13, T-M2, E1 to E6, R2 |
 | 3 (half a day) | the session log section, `docs/` record of the design as built, smoke run (owner's go) and its report | 7.1 criteria |
 
 The hand-off loader steps (6.4) are not in this build. They are designed and built only after a verified M1.
@@ -586,8 +584,8 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
   and M2 / M3 measure that in the same night. The pilot's gate is level 6 only.
 - **Thin budgets.** If the number of sets and orders explodes at middle levels, per-order budgets fall to a few dispatches. The hourly
   equality and per-level tables show it. Retirement and the pace keep the rotation to live units.
-- **Slack.** Too tight prunes slow-start orders, and too loose lets the current order back in. Section 4.3 fixes the window. The census
-  reports the neighbours. Any change is the owner's.
+- **Slack.** Too tight prunes slow-start orders, and too loose lets the current order back in. Section 4.3 fixes the window. Any change
+  is the owner's.
 - **Archive growth from tick 0.** The early game is new territory for the archive, and the new-cell rate is unknown until the smoke.
   The pace caps it (nothing past 600), and the projection sets `max_cells`.
 - **A null pilot is informative but not final.** It shows that this budget under this pace does not reach 408 in one night. It does not
@@ -597,6 +595,10 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
 ## 12. Open questions for the owner
 
 1. **Slack:** (a) s = 120 (recommended, section 4.3); (b) 90; (c) 150.
+   **Decided 2026-11-12 (owner): (a), s = 120**: pace line 48·L + 120, gate M1 = 408. Rationale: one 120-input explorer segment of
+   slack, with a gate 53 ticks faster than any level-6 arrival on record. **Also decided: the census is dropped from D** (section 7.1
+   step 2, the section 5.2 mention, test R1), because it reads earlier archives, which D-Q6 excludes, and addendum 2's offline numbers
+   already justify s.
 2. **Level weights:** (a) 0.4 / 0.3 / 0.2 / 0.1 over the four deepest eligible levels (recommended); (b) flat over all eligible levels;
    (c) another list.
 3. **Equality mechanism:** (a) deterministic least-count for sets and orders (recommended); (b) keyed uniform draws.
