@@ -1,0 +1,611 @@
+# Option D, order discovery from tick 0: detailed design (2026-11-11)
+
+**Status: proposal only. No code, zero native ticks, nothing decided.** Written during night 3 of run 3
+(`C:/BattleShip_lab/crossing_2026-11-11_run3c`, launched 22:21 local) in a separate git worktree
+(`C:/Users/kill_/Bureau/gitRepo/Smash_pc_port/BattleShip_optionD`, branch `design/option-d` from `cbc64a4`). No file of the main tree
+was modified, and the run 3 manifest (54 files, digest `73cbde95`) was not touched. The lab was read only, and the running night's folder
+was read only for progress lines.
+
+Owner's frame (2026-11-11): D is approved in principle and option A is abandoned. **The agent must discover the target order itself.**
+There is no human route and no order suggested from knowledge of the stage. This document gives the detailed design the owner asked for:
+
+- the budget unit (target sets, then orders);
+- the pace rule 48·L + 120 and its justification;
+- roots and seeds;
+- how D coexists with the frontier archive;
+- the pilot night protocol (frontier paused);
+- the success criteria (level 6 at or before 408);
+- the tests.
+
+Sources:
+- `docs/frs_right_side_arm_proposal_2026-11-10.md` (addendum 2: option D in outline, the pace table);
+- `docs/frs_route_insight_2026-10-16.md` (the order concentration, descriptive only);
+- `docs/frs_frontier_2026-10-14.md`;
+- `docs/frs_prefix_cost_2026-10-14.md`;
+- `STATE_MACHINE_CANDIDATES.md` s4 (the 8 s threshold);
+- `docs/rl_decisions_2026-11-04.md` s5 (DECISIVE 4 / 4b);
+- the run 3 code (`tools/frs/run3_select.py`, `run3_search.py`, `crossing_search_run3.py`, `rl/m8_rd_cells.py`, `rl/frs_archive.py`).
+
+## 0. Summary
+
+- **What D is.** A night-long cell search rooted at tick 0 (one empty-prefix root at level 0). Its budget is spread over **target
+  sets, then orders**, instead of being concentrated on the pace of one order. A **goal pace rule** keeps a cell only if its tick is at or
+  under 48·L + 120, where L is the number of targets broken. D reuses run 3's engine, cells, worker pool, verification, exports and
+  integrity checks. It is built in new files, so the frontier arm's digest `73cbde95` stays valid and frontier nights continue during the
+  build.
+- **Budget unit.** Each dispatch draws:
+  1. breadth (0.2) or exploitation (0.8);
+  2. for exploitation, a level, deepest first (0.4 / 0.3 / 0.2 / 0.1 over the four deepest levels with an eligible cell);
+  3. the **target set** of that level with the fewest dispatches;
+  4. the **order** of that set with the fewest dispatches;
+  5. a cell of that order, by run 3's rank draw and anchors.
+
+  The accounting unit is one dispatch. No rule names a target, a position or an order.
+- **Pace rule.** Eligible and kept at level L if `tick <= (G × L) // 10 + s`, with G = 480 and s = 120.
+  - G is the owner's goal: completion at input tick 480 or earlier is a clock under 8.00 s.
+  - The linear shape is the only per-level pace that assumes nothing about which targets are cheap.
+  - s = 120 sits between two bounds. It must be at least 40 so the records' own fastest level-5 arrival stays inside. It must be at most 156,
+    so the current order's level-6 and level-7 arrivals (461, 493) stay outside and that order cannot absorb the budget.
+  - 120 is also exactly one burst segment of slack.
+- **Roots and seeds.**
+  - One root: the tick-0 state, read at the open, and checked equal in two fresh processes.
+  - No cell from any earlier archive. No human input of any kind.
+  - The search's own keyed random streams take a new `--rng-seed`. Native RNG is never read, and no RNG seed is checked.
+- **Coexistence.** D has its own folder, contract, manifest and inheritance chain. D reads one thing from the frontier: its best verified
+  clear, read only, as the claim and milestone reference. The frontier reads nothing from D until a hand-off. A hand-off is built only
+  after M1 and runs between nights with the owner's go. The lab lock already prevents the two from running at the same time.
+- **Pilot night.** The frontier is paused for one night. The prerequisites are:
+  - every test passes;
+  - the frontier digest is unchanged;
+  - a zero-tick census;
+  - a 25-minute smoke with pass criteria;
+  - the owner's go.
+
+  The night runs 5 workers for 480 minutes with hourly records. After the close come the usual checks, plus a two-replay verification
+  of every milestone arrival.
+- **Success.**
+  - **M1, the gate:** a verified level-6 arrival at or before 408, in any target set and any order.
+  - Reported, not gates: M2 (level 7 at or before 456), M3 (level 8 at or before 504), M4 (level 9 at or before 552), a clear at or
+    before 600, and any verified clear faster than the frontier's bound.
+  - No M1 in one complete pilot night: stop and review. The slack is never changed automatically.
+- **Cost.** About 3 days of build in three verifiable phases (section 10), then one pilot night.
+
+## 1. Purpose, and what D must never do
+
+**Why a new arm.** With 10 targets, the owner's goal (480) means 48 ticks per target. The agent's records follow that pace through level 4.
+They fall 40 ticks behind at level 5 and never come back:
+
+| level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | clear |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| fastest arrival on record | 26 | 78 | 120 | 184 | 280 | 461 | 493 | 803 | 869 | 929 |
+| 48·L | 48 | 96 | 144 | 192 | 240 | 288 | 336 | 384 | 432 | 480 |
+
+Every record from level 6 on comes from one macro-order. At levels 6 and 7, 94.9 % and 99.5 % of all 133,004 trajectories broke the
+same target set. Three orders hold 98.2 % of the level-7 trajectories (route insight s0). Polishing that order (the frontier arm: 1,196
+→ 978 → 959 → 929) cannot approach 480. D asks the question the history never asked: whether the agent, given the same action domain
+and an equal budget for every set and order it finds, reaches level 6 at the 480 pace plus slack.
+
+**What "the agent discovers the order" means here.** These are enforced rules, not intentions:
+
+- **No target id, position, coordinate, order, tick value from a record, or route** appears in any selection, keeping, pace or
+  milestone rule. D's code reads only generic quantities: level, live mask, order label, tick, dispatch counts, resource class and
+  break flags. This follows the convention of every FRS module ("No cell id, position, target id ... is in this file").
+- **No human input.** D never reads the scripted baseline (468 rows, 7.43 s), any TAS or human recording, any owner time, or any
+  route-insight table. The baseline stays what it is: the M1e replay regression fixture.
+- **No archive import.** The frontier and run 1 / 2 archives carry the history's order concentration, so D roots at tick 0 only
+  (section 5).
+- **Relabelling invariance**, as a test: in a fake game whose target ids are permuted, D makes the same dispatch sequence with the labels
+  permuted (section 9, U12). Any code path that favoured a particular target would fail it.
+- **Detect without steering.** The live anomaly detectors run and record, as in run 3. Their trigger draws are **off** in D's pilot
+  (run 3 has them on), so the pilot's budget comes from sets, orders and pace alone. See Q5.
+- The hourly report shows, for the owner only, which targets were broken first, which sets exist and so on. **Nothing in a report feeds
+  back into a rule** or into the next night's parameters without the owner's decision.
+
+The action domain is unchanged and not up for review: 8 directions at ±80 plus neutral, and one button per frame, through the lab's
+CONT explorer (the `m8_rd_explore_v1` keyed stream, 120-word segments).
+
+## 2. Definitions
+
+- **Level L:** the number of targets broken (0 to 10). It equals `10 − popcount(live mask)` (`rl/m8_rd_cells.level_of_mask`).
+- **Target set:** the live mask (10 bits) at level L. A set is identified only by its mask, never by what its targets are.
+- **Order:** the break sequence from tick 0, the labels of the broken targets in break order (ties within one tick: by target label,
+  as run 3 does). This is run 3's **order niche** with the tick-0 root as the only seed: `seed_niche(1023) = (1023, ())`, and a child's
+  niche is its parent representative's niche plus the targets its burst broke at or before the child's tick
+  (`run3_select.child_niche`, unchanged). With one root, the niche is exactly the full order, and the order determines the set.
+- **Group:** run 3's (level, mask, niche label). Under D a group is one order.
+- **Cell:** run 3's cell, keyed by `(bx, by, res, mask, floor)` (`rl/m8_rd_cells.cell_key`).
+  - The key holds the mask, so cells never mix sets.
+  - It does not hold the order. Two orders reaching the same key share one cell, and the faster arrival is the representative
+    (run 3's replacement rule). The cell then belongs to the faster representative's order: run 3's group move, DECISIVE 4b.
+  - So orders compete cell by cell. An order that is slower at every cell it shares, and holds no other cell, disappears as a group.
+    This is intended: with the same mask and the same bucketed state, the faster arrival dominates.
+
+## 3. The budget unit: target sets, then orders
+
+### 3.1 The draw (per dispatch, in this order)
+
+1. **Stream.** Breadth with probability 0.2 (run 3's count-based draw over every eligible cell: weight 1 / (1 + dispatches of the cell)),
+   otherwise exploitation. Triggers are off (Q5).
+2. **Level** (exploitation): weights 0.4 / 0.3 / 0.2 / 0.1 over the four deepest levels that have an eligible, non-retired cell, deepest
+   first. With fewer than four such levels, the weights are renormalised over those present. This is run 3's `level_weights` mechanism
+   with a new list.
+3. **Target set:** among the level's sets that have an eligible cell, the set with the **lowest budget count**. Ties go to the earliest
+   eligible arrival in the set, then the lowest mask value, which is a deterministic tie-break, not a preference.
+4. **Order:** among the set's orders that have an eligible cell, the order with the lowest budget count. Ties go to the earliest
+   eligible arrival, then the niche label.
+5. **Cell:** within the order (= run 3's group), run 3's machinery unchanged. Anchors (the 3 earliest eligible cells per resource class)
+   are drawn with probability `anchor_share × w_max`. Otherwise the rank draw `(1 + rank)^-1 × max(0.05, 1 / (1 + draws since set))`.
+
+**Budget count.** The number of dispatches selected for the set, or for the order, counted when the dispatch is **selected** (run 3's
+convention under D4, so the reorder window cannot give one unit ten draws in a row). Breadth dispatches count too.
+
+**New units join at their siblings' minimum.** A set or order that appears mid-night starts at the lowest budget count among its
+siblings, not at 0. It gets an equal share from then on, without a catch-up burst that would starve the others. A unit that loses its
+last eligible cell leaves the rotation and keeps its count. If it comes back, it resumes at `max(its count, the siblings' minimum)`.
+
+### 3.2 Why this unit
+
+- **It inverts the history's allocation.** Every earlier search spent its budget by pace or by productivity inside the order it already
+  had: 98 % or more on three orders. Equal counts per set, then per order, give a newly found set at level L the same budget as the
+  incumbent's set, from its first cell.
+- **Equal is the only split that names nothing.** A productivity-weighted share (run 3's rate window) would favour whatever order
+  produces first, which brings the concentration back in. The pace rule (section 4) does the pruning instead: a set or order behind pace
+  has no eligible cell and leaves the rotation.
+- **Sets before orders.** Orders within one set share most of their future: the same live targets remain. Sets are the coarser
+  diversity, and at level L there can be up to C(10, L) of them. Splitting by set first keeps one set with many orders from taking the
+  level.
+- **Deterministic least-count, not a random uniform draw.** It gives exact equality (within 1 per unit) at any point of the night. It is
+  a pure function of the selection history, and the U4 test checks it directly. A keyed uniform draw would also be equal in expectation;
+  see Q3.
+
+**Cost of the unit: thin budgets per order.** Illustration with 50,000 dispatches in a night (the smoke measures the real rate; the
+frontier search ran 6,312 per hour). Exploitation gets 40,000.
+- A deepest level holding 20 sets of 3 orders gets 0.4 × 40,000 / 60, about 270 dispatches per order.
+- A level weighted 0.1 holding 100 sets of 2 orders gets 20 per order.
+
+The deepest-first weights are what keep the frontier of discovery fed. Shallow levels get breadth (0.2 of everything) and the 0.1 share.
+
+### 3.3 Dead ends: per-cell retirement
+
+With deepest-first weights, a deep level whose only cells are dead ends would absorb 40 % of exploitation. Run 3 handles dead groups
+with the zero-break demotion (a window of 1,000 dispatches). In D, orders are many and small, and few would ever fill a 1,000 window.
+
+Proposed instead: **a cell is retired from exploitation after R = 300 of its dispatches with no break and no kept cell at a deeper
+level.**
+- **Why 300:** the detection argument of the right-side proposal (risk 1). An event at 1 % per dispatch shows up in 300 dispatches
+  with 95 % probability (0.99^300 = 5 %).
+- A retired cell stays in the archive and stays eligible for breadth, so it is not lost.
+- A unit (set or order) with only retired cells leaves the exploitation rotation, and a level with only retired cells leaves the level
+  draw.
+- The zero-break demotion is not used in D: `demote_min_dispatches` is unreachable at these sizes. This is Q4.
+
+### 3.4 Reused from run 3, and what is new
+
+| part | source | in D |
+| --- | --- | --- |
+| cells, key, replacement, group moves, end records, fused first dispatch, D4 scheduling, worker pool, mismatch limit, caps, readiness | `run3_search`, `run3_worker`, `rl/m8_rd_cells`, `rl/frs_archive` | unchanged, imported |
+| niche derivation | `run3_select.seed_niche` / `child_niche` | unchanged; one root with mask 1023 |
+| cell draw inside a group (rank draw, anchors, staleness) | `run3_select.Run3Selector` | unchanged, called per order |
+| breadth (count-based) | `run3_select` | unchanged |
+| level draw | `level_weights` | new list 0.4 / 0.3 / 0.2 / 0.1 |
+| group shares (rate window, floor, demotion) | `run3_select` | **replaced** by least-count set, then order |
+| E7 bound (best − 25) as the keep / eligible rule | `crossing_search` | **replaced** by the pace rule (section 4) |
+| claims, verification twice from tick 0, text replay, exports | `crossing_search_run3`, `run3_export`, `rl/frs_verify` | unchanged; claim threshold = the frontier's best at the plan |
+| anomaly detectors (live, recorded) | `run3_anomaly`, `run3_worker` | on; trigger draws off |
+| start | runs 1 + 2 merged, inheritance chain | **replaced** by the tick-0 root (section 5) |
+| new | | pace rule; set/order budget; retirement; milestones and verified arrivals; D's hourly tables; D's contract, manifest and folder name |
+
+## 4. The pace rule: 48·L + 120
+
+### 4.1 The rule
+
+A reach at level L with input tick t is **kept** (as a new cell or a faster representative) and its cell is **eligible** only if
+
+    t <= line(L) = (G × L) // 10 + s,    G = 480, s = 120, L = 0 ... 10   (integer arithmetic)
+
+| L | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 (clear) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| line(L) | 120 | 168 | 216 | 264 | 312 | 360 | **408** | 456 | 504 | 552 | 600 |
+| fastest on record | 0 | 26 | 78 | 120 | 184 | 280 | 461 | 493 | 803 | 869 | 929 |
+| record − line | | −142 | −138 | −144 | −128 | −80 | +53 | +37 | +299 | +317 | +329 |
+
+**Claims are separate from the pace rule.** A clear is claimed whenever it is faster than the frontier's best at the plan (929 tonight),
+at any tick. Keeping stops at 600 and claims do not. A clear between 601 and 904 is still worth handing to the frontier (section 6.4).
+
+### 4.2 Why G = 480 and a straight line
+
+- **G** is the owner's goal. `STATE_MACHINE_CANDIDATES.md` s4: a time shown under 8 s needs `time_passed <= 479`, that is
+  `completion_input_tick <= 480`. G is a parameter. It comes from no record and no route.
+- **Linear in L** means every target is given the same time, 48 ticks. Any other profile (front-loaded, back-loaded, or a backward rule
+  from observed transitions) states which part of the route is fast or slow, and that is a route belief. The backward rule considered in
+  the right-side proposal (Q4 there) reads its transitions from the current order's records (the 279-tick crossing), so it would bring
+  that order's shape into D. A straight line is the only per-level pace with no such content.
+- **Per level, not per tick.** The rule says how many targets a state must have broken by its tick. That is the same as "at tick t,
+  at least `ceil((t − s) × 10 / G)` targets", so the archive holds no state that is behind the goal by more than s.
+
+### 4.3 Why s = 120
+
+A slack too small prunes orders that start slower and finish faster. A slack too large lets the current order back in, and its states
+then take the deepest-first budget. Both bounds can be read from the records (descriptive, used only to choose a constant):
+
+- **Lower bound, s ≥ 40.** The fastest level-5 arrival on record is 280 (line 240). A slack under 40 would prune the only level-5 states
+  known to exist, and D would have to beat the history at level 5 before keeping anything there.
+- **Upper bound, s ≤ 156.**
+  - The current order's fastest level-7 arrival is 493, and 336 + 157 = 493. Its fastest level-6 arrival is 461, and 288 + 173 = 461.
+  - At s ≥ 157, the current order's level-7 states become eligible. Under deepest-first weights they would take the deepest level's 0.4,
+    which is the absorption the right-side proposal warned about.
+  - It would also make M1 / M2 meaningless: they would be met by states that already exist.
+- **Inside the window, 120:**
+  - One segment of slack. The CONT explorer plays 120-word segments, so a lineage can fall one full unproductive segment behind the
+    line and still be kept.
+  - 2.5 targets' worth of pace.
+  - 37 ticks under the level-7 bound and 53 under the level-6 one.
+  - At levels 1 to 4 it leaves 128 to 144 ticks of room under the records. An order whose first targets are slower than the history's
+    is not pruned early.
+- **What the records keep at each slack** (addendum 2's census, frontier search states / order prefixes within the line):
+
+  | level | +60 | +120 |
+  | --- | --- | --- |
+  | 3 | 70 / 9 | 139 / 12 |
+  | 4 | 13 / 4 | 132 / 11 |
+  | 5 | 31 (one mask) / 1 | 65 / 1 |
+  | 6 | 0 | 0 |
+
+  At +60, level 5 is one mask and one order. At +120, it is twice the states.
+
+The slack fixes the gate (M1 = line(6) = 408). Changing s therefore changes the success criterion and is the owner's decision, never
+automatic (section 8).
+
+### 4.4 Consequences
+
+- **Archive cap.** No cell past tick 600. Level-0 cells exist only up to tick 120. Growth is bounded by the pace, not only by `max_cells`.
+- **Shorter bursts.** F3's continuation trigger (`rl/frs_archive`: continue a burst when its last segment reached a new key or a faster
+  arrival) is read with the pace filter. A reach that would not be kept does not trigger a continuation, so bursts that have fallen behind
+  stop at the next segment boundary.
+- **Cheaper prefixes.** Every prefix is at most 600 ticks, against 700 to 930 in tonight's frontier archive. Prefix replay was 92 % of
+  the ticks in the frontier search (`docs/frs_prefix_cost_2026-10-14.md`). The smoke measures D's dispatch rate.
+
+### 4.5 What the pace rule does not do
+
+- It does not rank cells. Ranking stays run 3's rank draw inside an order.
+- It reads no record value. G and s are constants in Params.
+- It is not the E7 bound. D has no bound tied to the frontier's best except the claim threshold.
+
+## 5. Roots and seeds
+
+### 5.1 One root: the tick-0 state
+
+- **Root:** level 0, mask 1023, niche `(1023, ())`, empty prefix, resource class as read.
+- **Open:**
+  1. Two fresh processes each reach tick 0 with no input word played.
+  2. Their end records (the 16 compared fields), cell keys and chain digests must be equal. This is run 3's tick-0 inequality check
+     applied to the root.
+  3. The root's end record is stored as any cell's is.
+  4. Every later dispatch is, as always, a fresh process from tick 0 (process restart resets the episode), so nothing else is needed.
+- **Why one root.** The order is discovered from the first input. With a single root the order niche is the complete order, which is
+  what the budget unit counts.
+
+### 5.2 No seeds from earlier archives (recommended)
+
+The frontier archive, runs 1 / 2, the frontier search and the M8 import are the agent's own records, not human ones. But they carry the
+history's concentration: 10 of the 120 first-five permutations were ever played, and 2 of them carry 97.9 % (route insight s0).
+Seeding D with their level 1 to 5 states would start D with deep cells in exactly those orders. The least-count budget would treat them
+equally, but they would hold the deepest levels from minute one and take the 0.4.
+
+The pilot starts from tick 0 alone. Records are read only for the census report (section 7.1), never as cells. Seeding remains an option
+(Q6).
+
+### 5.3 The search's random seeds
+
+- **Selection.** Run 3's `det_schedule.KeyedRandom`, seeded by `--rng-seed`. The pilot uses a value no frontier night used (for example
+  11), recorded in config.json.
+- **Bursts.** The CONT explorer's keyed stream, keyed by D's archive id, the key family and the cell's prefix digest, as run 3 does
+  (`<archive id>|order1|<prefix digest>`, iteration 0, 1, ...). D's archive id differs from every run 3 archive, so no frontier burst is
+  repeated.
+- **Native RNG** is never read, logged or compared. No RNG seed is implemented, validated or compared (CLAUDE.md).
+
+## 6. Coexistence with the frontier archive
+
+### 6.1 Separation
+
+| | frontier arm (run 3) | D |
+| --- | --- | --- |
+| folder | `crossing_<date>_run3*` | `order_<date>` (new prefix) |
+| contract | `frs_crossing_search_run3_v1` | `frs_order_search_v1` (new) |
+| code digest | run 3 manifest `73cbde95` | D's own manifest (import closure of D's entry modules), enforced at its open |
+| inheritance | its own linear chain (`--inherit`) | none in the pilot; a later D night inherits D folders only |
+| refusals | `run3_load` reads only its own contract, so a D folder is refused | D refuses run 3 folders as inheritance |
+| lab lock | one night at a time | the same lock, so D and the frontier never run together |
+
+### 6.2 What each reads from the other
+
+- **D reads from the frontier:** the latest verified best of the frontier chain (completion tick, chain digest and source), read only at
+  D's plan. It is the claim threshold (verify a claim faster than it) and the reference for the "faster than the frontier's bound"
+  readout. Nothing else: no cell, no niche, no rate.
+- **The frontier reads from D:** nothing, until a hand-off (6.4).
+
+### 6.3 Building D while frontier nights continue
+
+The run 3 manifest is the import closure of run 3's entry modules (`run3_manifest.RUN3_MODULES`), computed in a fresh interpreter. New
+files that run 3 does not import do not change its digest. D is therefore built as new files that import run 3 modules unchanged:
+- `tools/frs/order_search.py` (plan / run);
+- `tools/frs/order_select.py` (pace rule, set/order budget, retirement, milestones);
+- `tools/frs/order_search_tests.py`.
+
+A test checks that the run 3 digest still equals `73cbde95` after D's files land (T-M1). If D ever needs a change inside a run 3 manifest
+file, for example a hook in `run3_search` for a root with an empty prefix:
+- it happens between nights;
+- it is its own commit with the full run 3 suites and a frontier smoke run;
+- the owner is told first, because the frontier digest changes.
+
+Adapters and subclasses come first.
+
+### 6.4 Hand-off from D to the frontier (built only after M1)
+
+Two loader steps on the frontier side. Both change run 3 manifest files, so each is built between nights with its own tests:
+- **Best:** a D verified clear faster than the frontier's best becomes the frontier's E7 best through a `--best-from` path accepting D
+  folders (it needs a clean run, a text replay of the clear, and the export round trip, as run 3 requires of its own folders).
+- **Cells:** D's lineages at level 6 or deeper whose ticks are inside the frontier's bound become frontier roots through a
+  `--seeds-from` step. Their prefixes are re-derived from D's rows and replayed at the open, as run 1 did with its seeds. They start new
+  groups, with the order niche taken from D's order.
+
+Each hand-off is a plan the owner approves before a night. Nothing passes live.
+
+### 6.5 Shared, unchanged
+
+- The pinned executable and frozen runtime.
+- The lab guard: writes only under D's folder; refuses the checkout, `runs/` and the D: evidence roots.
+- Readiness thresholds (free commit 10,240 MB, available 4,096 MB, 5 GiB disk), never lowered.
+- Verification: twice from tick 0 with the verify flags.
+- Text replay of new bests, and exports (`.btt.txt`, `.bk2`).
+- The replay lab viewer (add D's folder to `sources.json`).
+- The backups: D's folders join the lab backup.
+
+## 7. Pilot night protocol (frontier paused)
+
+### 7.1 Before the night
+
+1. **Build complete, tests green:**
+   - D's unit, fake-game e2e and zero-tick real-lab tests (section 9);
+   - the four run 3 suites unchanged (33 / 13 / 2 / 10);
+   - the run 3 digest still `73cbde95`;
+   - `git diff --check` clean.
+2. **Census at the plan (zero ticks), printed and saved in plan.json:**
+   - the root;
+   - the pace table (line per level);
+   - the parameters;
+   - the frontier reference read;
+   - for the owner only, what the records would keep at s = 60 / 90 / 120 / 150 (frontier search states and order prefixes per level).
+
+   The census is a report and enters no rule.
+3. **Smoke** (owner's go): 3 workers, 25 minutes, `--rng-seed 1`, into `order_<date>_smoke`.
+   - Pass criteria:
+     - 0 prefix mismatches and 0 tick-0 inequalities (the root included);
+     - digests unchanged at the close;
+     - no game process left;
+     - every end record fused;
+     - the set/order counts equal within 1 per unit (checked from the dispatch rows).
+   - Measured:
+     - dispatches per hour;
+     - new cells per dispatch;
+     - main and tree memory per 1,000 cells;
+     - the deepest level reached and its earliest tick.
+   - **Projection:** cells and memory at 8 hours. If it exceeds the 2,560 MB soft budget, `max_cells` is set so the night stops cleanly
+     at 80 % of it. If even that would end the night before 6 hours, the night is not launched, and the owner decides.
+4. **Readiness** just before the launch. A refusal is reported with what is missing.
+5. **The owner's go**, and the session log section committed before the launch.
+
+### 7.2 The night
+
+- **Command shape:** `order_search.py plan` then `run --workers 5 --max-wall-min 480 --rng-seed <new> --summary-every-s 3600`, into
+  `C:/BattleShip_lab/order_<date>`. The tick cap is as the frontier's (80 M).
+- **The frontier is paused:** no frontier night that night. Its chain is untouched, and the next frontier night inherits exactly as
+  before. D's folder is never in its chain.
+- **Hourly record** (`hourly.jsonl` / `hourly.md`). Per level:
+  - cells, eligible cells and retired cells;
+  - the number of sets and orders with an eligible cell;
+  - dispatches;
+  - the earliest arrival against the line (lead or lag);
+  - the largest and smallest set and order budget counts, as the equality check.
+
+  Also:
+  - milestones with their time, dispatch, cell and lineage digest;
+  - memory and the dispatch rate;
+  - claims and verifications;
+  - for the owner only, the first-break and set tables (descriptive; nothing reads them).
+- **Flags** (reported, never acted on automatically):
+  - the deepest eligible level has not grown in 2 hours;
+  - a set's or order's budget count is off the minimum by more than 1, which would be a bug;
+  - breadth outside 0.18 to 0.22 of the hour;
+  - memory above 80 % of the soft budget.
+- **Stop rules, as run 3:**
+  - mismatch limit 3, giving SEARCH_INVALID;
+  - a soft memory breach, giving a clean stop;
+  - `max_cells`, the tick cap and the wall cap.
+
+### 7.3 After the close
+
+- **Integrity, as run 3:**
+  - status and exit code;
+  - prefix mismatches and tick-0 inequalities;
+  - digests unchanged;
+  - no game process left;
+  - end records;
+  - claims and verification results.
+- **Verified arrivals.** For every milestone, M1 to M4, the prefix up to the arrival is replayed twice from tick 0 in fresh processes
+  with the verify flags. It counts only if both replays show the level-L break at the recorded tick, with chain digests equal to D's
+  record. This is the "verified arrival" standard of rd2's wall-top landing.
+- **Exports.** A text replay (`.btt.txt`) of each verified milestone prefix, so the owner can watch it in the replay lab.
+- **Records.** The per-level table at start against end, the memory peak, and a backup of the folder (Python sums against
+  `Get-FileHash`, as the 2026-10-16 backup).
+- **Report.** A section of the session log, with the decision table below filled in, and nothing launched after it.
+
+### 7.4 Decision after the pilot
+
+| outcome | reading | next (owner's go each time) |
+| --- | --- | --- |
+| M1 verified | the 48-per-target pace plus slack is reachable at level 6 by D's own budget | a second D night (new rng seed, same parameters; the budget then presses levels 7 and 8), and the hand-off loader built between nights |
+| M1 not met, night complete (≥ 6 h of dispatching, no integrity stop) | the random-burst budget under this pace does not reach level 6 at 408 | **stop D and review**; no automatic change of s, G or the weights |
+| night incomplete (integrity or memory stop before 6 h) | not a test of M1 | fix the cause; the pilot is rerun |
+| a verified clear faster than the frontier's bound (with or without M1) | a new best for the frontier | hand-off of the best (6.4) before the next frontier night |
+
+## 8. Success criteria
+
+- **Gate, M1:** a verified level-6 arrival at or before **408** (line(6) = 48 × 6 + 120), in any target set and any order, made by D's
+  own search from the tick-0 root in the pilot night. Verified means both replays agree (7.3). A claim or an in-run reading alone does
+  not count.
+- **Reported, not gates:**
+  - M2: a level-7 arrival at or before 456;
+  - M3: a level-8 arrival at or before 504;
+  - M4: a level-9 arrival at or before 552;
+  - a clear at or before 600 (a 10.0 s clock);
+  - any verified clear faster than the frontier's bound (904 tonight; best − 24 − 1).
+
+  Each is verified as M1 when met.
+- **Diversity readouts, for the owner, never gates or inputs:**
+  - the number of sets and orders with a cell inside the line at each level;
+  - how many different targets were broken first.
+
+  They describe what D found and steer nothing.
+- **Failure:** a complete pilot night without M1. D stops and is reviewed. Any change of slack, goal, weights or roots is a new proposal,
+  because s fixes the gate itself.
+
+## 9. Tests
+
+All zero native ticks unless marked native. D's tests live in `tools/frs/order_search_tests.py`, in the run 3 suite's style (`unit_`,
+`real_`, `e2e_`).
+
+**Unit (pure, no process):**
+
+- **U1 pace line:**
+  - `line(L) = (G × L) // 10 + s` for L = 0 to 10 at G = 480, s = 120: 120 / 168 / ... / 600;
+  - a reach at exactly line(L) is kept, and at line(L) + 1 it is not;
+  - G and s are parameters;
+  - G ≤ 0, s < 0 and a non-integer are refused.
+- **U2 keep rule:**
+  - a behind-pace reach is neither kept nor counted as new for F3;
+  - a faster arrival at a known key replaces the representative, and the group moves when its order differs;
+  - a clear past 600 is still claimed when it is faster than the reference.
+- **U3 root and niches:**
+  - the root's niche is `(1023, ())`;
+  - a child's niche is the full order;
+  - a two-target burst is ordered by (break tick, target label);
+  - group key = (L, mask, order);
+  - with one root, the order determines the mask.
+- **U4 set then order:**
+  - least budget count at each stage;
+  - ties by earliest eligible arrival, then mask, then label;
+  - over 10,000 simulated draws on a fixed archive, every set's count and every order's count within its set differ by at most 1;
+  - a set with one order and a set with ten orders get equal set counts.
+- **U5 newcomers:**
+  - a set or order created mid-run joins at its siblings' minimum;
+  - a unit that loses its last eligible cell leaves and keeps its count, and returning resumes at max(count, minimum).
+- **U6 level weights:**
+  - 0.4 / 0.3 / 0.2 / 0.1 over the four deepest levels with an eligible non-retired cell;
+  - renormalised when there are fewer;
+  - a level with only retired cells is skipped.
+- **U7 retirement:**
+  - a cell retires after exactly R = 300 dispatches with no break and no deeper kept cell, not at 299;
+  - a cell any of whose dispatches broke a target, or kept a deeper cell, never retires;
+  - a retired cell stays in breadth;
+  - a unit with only retired cells leaves the rotation.
+- **U8 milestones:**
+  - M1 at a level-6 arrival of 408, not at 409;
+  - M2 to M4 and the clear line likewise;
+  - in any mask;
+  - recorded once, at the first occurrence, with dispatch, cell and lineage digest.
+- **U9 claims:** the threshold is the frontier's best read at the plan, and a claim faster than it is queued for verification as run 3.
+- **U10 parameters:**
+  - defaults;
+  - refusals (weights not summing to 1, R < 1, a breadth share outside [0, 1]);
+  - the config fingerprint;
+  - `run` refuses flags that differ from the saved plan, as run 3 does.
+- **U11 isolation:**
+  - `run3_load` refuses a D folder (contract);
+  - D refuses a run 3 folder as inheritance, refuses to plan into a folder holding a run 3 plan, and writes only under its own folder
+    through the guard.
+- **U12 relabelling invariance:**
+  - on a fake archive and a fake burst oracle whose target labels are permuted by a fixed permutation, the selection sequence is the same
+    with the labels permuted;
+  - counts, ranks and milestones are equal;
+  - this is the test that no rule prefers a target.
+- **U13 no human input:** the plan's source list holds only D's own folder and the frontier's best record. No file under the scripted
+  baseline's or the M1e fixtures' paths is opened (checked by an open-hook in the test).
+
+**Manifest:**
+
+- **T-M1:** the run 3 manifest digest is still `73cbde95` with D's files present.
+- **T-M2:**
+  - D's manifest covers D's import closure;
+  - D's open refuses a missing or different digest;
+  - a change during the run is SEARCH_INVALID at the close.
+
+**Fake-game end-to-end** (run 3's fake game, zero native ticks):
+
+- **E1 same seed:** two runs with the same seed give identical dispatch rows, cells, hourly records and milestones (D4 under the reorder
+  window).
+- **E2 tick-0 open:** the root is read twice and equal; an injected inequality refuses the open.
+- **E3 pace and budget:**
+  - a fake game with fast and slow orders;
+  - behind-pace reaches are never kept;
+  - every set with an eligible cell is drawn, and counts stay equal within 1;
+  - the slow orders leave the rotation when their cells fall behind.
+- **E4 milestone:**
+  - a fake level-6 arrival at 408 triggers M1;
+  - its verified-arrival replay runs twice;
+  - a replay that disagrees leaves M1 unverified and is reported.
+- **E5 caps and stops:**
+  - `max_cells` and a soft memory breach give a clean stop;
+  - 3 mismatches give SEARCH_INVALID;
+  - no game process is left.
+- **E6 exports:** a fake verified clear gives a `.btt.txt` and a `.bk2` with the round trip, and a milestone prefix export.
+
+**Real lab, zero ticks:**
+
+- **R1 census:** the plan's census on the frontier search and route records (read only) gives the per-slack counts. A check asserts
+  that the census values appear in no rule input (a parameter digest computed without the census equals the plan's).
+- **R2 run 3 untouched:** the four run 3 suites pass unchanged.
+
+**Native (each with the owner's go):** the smoke run (7.1 step 3), then the pilot (7.2).
+
+## 10. Build plan and cost (about 3 days)
+
+Each phase is verified before the next (CLAUDE.md: one independently verifiable milestone at a time).
+
+| phase | content | verified by |
+| --- | --- | --- |
+| 1 (about 1 day) | `order_select.py`: pace rule, set/order least-count budget, newcomers, level weights, retirement, milestones; built on `run3_select` without editing it | U1 to U10, U12, T-M1 |
+| 2 (1 to 1.5 days) | `order_search.py`: plan (tick-0 root, census, reference read) and run (open with the root check, F3 with the pace filter, records, hourly tables, verified arrivals, exports); D's manifest | U11, U13, T-M2, E1 to E6, R1, R2 |
+| 3 (half a day) | the session log section, `docs/` record of the design as built, smoke run (owner's go) and its report | 7.1 criteria |
+
+The hand-off loader steps (6.4) are not in this build. They are designed and built only after a verified M1.
+
+## 11. Risks
+
+- **The crossing for a new set.** Any set that is faster to level 6 still has to reach the remaining targets. D's deepest-first weights
+  and M2 / M3 measure that in the same night. The pilot's gate is level 6 only.
+- **Thin budgets.** If the number of sets and orders explodes at middle levels, per-order budgets fall to a few dispatches. The hourly
+  equality and per-level tables show it. Retirement and the pace keep the rotation to live units.
+- **Slack.** Too tight prunes slow-start orders, and too loose lets the current order back in. Section 4.3 fixes the window. The census
+  reports the neighbours. Any change is the owner's.
+- **Archive growth from tick 0.** The early game is new territory for the archive, and the new-cell rate is unknown until the smoke.
+  The pace caps it (nothing past 600), and the projection sets `max_cells`.
+- **A null pilot is informative but not final.** It shows that this budget under this pace does not reach 408 in one night. It does not
+  show that no order can. The review decides.
+- **Nothing in the records shows that any order fits 480.** D is the measurement.
+
+## 12. Open questions for the owner
+
+1. **Slack:** (a) s = 120 (recommended, section 4.3); (b) 90; (c) 150.
+2. **Level weights:** (a) 0.4 / 0.3 / 0.2 / 0.1 over the four deepest eligible levels (recommended); (b) flat over all eligible levels;
+   (c) another list.
+3. **Equality mechanism:** (a) deterministic least-count for sets and orders (recommended); (b) keyed uniform draws.
+4. **Dead ends:** (a) per-cell retirement at R = 300 (recommended); (b) run 3's zero-break demotion per order; (c) neither.
+5. **Breadth and triggers:** (a) breadth 0.2 as run 3, anomaly detectors on and recorded, trigger draws off (recommended, "detect without
+   steering"); (b) triggers on as run 3; (c) breadth off.
+6. **Roots:** (a) the tick-0 root only (recommended); (b) also the records' level 1 to 5 states inside the line (agent-made, but they
+   carry the history's order concentration).
+7. **Pilot:** 5 workers, 480 minutes, a new rng seed, M1 as the only gate. Confirm, or set another length.
+8. **Verified arrival:** both replays show the break at the recorded tick with equal chain digests (recommended). Or stricter: also the
+   full end record at the arrival.
+9. **Hand-off:** designed and built only after a verified M1 (recommended), or designed now.
