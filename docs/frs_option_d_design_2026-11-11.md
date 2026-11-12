@@ -605,6 +605,9 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
    steering"); (b) triggers on as run 3; (c) breadth off.
 6. **Roots:** (a) the tick-0 root only (recommended); (b) also the records' level 1 to 5 states inside the line (agent-made, but they
    carry the history's order concentration).
+   **Decided 2026-11-12 (owner): (a), the tick-0 root only.** D reads nothing from earlier archives except the frontier's best verified
+   clear, as the claim threshold. Rationale: earlier archives carry the history's order concentration, so seeding from them would
+   hand D the incumbent orders instead of letting it discover its own.
 7. **Pilot:** 5 workers, 480 minutes, a new rng seed, M1 as the only gate. Confirm, or set another length.
 8. **Verified arrival:** both replays show the break at the recorded tick with equal chain digests (recommended). Or stricter: also the
    full end record at the arrival.
