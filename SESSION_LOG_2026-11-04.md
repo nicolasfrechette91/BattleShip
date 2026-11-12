@@ -1303,3 +1303,51 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
   A1, 907) 0 crossings each, 19 still under 300.
 - This night's archive is clean (WALL_CAP, 0 mismatches) and can be inherited after runs 1 + 2 + night 1 (bound 959 - 24 - 1 = 934 at the
   registered rule); not planned, waiting for the owner.
+
+### 19.7 2026-11-11: demotion hysteresis, the states merge, option D, the smoke run and night 3 planned
+
+- **Committed (owner):** section 19.6 and the right-side arm proposal `613a141`.
+- **Demotion hysteresis (owner: approved; built and committed `7c0759a`):** demoted at >= 75 % falls (window of 1,000 full, 0 breaks,
+  0 e), exit when a break or an e enters the window or the falls drop below 70 % (`Params3.demote_exit_fall_rate` 0.70); between 70 and
+  75 % the status stays. The status at the start is the rule replayed over the group's whole sequence (`run3_select.demotion_next`),
+  so a run boundary changes nothing; selection contract `run3_select_v3`. Tests: `unit_demotion_hysteresis` reproduces the night-2 flip
+  (the 2026-11-08 rule: 9 alternating events at 750 / 749; the hysteresis: 1, exit exactly at 699; exit on an e; start status replayed;
+  exit threshold above 75 % refused); `unit_rolling_demotion`'s start fixture now rises to 749 from below (under the replay its old one
+  was a group demoted since its window passed 750). Real replay `tools/analysis/run3_design/d2_hysteresis_replay.py` (run 2 + night 1 +
+  night 2 as the next plan builds them): the old rule reproduces night 2's 11 logged events for (9, 256, 326:2-6-1) exactly; the
+  hysteresis gives 1 (exit at 699); every other group's events and every end status are unchanged (demoted at the end under both
+  rules: (8, 320), (9, 4), (9, 64, 322:8-1), (9, 64, 326:2-8-1), none with an eligible cell at 934). Suites before the commit: run 3 31/31,
+  search 13/13, archive 2/2, anomaly 10/10. Digest `5beb0b97`.
+- **States branch merged (`162443f`, merge of `origin/cloud/2026-11-05-states` = `a6523a3`, fetched from the owner's fork).** One
+  conflict, `tools/glitch/detect.py`'s per-tick loop: HEAD's `_note_break` kept first, then the branch's `only_states` skip. Checks:
+  `test_states.py` 35 OK; `test_glitch.py` 36 OK (1 skipped); `mario_states.py extract` 229 statuses, 82 reachable, 3,281 edges,
+  0 problems, exit 0 (decomp at its pinned `e4f0634`). State signals on the splice probe (208 traces, 1,926 events) and run 2 through
+  `glitch.py detect --states` (8 traces, 147 events: 75 geometric, 72 state): 0 `timer_tick_mismatch`, 0 `jumps_restored_in_air`, 0
+  `jumps_over_max`, 0 `landing_branch_mismatch`; the clock equals the recorded pair minus one on all 27 clears (the 1,245: 1,244 /
+  00:20.73; the splice 1,884s: 1,883 / 00:31.39). Noise: `status_shorter_than_nominal` 1,922 + 64, three patterns, all the jump squat
+  (KneeBend / GuardKneeBend -> Jump after 3 ticks against the 7-frame animation taken as nominal); `status_transition_unlisted` 0 + 4 and
+  `entry_frame_unexpected` 0 + 4, all EscapeB -> SpecialLw at tick 626 of the 1,245 family (down-B entered at frame 1, the table allows
+  31-32); `ceiling_velocity_kept` 4 + 0 (up-B, 11 ticks, vel_y 97.6 -> 4.0, four splices of one lineage); `break_hitlag_mismatch` 0. On
+  the 1,245: `break:hitlag` 8 x 1, 6 x 4, 5 x 3, 9 x 1, 0 x 1 (56 frozen ticks). Regression: HEAD's detector (files from `git show HEAD`)
+  and the merged one give identical events and summaries without a state table on run 2 (75) and the splice probe (2,190). Run 3 suites
+  on the merged tree 31/31, 13/13, 10/10, 2/2; digest `1a353ed9` (detect.py is in the manifest; glitch.py and states/ are not; no open
+  lazy import).
+- **Right-side arm, addendum 2** (`docs/frs_right_side_arm_proposal_2026-11-10.md`, uncommitted): the owner's 480-for-10 goal; every record
+  falls off a 48-per-target pace at level 5 (one level-5 prefix within 60 ticks of the line, none at level 6+ within 120); option D =
+  order discovery from tick 0 (set-then-niche budget, goal pace rule 48 L + s, milestones M1-M4, one pilot night, about 3 days of build).
+  Revised recommendation: the frontier arm alone for night 3, option A not built, then D.
+- **Smoke run (code changed; owner: smoke first):** plan then `run --workers 3 --max-wall-min 25 --rng-seed 1 --summary-every-s 600
+  --level-weights 0.20,0.35,0.35,0.10 --inherit crossing_2026-11-06_run3 --inherit crossing_2026-11-10_run3b` into
+  `C:/BattleShip_lab/crossing_2026-11-11_run3c_smoke` (tree `162443f`, digest `1a353ed9`), 16:52-17:13 local. Readiness first refused
+  while the suites ran (free commit 10,092 MB); after them 11,077 MB. Open (20 s): 1,885 / 1,884 and 959 / 958 replayed exactly; bound 934;
+  47,020 cells; eligible 213 / 639 / 6,833 / 10,128 (levels 9-6), earliest 869 / 803 / 493 / 461; 14 groups, 137 anchors, none demoted.
+  Stop: WALL_CAP, exit 0; 1,359 dispatches (4,151 per hour); 0 mismatches, 0 tick-0 inequalities, 0 lifecycle failures, 0 guard
+  violations, no game process left, digests unchanged; 0 claims; 0 demotion events; 0 triggers; 2 fused end records, both reproduced.
+  Split observed 0.209 / 0.353 / 0.330 / 0.108, breadth 19.7 %; level 8 20 useful in 386 (51.8 per 1,000), no new earliest. Memory peak
+  main 470 MB, tree 2,647 MB private / 1,147 MB working set, lowest free commit 8,448 MB; no breach.
+- **Finding to propose (not changed):** (9, 256, 326:2-6-1) holds 2 eligible cells and takes half of level 9's exploitation at the rho
+  floor (116 of 228 level-9 dispatches in the smoke). Over run 3 it has 4,521 dispatches and 0 breaks, but its falls are now 30-54 %, so
+  demotion (falls >= 75 %) never applies.
+- **Night 3 planned, not launched:** `C:/BattleShip_lab/crossing_2026-11-11_run3c`, 5 workers, 480 min, 80 M ticks, seed 4, records
+  every 3,600 s, the same level split, `--inherit` both nights; the plan equals the smoke's start exactly (bound 934, digest `1a353ed9`).
+  Waiting for the owner's go.

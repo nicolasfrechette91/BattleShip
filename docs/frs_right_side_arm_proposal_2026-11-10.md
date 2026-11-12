@@ -209,6 +209,85 @@ Recommendation step 1 done (the census rerun with the night added, `ra_crossing_
   evidence against a tick-0 arm on this crossing type is stronger than when section 6 was written. The recommendation order stands, but
   B's case rests more on a new crossing type than on a faster right side.
 
+## Addendum 2: option D, order discovery from tick 0, and the revised recommendation (2026-11-11, zero ticks)
+
+**The owner's goal changes the frame: 480 input ticks for 10 targets** (a clock under 8.00 s; `STATE_MACHINE_CANDIDATES.md` s4: 8 s needs
+`completion_input_tick <= 480`). The current order reaches level 6 at 461 at the earliest, leaving 19 ticks for four targets, one of
+them across the wall; its fastest recorded crossing alone is 273. **Options A, B and C all keep the current macro-order** (right side,
+then over the wall, then the left side top to bottom), so none of them can approach 480. They can only polish the 959.
+
+**Where the agent's records sit against a 480 pace** (48 ticks per target; a level-L state "on pace + s" has tick <= 48 L + s):
+
+| level | line | frontier search states within +0 / +60 / +120 (of all) | order prefixes within +60 / +120 (of all, every record to 2026-10-16) | fastest anywhere |
+| ---: | ---: | --- | --- | ---: |
+| 1 | 48 | 3 / 3 / 3 (3) | 4 / 4 (6) | 26 |
+| 2 | 96 | 16 / 31 / 31 (31) | 8 / 9 (16) | 78 |
+| 3 | 144 | 3 / 70 / 139 (231) | 9 / 12 (26) | 120 |
+| 4 | 192 | 1 / 13 / 132 (382) | 4 / 11 (38) | 184 |
+| 5 | 240 | 0 / 31 / 65 (328), one mask | 1 / 1 (33) | 280 |
+| 6 | 288 | 0 / 0 / 0 (185) | 0 / 0 (19) | 461 |
+| 7 | 336 | 0 / 0 / 0 (23) | 0 / 0 (15) | 493 |
+
+The records fall off the pace at level 5 and never come back: no level-6 state within 120 ticks of the line exists anywhere. The order
+space behind that is narrow (`docs/frs_route_insight_2026-10-16.md` s0, s2):
+- 10 of the 120 permutations of the first five targets were ever played, and 2 of them carry 97.9 % of those trajectories.
+- Targets 1, 6, 7 and 8 were never broken first.
+- 23 of the 90 ordered pairs were never played, several with over 100,000 opportunities.
+- Levels 6 and 7 are 95 % and 99.5 % one target set.
+
+Geometry as recorded (description only, in no rule): the three left targets lie beyond the wall. Every recorded crossing lands on the
+static floor at y 3,000 after leaving the moving line, and one left target sits at the start's height, 3,450 units to the left.
+
+### Option D: order discovery from tick 0 (its own night)
+
+- **Archive:** rooted at tick 0 (one empty-prefix seed), cells at every level, crossing3 key. This is option B's engine mode.
+- **Budget for diversity, not pace inside one order:** at each level the exploitation draw splits the level's budget equally over its
+  target sets (live masks). Within a set it splits equally over the order niches (D4b), with the fewest dispatches first. Inside a niche
+  the rank draw takes the earliest arrival first. The whole history spent 98 % or more on three orders; this inverts that.
+- **Goal pace rule** (generic, from the goal only): a cell is eligible and kept at level L only if its tick <= G × L / 10 + s, with
+  G = 480 and s the slack (parameter, 120 proposed). On the records above, s = 120 keeps the level 1 to 5 states where a 480 route must
+  live. It prunes everything the current order does from level 6 on, so the current order cannot absorb the arm's budget.
+- **Level weights:** deepest first (0.4 / 0.3 / 0.2 / 0.1 over the four deepest levels with an eligible cell), so the arm presses
+  forward instead of drifting to levels 2 and 3 (the frontier search's 90 %).
+- **Milestones**, each a fact nobody has seen:
+  - M1: a level-6 arrival at or under 288 + s (408), in any order; none exists today.
+  - M2: a level-7 arrival at or under 456, in any target set.
+  - M3: a first left-side break at or under 504.
+  - M4: a verified clear faster than the frontier arm's best. The frontier arm then inherits that lineage.
+- **Stop rule:** one pilot night without M1 means random bursts under this budget do not reach the 480 pace at level 6. Stop and review
+  (for example projectile-first orders, or a crossing earlier in the order).
+- **Cost:**
+  - Build: about 3 days. That covers option B's tick-0 mode, the set-then-niche budget, the goal pace rule, unit and fake-game tests,
+    and a zero-tick census of the start (how many states each slack keeps).
+  - Native: one pilot night with the frontier arm paused, then one or two more nights only if M1.
+  - Throughput: higher than the frontier arm's, because the prefixes are short (the frontier search ran 6,312 dispatches per hour).
+- **Risks:**
+  - The crossing still has to be found for any new set. Its own level 7 and 8 budget and M3 measure that.
+  - The slack: too tight prunes orders that start slow and finish fast, too loose lets the current order back in. The census reports
+    both before the night.
+  - Archive growth stays capped by the pace rule.
+  - Nothing in the records shows any order can fit 480. The composite of pair minima reaches 393 for one order, but that is built
+    from projectile breaks and is not a route.
+
+### Cost per night and expected effect (all options)
+
+| option | build | native cost per night | expected effect |
+| --- | --- | --- | --- |
+| frontier arm alone (the current night) | none | the night | polishes the current route: 1,196 -> 978 (night 1), 978 -> 959 (night 2); night 2 ended with unexploited level-8 / 9 arrivals at 803 / 869 |
+| A: fast-end crossing test | about 1 day | 10-11 % of a frontier night | most of its question is answered (0 crossings in 11,480 fast-end dispatches); best case 66 ticks or less on the current order |
+| B: tick-0 arm, current order | 2-3 days | a whole night (frontier paused) | new ends of the same macro-order; gain capped as A's |
+| C: two arms in one engine | 4-5 days | 1/3 of every night (frontier 1.5 x slower) | as B, with live hand-off |
+| **D: order discovery from tick 0** | about 3 days | a whole night per pilot (frontier paused) | the only option aimed at 480; outcome unknown, measured by M1 in one night |
+
+### Revised recommendation
+
+1. **Next night: the frontier arm alone.** Inherit both run 3 nights, bound 934, the same level split, the hysteresis. **Option A is not
+   built.** Its question is mostly answered, and its best outcome cannot approach 480. The zero-tick census after each night keeps
+   measuring the fast ends at no cost.
+2. **Build option D** (about 3 days) and run its census, then one pilot night with the M1 stop rule. D replaces B and C: it is B's
+   engine with a set and order budget and the goal pace rule, instead of a backward rule anchored on the current crossing.
+3. The frontier arm keeps running on the nights D does not, so the 959 keeps improving while D answers the 480 question.
+
 ## Appendix. Working files (session scratchpad, not tracked)
 
 - `ra_timeline.py <trace> <from> <to>`: status-run timeline of a verify trace (section 1).
