@@ -1405,3 +1405,75 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
   separate worktree: the target order must be discovered by the agent itself (no human route, no order suggested from the owner's
   knowledge of the stage). The session ends after night 3 with `docs/handoff_2026-11-12.md` (new file; `docs/project_handoff.md` keeps
   the owner's local changes).
+
+### 19.9 Night 3 of run 3: `crossing_2026-11-11_run3c` (2026-11-11 22:22 to 2026-11-12 06:19 local; owner's go)
+
+- **Before launch:** section 19.8 committed (`cbc64a4`). Owner's choice C: inherit night 1, night 2 and smoke run 2 as a linear chain;
+  best 929 / 928, bound 904. The earlier plan A (bound 934, never run) was moved to `logs/run3_design/plan_run3c_A_superseded.json`,
+  because `plan` refuses a folder holding a plan with a different archive set. Readiness at the launch: free commit 10,937 MB.
+- **Command:** `python -B tools/frs/crossing_search_run3.py plan` then `run --lab-root C:/BattleShip_lab --run1 C:/BattleShip_lab/crossing_2026-10-15
+  --run2 C:/BattleShip_lab/crossing_2026-10-15_run2 --out C:/BattleShip_lab/crossing_2026-11-11_run3c --workers 5 --max-ticks 80000000
+  --max-wall-min 480 --rng-seed 4 --summary-every-s 3600 --level-weights 0.20,0.35,0.35,0.10 --inherit C:/BattleShip_lab/crossing_2026-11-06_run3
+  --inherit C:/BattleShip_lab/crossing_2026-11-10_run3b --inherit C:/BattleShip_lab/crossing_2026-11-11_run3c_smoke2` (tree `cbc64a4`, contract
+  `run3_select_v4`, run 3 code digest `73cbde95`).
+- **Open (18 s):** the reference 1,885 / 1,884 and the start's 929 / 928 replayed exactly; 47,028 inherited cells; eligible 94 / 301 /
+  6,085 / 9,906 (levels 9-6), 231 without an end record; 11 groups; demoted at the start: (7, 322, 330:3) only.
+- **Stop:** WALL_CAP, exit 0; search 28,481 s, close 97 s. 43,633 dispatches (5,515 per hour), 39,760,803 ticks (prefix 33,893,505 =
+  85.2 %, burst 5,867,298; 911 per job); 15,340 falls; 33 claimed clears. Integrity clean: 0 prefix mismatches, 0 tick-0 inequalities,
+  0 lifecycle failures, 0 seed failures, 0 guard violations, no game process left; lab digest `81b88be6` and run 3 digest `73cbde95`
+  unchanged at the close. End records: 101 fused first dispatches, all reproduced.
+- **Verified clears: 5; best 907 / 906** (time passed 906 = 15.10 s on the game clock; 22 under the start's 929, 978 under the
+  reference). All five were replayed twice from tick 0 with equal chains, exported (`run/clears/*.btt.txt` + `.bk2`, round trips ok)
+  and replayed natively from the text file at the close with equal clocks. All five came from the rank stream:
+
+  | dispatch | clear | gain | start cell (level, tick), k | group, rank | local time |
+  | ---: | ---: | ---: | --- | --- | --- |
+  | 11,387 | 928 / 927 | 1 | 10387 (9, 864), k 7 | (9, 2, 326:2-6-8), rank 0 | 00:26 |
+  | 11,637 | 921 / 920 | 7 | 10318 (8, 864), k 2 | (8, 258, 326:2-6), rank 82 | 00:29 |
+  | 13,839 | 920 / 919 | 1 | 8594 (9, 887), k 4 | (9, 2, 326:2-6-8), rank 70 | 00:52 |
+  | 38,825 | 918 / 917 | 2 | 10391 (9, 875), k 4 | (9, 2, 326:2-6-8), rank 53 | 05:25 |
+  | 42,116 | 907 / 906 | 11 | 8739 (9, 888), k 3 | (9, 2, 326:2-6-8), rank 114 | 06:01 |
+
+  The 907 (chain `505eeaa5…`, export `run/clears/clear_n42116_t907.btt.txt`) breaks 4@29, 0@80, 5@167, 7@184, 9@305, 3@461, 2@530,
+  6@811, 8@865, 1@907; the 929 broke 6@813, 8@873, 1@929. Same order and same ticks to 530; the crossing (530 to target 6) is 281
+  against 283, the left side (target 6 to the clear) 96 against 116. Claims: 33; 5 replayed, 28 not (none faster than the best at the
+  time).
+- **Earliest arrivals:** level 8 803 -> **798** (dispatch 12,473, 00:38, cell 37439, group (8, 66, 326:2-8)); level 9 869 -> **856**
+  (20,833, 02:09, cell 19077, group (9, 2, 326:2-6-8)). Levels 7 and 6 unchanged (493 / 461, both inherited).
+- **Levels, start -> end** (observed split, breadth included: 0.159 / 0.282 / 0.335 / 0.224; streams: rank 31,989, breadth 8,744 =
+  20.0 %, anchor 2,879, trigger 21):
+
+  | level | cells | eligible | earliest | dispatches | u | e | (u + e) per 1,000 | falls | cells with a break* |
+  | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 9 | 7,426 -> 7,428 | 94 -> 208 | 869 -> 856 | 6,952 | 0 | 4 | 0.6 | 3,865 | 54 |
+  | 8 | 15,173 -> 15,178 | 301 -> 1,301 | 803 -> 798 | 12,297 | 623 | 7 | 51.2 | 5,042 | 243 |
+  | 7 | 13,204 -> 13,338 | 6,085 -> 7,044 | 493 -> 493 | 14,609 | 50 | 4 | 3.7 | 3,013 | 191 |
+  | 6 | 11,225 -> 11,652 | 9,906 -> 10,493 | 461 -> 461 | 9,775 | 182 | 6 | 19.2 | 3,420 | 304 |
+
+  *An archive count at the close (summary `per_level`), inherited history included; not a night-only number.
+- **Archive at the close:** 47,596 cells (47,028 inherited, 568 new, 14,174 representatives replaced, 850 group moves); 19,046 eligible
+  at 904; 14 groups (11 at the start).
+- **Demotion (zero-break rule):** demoted at the start: (7, 322, 330:3). Two events, no exit: (7, 322, 322:) at dispatch 13,195 (window
+  1,000 with 481 falls, 0 breaks, 0 e; history 7,613 dispatches, 39 breaks) and (7, 262, 326:6) at 15,465 (window 15 falls, 0 breaks,
+  0 e; history 3,405, 19 breaks). Also shown demoted at the close: (9, 64, 326:2-8-1), (9, 256, 326:2-6-1) and (8, 320, 326:2-1), with
+  2, 1 and 3 eligible cells. They had no eligible cell at the start, gained some during the night, and came in demoted from their
+  history (the start status is the rule replayed over the whole sequence).
+- **Triggers: 7**; 21 draws, all given, 0 dropped, 0 useful, 0 e. Four `demoted_new_earliest`: (9, 64, 326:2-8-1) cell 47070 at 901
+  (dispatch 2,928), (7, 322, 330:3) cell 21348 at 658 (13,948), (8, 320, 326:2-1) cell 13559 at 877 (37,754), (9, 256, 326:2-6-1) cell
+  16729 at 904 (42,520). Three `line_crossing` (13,439, 13,453, 13,456), all from cell 30433 at 798. `docs/handoff_2026-11-12.md` §1.2
+  says 6 trigger events; the records (`run/triggers.jsonl`, summary `selection.triggers`) hold 7, indices 0 to 6.
+- **Memory peak (engine):** main 552 MB, process tree 4,349 MB private / 1,855 MB working set, 10 game processes; lowest free commit
+  5,847 MB, lowest available 7,187 MB; no soft, hard or process breach.
+- **Anomalies (recorded, never steering):** 38,238 events in 21,314 bursts, 0 non-finite: beyond camera bounds 15,806, beyond map
+  bounds 15,340 (the falls), position snap 4,325, pass-through 1,603, corner pass near a vertex 702, freeze unexplained 421, break
+  occluded 28, line crossing 13.
+- **Next frontier night** (zero-tick preview by the previous session, `build_plan` only, nothing written): night 3 becomes the chain's
+  sixth link; best 907, bound 907 - 24 - 1 = 882; 47,596 cells, 17,434 eligible, 12 groups, 115 anchors; level 9 = (9, 2, 326:2-6-8)
+  alone (94 cells, earliest 856). Not planned: frontier nights continue only as background polishing, with the owner's go.
+- **Lab backup (2026-11-12, owner's go; zero ticks):** `D:/BattleShip_lab_backup/2026-11-12` (lab/, SHA256SUMS.txt from the sources
+  with Python hashlib, EMPTY_DIRS.txt, README.txt): 2,773 files, 2,278,649,951 bytes. Python re-hash of the copies: 2,773 / 2,773
+  equal, 0 differ, 0 missing, 0 extra; every source unchanged after the copy. PowerShell Get-FileHash: 2,773 equal, 0 differ, 0 missing,
+  0 extra. The 319 empty folders are not copied; EMPTY_DIRS.txt lists them. Night 2, night 3 and the three smoke runs since the
+  2026-11-09 backup (`run3b_smoke`, `run3c_smoke`, `run3c_smoke2`) are now on D:.
+- **Option D's design committed** on `design/option-d` (worktree `BattleShip_optionD`): `ccd107b`, the design doc only. Pushed (owner) as
+  its own branch to `origin` (`nicolasfrechette91/BattleShip`), so its run 3 history up to `cbc64a4` is on the fork too; no PR, no merge.
