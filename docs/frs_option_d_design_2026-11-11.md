@@ -405,7 +405,12 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
   - the number of sets and orders with an eligible cell;
   - dispatches;
   - the earliest arrival against the line (lead or lag);
-  - the largest and smallest set and order budget counts, as the equality check.
+  - the largest and smallest set and order budget counts, as the equality check;
+  - **reaches rejected by the line** (owner, 2026-11-12): their count, and the earliest rejected tick with its distance over line(L).
+    The same two numbers for the whole night go in `summary.json`, per level. Report-only: no rule reads them. Rejected reaches do not
+    extend their bursts (section 4.4), so these numbers show how close D came to the line, not how far a looser line would have gone.
+    After a null night they tell whether the line pruned too hard (for example, level 6 earliest rejected at 415, +7) or was not what
+    stopped D (+182).
 
   Also:
   - milestones with their time, dispatch, cell and lineage digest;
@@ -433,7 +438,9 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
   - claims and verification results.
 - **Verified arrivals.** For every milestone, M1 to M4, the prefix up to the arrival is replayed twice from tick 0 in fresh processes
   with the verify flags. It counts only if both replays show the level-L break at the recorded tick, with chain digests equal to D's
-  record. This is the "verified arrival" standard of rd2's wall-top landing.
+  record. This is the "verified arrival" standard of rd2's wall-top landing. Only the first qualifying arrival per milestone is
+  verified. A disagreeing replay is an integrity finding, and the night is then not a test of M1 (section 7.4); there is no fallback
+  to a later arrival (section 12, D-Q8).
 - **Exports.** A text replay (`.btt.txt`) of each verified milestone prefix, so the owner can watch it in the replay lab.
 - **Records.** The per-level table at start against end, the memory peak, and a backup of the folder (Python sums against
   `Get-FileHash`, as the 2026-10-16 backup).
@@ -445,7 +452,7 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
 | --- | --- | --- |
 | M1 verified | the 48-per-target pace plus slack is reachable at level 6 by D's own budget | a second D night (new rng seed, same parameters; the budget then presses levels 7 and 8), and the hand-off loader built between nights |
 | M1 not met, night complete (≥ 6 h of dispatching, no integrity stop) | the random-burst budget under this pace does not reach level 6 at 408 | **stop D and review**; no automatic change of s, G or the weights |
-| night incomplete (integrity or memory stop before 6 h) | not a test of M1 | fix the cause; the pilot is rerun |
+| night incomplete (integrity or memory stop before 6 h, or a milestone replay that disagrees) | not a test of M1 | fix the cause; the pilot is rerun |
 | a verified clear faster than the frontier's bound (with or without M1) | a new best for the frontier | hand-off of the best (6.4) before the next frontier night |
 
 ## 8. Success criteria
@@ -483,6 +490,8 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
   - G ≤ 0, s < 0 and a non-integer are refused.
 - **U2 keep rule:**
   - a behind-pace reach is neither kept nor counted as new for F3;
+  - a reach at line(L) + 1 is counted as rejected at level L with distance +1, the earliest rejected tick per level is the minimum
+    over the rejected reaches, and the counts enter no rule;
   - a faster arrival at a known key replaces the representative, and the group moves when its order differs;
   - a clear past 600 is still claimed when it is faster than the reference.
 - **U3 root and niches:**
@@ -613,4 +622,8 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
 7. **Pilot:** 5 workers, 480 minutes, a new rng seed, M1 as the only gate. Confirm, or set another length.
 8. **Verified arrival:** both replays show the break at the recorded tick with equal chain digests (recommended). Or stricter: also the
    full end record at the arrival.
+   **Decided 2026-11-12 (owner): (a).** Two fresh-process replays from tick 0 with the verify flags; both show the level-L break at the
+   recorded tick and give a chain digest equal to D's record. Only the first qualifying arrival per milestone, at the close. A mismatch
+   is an integrity finding and the night is "not a test of M1"; no fallback to the next arrival for now. Rationale: the per-tick chain
+   already covers the 16 compared end-record fields, so (b) adds nothing; an in-run reading alone is not enough for a gate.
 9. **Hand-off:** designed and built only after a verified M1 (recommended), or designed now.
