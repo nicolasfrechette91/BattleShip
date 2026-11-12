@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 """Option D tests (docs/frs_option_d_design_2026-11-11.md section 9). Zero native ticks: no ROM, no game process. Phase 1 covers the
 selection (tools/frs/order_select.py) with pure in-process tests (a fake archive and a fake burst oracle, U2 to U12) and the run 3
-manifest check (T-M1).
+manifest check (T-M1); phase 2 covers the search (tools/frs/order_search.py) on run 3's fake game (E1 to E6, U11, U13, T-M2) and one
+read-only real-lab reading (the frontier's best).
 
     python -B tools/frs/order_search_tests.py            every test
     python -B tools/frs/order_search_tests.py unit       the in-process tests only
+    python -B tools/frs/order_search_tests.py e2e        the fake-game nights (zero native ticks; a few minutes)
+    python -B tools/frs/order_search_tests.py real       the read-only real-lab tests
     python -B tools/frs/order_search_tests.py <name>...  the named tests
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import random
 import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 assert sys.flags.dont_write_bytecode, "run with python -B"
 
@@ -28,9 +32,13 @@ for _p in (RL, HERE):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+import det_schedule as det  # noqa: E402
+import frs_guard as g  # noqa: E402
+import order_search as O  # noqa: E402
 import order_select as osel  # noqa: E402
+import run3_load as rl3  # noqa: E402
 import run3_select as rs  # noqa: E402
-from infra_testlib import check, run_suite  # noqa: E402
+from infra_testlib import check, cleanup, run_suite, tmpdir  # noqa: E402
 
 D_MODULES = ("order_select", "order_search", "order_search_tests")
 # The run 3 manifest digest (tools/frs/run3_manifest.py) of the frontier code at 73cbde95 (contract run3_select_v4). The manifest hashes
@@ -809,13 +817,453 @@ def unit_u12_relabelling() -> Dict[str, Any]:
             "deepest": max(c.level for c in s0.a.cells), "rotation": {k: int(v) for k, v in sorted(a.dstat.items())}}
 
 
+
+# -- phase 2, pure: the root comparison and F3 with the pace filter -----------------------------------------------------------------------
+
+
+def unit_root_differences() -> Dict[str, Any]:
+    a = {"ok": True, "obs": [1, 2, 3] + [0] * (len(O.mcell.OBS_FIELDS) - 3), "digest": "d", "chain": "c", "lines": 4, "key": [0, 0, "a", 1023, 0], "mask": 1023}
+    b = dict(a)
+    check(O.root_differences([a, b]) == [], "two equal tick-0 reads")
+    host = list(a["obs"])
+    host[O.mcell.HOST_FRAME] = 99
+    check(O.root_differences([a, dict(b, obs=host)]) == [], "host_frame is not compared")
+    check(O.root_differences([a, dict(b, digest="e")]) == ["digest"] and O.root_differences([a, dict(b, mask=1022, key=None)]) == ["key", "mask"],
+          "the digest, the key and the mask are compared")
+    check(O.root_differences([a, {"ok": False, "kind": "died"}])[0].startswith("a tick-0 read failed") and O.root_differences([a])[0].startswith("a tick-0 read"),
+          "a failed or missing read is a difference")
+    return {"fields": len(a["obs"])}
+
+
+def unit_f3_pace_filter() -> Dict[str, Any]:
+    night = object.__new__(O.OrderNight)                 # only the attributes continuation_asof reads
+    night.pace = osel.Pace(osel.OrderParams())
+    night._asof = det.AsOfIndex()
+    six = (1, 1, "a", (osel.ROOT_MASK << 6) & osel.ROOT_MASK, 0)
+    three = (2, 1, "a", (osel.ROOT_MASK << 3) & osel.ROOT_MASK, 0)
+    night._asof.record(three, 0, 250, new=True)
+    d = O.OrderNight.continuation_asof(night, [[409, list(six)]], 0)
+    check(not d["go"] and d["outside_line"] == 1 and d["reaches"] == 0, f"a new key behind the line does not continue the burst: {d}")
+    d = O.OrderNight.continuation_asof(night, [[408, list(six)]], 0)
+    check(d["go"] and d["new"] == 1 and d["outside_line"] == 0, f"a new key on the line continues it: {d}")
+    d = O.OrderNight.continuation_asof(night, [[240, list(three)], [265, list(six)]], 0)
+    check(d["go"] and d["shorter"] == 1 and d["max_gain"] == 10, f"a faster arrival inside the line continues it: {d}")
+    d = O.OrderNight.continuation_asof(night, [[265, list(three)]], 0)
+    check(not d["go"] and d["outside_line"] == 1, f"level 3 at 265 is behind line(3) = 264: {d}")
+    return {"line6": night.pace.line(6)}
+
+
+# -- fake-game end to end (run 3's fake game; zero native ticks) -----------------------------------------------------------------------------
+
+E_FLAGS = {"SSB64_RL_NO_RENDER": "1", "SSB64_RAPHNET_DISABLE": "1", "SSB64_RL_SPATIAL": "1", "FAKEGAME_WORLD": "easy", "FAKEGAME_BOOT_S": "0.1",
+           "FAKEGAME_IDLE_S": "60", "FAKEGAME_STEP_JITTER_S": "0.002"}
+E_ENGINE = {"max_segments": 3, "max_dispatches": 160, "rng_seed": 7, "check_slots": 1, "summary_every_s": 0.0, "summary_every_dispatches": 40}
+CHILD = ("import json, sys\nfrom pathlib import Path\nsys.path.insert(0, %r); sys.path.insert(0, %r)\nimport frs_guard as g\n"
+         "g.LabGuard.install(Path(%r))\nimport order_search_tests as T\nprint(json.dumps(T.%s(json.loads(%r)), default=str))\n")
+
+
+def run_child(fn: str, lab: Path, args: Mapping[str, Any], timeout: float = 1800.0) -> Dict[str, Any]:
+    code = CHILD % (str(RL), str(HERE), str(lab), fn, json.dumps(args))
+    r = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True, timeout=timeout, cwd=str(lab))
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        raise AssertionError(f"{fn}: child failed: {(r.stderr or r.stdout)[-3000:]}")
+
+
+def write_fake_frontier(lab: Path, best: int) -> Path:
+    """A frontier (run 3) folder holding only what D reads: its plan and summary contracts, a clean status and integrity, the best."""
+    d = lab / "crossing_fake_run3"
+    (d / "run").mkdir(parents=True, exist_ok=True)
+    (d / "plan.json").write_text(json.dumps({"contract": O.C.RUN3_CONTRACT, "mode": "lab"}), encoding="utf-8")
+    (d / "run" / "summary.json").write_text(json.dumps({"contract": O.C.RUN3_CONTRACT, "mode": "lab", "status": "DISPATCH_CAP", "utc_end": "2026-11-12T00:00:00Z",
+                                                        "integrity": {"reference_ok": True, "run3_code_digest": "x", "run3_code_digest_end": "x", "prefix_mismatches": 0,
+                                                                      "battleship_left": []},
+                                                        "run3": {"claims_frozen": None, "best": {"completion_input_tick": int(best), "completion_time_passed": int(best) - 1,
+                                                                                                 "chain": "00", "words_digest": "w", "n": 1}}}), encoding="utf-8")
+    return d
+
+
+class _RootUnequal(O.OrderNight):
+    """E2: an injected inequality between the two tick-0 reads."""
+
+    def root_reads(self) -> List[Dict[str, Any]]:
+        reads = super().root_reads()
+        if len(reads) == 2 and reads[1].get("ok"):
+            reads[1] = dict(reads[1], digest="0" * 64)
+        return reads
+
+
+class _MilestoneAltered(O.OrderNight):
+    """E4: M1's recorded chain is altered before its verification, so both replays disagree with the record."""
+
+    def verify_milestone(self, row: Mapping[str, Any]) -> Dict[str, Any]:
+        if row["milestone"] == "M1":
+            row = dict(row, chain="f" * 64)
+        return super().verify_milestone(row)
+
+
+class _CodeChanged(O.OrderNight):
+    """T-M2: a file of D's manifest 'changes' during the run (its recorded hash is altered before the close's comparison)."""
+
+    def write_summary(self) -> Dict[str, Any]:
+        if self.order_code and "order_code_digest_end" not in self.integrity:
+            k = sorted(self.order_code)[0]
+            self.order_code = dict(self.order_code, **{k: "0" * 64})
+        return super().write_summary()
+
+
+ENGINES = {"night": O.OrderNight, "root_unequal": _RootUnequal, "milestone_altered": _MilestoneAltered, "code_changed": _CodeChanged}
+
+
+def order_child(a: Mapping[str, Any]) -> Dict[str, Any]:
+    """In a child with the lab guard installed: D's `plan` (in process), then a night on the fake game (or the stub backend)."""
+    import crossing_search as cs
+    import frs_guard as g
+    import frs_machine as fm
+    import frs_run as fr
+    import frs_verify as fv
+    import m8_rd_stub as stub
+    import run3_export as rx
+    import run3_search_tests as r3t
+
+    lab, out, frontier = Path(a["lab"]), Path(a["out"]), Path(a["frontier"])
+    run_dir = out / "run"
+    dp = osel.OrderParams(**(a.get("order") or {}))
+    ep = O.engine_params(dp, **a["engine"])
+    opened: List[str] = []
+    if a.get("audit"):
+        def hook(ev: str, args: Any) -> None:
+            if ev == "open" and args and isinstance(args[0], (str, bytes, os.PathLike)):
+                opened.append(os.fsdecode(args[0]))
+        sys.addaudithook(hook)
+    plan = O.plan_and_write(lab, frontier, out, dp, ep)
+    world = a.get("world", "easy")
+    flags = dict(E_FLAGS, FAKEGAME_WORLD=world)
+    text = None
+    if a.get("stub"):
+        inject = dict(a.get("inject") or {})
+
+        def spec(rank: int) -> Dict[str, Any]:
+            return {"rank": rank, "backend": "m8_rd_stub:StubBackend", "world": world, "inject": inject, "failure_dir": str(run_dir / "failures"), "guard": g.LabGuard.spec()}
+
+        replay = lambda words, label, slot: stub.replay_trace(world, words, label)  # noqa: E731
+        backend = "stub"
+    else:
+        fk = {"exe": a["exe"], "frozen": a["frozen"]}
+        frozen = {"frozen_sha256": a["frozen"], "exe_copy_sha256": a["exe_copy"]}
+
+        def spec(rank: int) -> Dict[str, Any]:
+            return dict(r3t.worker_spec(lab, fk, rank, int(a["port_base"]), run_dir / "failures", flags), guard=g.LabGuard.spec(), run3_selfcheck=True)
+
+        replay = fv.make_real_replay(Path(a["exe"]), lab / f"replays_{out.name}", flags, frozen)
+        backend = "real"
+        if a.get("text_replay"):
+            text = rx.make_text_replay(Path(a["exe"]), run_dir / "text_replays")
+    caps = dict(fm.CAPS_MB, main_private=1e9)
+    soft = dict(fm.soft_budget(caps), main_private=float(a["soft_main_mb"])) if a.get("soft_main_mb") else None
+    env = fr.LabEnv(worker_spec=spec, replay=replay, analyse=stub.analyse, readiness=lambda: {"ok": True, "problems": []}, battleship_pids=lambda: [],
+                    snapshot=fm.tree_snapshot, import_problems=lambda: [], wait_no_battleship=lambda t: [], code_manifest=fr.code_manifest, backend=backend,
+                    sample_s=0.25, row_every_s=0.5, caps=caps, soft=soft)
+    cfg = cs.SearchConfig(lab_root=lab, out=out, run_dir=run_dir, frontier_dir=frontier, n_workers=int(a.get("workers", 3)), max_ticks=10 ** 9, max_wall_s=1200.0,
+                          expect_code=None, stop_grace_s=60.0, verify_floor_s=5.0, verify_s_per_clear=2.0, write_reserve_s=2.0, progress_every_s=2.0, seed_parallel=3)
+    P = O.engine_plan(plan, ep)
+    if a.get("code_override"):
+        P["order"]["code"] = {"digest": a["code_override"]}
+    rc = ENGINES[a.get("engine_class", "night")](cfg, env, P, ep, order_params=dp, text_replay=text, anomaly_build={"exe": "fake", "platform": sys.platform}).run()
+    res = {"code": rc, "violations": g.LabGuard.violations[:3], "plan": {k: plan[k] for k in ("sources", "archive_id", "claim_threshold", "code")}}
+    if a.get("audit"):
+        res["opened"] = sorted(set(opened))
+    return res
+
+
+def read_jsonl(p: Path) -> List[Dict[str, Any]]:
+    return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()] if p.is_file() else []
+
+
+class DBench:
+    """One temporary lab: run 3's fake executable, a fake frontier folder (best 3,000, so every fake clear is claimed); D's nights by name."""
+
+    def __init__(self) -> None:
+        import run3_search_tests as r3t
+
+        self.lab = tmpdir("order_e2e_lab_")
+        self.fk = r3t.fake_setup(self.lab)
+        self.frontier = write_fake_frontier(self.lab, 3000)
+        self.port = 52000
+        self.runs: Dict[str, Dict[str, Any]] = {}
+
+    def run(self, name: str, **args: Any) -> Dict[str, Any]:
+        if name in self.runs:
+            return self.runs[name]
+        out = self.lab / f"order_{name}"
+        self.port += 1000
+        base = {"lab": str(self.lab), "out": str(out), "frontier": str(self.frontier), "exe": self.fk["exe"], "frozen": self.fk["frozen"], "exe_copy": self.fk["exe_copy"],
+                "port_base": self.port, "engine": dict(E_ENGINE)}
+        res = run_child("order_child", self.lab, dict(base, **args))
+        d = out / "run"
+        res["dir"] = d
+        res["out"] = out
+        if (d / "summary.json").is_file():
+            res.update({"summary": json.loads((d / "summary.json").read_text(encoding="utf-8")), "config": json.loads((d / "config.json").read_text(encoding="utf-8")),
+                        "root": json.loads((d / "root.json").read_text(encoding="utf-8")) if (d / "root.json").is_file() else None,
+                        "dispatches": read_jsonl(d / "dispatches.jsonl"), "cells": read_jsonl(d / "cells.jsonl"), "hourly": read_jsonl(d / "hourly.jsonl"),
+                        "milestones": read_jsonl(d / "milestones.jsonl"), "mver": read_jsonl(d / "milestone_verifications.jsonl"),
+                        "verifications": read_jsonl(d / "verifications.jsonl"), "exports": read_jsonl(d / "exports.jsonl"), "text": read_jsonl(d / "text_replays.jsonl")})
+        self.runs[name] = res
+        return res
+
+    def close(self) -> None:
+        if os.environ.get("ORDER_KEEP") == "1":
+            print(f"kept: {self.lab}")
+            return
+        cleanup(self.lab)
+
+
+_DBENCH: Optional[DBench] = None
+
+
+def dbench() -> DBench:
+    global _DBENCH
+    if _DBENCH is None:
+        _DBENCH = DBench()
+    return _DBENCH
+
+
+HOURLY_VOLATILE = ("utc", "elapsed_s", "dispatches", "status", "memory_main_mb", "jobs_per_h", "verified", "best_verified")
+
+
+def _bursts(r: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    return [x for x in r["dispatches"] if x.get("kind", "burst") == "burst"]
+
+
+def e2e_e1_same_seed() -> Dict[str, Any]:
+    """E1: two same-seed nights (reorder window, step jitter) give identical dispatch rows, cells, hourly records and milestones."""
+    b = dbench()
+    A, B = b.run("a"), b.run("b")
+    for r in (A, B):
+        check(r["code"] == 0 and r["summary"]["status"] == "DISPATCH_CAP" and not r["violations"] and len(_bursts(r)) == 160,
+              f"a clean 160-dispatch night: {r['code']} {r.get('summary', {}).get('status')} {r['violations']}")
+    check(det.dispatch_signature(A["dispatches"]) == det.dispatch_signature(B["dispatches"]), "the same dispatch rows (cell, k, draw id, words, outcome, kept, cont)")
+    sel = lambda r: [(x["n"], x.get("stream"), x.get("group"), x.get("niche"), json.dumps(x.get("draw"), sort_keys=True)) for x in _bursts(r)]  # noqa: E731
+    check(sel(A) == sel(B), "the same draws (stream, set, order, counts, rank)")
+    check(det.cells_signature(A["cells"]) == det.cells_signature(B["cells"]), "the same cell rows")
+    hs = lambda r: [json.dumps({k: v for k, v in h.items() if k not in HOURLY_VOLATILE}, sort_keys=True) for h in r["hourly"]]  # noqa: E731
+    check(len(A["hourly"]) >= 4 and hs(A) == hs(B), f"the same hourly records ({len(A['hourly'])})")
+    ms = lambda r: [{k: v for k, v in m.items() if k not in ("utc", "elapsed_s")} for m in r["milestones"]]  # noqa: E731
+    check(ms(A) == ms(B), "the same milestones")
+    lv = {x["level"] for x in _bursts(A)}
+    return {"dispatches": len(_bursts(A)), "cells": len(A["cells"]), "levels_dispatched": sorted(lv), "hourly": len(A["hourly"]),
+            "milestones": [m["milestone"] for m in A["milestones"]], "streams": dict(Counter(x.get("stream") for x in _bursts(A)))}
+
+
+def e2e_e2_root() -> Dict[str, Any]:
+    """E2: the root is read twice in fresh processes and equal; it is the first cell; an injected inequality stops the open."""
+    b = dbench()
+    A = b.run("a")
+    root = A["root"]
+    reads = root["reads"]
+    check(root["equal"] and len(reads) == 2 and reads[0]["digest"] == reads[1]["digest"] and reads[0]["chain"] == reads[1]["chain"] and reads[0]["pid"] != reads[1]["pid"],
+          f"two fresh processes, equal tick-0 records: {[(r['pid'], r['digest'][:12]) for r in reads]}")
+    c0 = A["cells"][0]
+    check(c0["ev"] == "new" and c0["level"] == 0 and c0["tick"] == 0 and c0["words_hex"] == "" and c0["key"][3] == osel.ROOT_MASK,
+          f"the root is the first cell (level 0, tick 0, no word, mask 1023): {c0}")
+    check(all(x.get("tick0_equal") is True for x in _bursts(A)), "every dispatch's tick 0 equals the root's pin")
+    check(any(x["start_tick"] == 0 for x in _bursts(A)), "the root (empty prefix) is dispatched")
+    U = b.run("root_unequal", engine_class="root_unequal", engine=dict(E_ENGINE, max_dispatches=20))
+    s = U["summary"]
+    check(s["status"] == "SEARCH_INVALID" and "tick-0 inequality" in str(s["stop"]["reason"]) and not _bursts(U) and not U["root"]["equal"],
+          f"an injected inequality: SEARCH_INVALID, no dispatch: {s['status']} {s['stop']}")
+    return {"root_digest": reads[0]["digest"][:16], "unequal": U["root"]["differs"]}
+
+
+def e2e_e3_pace_budget() -> Dict[str, Any]:
+    """E3: behind-pace reaches are never kept (and are counted), the budget stays within 1, the streams are exploitation or breadth only."""
+    b = dbench()
+    A = b.run("a")
+    o = A["summary"]["order"]
+    lines = o["plan"]["pace"]["lines"]
+    kept = [c for c in A["cells"] if c["ev"] in ("new", "replaced")]
+    check(kept and all(int(c["tick"]) <= int(lines[str(c["level"])]) for c in kept), "no kept cell behind the line")
+    check(o["rejected_reaches"] > 0 and sum(r["count"] for r in o["rejected"].values()) == o["rejected_reaches"]
+          and all(r["distance"] >= 1 for r in o["rejected"].values()), f"the line rejected reaches (report-only): {o['rejected']}")
+    streams = Counter(x.get("stream") for x in _bursts(A))
+    check(set(streams) <= {"rank", "anchor", "breadth"} and streams["breadth"] and (streams["rank"] + streams["anchor"]), f"no trigger stream: {dict(streams)}")
+    check(not (A["dir"] / "triggers.jsonl").exists(), "no trigger record")
+    check(not any("budget_counts_not_within_1" in h["flags"] for h in o["hourly_records"]) and o["selection"]["within_one_violations"] == [],
+          "the set and order counts stay within 1 at every level in the level draw (every record)")
+    drawn = {x["draw"]["set"] for x in _bursts(A) if x.get("stream") in ("rank", "anchor")}
+    levels = {x["draw"]["level"] for x in _bursts(A) if x.get("stream") in ("rank", "anchor")}
+    check(len(drawn) >= 3 and len(levels) >= 2, f"exploitation drew several sets and levels: {len(drawn)} sets, levels {sorted(levels)}")
+    beyond = sum(x["kept"].get("beyond", 0) for x in _bursts(A))
+    check(beyond == o["rejected_reaches"], f"the rows' BEYOND verdicts are the rejected reaches ({beyond})")
+    return {"rejected": o["rejected"], "streams": dict(streams), "sets_drawn": len(drawn), "levels_drawn": sorted(levels), "rotation": o["selection"]["rotation"]}
+
+
+
+
+def e2e_e4_milestone() -> Dict[str, Any]:
+    """E4: a level-6 arrival at or before line(6) = 408 is M1, verified at the close by two replays (and exported); a disagreeing replay
+    leaves it unverified, reported, and the night SEARCH_INVALID (not a test of M1). The decided parameters: the fake world reaches level 6."""
+    b = dbench()
+    M = b.run("a")
+    o = M["summary"]["order"]
+    m1 = [m for m in o["milestones"] if m["milestone"] == "M1"]
+    check(M["code"] == 0 and m1 and m1[0]["tick"] <= o["plan"]["milestones"]["M1"]["line"], f"M1 met in the fake world: {[m['milestone'] for m in o['milestones']]}")
+    v1 = [v for v in M["mver"] if v["milestone"] == "M1"]
+    check(v1 and v1[0]["verdict"] == "VERIFIED" and v1[0]["r1"]["final_chain"] == v1[0]["r2"]["final_chain"] == m1[0]["chain"] and o["gate_m1"]["verified"],
+          f"M1 verified by two replays: {v1}")
+    ex = [e for e in M["exports"] if e.get("milestone") == "M1"]
+    check(ex and Path(ex[0]["btti"]).is_file() and ex[0]["frames"] == m1[0]["words"], "the verified prefix is exported as a .btt.txt")
+    check(len(M["mver"]) == len(o["milestones"]), "every recorded milestone was verified once (first arrival only)")
+    X = b.run("m_bad", engine_class="milestone_altered")
+    ox = X["summary"]["order"]
+    vx = [v for v in X["mver"] if v["milestone"] == "M1"]
+    check(X["summary"]["status"] == "SEARCH_INVALID" and vx and vx[0]["verdict"] == "NOT_VERIFIED" and not ox["gate_m1"]["verified"]
+          and "M1" in X["summary"]["integrity"]["milestones_not_verified"] and any("chain" in r for r in vx[0]["reasons"]),
+          f"a disagreeing replay: M1 unverified and reported, SEARCH_INVALID: {X['summary']['status']} {vx}")
+    return {"milestones": [(m["milestone"], m["tick"], m["verdict"]) for m in o["milestones"]], "m1": m1[0]["tick"], "bad": vx[0]["reasons"]}
+
+
+def e2e_e5_caps_stops() -> Dict[str, Any]:
+    """E5: the cells cap and a soft memory breach are clean stops; more than 3 prefix mismatches are SEARCH_INVALID; no game process left."""
+    b = dbench()
+    Cc = b.run("cells", engine=dict(E_ENGINE, max_cells=40, max_dispatches=0))
+    Mm = b.run("memory", soft_main_mb=1.0, engine=dict(E_ENGINE, max_dispatches=0))
+    Mi = b.run("mismatch", stub=True, inject={"mismatch_job": 3, "mismatch_tick": 5}, engine=dict(E_ENGINE, max_dispatches=400))
+    out = {}
+    for name, r, want in (("cells", Cc, "CELLS_CAP"), ("memory", Mm, "MEMORY_BUDGET"), ("mismatch", Mi, "SEARCH_INVALID")):
+        s = r["summary"]
+        out[name] = [s["status"], s["work"]["mismatches"], s["work"]["dispatches"]]
+        check(s["status"] == want and not r["violations"] and s["integrity"].get("battleship_left") == [], f"{name}: {s['status']} (want {want}) {s['stop']}")
+    check(Mi["summary"]["work"]["mismatches"] > 3 and "prefix mismatches" in str(Mi["summary"]["stop"]["reason"]), f"the mismatch limit: {Mi['summary']['stop']}")
+    return out
+
+
+def e2e_e6_exports() -> Dict[str, Any]:
+    """E6: a fake verified clear (the trivial world clears at tick 1) gives a .btt.txt and a .bk2 with the round trip, a text replay of
+    the new best, and the clear-line milestone's verified prefix export; ten targets on one tick are counted as same-tick breaks."""
+    b = dbench()
+    T6 = b.run("trivial", world="trivial", engine=dict(E_ENGINE, max_dispatches=12), text_replay=True)
+    o = T6["summary"]["order"]
+    ver = [v for v in T6["verifications"] if v.get("verdict") == "VERIFIED"]
+    check(T6["code"] == 0 and ver and o["best"]["completion_input_tick"] == 1 and o["faster_than_frontier"] >= 1, f"a verified clear at tick 1: {o['best']}")
+    ex = [e for e in T6["exports"] if e.get("bk2")]
+    check(ex and ex[0]["roundtrip_ok"] is True and Path(ex[0]["btti"]).is_file() and Path(ex[0]["bk2"]).is_file(), f"the clear's exports: {ex[:1]}")
+    check(T6["text"] and T6["text"][0].get("equal") is True, f"the native text replay of the new best (fake game): {T6['text'][:1]}")
+    cl = [m for m in o["milestones"] if m["milestone"] == "clear_line"]
+    mex = [e for e in T6["exports"] if e.get("milestone") == "clear_line"]
+    check(cl and cl[0]["verdict"] == "VERIFIED" and mex and Path(mex[0]["btti"]).is_file() and not o["gate_m1"]["met"],
+          f"the clear line verified and exported; M1 not met (no kept level-6 cell): {cl}")
+    st = o["selection"]["same_tick"]
+    check(st.get("10", {}).get("targets", 0) >= 10, f"ten targets on one tick are a same-tick break at level 10: {st}")
+    return {"best": o["best"]["completion_input_tick"], "exports": len(T6["exports"]), "same_tick": st}
+
+
+def e2e_u11_isolation() -> Dict[str, Any]:
+    """U11: run 3 refuses a D folder; D refuses a D folder as its frontier, another tool's plan in its folder, and any inheritance flag;
+    D writes only under its own folder through the guard."""
+    b = dbench()
+    A = b.run("a")
+    try:
+        rl3.read_run3(A["out"], 4)
+        raise AssertionError("run 3 loaded a D folder")
+    except rl3.LoadError as exc:
+        check("frs_crossing_search_run3_v1" in str(exc), f"run3_load refuses a D folder by contract: {exc}")
+    try:
+        O.read_frontier_best(A["out"])
+        raise AssertionError("D read a D folder as the frontier")
+    except O.SearchError as exc:
+        check("D folder" in str(exc), str(exc))
+    other = b.lab / "order_holds_run3_plan"
+    other.mkdir(exist_ok=True)
+    (other / "plan.json").write_text(json.dumps({"contract": O.C.RUN3_CONTRACT}), encoding="utf-8")
+    dp = osel.OrderParams()
+    try:
+        O.plan_and_write(b.lab, b.frontier, other, dp, O.engine_params(dp, rng_seed=1))
+        raise AssertionError("D planned into a folder holding a run 3 plan")
+    except O.SearchError as exc:
+        check("another tool's plan" in str(exc), str(exc))
+    for argv in (["plan", "--frontier", str(b.frontier), "--rng-seed", "1", "--inherit", str(A["out"])],
+                 ["plan", "--frontier", str(b.frontier), "--rng-seed", "1", "--best-from", str(b.frontier)]):
+        try:
+            O.main(argv)
+            raise AssertionError(f"accepted {argv[-2]}")
+        except SystemExit as exc:
+            check(exc.code == 2, f"{argv[-2]} is not a flag of D (argparse refusal): {exc.code}")
+    check(not A["violations"] and (A["dir"] / "summary.json").is_file(), "the night wrote under its own folder with no guard violation")
+    return {"refused": ["run3_load", "frontier=D", "run 3 plan", "--inherit", "--best-from"]}
+
+
+def e2e_u13_no_human_input() -> Dict[str, Any]:
+    """U13: the plan's sources are the frontier's best record only; the plan and the night open no fixture, capture, TAS or human
+    recording (an audit hook on every open of the main process)."""
+    b = dbench()
+    H = b.run("audit", audit=True, engine=dict(E_ENGINE, max_dispatches=30))
+    check(H["code"] == 0 and H["plan"]["sources"] == [str(b.frontier / "run" / "summary.json")], f"the plan's source list: {H['plan']['sources']}")
+    bad = [p for p in H["opened"] if any(f in p.replace("\\", "/").lower() for f in g.FORBIDDEN_FRAGMENTS)]
+    check(not bad, f"no forbidden path opened: {bad[:5]}")
+    lab, own, fr_dir = g.norm(b.lab), g.norm(H["out"]), g.norm(b.frontier)
+    outside = sorted({p for p in H["opened"] if g.under(g.norm(p), lab) and not g.under(g.norm(p), own) and not g.under(g.norm(p), g.norm(b.lab / "fake"))
+                      and not g.under(g.norm(p), g.norm(b.lab / f"replays_{H['out'].name}"))})
+    check(all(g.under(g.norm(p), fr_dir) for p in outside) and {Path(p).name for p in outside} <= {"plan.json", "summary.json"},
+          f"in the lab, only D's folder and the frontier's plan and summary are opened: {outside}")
+    return {"opened": len(H["opened"]), "lab_outside_own": outside}
+
+
+def e2e_tm2_code_digest() -> Dict[str, Any]:
+    """T-M2: D's manifest covers its import closure (D's two modules and every run 3 file), hashes with LF line endings, is enforced at
+    the open, and a change during the run is SEARCH_INVALID at the close."""
+    import run3_manifest as rm
+
+    b = dbench()
+    A = b.run("a")
+    oc = A["config"]["order_code"]
+    files = set(oc["files"])
+    run3 = set(rm.run3_code_manifest())
+    check(oc["digest"] == oc["expected"] == A["plan"]["code"]["digest"] and {"tools/frs/order_search.py", "tools/frs/order_select.py"} <= files and run3 <= files
+          and len(files) == len(run3) + 2, f"D's manifest: {len(files)} files = run 3's {len(run3)} + D's 2")
+    t = tmpdir("order_lf_")
+    try:
+        (t / "lf.py").write_bytes(b"a = 1\nb = 2\n")
+        (t / "crlf.py").write_bytes(b"a = 1\r\nb = 2\r\n")
+        check(O.lf_sha256(t / "lf.py") == O.lf_sha256(t / "crlf.py") != hashlib.sha256(b"a = 1\r\nb = 2\r\n").hexdigest(), "CRLF and LF copies hash the same")
+    finally:
+        cleanup(t)
+    R = b.run("refused", code_override="0" * 64, engine=dict(E_ENGINE, max_dispatches=10))
+    check(R["code"] == O.cs.EXIT["REFUSED"] and not R["dir"].exists() and list(R["out"].glob("refused_*.json")), f"a different digest refuses the open: {R['code']}")
+    X = b.run("code_changed", engine_class="code_changed", engine=dict(E_ENGINE, max_dispatches=20))
+    si = X["summary"]["integrity"]
+    check(X["summary"]["status"] == "SEARCH_INVALID" and si["order_code_changed_during_run"], f"a change during the run: {X['summary']['status']} {si.get('order_code_changed_during_run')}")
+    return {"files": len(files), "digest": oc["digest"][:16]}
+
+
+def real_frontier_best() -> Dict[str, Any]:
+    """Zero ticks, read only: the frontier chain's last night (night 3) gives the claim threshold 907."""
+    d = Path("C:/BattleShip_lab/crossing_2026-11-11_run3c")
+    if not (d / "run" / "summary.json").is_file():
+        return {"skipped": f"no {d}"}
+    fb = O.read_frontier_best(d)
+    check(fb["completion_input_tick"] == 907 and fb["completion_time_passed"] == 906, f"night 3's best: {fb}")
+    return {k: fb[k] for k in ("completion_input_tick", "completion_time_passed", "status")}
+
+
 UNIT = {f.__name__: f for f in (unit_u1_pace_line, unit_u2_rejected_readout, unit_u2_group_move, unit_u3_root_and_niches, unit_u4_set_then_order,
                                 unit_u4_ties, unit_u4_cell_draw_is_run3s, unit_u5_newcomers, unit_u6_level_weights, unit_u7_retirement,
-                                unit_u7_stale_clear_fallback, unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_tm1_run3_digest)}
+                                unit_u7_stale_clear_fallback, unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_root_differences, unit_f3_pace_filter, unit_tm1_run3_digest)}
+
+E2E = {f.__name__: f for f in (e2e_e1_same_seed, e2e_e2_root, e2e_e3_pace_budget, e2e_e4_milestone, e2e_e5_caps_stops, e2e_e6_exports,
+                               e2e_u11_isolation, e2e_u13_no_human_input, e2e_tm2_code_digest)}
+REAL = {f.__name__: f for f in (real_frontier_best,)}
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    groups = {"unit": UNIT}
-    tests = dict(groups[args[0]]) if args[:1] and args[0] in groups else dict(UNIT)
+    groups = {"unit": UNIT, "e2e": E2E, "real": REAL}
+    tests = dict(groups[args[0]]) if args[:1] and args[0] in groups else dict(UNIT, **E2E, **REAL)
     rest = [x for x in args if x not in groups]
-    sys.exit(run_suite("option D tests", tests, rest))
+    try:
+        code = run_suite("option D tests", tests, rest)
+    finally:
+        if _DBENCH is not None:
+            _DBENCH.close()
+    sys.exit(code)
