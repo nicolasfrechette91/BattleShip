@@ -1,6 +1,7 @@
 # Option D, order discovery from tick 0: detailed design (2026-11-11)
 
-**Status: all 9 open questions settled by the owner on 2026-11-12 (section 12); the design is decided. Zero native ticks so far.**
+**Status: all 9 open questions settled by the owner on 2026-11-12 (section 12), and the six gaps A to F that the build found (section
+3.5); the design is decided. Zero native ticks so far.**
 Written during night 3 of run 3
 (`C:/BattleShip_lab/crossing_2026-11-11_run3c`, launched 22:21 local) in a separate git worktree
 (`C:/Users/kill_/Bureau/gitRepo/Smash_pc_port/BattleShip_optionD`, branch `design/option-d` from `cbc64a4`). No file of the main tree
@@ -125,17 +126,27 @@ CONT explorer (the `m8_rd_explore_v1` keyed stream, 120-word segments).
 
 ### 3.1 The draw (per dispatch, in this order)
 
+Below, a cell is **active** when it is eligible (inside the line, section 4) and not retired (3.3). Exploitation draws only active
+cells; breadth draws any eligible cell, retired or not.
+
 1. **Stream.** Breadth with probability 0.2 (run 3's count-based draw over every eligible cell: weight 1 / (1 + dispatches of the cell)),
    otherwise exploitation. Triggers are off (Q5).
-2. **Level** (exploitation): weights 0.4 / 0.3 / 0.2 / 0.1 over the four deepest levels that have an eligible, non-retired cell, deepest
-   first. With fewer than four such levels, the weights are renormalised over those present. This is run 3's `level_weights` mechanism
-   with a new list.
-3. **Target set:** among the level's sets that have an eligible cell, the set with the **lowest budget count**. Ties go to the earliest
-   eligible arrival in the set, then the lowest mask value, which is a deterministic tie-break, not a preference.
-4. **Order:** among the set's orders that have an eligible cell, the order with the lowest budget count. Ties go to the earliest
-   eligible arrival, then the niche label.
-5. **Cell:** within the order (= run 3's group), run 3's machinery unchanged. Anchors (the 3 earliest eligible cells per resource class)
-   are drawn with probability `anchor_share × w_max`. Otherwise the rank draw `(1 + rank)^-1 × max(0.05, 1 / (1 + draws since set))`.
+2. **Level** (exploitation): weights 0.4 / 0.3 / 0.2 / 0.1 over the four deepest levels that have an active cell, deepest first. With
+   fewer than four such levels, the weights are renormalised over those present. The weights go **by rank among the levels present**
+   (gap D, owner 2026-11-12): the deepest such level gets 0.4 and the next level present 0.3, whatever the gap between them. Run 3's
+   `level_weights` indexes by the distance from the deepest level instead, which would give a weight to a missing level, so D computes
+   its own.
+3. **Target set:** among the level's sets that have an active cell, the set with the **lowest budget count**. Ties go to the set whose
+   earliest active cell has the lowest tick, then to the lowest cell id of that earliest cell (gap A).
+4. **Order:** among the set's orders that have an active cell, the order with the lowest budget count. Ties as for sets: the earliest
+   active cell's tick, then its cell id (gap A).
+5. **Cell:** within the order (= run 3's group), run 3's machinery unchanged, over the order's active cells. Anchors (the 3 earliest
+   active cells per resource class) are drawn with probability `anchor_share × w_max`. Otherwise the rank draw
+   `(1 + rank)^-1 × max(0.05, 1 / (1 + draws since set))`.
+
+**Tie-breaks (gap A, owner 2026-11-12).** Cell ids follow creation order, which a relabelling of the targets does not change, and a cell
+belongs to one set and one order, so the tie-break is total and the relabelling test (U12) holds. The first wording (lowest mask value,
+then niche label) favoured low-numbered targets whenever two units tied on count and earliest tick, which happens at every alternation.
 
 **Budget count.** The number of **exploitation** dispatches selected for the set, or for the order, counted when the dispatch is
 **selected** (run 3's convention under D4, so the reorder window cannot give one unit ten draws in a row). Breadth dispatches do not
@@ -146,6 +157,12 @@ to the levels currently in the level draw.
 **New units join at their siblings' minimum.** A set or order that appears mid-night starts at the lowest budget count among its
 siblings, not at 0. It gets an equal share from then on, without a catch-up burst that would starve the others. A unit that loses its
 last eligible cell leaves the rotation and keeps its count. If it comes back, it resumes at `max(its count, the siblings' minimum)`.
+Precisely (gap F, owner 2026-11-12):
+- a unit is **in the rotation** while it has an active cell;
+- its **siblings** are the other units in the rotation: for a set, the sets of the same level; for an order, the orders of the same set;
+- the siblings' minimum is the lowest count among them, or 0 when there is none;
+- a unit that left because all its cells retired returns like one that lost its eligible cells, at `max(its count, the siblings'
+  minimum)`.
 
 ### 3.2 Why this unit
 
@@ -182,6 +199,12 @@ wording, "no break and no kept cell at a deeper level", would have let one late 
 - A retired cell stays in the archive and stays eligible for breadth, so it is not lost.
 - A unit (set or order) with only retired cells leaves the exploitation rotation, and a level with only retired cells leaves the level
   draw.
+- **A faster representative starts over** (gap B, owner 2026-11-12). When a faster arrival replaces a cell's representative, the cell's
+  dispatch count and its kept-a-deeper-cell status restart from zero, and a retired cell becomes active again. It is a new trajectory.
+  Run 3 does the same: it resets the staleness and the anchor status on replacement, and its own (unused) retire rule counts `fresh`,
+  the dispatches since the representative was set.
+- **A retired cell can come back** (gap C, owner 2026-11-12). It still gets breadth dispatches. If one of them keeps a deeper cell, the
+  cell is active again and, like any cell one of whose dispatches kept a deeper cell, never retires.
 - The zero-break demotion is not used in D: `demote_min_dispatches` is unreachable at these sizes (section 12, D-Q4).
 
 ### 3.4 Reused from run 3, and what is new
@@ -192,13 +215,27 @@ wording, "no break and no kept cell at a deeper level", would have let one late 
 | niche derivation | `run3_select.seed_niche` / `child_niche` | unchanged; one root with mask 1023 |
 | cell draw inside a group (rank draw, anchors, staleness) | `run3_select.Run3Selector` | unchanged, called per order |
 | breadth (count-based) | `run3_select` | unchanged |
-| level draw | `level_weights` | new list 0.4 / 0.3 / 0.2 / 0.1 |
+| level draw | `level_weights` | **replaced**: 0.4 / 0.3 / 0.2 / 0.1 by rank among the levels present (gap D) |
 | group shares (rate window, floor, demotion) | `run3_select` | **replaced** by least-count set, then order |
 | E7 bound (best − 25) as the keep / eligible rule | `crossing_search` | **replaced** by the pace rule (section 4) |
 | claims, verification twice from tick 0, text replay, exports | `crossing_search_run3`, `run3_export`, `rl/frs_verify` | unchanged; claim threshold = the frontier's best at the plan |
 | anomaly detectors (live, recorded) | `run3_anomaly`, `run3_worker` | on; trigger draws off |
 | start | runs 1 + 2 merged, inheritance chain | **replaced** by the tick-0 root (section 5) |
 | new | | pace rule; set/order budget; retirement; milestones and verified arrivals; D's hourly tables; D's contract, manifest and folder name |
+
+### 3.5 Gaps settled during the build (owner, 2026-11-12)
+
+Phase 1 found six places where the decided text was ambiguous or contradicted itself. The owner accepted the recommended answer to
+each. Every one is written into the rule it belongs to, and the tests (section 9) check it.
+
+| gap | question | answer | where |
+| --- | --- | --- | --- |
+| A | Tie-breaks by mask value and niche label favour low-numbered targets, against U12 | the earliest active cell's tick, then its cell id | 3.1 |
+| B | Does a faster representative restart the retirement count and status? | yes, both; a retired cell becomes active again | 3.3 |
+| C | Does a retired cell whose breadth dispatch keeps a deeper cell return to exploitation? | yes, and it never retires | 3.3 |
+| D | Level weights when a level in between has no active cell | by rank among the levels present | 3.1 |
+| E | A same-tick double break skips a level (5 to 7): how is a milestone met? | M_L is met by the first kept arrival with at least L targets broken at a tick ≤ line(L) | 7.3, 8 |
+| F | Newcomer start | the minimum over the siblings in the rotation, 0 if none; a unit whose cells all retired returns like one that lost its eligible cells | 3.1 |
 
 ## 4. The pace rule: 48·L + 120
 
@@ -337,8 +374,15 @@ files that run 3 does not import do not change its digest. D is therefore built 
 - `tools/frs/order_select.py` (pace rule, set/order budget, retirement, milestones);
 - `tools/frs/order_search_tests.py`.
 
-A test checks that the run 3 digest still equals `73cbde95` after D's files land (T-M1). If D ever needs a change inside a run 3 manifest
-file, for example a hook in `run3_search` for a root with an empty prefix:
+A test checks that the run 3 digest still equals `73cbde95` after D's files land (T-M1).
+
+**Line endings (owner, 2026-11-12).** The run 3 manifest hashes the files' bytes as they are on disk. In the main tree, 7 of its `rl/` files
+are CRLF on disk while the index holds LF. That gives `73cbde95`. A fresh checkout or a worktree has the same files with LF, which gives
+`11ec3040` for the same content. T-M1 accepts exactly these two digests. The main tree is never switched to another branch, and its files
+are never checked out again, since a rewrite would change the frontier's digest to `11ec3040`. D is built in a worktree. D's own manifest
+(T-M2) normalises line endings to LF before hashing, from the start, so the checkout cannot change D's digest.
+
+If D ever needs a change inside a run 3 manifest file, for example a hook in `run3_search` for a root with an empty prefix:
 - it happens between nights;
 - it is its own commit with the full run 3 suites and a frontier smoke run;
 - the owner is told first, because the frontier digest changes.
@@ -446,8 +490,8 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
   - end records;
   - claims and verification results.
 - **Verified arrivals.** For every milestone, M1 to M4, the prefix up to the arrival is replayed twice from tick 0 in fresh processes
-  with the verify flags. It counts only if both replays show the level-L break at the recorded tick, with chain digests equal to D's
-  record. This is the "verified arrival" standard of rd2's wall-top landing. Only the first qualifying arrival per milestone is
+  with the verify flags. It counts only if both replays show at least L targets broken by the recorded tick (gap E: a same-tick double
+  break can skip level L), with chain digests equal to D's record. This is the "verified arrival" standard of rd2's wall-top landing. Only the first qualifying arrival per milestone is
   verified. A disagreeing replay is an integrity finding, and the night is then not a test of M1 (section 7.4); there is no fallback
   to a later arrival (section 12, D-Q8).
 - **Standalone verification: deferred** (owner, 2026-11-12). `run/cells.jsonl` keeps every kept cell at ingest (level, tick, inputs,
@@ -480,6 +524,9 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
   - any verified clear faster than the frontier's bound (904 tonight; best − 24 − 1).
 
   Each is verified as M1 when met.
+- **A skipped level (gap E, owner 2026-11-12).** Two targets broken on the same tick take a lineage from level 5 straight to level 7, with
+  no level-6 cell. M_L is therefore met by the first kept arrival with **at least** L targets broken at a tick ≤ line(L): a level-7
+  arrival at 400 meets M1 (400 ≤ 408) as well as M2.
 - **Diversity readouts, for the owner, never gates or inputs:**
   - the number of sets and orders with a cell inside the line at each level;
   - how many different targets were broken first.
@@ -514,29 +561,35 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
   - with one root, the order determines the mask.
 - **U4 set then order:**
   - least budget count at each stage;
-  - ties by earliest eligible arrival, then mask, then label;
+  - ties by the earliest active cell's tick, then that cell's id, never by mask or label (gap A);
   - counts are exploitation draws only: a breadth draw changes no set or order count;
   - over 10,000 simulated draws (breadth included) on a fixed archive, at every level in the level draw, every set's count and every
     order's count within its set differ by at most 1; a level outside the level draw is not checked;
   - a set with one order and a set with ten orders get equal set counts.
 - **U5 newcomers:**
-  - a set or order created mid-run joins at its siblings' minimum;
-  - a unit that loses its last eligible cell leaves and keeps its count, and returning resumes at max(count, minimum).
+  - a set or order created mid-run joins at its siblings' minimum, the siblings being the units in the rotation, and at 0 when there is
+    none (gap F);
+  - a unit that loses its last eligible cell leaves and keeps its count, and returning resumes at max(count, minimum);
+  - a unit whose cells all retired returns the same way (gap F).
 - **U6 level weights:**
-  - 0.4 / 0.3 / 0.2 / 0.1 over the four deepest levels with an eligible non-retired cell;
+  - 0.4 / 0.3 / 0.2 / 0.1 over the four deepest levels with an active cell;
   - renormalised when there are fewer;
-  - a level with only retired cells is skipped.
+  - a level with only retired cells is skipped;
+  - by rank among the levels present: with active cells at levels 7, 5, 4 and 2 only, 7 / 5 / 4 / 2 get 0.4 / 0.3 / 0.2 / 0.1 (gap D).
 - **U7 retirement:**
   - a cell retires after exactly R = 300 dispatches none of which kept a cell (new, or a faster representative) at a deeper level, not
     at 299;
   - a cell any of whose dispatches kept a deeper cell never retires;
   - a cell whose only break is behind the line (nothing kept) retires at exactly 300;
   - a retired cell stays in the archive and in breadth;
-  - a unit with only retired cells leaves the rotation.
+  - a unit with only retired cells leaves the rotation;
+  - a faster representative restarts the count and the status, and a retired cell becomes active again (gap B);
+  - a retired cell whose breadth dispatch keeps a deeper cell is active again and never retires (gap C).
 - **U8 milestones:**
   - M1 at a level-6 arrival of 408, not at 409;
   - M2 to M4 and the clear line likewise;
   - in any mask;
+  - a skipped level: a level-7 arrival at 400, with no level-6 cell, meets M1 and M2 (gap E);
   - recorded once, at the first occurrence, with dispatch, cell and lineage digest.
 - **U9 claims:** the threshold is the frontier's best read at the plan, and a claim faster than it is queued for verification as run 3.
 - **U10 parameters:**
@@ -558,9 +611,11 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
 
 **Manifest:**
 
-- **T-M1:** the run 3 manifest digest is still `73cbde95` with D's files present.
+- **T-M1:** the run 3 manifest digest is still `73cbde95` (the main tree's working copy) or `11ec3040` (the same 54 files with LF, as in a
+  fresh checkout or a worktree), with D's files present. Any other value fails (section 6.3).
 - **T-M2:**
   - D's manifest covers D's import closure;
+  - it hashes each file with its line endings normalised to LF, so the same content gives the same digest in any checkout;
   - D's open refuses a missing or different digest;
   - a change during the run is SEARCH_INVALID at the close.
 
