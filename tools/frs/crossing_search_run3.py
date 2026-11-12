@@ -87,9 +87,9 @@ class Params3(r2.Params2):
     rank_exp: float = 1.0               # DECISIVE 1: (1 + rank)^-1
     novelty_floor: float = 0.05         # DECISIVE 1: max(0.05, 1 / (1 + dispatches since the representative was set))
     phi_factor: float = 0.25            # DECISIVE 1: phi = 1 / (4 x groups at the level)
-    demote_min_dispatches: int = 1000   # DECISIVE 2
-    demote_fall_rate: float = 0.75      # DECISIVE 2
-    demote_exit_fall_rate: float = 0.70  # owner 2026-11-11: hysteresis, a demoted group exits on a break, an e, or falls < 70 % of the window
+    demote_min_dispatches: int = 1000   # DECISIVE 2: the window (the group's last 1,000 dispatches)
+    demote_fall_rate: float = 0.0       # owner 2026-11-11 (zero-break rule): no falls criterion; 0.75 was DECISIVE 2 (run3_select_v2 / v3)
+    demote_exit_fall_rate: float = 0.0  # owner 2026-11-11 (zero-break rule): exit only on a break or an e; 0.70 was the v3 hysteresis
     demote_share_factor: float = 0.25   # DECISIVE 2: a demoted group gets phi / 4
     anchor_k: int = 3                   # DECISIVE 3
     anchor_share: float = 0.5           # DECISIVE 3: 0.5 x w_max
@@ -145,9 +145,10 @@ SELECTION_RULES = {
              "rescaled to 1 - demoted x phi x demote_share_factor; a demoted group gets phi x demote_share_factor",
     "useful": "u = a break whose next-level arrival is <= the E7 bound; level 9: a claimed clear <= the bound (literal)",
     "e": "a kept cell at a deeper level earlier than every alive cell of its group before the burst; level 9: a claimed clear faster than every earlier claim",
-    "demotion": "owner 2026-11-08: the group's last demote_min_dispatches dispatches (run 2 then run 3): the window full, 0 bursts with any break, 0 e, "
-                "falls >= demote_fall_rate x the window; exit (owner 2026-11-11, hysteresis) when a break or an e enters the window or the falls drop below "
-                "demote_exit_fall_rate x the window; the status at the start = the rule replayed over the group's whole sequence",
+    "demotion": "owner 2026-11-11 (zero-break rule, replacing the falls criterion): the group's last demote_min_dispatches dispatches (run 2 then run 3): "
+                "the window full, 0 bursts with any break, 0 e, falls >= demote_fall_rate x the window (0: any falls); exit when a break or an e enters the "
+                "window, or the falls drop below demote_exit_fall_rate x the window (0: never); the status at the start = the rule replayed over the group's "
+                "whole sequence",
     "demoted_new_earliest": "a burst whose kept cells give a demoted group a new earliest eligible cell (earlier than every alive cell of the group before "
                             "the burst) queues that cell, one per group per burst, for trigger_draws_per_cell draws through the trigger queue (same cap)",
     "cell": "(1 + rank)^-rank_exp x max(novelty_floor, 1 / (1 + dispatches selected since the representative was set)) x cleared_weight^clears",

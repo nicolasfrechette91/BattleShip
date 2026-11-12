@@ -25,11 +25,13 @@ in-order ingest of the result, so every decision here is a function of the plan,
                     groups, floored at phi = phi_factor / (groups at the level), rescaled to 1 - (demoted) x phi / 4; a demoted
                     group gets phi x demote_share_factor (DECISIVE 1, the warm-start fix, 4b rule 2).
     demotion        (owner 2026-11-08, replacing the whole-history rule) the group's LAST demote_min_dispatches (1,000) dispatches, run 2
-                    then run 3 in ingest order: the window full, 0 bursts that broke a target (any break, 4b rule 3), 0 e, falls >=
-                    demote_fall_rate (75 %) of the window. Exit (owner 2026-11-11, hysteresis): a break or an e enters the window (as in
-                    DECISIVE 2), or the falls drop below demote_exit_fall_rate (70 %) of the window; between 70 and 75 % the status
-                    stays what it was. The status at the start is the rule replayed over the group's whole sequence (its history
-                    tail, oldest first), so a run boundary changes nothing. Events
+                    then run 3 in ingest order: the window full, 0 bursts that broke a target (any break, 4b rule 3), 0 e (owner
+                    2026-11-11, zero-break rule: whatever the falls; demote_fall_rate 0, it was 75 %). Exit: a break or an e enters the
+                    window (as in DECISIVE 2); demote_exit_fall_rate 0 (the v3 hysteresis exit below 70 % falls is retired: with no
+                    falls criterion to enter, it would re-demote on the next dispatch). The window is its own hysteresis: after an exit
+                    the group cannot be demoted again before the break or e leaves it, 1,000 of its dispatches later. The status at
+                    the start is the rule replayed over the group's whole sequence (its history tail, oldest first), so a run boundary
+                    changes nothing. Events
                     logged with the window's counters. A burst whose kept cells give a DEMOTED group a new earliest eligible cell (earlier
                     than every alive cell of that group before the burst) queues that cell (one per group per burst) with
                     trigger_draws_per_cell (3) draws through the trigger queue (class demoted_new_earliest, same cap).
@@ -63,8 +65,9 @@ import math
 from collections import Counter, deque
 from typing import Any, Deque, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
-SELECT_CONTRACT = "run3_select_v3"            # v2 (owner 2026-11-08): rolling demotion window + new earliest cells of demoted groups;
-#                                               v3 (owner 2026-11-11): demotion hysteresis (exit on a break, an e, or falls < demote_exit_fall_rate)
+SELECT_CONTRACT = "run3_select_v4"            # v2 (owner 2026-11-08): rolling demotion window + new earliest cells of demoted groups;
+#                                               v3 (owner 2026-11-11): demotion hysteresis (exit on a break, an e, or falls < demote_exit_fall_rate);
+#                                               v4 (owner 2026-11-11, before night 3): zero-break rule (no falls criterion: both rates 0)
 TARGETS_TOTAL = 10
 NEW, REPLACED = "new", "replaced"
 STREAMS = ("rank", "anchor", "breadth", "trigger")
@@ -80,8 +83,9 @@ def window_code(fall: int, b: int, e: int) -> int:
 
 def demotion_next(was: bool, n: int, falls: int, breaks: int, e: int, full: int, enter_rate: float, exit_rate: float) -> bool:
     """The demotion status after a dispatch, from the window's counters (n dispatches, `full` = the window size). Not demoted: demoted when
-    the window is full with 0 breaks, 0 e and falls >= enter_rate x n. Demoted: stays while 0 breaks, 0 e and falls >= exit_rate x n
-    (owner 2026-11-11). exit_rate == enter_rate is the 2026-11-08 rule (no hysteresis)."""
+    the window is full with 0 breaks, 0 e and falls >= enter_rate x n. Demoted: stays while 0 breaks, 0 e and falls >= exit_rate x n.
+    Both rates 0 is the zero-break rule (owner 2026-11-11, run3_select_v4: the status is the window alone); 0.75 / 0.70 is the v3
+    hysteresis; exit_rate == enter_rate == 0.75 is the 2026-11-08 rule."""
     if n < full or breaks or e:
         return False
     return falls >= (exit_rate if was else enter_rate) * n

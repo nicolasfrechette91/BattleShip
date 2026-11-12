@@ -226,32 +226,35 @@ BREAK = {"outcome": "fall", "levels": {}, "advanced": True}
 
 
 def unit_rolling_demotion() -> Dict[str, Any]:
-    """Demotion on the group's last 1,000 dispatches (owner 2026-11-08): a group whose older history holds breaks and an e is demoted when
-    the window slides to 75 % falls with no break and no e (the whole-history rule never would); with the hysteresis (owner 2026-11-11)
-    749 falls keep it demoted, a break is the exit, and after the break it is demoted again exactly when that break leaves the window.
-    Sequences that disagree with the counters refuse."""
-    hist = {rs.glabel(GA): {"n": 1500, "fall": 749, "b": 5, "bu": 5, "e": 1}, rs.glabel(GB): {"n": 400, "fall": 100, "b": 2, "bu": 2, "e": 0},
+    """Demotion on the group's last 1,000 dispatches (owner 2026-11-08; zero-break rule, owner 2026-11-11): a group whose older history
+    holds breaks and an e is demoted exactly when its last break leaves the window, at 0 falls (the whole-history rule and the falls
+    criterion never would); a break is the exit, and after it the group is demoted again exactly when that break leaves the window, 1,000
+    of its dispatches later (the window is the hysteresis). Sequences that disagree with the counters refuse."""
+    hist = {rs.glabel(GA): {"n": 1004, "fall": 0, "b": 5, "bu": 5, "e": 1}, rs.glabel(GB): {"n": 400, "fall": 100, "b": 2, "bu": 2, "e": 0},
             rs.glabel(GC): {"n": 400, "fall": 100, "b": 4, "bu": 4, "e": 0}}
-    # breaks and an e in the first 500; the window rises to 749 falls from below (never 750 before: not demoted under the replayed rule), oldest quiet
-    seq_a = [6, 2, 2, 2, 2] + [0] * 495 + [0] + [1] * 749 + [0] * 250
+    seq_a = [6, 2, 2, 2, 2] + [0] * 999                         # breaks and an e first; the last break is the window's oldest dispatch; no fall
     tails = dict(tails_of(hist), **{rs.glabel(GA): "".join(map(str, seq_a))})
     a, sel = fixture(hist, tails)
-    check(GA not in sel.dem and sel.window_counts(GA) == {"n": 1000, "fall": 749, "b": 0, "e": 0}, f"the start window: {sel.window_counts(GA)}")
-    sel.on_ingest(info_of(sel, 0), FALL, [], [], 1)
+    check(GA not in sel.dem and sel.window_counts(GA) == {"n": 1000, "fall": 0, "b": 1, "e": 0}, f"the start window: {sel.window_counts(GA)}")
+    sel.on_ingest(info_of(sel, 0), QUIET, [], [], 1)
     ev = sel.events[-1]
-    check(GA in sel.dem and ev["kind"] == "demoted" and ev["window"] == {"n": 1000, "fall": 750, "b": 0, "e": 0} and ev["history"]["b"] == 5,
-          f"the window reaches 750 falls: demoted although the whole history holds 5 breaks {ev}")
+    check(GA in sel.dem and ev["kind"] == "demoted" and ev["window"] == {"n": 1000, "fall": 0, "b": 0, "e": 0} and ev["history"]["b"] == 5,
+          f"the last break leaves the window: demoted at 0 falls although the whole history holds 5 breaks {ev}")
     sh, phi = sel.shares(7)
     check(abs(sh[GA] - phi / 4) < 1e-12, "a demoted group gets phi / 4")
-    sel.on_ingest(info_of(sel, 0), QUIET, [], [], 2)
-    check(GA in sel.dem and len(sel.events) == 1 and sel.window_counts(GA)["fall"] == 749, f"749 falls (between 70 and 75 %): still demoted {sel.events}")
+    sel.on_ingest(info_of(sel, 0), FALL, [], [], 2)
+    check(GA in sel.dem and len(sel.events) == 1, f"a fall changes nothing: still demoted {sel.events}")
     sel.on_ingest(info_of(sel, 0), BREAK, [], [], 3)
     check(GA not in sel.dem and sel.events[-1]["kind"] == "exit" and sel.events[-1]["window"]["b"] == 1, f"a break is the exit {sel.events[-1]}")
     k = 0
     while GA not in sel.dem and k < 2000:
         k += 1
-        sel.on_ingest(info_of(sel, 0), FALL, [], [], 3 + k)
-    check(k == 1000 and sel.window_counts(GA) == {"n": 1000, "fall": 1000, "b": 0, "e": 0}, f"demoted again when the break left the window: {k}")
+        sel.on_ingest(info_of(sel, 0), QUIET, [], [], 3 + k)
+    check(k == 1000 and sel.window_counts(GA) == {"n": 1000, "fall": 0, "b": 0, "e": 0} and len(sel.events) == 3,
+          f"demoted again exactly when the break left the window, no event before: {k} {len(sel.events)}")
+    _a, v3 = fixture(hist, tails, demote_fall_rate=0.75, demote_exit_fall_rate=0.70)
+    v3.on_ingest(info_of(v3, 0), QUIET, [], [], 1)
+    check(GA not in v3.dem and not v3.events, "the v3 thresholds (falls >= 75 %) on the same window: never demoted")
     bad = dict(tails, **{rs.glabel(GB): tails[rs.glabel(GB)][:-1]})
     try:
         fixture(hist, bad)
@@ -266,7 +269,9 @@ def unit_demotion_hysteresis() -> Dict[str, Any]:
     reproduced on a window whose oldest dispatches alternate quiet / fall: the 2026-11-08 rule (exit threshold = demotion threshold) flips on
     every dispatch, the hysteresis (owner 2026-11-11: demoted at >= 75 %, exit on a break, an e, or falls < 70 %) logs one demotion. Then
     the exit comes at 699 falls, never between 700 and 749; an e entering the window is an exit; the status at the start is the rule
-    replayed over the whole sequence; an exit threshold above the demotion threshold refuses."""
+    replayed over the whole sequence; an exit threshold above the demotion threshold refuses. The v3 thresholds are passed explicitly
+    (run3_select_v4's default is the zero-break rule, unit_zero_break_demotion); they stay reproducible for the night-2 replay."""
+    V3 = {"demote_fall_rate": 0.75}
     front = [0, 1] * 5                                          # the window's oldest ten dispatches: quiet, fall, quiet, fall ...
     seq = [6, 2, 2] + front + [1] * 744 + [0] * 246             # old breaks and an e outside the window; the window: 749 falls, 0 b, 0 e
     hist = {rs.glabel(GA): {"n": len(seq), "fall": sum(c & 1 for c in seq), "b": 3, "bu": 3, "e": 1},
@@ -275,7 +280,7 @@ def unit_demotion_hysteresis() -> Dict[str, Any]:
     pushes = [FALL, QUIET] * 4 + [FALL]                         # 750, 749, 750, 749, ... 750
     kinds: Dict[str, List[Tuple[str, int]]] = {}
     for name, rate in (("rule_2026_11_08", 0.75), ("hysteresis", 0.70)):
-        a, sel = fixture(hist, tails, demote_exit_fall_rate=rate)
+        a, sel = fixture(hist, tails, demote_exit_fall_rate=rate, **V3)
         check(GA not in sel.dem and sel.window_counts(GA) == {"n": 1000, "fall": 749, "b": 0, "e": 0}, f"{name}: the start window {sel.window_counts(GA)}")
         for i, row in enumerate(pushes):
             sel.on_ingest(info_of(sel, 0), row, [], [], 1 + i)
@@ -296,7 +301,7 @@ def unit_demotion_hysteresis() -> Dict[str, Any]:
     # an e entering the window exits (a kept level-8 cell earlier than every alive cell of its group, from a dispatch of group A)
     seq_e = [1] * 760 + [0] * 240
     hist_e = dict(hist, **{rs.glabel(GA): {"n": 1000, "fall": 760, "b": 0, "bu": 0, "e": 0}})
-    a, sel = fixture(hist_e, dict(tails, **{rs.glabel(GA): "".join(map(str, seq_e))}))
+    a, sel = fixture(hist_e, dict(tails, **{rs.glabel(GA): "".join(map(str, seq_e))}), demote_exit_fall_rate=0.70, **V3)
     check(GA in sel.dem, "760 falls, no break: demoted at the start")
     deep = FC(9, 8, 3, "A0", 50)
     a.cells.append(deep)
@@ -308,16 +313,61 @@ def unit_demotion_hysteresis() -> Dict[str, Any]:
     for name, rate, tail in (("decayed_720", 0.70, [1] * 750 + [0] * 280), ("decayed_720_old_rule", 0.75, [1] * 750 + [0] * 280),
                              ("decayed_690", 0.70, [1] * 750 + [0] * 310), ("never_750", 0.70, [0] * 280 + [1] * 720)):
         h2 = dict(hist, **{rs.glabel(GA): {"n": len(tail), "fall": sum(tail), "b": 0, "bu": 0, "e": 0}})
-        _a, s2 = fixture(h2, dict(tails, **{rs.glabel(GA): "".join(map(str, tail))}), demote_exit_fall_rate=rate)
+        _a, s2 = fixture(h2, dict(tails, **{rs.glabel(GA): "".join(map(str, tail))}), demote_exit_fall_rate=rate, **V3)
         starts[name] = (GA in s2.dem, s2.window_counts(GA)["fall"])
     check(starts == {"decayed_720": (True, 720), "decayed_720_old_rule": (False, 720), "decayed_690": (False, 690), "never_750": (False, 720)},
           f"start status replayed over the sequence: {starts}")
     try:
-        params(demote_exit_fall_rate=0.8).check()
+        params(demote_exit_fall_rate=0.8, **V3).check()
         raise AssertionError("an exit threshold above the demotion threshold was accepted")
     except Exception as exc:
         check("exit threshold" in str(exc), f"refused: {exc}")
     return {"old_rule_events": len(kinds["rule_2026_11_08"]), "hysteresis_events": len(kinds["hysteresis"]), "exit_at": 699, "starts": starts}
+
+
+def unit_zero_break_demotion() -> Dict[str, Any]:
+    """The gap in DECISIVE 2 the owner found before night 3 (group (9, 256, 326:2-6-1): 0 breaks in 4,521 run 3 dispatches at 30-54 % falls,
+    never demoted under the falls criterion). The zero-break rule (owner 2026-11-11, run3_select_v4: both fall rates 0): a group whose last
+    1,000 dispatches hold 0 breaks and 0 e is demoted whatever its falls, at the start (the rule replayed over its sequence) and the moment
+    its window fills; the other group of its level then takes 1 - phi / 4; a break 10 dispatches inside the window holds the demotion off
+    for exactly 11 more dispatches at 0 falls; a break or an e is the exit. The v3 thresholds on the same sequences demote nothing."""
+    seq_a = [6, 2, 2] + [0] * 497 + [1, 1, 0, 0, 0] * 200       # old breaks and an e; then 1,000 dispatches at 40 % falls, 0 b, 0 e
+    seq_b = [1, 0, 0] * 333                                     # 999 dispatches, 0 breaks: one short of the window
+    seq_c = [0] * 10 + [2] + [0] * 989                          # 1,000 dispatches at 0 falls; one break, the window's 11th oldest
+    hist = {}
+    for g, s in ((GA, seq_a), (GB, seq_b), (GC, seq_c)):
+        hist[rs.glabel(g)] = {"n": len(s), "fall": sum(c & 1 for c in s), "b": sum((c >> 1) & 1 for c in s), "bu": sum((c >> 1) & 1 for c in s),
+                              "e": sum((c >> 2) & 1 for c in s)}
+    tails = {rs.glabel(GA): "".join(map(str, seq_a)), rs.glabel(GB): "".join(map(str, seq_b)), rs.glabel(GC): "".join(map(str, seq_c))}
+    a, sel = fixture(hist, tails)
+    dem_start = sorted(rs.glabel(g) for g in sel.dem)
+    check(sel.dem == {GA} and sel.window_counts(GA) == {"n": 1000, "fall": 400, "b": 0, "e": 0} and sel.hist[GA]["b"] == 3,
+          f"A (40 % falls, 0 breaks in its last 1,000, 3 older breaks) demoted at the start; B (999) and C (a break inside) not: {sel.dem}")
+    sh, phi = sel.shares(7)
+    check(abs(phi - 0.125) < 1e-12 and abs(sh[GA] - phi / 4) < 1e-12 and abs(sh[GB] - (1 - phi / 4)) < 1e-12, f"B takes 1 - phi / 4: {sh}")
+    _a, v3 = fixture(hist, tails, demote_fall_rate=0.75, demote_exit_fall_rate=0.70)
+    sh3, _phi3 = v3.shares(7)
+    check(not v3.dem and sh3[GB] < sh[GB], f"under the v3 thresholds nothing is demoted and B's share is lower: {sh3}")
+    sel.on_ingest(info_of(sel, 4), QUIET, [], [], 1)
+    check(GB in sel.dem and sel.events[-1]["kind"] == "demoted" and sel.events[-1]["window"] == {"n": 1000, "fall": 333, "b": 0, "e": 0},
+          f"B's window fills with 0 breaks at 33 % falls: demoted {sel.events[-1:]}")
+    k = 0
+    while GC not in sel.dem and k < 50:
+        k += 1
+        sel.on_ingest(info_of(sel, 7), QUIET, [], [], 1 + k)
+    check(k == 11 and sel.window_counts(GC) == {"n": 1000, "fall": 0, "b": 0, "e": 0}, f"C demoted exactly when its break left the window: {k}")
+    sel.on_ingest(info_of(sel, 0), BREAK, [], [], 100)
+    check(GA not in sel.dem and sel.events[-1]["kind"] == "exit" and sel.events[-1]["group"] == rs.glabel(GA), f"A: a break is the exit {sel.events[-1:]}")
+    deep = FC(9, 8, 3, "A0", 50)
+    a.cells.append(deep)
+    out = sel.on_ingest(info_of(sel, 4), QUIET, [(rs.NEW, deep, (15, (3, 2)))], [], 101)
+    check(out["e"] == 1 and out["b"] == 0 and GB not in sel.dem and sel.events[-1]["kind"] == "exit" and sel.events[-1]["window"]["e"] == 1,
+          f"B: an e is the exit {out} {sel.events[-1:]}")
+    for i in range(30):
+        sel.on_ingest(info_of(sel, 0), FALL, [], [], 200 + i)
+    check(GA not in sel.dem and sel.window_counts(GA)["b"] == 1, "A after its exit: 30 falls, the break still in the window, not demoted")
+    return {"demoted_at_start": dem_start, "b_share": round(sh[GB], 6), "b_share_v3": round(sh3[GB], 6), "c_after": k,
+            "events": [(e["group"], e["kind"]) for e in sel.events]}
 
 
 def unit_new_earliest_in_demoted_group() -> Dict[str, Any]:
@@ -733,14 +783,17 @@ def unit_params() -> Dict[str, Any]:
             "level_decay", "max_segments", "rng_seed")
     check(all(k in d for k in need) and d["max_segments"] == 6 and d["breadth_share"] == 0.2 and d["trigger_classes"] == list(C.TRIGGER_CLASSES),
           f"every parameter recorded: {sorted(set(need) - set(d))}")
+    check(d["demote_min_dispatches"] == 1000 and d["demote_fall_rate"] == 0.0 and d["demote_exit_fall_rate"] == 0.0 and rs.SELECT_CONTRACT == "run3_select_v4",
+          f"the zero-break rule by default (owner 2026-11-11): {d['demote_min_dispatches']} {d['demote_fall_rate']} {d['demote_exit_fall_rate']} {rs.SELECT_CONTRACT}")
+    C.Params3(demote_fall_rate=0.75, demote_exit_fall_rate=0.70).check()
     bad = 0
     for kw in ({"breadth_share": 1.0}, {"retire_after": 5}, {"cleared_weight": 0.0}, {"reset_novelty": False}, {"summary_every_dispatches": 10},
-               {"anchor_w_floor": 0.0}, {"window": 0}, {"demote_exit_fall_rate": 0.76}):
+               {"anchor_w_floor": 0.0}, {"window": 0}, {"demote_fall_rate": 0.75, "demote_exit_fall_rate": 0.76}, {"demote_exit_fall_rate": 0.01}):
         try:
             C.Params3(**kw).check()
         except C.SearchError:
             bad += 1
-    check(bad == 8, f"every out-of-range parameter refused ({bad}/8)")
+    check(bad == 9, f"every out-of-range parameter refused ({bad}/9)")
     import run3_manifest as rm
 
     m = rm.run3_code_manifest()
@@ -1354,6 +1407,7 @@ def e2e_text_replay() -> Dict[str, Any]:
 
 UNIT = {"unit_niche_inheritance": unit_niche_inheritance, "unit_moves": unit_moves, "unit_demotion_and_shares": unit_demotion_and_shares,
         "unit_rolling_demotion": unit_rolling_demotion, "unit_demotion_hysteresis": unit_demotion_hysteresis,
+        "unit_zero_break_demotion": unit_zero_break_demotion,
         "unit_new_earliest_in_demoted_group": unit_new_earliest_in_demoted_group,
         "unit_e_and_anchor_success": unit_e_and_anchor_success, "unit_draws": unit_draws, "unit_triggers": unit_triggers, "unit_trigger_fallback": unit_trigger_fallback, "unit_claims_frozen": unit_claims_frozen,
         "unit_non_clean_sources_refused": unit_non_clean_sources_refused, "unit_plan_flags_match_saved_plan": unit_plan_flags_match_saved_plan,
@@ -1473,6 +1527,37 @@ def real_inherit_night_table() -> Dict[str, Any]:
     return {"groups": len(el), "eligible": p["archive"]["eligible"], "niche_equal": rep["niche_equal"]}
 
 
+NIGHT2_REAL = LAB / "crossing_2026-11-10_run3b"
+ZERO_BREAK_DEMOTED_934 = ["7|322|330:3", "7|74|330:8", "9|256|326:2-6-1"]
+
+
+def real_two_nights_zero_break() -> Dict[str, Any]:
+    """Night 3's plan (owner 2026-11-11: both nights inherited in order, best 959, bound 934) under the zero-break rule demotes exactly the
+    three groups the replay names (tools/analysis/run3_design/d2_zero_break_replay.py: (7, 322, 330:3) 0 breaks in 2,114, (7, 74, 330:8)
+    1,184 without a break, (9, 256, 326:2-6-1) 4,482 without), so (9, 2, 326:2-6-8) takes 1 - phi / 4 of level 9 instead of half; under
+    the v3 thresholds the same plan demotes no group with an eligible cell (the table planned before the change). Archive and eligibility
+    are the same under both."""
+    if not (NIGHT_REAL / "run" / "summary.json").is_file() or not (NIGHT2_REAL / "run" / "summary.json").is_file():
+        return {"skipped": f"no inherited nights under {LAB}"}
+    import crossing_search_run3 as C
+
+    out = {}
+    for name, kw in (("zero_break", {}), ("v3", {"demote_fall_rate": 0.75, "demote_exit_fall_rate": 0.70})):
+        P = C.build_plan(LAB, RUN1_REAL, RUN2_REAL, C.Params3(rng_seed=4, **kw), code_digest="test", inherit=[NIGHT_REAL, NIGHT2_REAL])
+        p = P["plan"]
+        el = {r["group"]: r for r in p["run3"]["start"] if r["eligible"]}
+        out[name] = {"bound": P["bound"], "best": p["best"]["completion_input_tick"], "eligible": p["archive"]["eligible"], "groups": len(el),
+                     "demoted": sorted(g for g, r in el.items() if r["demoted"]), "share_9_2": round(el["9|2|326:2-6-8"]["share"], 6),
+                     "share_9_256": round(el["9|256|326:2-6-1"]["share"], 6), "table": {g: (r["eligible"], r["anchors"], r["earliest_eligible"]) for g, r in el.items()}}
+    z, v = out["zero_break"], out["v3"]
+    check(z["bound"] == v["bound"] == 934 and z["best"] == v["best"] == 959 and z["eligible"] == v["eligible"] == 17813 and z["groups"] == v["groups"] == 14
+          and z["table"] == v["table"], f"the same archive and groups: {[(k, z[k], v[k]) for k in ('bound', 'best', 'eligible', 'groups')]}")
+    check(z["demoted"] == ZERO_BREAK_DEMOTED_934 and v["demoted"] == [], f"demoted: zero-break {z['demoted']}, v3 {v['demoted']}")
+    check(abs(z["share_9_2"] - (1 - 0.125 / 4)) < 1e-6 and abs(z["share_9_256"] - 0.125 / 4) < 1e-6 and abs(v["share_9_2"] - 0.5) < 1e-6,
+          f"level 9: (9, 2) {v['share_9_2']} -> {z['share_9_2']}, (9, 256) {v['share_9_256']} -> {z['share_9_256']}")
+    return {k: {x: y for x, y in r.items() if x != "table"} for k, r in out.items()}
+
+
 def _json_edit(path: Path, **kw: Any) -> None:
     obj = json.loads(path.read_text(encoding="utf-8"))
     obj.update(kw)
@@ -1481,7 +1566,7 @@ def _json_edit(path: Path, **kw: Any) -> None:
 
 REAL = {"real_niches_equal_offline": real_niches_equal_offline, "real_start_table": real_start_table,
         "real_plan_via_child_equal": real_plan_via_child_equal, "real_best_from_smoke": real_best_from_smoke,
-        "real_inherit_night_table": real_inherit_night_table}
+        "real_inherit_night_table": real_inherit_night_table, "real_two_nights_zero_break": real_two_nights_zero_break}
 E2E = {"e2e_same_seed_runs": e2e_same_seed_runs, "e2e_nonfinite_trigger": e2e_nonfinite_trigger,
        "e2e_detector_trigger_fallback": e2e_detector_trigger_fallback, "e2e_frozen_run_not_inherited": e2e_frozen_run_not_inherited,
        "e2e_inherit_a_to_b": e2e_inherit_a_to_b, "e2e_text_replay": e2e_text_replay, "e2e_exports_under_guard": e2e_exports_under_guard}
