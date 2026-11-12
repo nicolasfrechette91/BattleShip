@@ -170,14 +170,15 @@ The deepest-first weights are what keep the frontier of discovery fed. Shallow l
 With deepest-first weights, a deep level whose only cells are dead ends would absorb 40 % of exploitation. Run 3 handles dead groups
 with the zero-break demotion (a window of 1,000 dispatches). In D, orders are many and small, and few would ever fill a 1,000 window.
 
-Proposed instead: **a cell is retired from exploitation after R = 300 of its dispatches with no break and no kept cell at a deeper
-level.**
+Decided instead (D-Q4): **a cell is retired from exploitation after R = 300 of its dispatches, none of which kept a cell (new, or a
+faster representative) at a deeper level.** A break behind the line keeps nothing, so it does not hold off retirement. (The first
+wording, "no break and no kept cell at a deeper level", would have let one late break protect a dead cell forever.)
 - **Why 300:** the detection argument of the right-side proposal (risk 1). An event at 1 % per dispatch shows up in 300 dispatches
   with 95 % probability (0.99^300 = 5 %).
 - A retired cell stays in the archive and stays eligible for breadth, so it is not lost.
 - A unit (set or order) with only retired cells leaves the exploitation rotation, and a level with only retired cells leaves the level
   draw.
-- The zero-break demotion is not used in D: `demote_min_dispatches` is unreachable at these sizes. This is Q4.
+- The zero-break demotion is not used in D: `demote_min_dispatches` is unreachable at these sizes (section 12, D-Q4).
 
 ### 3.4 Reused from run 3, and what is new
 
@@ -516,9 +517,11 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
   - renormalised when there are fewer;
   - a level with only retired cells is skipped.
 - **U7 retirement:**
-  - a cell retires after exactly R = 300 dispatches with no break and no deeper kept cell, not at 299;
-  - a cell any of whose dispatches broke a target, or kept a deeper cell, never retires;
-  - a retired cell stays in breadth;
+  - a cell retires after exactly R = 300 dispatches none of which kept a cell (new, or a faster representative) at a deeper level, not
+    at 299;
+  - a cell any of whose dispatches kept a deeper cell never retires;
+  - a cell whose only break is behind the line (nothing kept) retires at exactly 300;
+  - a retired cell stays in the archive and in breadth;
   - a unit with only retired cells leaves the rotation.
 - **U8 milestones:**
   - M1 at a level-6 arrival of 408, not at 409;
@@ -619,6 +622,10 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
    archive yielded most (session log §19.3).
 3. **Equality mechanism:** (a) deterministic least-count for sets and orders (recommended); (b) keyed uniform draws.
 4. **Dead ends:** (a) per-cell retirement at R = 300 (recommended); (b) run 3's zero-break demotion per order; (c) neither.
+   **Decided 2026-11-12 (owner): (a), with one condition:** a cell retires after 300 dispatches none of which kept a cell (new, or a
+   faster representative) at a deeper level. Retired cells stay in the archive and in breadth; a set, order or level with only retired
+   cells leaves the exploitation rotation. U7 is updated to the single condition, with the case "only break is behind the line ->
+   retires at exactly 300". R does not touch the gate, so it can be revisited after the pilot from the hourly per-level readout.
 5. **Breadth and triggers:** (a) breadth 0.2 as run 3, anomaly detectors on and recorded, trigger draws off (recommended, "detect without
    steering"); (b) triggers on as run 3; (c) breadth off.
 6. **Roots:** (a) the tick-0 root only (recommended); (b) also the records' level 1 to 5 states inside the line (agent-made, but they
