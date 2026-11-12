@@ -302,8 +302,8 @@ threshold (section 12: D-Q6 decided; the census report was dropped under D-Q1).
 
 ### 5.3 The search's random seeds
 
-- **Selection.** Run 3's `det_schedule.KeyedRandom`, seeded by `--rng-seed`. The pilot uses a value no frontier night used (for example
-  11), recorded in config.json.
+- **Selection.** Run 3's `det_schedule.KeyedRandom`, seeded by `--rng-seed`. The pilot uses a value no frontier night used: 11
+  (D-Q7), recorded in config.json.
 - **Bursts.** The CONT explorer's keyed stream, keyed by D's archive id, the key family and the cell's prefix digest, as run 3 does
   (`<archive id>|order1|<prefix digest>`, iteration 0, 1, ...). D's archive id differs from every run 3 archive, so no frontier burst is
   repeated.
@@ -402,7 +402,7 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
 
 ### 7.2 The night
 
-- **Command shape:** `order_search.py plan` then `run --workers 5 --max-wall-min 480 --rng-seed <new> --summary-every-s 3600`, into
+- **Command shape:** `order_search.py plan` then `run --workers 5 --max-wall-min 480 --rng-seed 11 --summary-every-s 3600`, into
   `C:/BattleShip_lab/order_<date>`. The tick cap is as the frontier's (80 M).
 - **The frontier is paused:** no frontier night that night. Its chain is untouched, and the next frontier night inherits exactly as
   before. D's folder is never in its chain.
@@ -432,7 +432,9 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
 - **Stop rules, as run 3:**
   - mismatch limit 3, giving SEARCH_INVALID;
   - a soft memory breach, giving a clean stop;
-  - `max_cells`, the tick cap and the wall cap.
+  - `max_cells`, the tick cap and the wall cap;
+  - **no early stop at M1** (D-Q7): the night runs to its caps, so the remaining hours give the M2 to M4 data. M1 is verified at the
+    close (D-Q8).
 
 ### 7.3 After the close
 
@@ -655,6 +657,10 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
    clear, as the claim threshold. Rationale: earlier archives carry the history's order concentration, so seeding from them would
    hand D the incumbent orders instead of letting it discover its own.
 7. **Pilot:** 5 workers, 480 minutes, a new rng seed, M1 as the only gate. Confirm, or set another length.
+   **Decided 2026-11-12 (owner): (a), as designed.** A smoke first (3 workers, 25 minutes, `--rng-seed 1`), then one pilot night
+   (5 workers, 480 minutes, the 80 M tick cap, `--rng-seed 11`, the frontier paused), M1 the only gate, **no early stop at M1**.
+   `max_cells` is set from the smoke's memory projection; if that would end the night before 6 hours, the night is not launched and the
+   owner decides. Whether to run a second night is decided at the review, from the pilot's data.
 8. **Verified arrival:** both replays show the break at the recorded tick with equal chain digests (recommended). Or stricter: also the
    full end record at the arrival.
    **Decided 2026-11-12 (owner): (a).** Two fresh-process replays from tick 0 with the verify flags; both show the level-L break at the
