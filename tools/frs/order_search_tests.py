@@ -355,7 +355,7 @@ def run_fake(sel: osel.OrderSelector, a: FArchive, game: Game, rng: Any, N: int)
             v, cell = a.keep((x, y, res, m, fl), t, w)
             if v in (NEW, REPLACED):
                 kept.append((v, cell, rs.child_niche(info["niche"], m, t, breaks)))
-        row = {"outcome": "clear" if claim else "end", "claimed": claim, "advanced": bool(breaks), "levels": {}}
+        row = {"outcome": "clear" if claim else "end", "claimed": claim, "advanced": bool(breaks), "levels": {}, "breaks_after_start": breaks}
         out = sel.on_ingest(info, row, kept, [], n)
         seq.append((n, int(c.cid), draw["stream"], int(draw["level"]), draw.get("rank"),
                     tuple((v, int(cell.cid), int(cell.tick)) for v, cell, _ in kept), tuple(out["milestones"]), bool(out["retired"])))
@@ -401,7 +401,23 @@ def unit_u3_root_and_niches() -> Dict[str, Any]:
         n_ = s.niches[c.cid]
         check(sel.group[c.cid] == (c.level, c.key[3], rs.niche_label(n_)) and osel.mask_of_order(n_) == c.key[3] and level_of(c.key[3]) == len(n_[1]),
               f"cell {c.cid}: group key = (L, mask, order), and the order determines the mask")
-    return {"groups": sorted(rs.glabel(g) for g in sel.gall)}
+    # gap G5: same-tick breaks are counted per level reached (report-only)
+    br = [[50, 3], [60, 4], [60, 7], [70, 1], [70, 2], [70, 9]]
+    check(osel.same_tick_steps(2, br) == [(5, 2), (8, 3)] and osel.same_tick_steps(2, [[50, 3], [60, 4]]) == [],
+          "same-tick steps: (level reached, targets on the tick)")
+    twins = []
+    for with_breaks in (True, False):
+        t = Static([((0, 1), 40)])
+        tsel = t.selector()
+        row = {"outcome": "end", "advanced": True, "levels": {}, "breaks_after_start": br if with_breaks else []}
+        take(tsel, send(tsel, t.a.cells[1], 0), [], 0, row)
+        twins.append(tsel)
+    check(twins[0].same_tick.summary() == {"8": {"ticks": 1, "targets": 3}, "5": {"ticks": 1, "targets": 2}} and twins[1].same_tick.summary() == {}
+          and twins[0].same_tick.snapshot() == twins[0].same_tick.summary() and twins[0].same_tick.snapshot() == {},
+          f"counted per level for the night and the period: {twins[0].same_tick.summary()}")
+    check(all(dict(getattr(twins[0], f)) == dict(getattr(twins[1], f)) for f in ("set_count", "order_count", "rcount", "stale", "bcount"))
+          and twins[0].retired == twins[1].retired, "the count enters no rule")
+    return {"groups": sorted(rs.glabel(g) for g in sel.gall), "same_tick": twins[0].same_tick.summary()}
 
 
 # -- U4: set, then order --------------------------------------------------------------------------------------------------------------------
@@ -522,7 +538,7 @@ def unit_u5_newcomers() -> Dict[str, Any]:
     take(sel, send(sel, s.root, n), [k_deep], n)
     n += 1
     W4 = (4, k_deep[1].key[3])
-    check(sel.set_count[W4] == 0 and sel.order_count[sel.group[k_deep[1].cid]] == 0, "a newcomer with no sibling in the rotation starts at 0")
+    check(sel.set_count[W4] == 0 and sel.order_count[sel.group[k_deep[1].cid]] == 0, "a newcomer where there never was a sibling starts at 0")
     check(not sel.within_one_violations(), f"within 1 after the newcomers: {sel.within_one_violations()}")
     # C, the only cell of U's only order, retires after R = 3 dispatches: U leaves the rotation and keeps its count
     gU = sel.group[C.cid]
@@ -558,7 +574,39 @@ def unit_u5_newcomers() -> Dict[str, Any]:
     m_now = min(sel.order_count[g] for g in sel.rot_by_set[T])
     take(sel, send(sel, s.root, n), [k_a], n)
     check(sel.in_rotation(gA) and sel.order_count[gA] == max(own, m_now) == own, f"resumes at its own count {own} above the minimum {m_now}")
-    return {"set_counts": {osel.slabel(k): int(v) for k, v in sorted(sel.set_count.items())}, "dstat": dict(sel.dstat)}
+    # gap G1: a level that empties and refills. S is level 3's only set; it retires; a newcomer N joins with no sibling in the rotation
+    g1 = Static([((0, 1, 2), 120)])
+    Sc = g1.a.cells[1]
+    gsel = g1.selector(breadth_share=0.0, retire_after=2)
+    S = (3, Sc.key[3])
+    m = 0
+    while gsel.set_count[S] < 30:
+        draw_once(gsel, rng, m)
+        m += 1
+    for _ in range(2):
+        take(gsel, send(gsel, Sc, m), [], m)
+        m += 1
+    g1root = g1.niches[g1.root.cid]
+    kN = kept_child(g1.a, g1root, [[30, 6], [50, 7], [70, 8]], 80, x=100)
+    take(gsel, send(gsel, g1.root, m), [kN], m)
+    m += 1
+    N = (3, kN[1].key[3])
+    check(S not in gsel.rot_by_level[3] and gsel.set_count[N] == gsel.set_count[S] == 30,
+          f"G1: with no sibling in the rotation, the newcomer starts at the highest count any sibling ever had ({gsel.set_count[N]})")
+    kS = kept_child(g1.a, g1root, [[30, 0], [50, 1], [70, 2]], 85, x=101)
+    take(gsel, send(gsel, g1.root, m), [kS], m)
+    m += 1
+    check(S in gsel.rot_by_level[3] and gsel.set_count[S] == 30 and not gsel.within_one_violations(), "G1: S returns at 30; within 1 holds")
+    picked: Counter = Counter()
+    while sum(picked.values()) < 20:
+        c, d, _i = draw_once(gsel, rng, m)
+        m += 1
+        if d["level"] == 3:
+            picked[osel.set_of(gsel.group[c.cid])] += 1
+            check(not gsel.within_one_violations(), f"G1: within 1 at every draw: {gsel.within_one_violations()}")
+    check(picked[S] == picked[N] == 10, f"G1: no catch-up burst, the two sets alternate: {dict(picked)}")
+    return {"set_counts": {osel.slabel(k): int(v) for k, v in sorted(sel.set_count.items())}, "dstat": dict(sel.dstat),
+            "g1_refill": {osel.slabel(k): int(v) for k, v in sorted(gsel.set_count.items())}}
 
 
 # -- U6: level weights --------------------------------------------------------------------------------------------------------------------
@@ -648,6 +696,49 @@ def unit_u7_retirement() -> Dict[str, Any]:
     return {"dispatches": cnt[0], "dstat": dict(sel.dstat)}
 
 
+def unit_u7_stale_clear_fallback() -> Dict[str, Any]:
+    # gap G3: a dispatch ingested after its cell got a faster representative counts for neither, even when it kept a deeper cell
+    s = Static([((0, 1), 100)])
+    X = s.a.cells[1]
+    sel = s.selector()
+    rootn = s.niches[s.root.cid]
+    stale_info = send(sel, X, 0)
+    v, c = s.a.keep(X.key, 80, _words("fasterX", 80))
+    take(sel, send(sel, s.root, 1), [(v, c, rs.child_niche(rootn, X.key[3], 80, [[30, 0], [60, 1]]))], 1)
+    deep = kept_child(s.a, (1023, (0, 1)), [[110, 5]], 120, x=50)
+    out = take(sel, stale_info, [deep], 2)
+    check(v == REPLACED and out["stale"] and sel.rcount[X.cid] == 0 and X.cid not in sel.deeper and sel.dstat["stale_dispatches"] == 1
+          and deep[1].cid in sel.group, "G3: counted for neither representative; what it kept is still kept")
+    for i in range(299):
+        take(sel, send(sel, X, 3 + i), [], 3 + i)
+    check(X.cid not in sel.retired and take(sel, send(sel, X, 400), [], 400)["retired"], "G3: so the new representative retires at its own 300")
+    # gap G4: a clear at or before 600 counts as keeping a deeper cell
+    clear = lambda t: {"outcome": "clear", "claimed": {"completion_input_tick": t, "words_digest": "w"}, "advanced": True, "levels": {}}
+    results = {}
+    for cit in (600, 601):
+        t = Static([(tuple(range(9)), 500)])
+        N9 = t.a.cells[1]
+        tsel = t.selector()
+        take(tsel, send(tsel, N9, 0), [], 0, clear(cit))
+        for i in range(298):
+            take(tsel, send(tsel, N9, 1 + i), [], 1 + i)
+        last = take(tsel, send(tsel, N9, 299), [], 299)
+        results[cit] = (N9.cid in tsel.deeper, last["retired"])
+    check(results[600] == (True, False) and results[601] == (False, True),
+          f"G4: a level-9 cell whose dispatch cleared at 600 never retires; at 601 it retires at 300: {results}")
+    # gap G2: with every eligible cell retired, an exploitation draw falls back to a breadth draw, recorded
+    f = Static([((0, 1), 100)], root=False)
+    C = f.a.cells[0]
+    fsel = f.selector(retire_after=1, breadth_share=0.0)
+    take(fsel, send(fsel, C, 0), [], 0)
+    c2, d2 = fsel.select(random.Random(1))
+    check(C.cid in fsel.retired and not fsel.rotation_levels() and c2.cid == C.cid and d2["stream"] == "breadth" and d2.get("fallback_breadth")
+          and fsel.dstat["fallback_breadth"] == 1, f"G2: breadth fallback {d2}")
+    fsel.on_dispatch(c2, d2, 1)
+    check(fsel.set_count[osel.set_of(fsel.group[C.cid])] == 0, "G2: the fallback is a breadth draw and changes no budget count")
+    return {"g4": {str(k): list(v) for k, v in results.items()}, "fallback": d2}
+
+
 # -- U8: milestones -----------------------------------------------------------------------------------------------------------------------
 
 
@@ -698,8 +789,8 @@ def unit_u12_relabelling() -> Dict[str, Any]:
     runs = []
     for pm in (None, perm):
         s = Static()
-        sel = s.selector(retire_after=4)              # small R: retirements, leaves and returns happen in 3,000 dispatches
-        runs.append((s, sel, run_fake(sel, s.a, Game(pm), random.Random(20261112), 3000)))
+        sel = s.selector(retire_after=2)              # small R and a sparser game: retirements, leaves and returns happen
+        runs.append((s, sel, run_fake(sel, s.a, Game(pm, p_break=0.2), random.Random(20261112), 3000)))
     (s0, a, q0), (_s1, b, q1) = runs
     check(len(q0) == 3000 and q0 == q1, "the same dispatch sequence (cell, stream, level, rank, kept cells, milestones, retirements) with the labels permuted")
     check({(lv, Game.pm(m, perm)): v for (lv, m), v in a.set_count.items()} == dict(b.set_count), "the same set counts, relabelled")
@@ -708,6 +799,7 @@ def unit_u12_relabelling() -> Dict[str, Any]:
     check(a.milestones.records() == b.milestones.records() and a.retired == b.retired and a.pace.rejected.summary() == b.pace.rejected.summary(),
           "the same milestones, retirements and rejected reaches")
     check(dict(a.stale) == dict(b.stale) and dict(a.bcount) == dict(b.bcount), "the same staleness and breadth counts")
+    check(not a.same_tick.summary() and not b.same_tick.summary(), "U12 assumes no same-tick breaks (gap G5): the fake game breaks one target per tick")
     streams = Counter(x[2] for x in q0)
     per_level = a.level_readout()
     many = max(v["sets"] for v in per_level.values())
@@ -719,7 +811,7 @@ def unit_u12_relabelling() -> Dict[str, Any]:
 
 UNIT = {f.__name__: f for f in (unit_u1_pace_line, unit_u2_rejected_readout, unit_u2_group_move, unit_u3_root_and_niches, unit_u4_set_then_order,
                                 unit_u4_ties, unit_u4_cell_draw_is_run3s, unit_u5_newcomers, unit_u6_level_weights, unit_u7_retirement,
-                                unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_tm1_run3_digest)}
+                                unit_u7_stale_clear_fallback, unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_tm1_run3_digest)}
 
 if __name__ == "__main__":
     args = sys.argv[1:]

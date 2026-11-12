@@ -16,16 +16,22 @@
                     the four deepest levels with an active cell (gap D); the set of that level with the lowest budget count; the order
                     of that set with the lowest budget count (ties: the earliest active cell's tick, then its cell id, gap A); then
                     run 3's cell draw unchanged (anchors, rank draw, staleness: tools/frs/run3_select.Run3Selector, subclassed, not
-                    edited) over the order's active cells. No trigger stream (D-Q5).
+                    edited) over the order's active cells. No trigger stream (D-Q5). An exploitation draw with no active cell falls
+                    back to a breadth draw, recorded (gap G2).
     budget counts   exploitation draws only, counted when the dispatch is selected (D-Q3). A unit (set or order) is in the rotation
                     while it has an active cell. A unit entering it starts at max(its count, the minimum over its siblings in the
-                    rotation), 0 when there is none; the siblings are read before the ingest that brings it in. A unit leaving keeps
-                    its count (gap F).
-    retirement      (D-Q4, gaps B and C) a cell retires after R = 300 of its dispatches (any stream, counted at ingest) none of which
-                    kept a cell at a deeper level; a cell one of whose dispatches kept one never retires (a retired cell whose breadth
-                    dispatch keeps one is active again); a faster representative restarts the count and the status.
+                    rotation) (gap F); with no sibling in the rotation, at max(its count, the highest count any sibling ever had), 0
+                    when there never was one (gap G1). The siblings are read before the ingest that brings it in. A unit leaving keeps
+                    its count. The counts in the rotation stay within 1 at all times.
+    retirement      (D-Q4, gaps B, C, G3, G4) a cell retires after R = 300 of its dispatches (any stream, counted at ingest) none of
+                    which kept a cell at a deeper level, a clear at or before line(10) counting as one; a cell one of whose dispatches
+                    kept one never retires (a retired cell whose breadth dispatch keeps one is active again); a faster representative
+                    restarts the count and the status; a dispatch ingested after its cell's representative was replaced counts for
+                    neither.
     milestones      (section 8, gap E) M1 ... M4: the first kept arrival with at least L = 6 ... 9 targets broken at a tick <= line(L);
                     the clear line: the first clear whose completion input tick is <= line(10) (section 4.2). Each recorded once.
+    same-tick       (gap G5, report-only) per level reached, the burst ticks with two or more breaks: run 3's label tie orders
+                    those targets in the order niche, so the pilot counts how often it decided an order.
 
 Standard library and run 3's selection module only. No coordinate, target id, route, order or tick from a record is in any rule.
 """
@@ -55,10 +61,6 @@ GKey = Tuple[int, int, str]                          # an order: run 3's group (
 
 class OrderParamsError(ValueError):
     """A parameter is refused (U1, U10)."""
-
-
-class OrderGapError(RuntimeError):
-    """A case the decided design does not define yet: refused here, never decided in code (the owner settles it)."""
 
 
 def _is_int(x: Any) -> bool:
@@ -240,6 +242,51 @@ class Milestones:
         return [dict(self.met[k]) for k in order if k in self.met]
 
 
+# -- same-tick breaks (gap G5, report-only) -------------------------------------------------------------------------------------------
+
+
+def same_tick_steps(start_level: int, breaks_after_start: Sequence[Sequence[int]]) -> List[Tuple[int, int]]:
+    """The burst ticks on which two or more targets broke, as (the level the lineage reached on that tick, targets broken on it)."""
+    by_tick: Counter = Counter(int(t) for t, _i in breaks_after_start)
+    out: List[Tuple[int, int]] = []
+    lv = int(start_level)
+    for t in sorted(by_tick):
+        lv += by_tick[t]
+        if by_tick[t] >= 2:
+            out.append((lv, by_tick[t]))
+    return out
+
+
+class SameTickBreaks:
+    """Section 7.2 (gap G5): per level reached, the burst ticks with two or more breaks and the targets broken on them, for the current
+    period and the whole night. Report-only: no rule reads it."""
+
+    def __init__(self) -> None:
+        self.night: Dict[int, Dict[str, int]] = {}
+        self.period: Dict[int, Dict[str, int]] = {}
+
+    def note(self, start_level: int, breaks_after_start: Sequence[Sequence[int]]) -> List[Tuple[int, int]]:
+        steps = same_tick_steps(start_level, breaks_after_start)
+        for lv, k in steps:
+            for d in (self.night, self.period):
+                r = d.setdefault(lv, {"ticks": 0, "targets": 0})
+                r["ticks"] += 1
+                r["targets"] += k
+        return steps
+
+    @staticmethod
+    def _rec(d: Mapping[int, Mapping[str, int]]) -> Dict[str, Dict[str, int]]:
+        return {str(lv): dict(d[lv]) for lv in sorted(d, reverse=True)}
+
+    def snapshot(self) -> Dict[str, Dict[str, int]]:
+        out = self._rec(self.period)
+        self.period = {}
+        return out
+
+    def summary(self) -> Dict[str, Dict[str, int]]:
+        return self._rec(self.night)
+
+
 # -- the selector (section 3) -----------------------------------------------------------------------------------------------------------
 
 
@@ -296,9 +343,10 @@ class OrderSelector(rs.Run3Selector):
         self.order_count: Counter = Counter()              # exploitation draws per order
         self.rot_by_set: Dict[SKey, Set[GKey]] = {}        # the orders in the rotation, per set
         self.rot_by_level: Dict[int, Set[SKey]] = {}       # the sets in the rotation, per level
-        self.ever_orders: Set[GKey] = set()
-        self.ever_sets: Set[SKey] = set()
+        self.ever_by_set: Dict[SKey, Set[GKey]] = {}       # every order that was ever in the rotation, per set (gap G1)
+        self.ever_by_level: Dict[int, Set[SKey]] = {}      # every set that was ever in the rotation, per level (gap G1)
         self.milestones = Milestones(self.pace)
+        self.same_tick = SameTickBreaks()
         self.dstat: Counter = Counter()
         super().__init__(archive, run3_view(p), niches=niches, history={}, cid_dispatches={}, best_claim=best_claim)
         self._rotate(set(self.gall))
@@ -349,10 +397,18 @@ class OrderSelector(rs.Run3Selector):
     def rotation_levels(self) -> Dict[int, List[SKey]]:
         return {lv: sorted(ss) for lv, ss in sorted(self.rot_by_level.items()) if ss}
 
+    @staticmethod
+    def _join_count(unit: Any, counts: Counter, in_rot: Iterable[Any], ever: Iterable[Any]) -> int:
+        """Gap F and G1: max(the unit's count, the siblings' minimum); with no sibling in the rotation, max(its count, the highest count
+        any sibling ever had), 0 when there never was one. Counts never fall, so 'ever had' is the siblings' current counts."""
+        sib = [counts[x] for x in in_rot]
+        ref = min(sib) if sib else max((counts[x] for x in ever if x != unit), default=0)
+        return max(counts[unit], ref)
+
     def _rotate(self, touched: Iterable[GKey]) -> Dict[str, int]:
-        """Re-evaluate the orders touched by an ingest, then their sets. A unit entering starts at max(its count, the siblings'
-        minimum); the siblings are the units in the rotation before this update (units entering together do not count each other,
-        units leaving in it still count); 0 when there is none (gap F). A unit leaving keeps its count."""
+        """Re-evaluate the orders touched by an ingest, then their sets. A unit entering starts at _join_count; the siblings are read
+        before this update (units entering together do not count each other, units leaving in it still count). A unit leaving keeps
+        its count. The counts of the units in the rotation then stay within 1 at all times (section 3.1)."""
         rec: Counter = Counter()
         o_join: List[GKey] = []
         o_leave: List[GKey] = []
@@ -362,14 +418,15 @@ class OrderSelector(rs.Run3Selector):
                 o_join.append(g)
             elif was and not now:
                 o_leave.append(g)
-        start = {g: max(self.order_count[g], min((self.order_count[x] for x in self.rot_by_set.get(set_of(g), ())), default=0)) for g in o_join}
+        start = {g: self._join_count(g, self.order_count, self.rot_by_set.get(set_of(g), ()), self.ever_by_set.get(set_of(g), ())) for g in o_join}
         for g in o_leave:
             self.rot_by_set[set_of(g)].discard(g)
         for g in o_join:
-            rec["order_returns" if g in self.ever_orders else "order_joins"] += 1
+            ever = self.ever_by_set.setdefault(set_of(g), set())
+            rec["order_returns" if g in ever else "order_joins"] += 1
             self.order_count[g] = start[g]
             self.rot_by_set.setdefault(set_of(g), set()).add(g)
-            self.ever_orders.add(g)
+            ever.add(g)
         rec["order_leaves"] += len(o_leave)
         s_join: List[SKey] = []
         s_leave: List[SKey] = []
@@ -379,14 +436,15 @@ class OrderSelector(rs.Run3Selector):
                 s_join.append(s)
             elif was and not now:
                 s_leave.append(s)
-        sstart = {s: max(self.set_count[s], min((self.set_count[x] for x in self.rot_by_level.get(s[0], ())), default=0)) for s in s_join}
+        sstart = {s: self._join_count(s, self.set_count, self.rot_by_level.get(s[0], ()), self.ever_by_level.get(s[0], ())) for s in s_join}
         for s in s_leave:
             self.rot_by_level[s[0]].discard(s)
         for s in s_join:
-            rec["set_returns" if s in self.ever_sets else "set_joins"] += 1
+            ever_s = self.ever_by_level.setdefault(s[0], set())
+            rec["set_returns" if s in ever_s else "set_joins"] += 1
             self.set_count[s] = sstart[s]
             self.rot_by_level.setdefault(s[0], set()).add(s)
-            self.ever_sets.add(s)
+            ever_s.add(s)
         rec["set_leaves"] += len(s_leave)
         self.dstat.update(rec)
         return {k: int(v) for k, v in sorted(rec.items()) if v}
@@ -402,11 +460,12 @@ class OrderSelector(rs.Run3Selector):
         if u < self.dp.breadth_share:
             return self._breadth_d(rng)                # None only with no eligible cell at all (then no active cell either)
         lv_sets = self.rotation_levels()
-        if not lv_sets:
-            if self.breadth_pool():
-                raise OrderGapError(f"gap G2: an exploitation draw found no active cell while {len(self.breadth_pool())} retired cells are "
-                                    "eligible for breadth; the design does not say whether to fall back to breadth or to stop")
-            return None
+        if not lv_sets:                                # gap G2: no active cell; retired cells may remain for breadth
+            pick = self._breadth_d(rng)
+            if pick is not None:
+                pick[1]["fallback_breadth"] = True
+                self.dstat["fallback_breadth"] += 1
+            return pick
         return self._exploit_d(rng, lv_sets)
 
     def _exploit_d(self, rng: Any, lv_sets: Mapping[int, List[SKey]]) -> Tuple[Any, Dict[str, Any]]:
@@ -494,10 +553,7 @@ class OrderSelector(rs.Run3Selector):
         """One ingested burst: `info` the engine's in-flight record (on_dispatch's fields plus cid and level), `row` its dispatch row,
         `kept` the (verdict, cell, niche) of every cell the pace rule kept (NEW or REPLACED) in keep order, `events` its anomaly events."""
         cid0, lv0 = int(info["cid"]), int(info["level"])
-        c0 = self.a.cells[cid0]
-        if c0.digest != info["digest"]:
-            raise OrderGapError(f"gap G3: dispatch {n} was selected from cell {cid0}'s earlier representative, replaced before this ingest; "
-                                "the design does not say whether it counts toward the new representative's retirement")
+        stale = self.a.cells[cid0].digest != info["digest"]   # gap G3: selected from a representative replaced before this ingest
         touched: Set[GKey] = set()
         for v, c, _niche in kept:
             if v not in (rs.NEW, rs.REPLACED):
@@ -514,9 +570,15 @@ class OrderSelector(rs.Run3Selector):
         out = dict(super().on_ingest(info, row, kept, events, n))
         for _v, c, _niche in kept:
             touched.add(self.group[int(c.cid)])
-        deeper = any(int(c.level) > lv0 for _v, c, _niche in kept)
+        claim = (row.get("claimed") or {}) if row.get("outcome") == "clear" else {}
+        cit = claim.get("completion_input_tick")
+        clear_in_line = cit is not None and int(cit) <= self.pace.line(TARGETS_TOTAL)
+        deeper = any(int(c.level) > lv0 for _v, c, _niche in kept) or clear_in_line     # gap G4: a clear inside the line counts
+        self.same_tick.note(lv0, row.get("breaks_after_start") or [])                    # gap G5: report-only
         retired_now = again = False
-        if cid0 in self.group:                             # D-Q4: the dispatched cell's count and status
+        if stale:                                          # gap G3: it counts for neither representative
+            self.dstat["stale_dispatches"] += 1
+        elif cid0 in self.group:                           # D-Q4: the dispatched cell's count and status
             self.rcount[cid0] = self.rcount.get(cid0, 0) + 1
             if deeper:
                 self.deeper.add(cid0)
@@ -539,7 +601,8 @@ class OrderSelector(rs.Run3Selector):
             claim = row.get("claimed") or {}
             if claim.get("completion_input_tick") is not None and self.milestones.observe_clear(int(claim["completion_input_tick"]), n, cid0, claim):
                 met.append(CLEAR_LINE)
-        out.update({"kept_deeper": deeper, "retired": retired_now, "active_again": again, "milestones": met, "rotation": self._rotate(touched)})
+        out.update({"kept_deeper": deeper, "stale": stale, "retired": retired_now, "active_again": again, "milestones": met,
+                    "rotation": self._rotate(touched)})
         return out
 
     def on_quarantine(self, c: Any) -> None:
