@@ -571,7 +571,8 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
   - a fake game with fast and slow orders;
   - behind-pace reaches are never kept;
   - every set with an eligible cell is drawn, and counts stay equal within 1 at every level in the level draw;
-  - the slow orders leave the rotation when their cells fall behind.
+  - the slow orders leave the rotation when their cells fall behind;
+  - every dispatch row's stream is an exploitation stream (rank or anchor) or breadth: no trigger stream (D-Q5).
 - **E4 milestone:**
   - a fake level-6 arrival at 408 triggers M1;
   - its verified-arrival replay runs twice;
@@ -642,6 +643,12 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
    retires at exactly 300". R does not touch the gate, so it can be revisited after the pilot from the hourly per-level readout.
 5. **Breadth and triggers:** (a) breadth 0.2 as run 3, anomaly detectors on and recorded, trigger draws off (recommended, "detect without
    steering"); (b) triggers on as run 3; (c) breadth off.
+   **Decided 2026-11-12 (owner): (a).** Breadth 0.2, count-based as run 3, over in-pace cells including retired ones; the anomaly
+   detectors on and recorded; no trigger draws in D's selector (E3 asserts it). 0.2 is a generic default (run 3 validated it on the
+   incumbent route's archive, DECISIVE 4), so it can be revisited after the pilot; it does not touch the gate. Checked on night 3: every
+   burst with a detector event is logged in `anomaly_bursts.jsonl` with its full inputs from tick 0, its parent cell and draw id,
+   whatever the archive keeps (21,314 rows = the summary's 21,314 bursts with events; every row's length = start tick + burst). D reuses
+   `run3_anomaly` unchanged, so an anomaly in a lineage the line rejects stays replayable; no addition needed.
 6. **Roots:** (a) the tick-0 root only (recommended); (b) also the records' level 1 to 5 states inside the line (agent-made, but they
    carry the history's order concentration).
    **Decided 2026-11-12 (owner): (a), the tick-0 root only.** D reads nothing from earlier archives except the frontier's best verified
