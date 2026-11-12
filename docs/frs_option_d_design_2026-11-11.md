@@ -1,7 +1,7 @@
 # Option D, order discovery from tick 0: detailed design (2026-11-11)
 
-**Status: all 9 open questions settled by the owner on 2026-11-12 (section 12), and the six gaps A to F that the build found (section
-3.5); the design is decided. Zero native ticks so far.**
+**Status: all 9 open questions settled by the owner on 2026-11-12 (section 12), and the eleven gaps A to F and G1 to G5 that the build
+found (section 3.5); the design is decided. Zero native ticks so far.**
 Written during night 3 of run 3
 (`C:/BattleShip_lab/crossing_2026-11-11_run3c`, launched 22:21 local) in a separate git worktree
 (`C:/Users/kill_/Bureau/gitRepo/Smash_pc_port/BattleShip_optionD`, branch `design/option-d` from `cbc64a4`). No file of the main tree
@@ -114,6 +114,9 @@ CONT explorer (the `m8_rd_explore_v1` keyed stream, 120-word segments).
   as run 3 does). This is run 3's **order niche** with the tick-0 root as the only seed: `seed_niche(1023) = (1023, ())`, and a child's
   niche is its parent representative's niche plus the targets its burst broke at or before the child's tick
   (`run3_select.child_niche`, unchanged). With one root, the niche is exactly the full order, and the order determines the set.
+  The tie by target label is a label rule, the one place where relabelling the targets can change which order a lineage joins. It is
+  kept for the pilot (gap G5, owner 2026-11-12): U12 assumes no two breaks on one tick, and the pilot counts same-tick breaks per level
+  (section 7.2, report-only), so the rule can be revisited with data.
 - **Group:** run 3's (level, mask, niche label). Under D a group is one order.
 - **Cell:** run 3's cell, keyed by `(bx, by, res, mask, floor)` (`rl/m8_rd_cells.cell_key`).
   - The key holds the mask, so cells never mix sets.
@@ -130,7 +133,8 @@ Below, a cell is **active** when it is eligible (inside the line, section 4) and
 cells; breadth draws any eligible cell, retired or not.
 
 1. **Stream.** Breadth with probability 0.2 (run 3's count-based draw over every eligible cell: weight 1 / (1 + dispatches of the cell)),
-   otherwise exploitation. Triggers are off (Q5).
+   otherwise exploitation. Triggers are off (Q5). An exploitation draw that finds no active cell while retired cells are still
+   eligible falls back to a breadth draw, recorded as a fallback (gap G2; the mirror of run 3's breadth-to-exploitation fallback).
 2. **Level** (exploitation): weights 0.4 / 0.3 / 0.2 / 0.1 over the four deepest levels that have an active cell, deepest first. With
    fewer than four such levels, the weights are renormalised over those present. The weights go **by rank among the levels present**
    (gap D, owner 2026-11-12): the deepest such level gets 0.4 and the next level present 0.3, whatever the gap between them. Run 3's
@@ -160,9 +164,17 @@ last eligible cell leaves the rotation and keeps its count. If it comes back, it
 Precisely (gap F, owner 2026-11-12):
 - a unit is **in the rotation** while it has an active cell;
 - its **siblings** are the other units in the rotation: for a set, the sets of the same level; for an order, the orders of the same set;
-- the siblings' minimum is the lowest count among them, or 0 when there is none;
+- the siblings' minimum is the lowest count among them;
+- when there is none (gap G1), the joiner starts at `max(its count, the highest count any sibling ever had)`, 0 when there never was a
+  sibling; the first wording ("0 when there is none") let a returner come back far above a newcomer that had refilled an emptied
+  level, which gave the newcomer a catch-up burst (31 draws in a row on the fake game);
+- the siblings are read before the ingest that brings the unit in: units entering together do not count each other, and units leaving
+  in it still count;
 - a unit that left because all its cells retired returns like one that lost its eligible cells, at `max(its count, the siblings'
   minimum)`.
+
+With these rules the counts of the units in the rotation stay within 1 at all times: a draw adds 1 to a unit at the minimum, a joiner
+starts at or above the minimum, and a unit that left was at most 1 above a minimum that has not fallen since.
 
 ### 3.2 Why this unit
 
@@ -205,6 +217,13 @@ wording, "no break and no kept cell at a deeper level", would have let one late 
   the dispatches since the representative was set.
 - **A retired cell can come back** (gap C, owner 2026-11-12). It still gets breadth dispatches. If one of them keeps a deeper cell, the
   cell is active again and, like any cell one of whose dispatches kept a deeper cell, never retires.
+- **A dispatch from a replaced representative counts for neither** (gap G3, owner 2026-11-12). With several dispatches in flight, a
+  dispatch can be selected from a cell whose representative a faster arrival replaces before the dispatch is ingested. It counts toward
+  neither representative's 300, and what it kept protects neither: the old trajectory is gone, and the new one starts at its
+  replacement. Run 3 skips the anchor update in the same case.
+- **A clear inside the line counts as a deeper cell** (gap G4, owner 2026-11-12). The archive keeps no level-10 cell (a clear is the
+  DEEP verdict), so a dispatch whose clear has a completion input tick ≤ line(10) = 600 counts as keeping a deeper cell. Without it, a
+  level-9 cell whose dispatches clear inside the line would still retire.
 - The zero-break demotion is not used in D: `demote_min_dispatches` is unreachable at these sizes (section 12, D-Q4).
 
 ### 3.4 Reused from run 3, and what is new
@@ -225,8 +244,8 @@ wording, "no break and no kept cell at a deeper level", would have let one late 
 
 ### 3.5 Gaps settled during the build (owner, 2026-11-12)
 
-Phase 1 found six places where the decided text was ambiguous or contradicted itself. The owner accepted the recommended answer to
-each. Every one is written into the rule it belongs to, and the tests (section 9) check it.
+Phase 1 found eleven places where the decided text was ambiguous or contradicted itself (A to F, then G1 to G5). The owner accepted the
+recommended answer to each. Every one is written into the rule it belongs to, and the tests (section 9) check it.
 
 | gap | question | answer | where |
 | --- | --- | --- | --- |
@@ -235,7 +254,12 @@ each. Every one is written into the rule it belongs to, and the tests (section 9
 | C | Does a retired cell whose breadth dispatch keeps a deeper cell return to exploitation? | yes, and it never retires | 3.3 |
 | D | Level weights when a level in between has no active cell | by rank among the levels present | 3.1 |
 | E | A same-tick double break skips a level (5 to 7): how is a milestone met? | M_L is met by the first kept arrival with at least L targets broken at a tick ≤ line(L) | 7.3, 8 |
-| F | Newcomer start | the minimum over the siblings in the rotation, 0 if none; a unit whose cells all retired returns like one that lost its eligible cells | 3.1 |
+| F | Newcomer start | the minimum over the siblings in the rotation; a unit whose cells all retired returns like one that lost its eligible cells | 3.1 |
+| G1 | With no sibling in the rotation, F's "0" let a returner come back far above a newcomer (within 1 broken, a catch-up burst) | the joiner starts at max(its count, the highest count any sibling ever had); counts in the rotation then stay within 1 at all times | 3.1 |
+| G2 | An exploitation draw finds no active cell while retired cells remain eligible | fall back to a breadth draw, recorded as a fallback | 3.1 |
+| G3 | A dispatch ingested after its cell got a faster representative | it counts for neither representative | 3.3 |
+| G4 | A clear is not a kept cell, so it did not protect a level-9 cell from retirement | a clear at or before line(10) = 600 counts as keeping a deeper cell | 3.3 |
+| G5 | Two breaks on one tick are ordered by target label (run 3's rule), against U12 | kept for the pilot; U12 assumes no same-tick breaks; the pilot counts same-tick breaks per level, report-only, to decide with data | 2, 7.2 |
 
 ## 4. The pace rule: 48·L + 120
 
@@ -462,6 +486,10 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
     After a null night they tell whether the line pruned too hard (for example, level 6 earliest rejected at 415, +7) or was not what
     stopped D (+182).
 
+  - **same-tick breaks** (gap G5, owner 2026-11-12): the number of burst ticks on which two or more targets broke, counted at the level
+    the lineage reached on that tick, with the number of targets broken; also for the night in `summary.json`. Report-only: they show how
+    often the label tie of section 2 decided an order.
+
   Also:
   - milestones with their time, dispatch, cell and lineage digest;
   - memory and the dispatch rate;
@@ -558,7 +586,8 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
   - a child's niche is the full order;
   - a two-target burst is ordered by (break tick, target label);
   - group key = (L, mask, order);
-  - with one root, the order determines the mask.
+  - with one root, the order determines the mask;
+  - same-tick breaks are counted per level reached, with the number of targets, and the count enters no rule (gap G5).
 - **U4 set then order:**
   - least budget count at each stage;
   - ties by the earliest active cell's tick, then that cell's id, never by mask or label (gap A);
@@ -567,10 +596,12 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
     order's count within its set differ by at most 1; a level outside the level draw is not checked;
   - a set with one order and a set with ten orders get equal set counts.
 - **U5 newcomers:**
-  - a set or order created mid-run joins at its siblings' minimum, the siblings being the units in the rotation, and at 0 when there is
-    none (gap F);
+  - a set or order created mid-run joins at its siblings' minimum, the siblings being the units in the rotation (gap F);
+  - with no sibling in the rotation, it starts at the highest count any sibling ever had, and at 0 when there never was one (gap G1);
   - a unit that loses its last eligible cell leaves and keeps its count, and returning resumes at max(count, minimum);
-  - a unit whose cells all retired returns the same way (gap F).
+  - a unit whose cells all retired returns the same way (gap F);
+  - a level that empties and refills: a newcomer starts at the returner's level of count, counts stay within 1, and there is no
+    catch-up burst (gap G1).
 - **U6 level weights:**
   - 0.4 / 0.3 / 0.2 / 0.1 over the four deepest levels with an active cell;
   - renormalised when there are fewer;
@@ -584,7 +615,10 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
   - a retired cell stays in the archive and in breadth;
   - a unit with only retired cells leaves the rotation;
   - a faster representative restarts the count and the status, and a retired cell becomes active again (gap B);
-  - a retired cell whose breadth dispatch keeps a deeper cell is active again and never retires (gap C).
+  - a retired cell whose breadth dispatch keeps a deeper cell is active again and never retires (gap C);
+  - a dispatch ingested after its cell got a faster representative counts for neither, even when it kept a deeper cell (gap G3);
+  - a level-9 cell whose dispatches clear at or before 600 never retires; a clear at 601 does not protect it (gap G4);
+  - with every eligible cell retired, an exploitation draw falls back to a breadth draw, recorded as a fallback (gap G2).
 - **U8 milestones:**
   - M1 at a level-6 arrival of 408, not at 409;
   - M2 to M4 and the clear line likewise;
@@ -604,6 +638,8 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
 - **U12 relabelling invariance:**
   - on a fake archive and a fake burst oracle whose target labels are permuted by a fixed permutation, the selection sequence is the same
     with the labels permuted;
+  - the fake game breaks at most one target per tick: U12 assumes no same-tick breaks, the one case where run 3's label tie decides an
+    order (gap G5);
   - counts, ranks and milestones are equal;
   - this is the test that no rule prefers a target.
 - **U13 no human input:** the plan's source list holds only D's own folder and the frontier's best record. No file under the scripted
