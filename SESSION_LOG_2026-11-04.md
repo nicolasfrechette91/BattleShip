@@ -1559,3 +1559,51 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
   night survives the session ending. Its console goes to `logs/order_2026-11-13_pilot/console.log` (ignored by Git).
 - **Gate M1:** a verified level-6 arrival at or before tick 408 (D-Q8: two replays from tick 0 at the close). No early stop at M1 (D-Q7).
   The close report fills section 7.4's decision table.
+
+### 20.5 The pilot night: stopped after 13 minutes on a false memory reading (2026-11-13 09:16 to 09:29 local)
+
+- **Launch:** `plan` then `run` as in 20.4 (tree `c89e433`), `run` started through WMI (`logs/order_2026-11-13_pilot/launch.cmd`).
+  Readiness: free commit the only problem, 8,290 MB before `plan`, 8,284 MB before `run`; the override was applied at the open at
+  8,112 MB.
+- **Open (7.3 s):** 5 workers; the two tick-0 reads equal (root digest `2817d8cf...`, chain `a93277e7...`, as the smoke).
+- **Stop: SEARCH_INCOMPLETE, exit 4,** at 786.8 s (search 779.4 s, close 2.8 s): "registered memory cap: process tree working set
+  5698 MB > 4096 MB". Console last line `run exit=4`; no BattleShip process left; no lab lock.
+- **Diagnosis (zero ticks): a false reading, not memory use.**
+  - The breaching sample counted 186 processes in the run's tree, against 11 to 16 in every other sample, while system available memory
+    (9,230 -> 9,261 MB) and free commit (6,717 -> 6,811 MB) did not move.
+  - `rl/frs_machine.py` `tree_snapshot` builds the tree from parent PIDs (Toolhelp snapshot) with no creation-time check. In this boot
+    (2026-11-12 06:48), csrss (608) and wininit (1096) have the dead parent PID 912. When any process of the run (a game, standby or
+    worker) is given PID 912, the walk adopts csrss and wininit and everything under them (services, all svchosts, WmiPrvSE, ...).
+  - The sampler itself, run now with root 912, counts 192 processes, 5,514 MB private and 7,391 MB working set: the same size as the
+    breach (186 processes, 4,967 MB private, 5,698 MB working set). The other dead parents here (7456 for explorer, 1088 for the second
+    csrss and winlogon) adopt 17 and 5.
+  - Game PIDs are not recorded, so PID 912 itself cannot be shown from the folder; the count and the unmoved system memory are the
+    evidence.
+  - The same signature hit three fake-game tests in this boot, which I misread at the time as fake-game process churn: E6 (185
+    processes, 5,056 MB), E1 (SEARCH_INCOMPLETE, unread) and run 3's `e2e_same_seed_runs` (5,467 MB). Night 3 ran in the previous
+    boot. Run 3's frontier nights carry the same latent defect (same sampler).
+- **Section 7.1 criteria, all pass for the 13 minutes:** 0 prefix mismatches, 0 tick-0 inequalities, root equal; lab digest
+  `81b88be6` and D digest `08aaab17` equal at the open and the close (run 3 `73cbde95`, 54 files, after the run); no game process
+  left; no cell without an end record (0 fused); within 1: selector violations none; from the dispatch rows, 1,149 exploitation draws,
+  sets 0 violations; 108 order rows flagged, all from two orders out of the rotation (`2|495|1023:9-4` last drawn at 331 with count 9,
+  back at 667 at its sibling's count 31; `3|494|1023:4-0-9` last drawn at 432 with count 45, then gone: 2 order leaves, 1 return).
+- **Measured:** 1,446 dispatches (5 aborted at the stop) in 779.4 s = 6,656 per hour at 5 workers; 418,485 ticks (1.93 M per hour);
+  2,411 new cells (3.87 MB per 1,000), 2,686 at the close; breadth 0.2019; 0 falls; 0 claims.
+- **Levels (one record, at the close; no hourly record was reached):** earliest 1@25, 2@57, 3@75, **4@200** (line 312, lead 112; first
+  level-4 arrival 270 at 533 s, then 246, then 200 at dispatch 1,373). Level 5 never kept: **3 rejected reaches, earliest 417, +57
+  over line 360**. Rejected in all: 9,280 (level 0 345, 1 1,029, 2 2,334, 3 3,679, 4 1,890, 5 3; levels 0 to 4 earliest +1).
+- **At the close:** level 4: 111 cells, 2 sets in 5 orders (`4|462` 4 orders, earliest 200; `4|846` 1 order, earliest 309); level 3:
+  664 cells, 3 sets in 11 orders; level 2: 903, 4 sets in 7 orders; level 1: 753, 3 sets in 3 orders; level 0: 255 cells.
+- **Retirements 0** at every level (no cell near 300 dispatches); level 4 never retired. **Same-tick breaks 0.** No flag raised.
+- **Memory (real):** lowest free commit **4,741 MB** at 693 s, the one sample with all 10 game processes up (tree private 3,494 MB);
+  otherwise 5,855 to 6,811 MB. Lowest available 8,556 MB. The smoke-based estimate of a 5,400 MB low point for 8 hours was too
+  optimistic: the smoke never sampled all its games up at once. From this night: about 4,740 - 340 (main growth, 43 MB per hour) =
+  4,400 MB at 8 hours, above the 3,072 MB soft floor; the close's verification replays are still unmeasured.
+- **Anomalies (recorded, never steering):** 129 events in 90 bursts, 0 non-finite: pass-through 85, position snap 42, corner pass near
+  a vertex 1, break occluded 1.
+- **Section 7.3:** status SEARCH_INCOMPLETE; M1 to M4 none reached (deepest level 4), so no milestone replays ran and nothing is
+  verified; no claims, no exports, no text replays. Backup (owner's go, zero ticks): `D:/BattleShip_lab_backup/2026-11-13_order_pilot`
+  (the folder plus `logs/order_2026-11-13_pilot`): 20 files, 8,222,676 bytes, 10 empty folders listed; Python 20/20 equal, sources
+  unchanged; Get-FileHash 20 equal, 0 differ, 0 missing, 0 extra.
+- **Section 7.4 outcome: night incomplete** (a memory stop before 6 hours): not a test of M1. Next per the table: fix the cause, then
+  rerun the pilot (owner's go). Fix options are waiting for the owner; nothing changed or launched.
