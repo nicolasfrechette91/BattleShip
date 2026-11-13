@@ -1477,3 +1477,85 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
   2026-11-09 backup (`run3b_smoke`, `run3c_smoke`, `run3c_smoke2`) are now on D:.
 - **Option D's design committed** on `design/option-d` (worktree `BattleShip_optionD`): `ccd107b`, the design doc only. Pushed (owner) as
   its own branch to `origin` (`nicolasfrechette91/BattleShip`), so its run 3 history up to `cbc64a4` is on the fork too; no PR, no merge.
+
+## 20. Option D: order discovery from tick 0 (built 2026-11-12/13; smoke run 2026-11-13; pilot night planned)
+
+### 20.1 Built and merged
+
+- **Design:** `docs/frs_option_d_design_2026-11-11.md`, owner-decided question by question (D-Q1 to D-Q9 in its section 12, gaps A to F in
+  section 3.5, G1 to G5 in the build). The D-Q8 refinement (owner, 2026-11-12): SEARCH_INVALID on a milestone mismatch means "not a test
+  of M1" and also a non-clean status, so any later use of the folder needs the owner's explicit acceptance; verified clears stay claimed.
+- **Code:** new files only, built on branch `build/option-d` (worktree `BattleShip_optionD`): `tools/frs/order_select.py`,
+  `tools/frs/order_search.py`, `tools/frs/order_search_tests.py`. No run 3 file edited.
+- **Merged into `run3/integration`** in this tree (owner's choice (a), so the smoke could use the decomp and fixture sources): `cec0c3d`
+  (D's files and the design doc, nothing else in `git diff --cached --name-status`), then `967ce00` (the readiness override and the D-Q8
+  refinement). Both pushed to `origin`.
+- **Digests:** run 3 `73cbde95` (54 files) unchanged; D's manifest `08aaab17` (56 files: run 3's 54 plus D's 2, LF-normalised).
+- **Tests (zero native ticks):** D's unit suite 18/18; fake-game end to end 9/9 (E1 to E6, U11, U13, T-M2); real-lab read 1/1 (night 3's
+  best read as 907 / 906). E1 stopped once SEARCH_INCOMPLETE on the fake game's process-tree memory spike; six later runs passed. Run 3's
+  four suites (2026-11-12, in this tree): 32/33, 13/13, 2/2, 10/10; the one failure was run 3's own `e2e_same_seed_runs`, stopped by the
+  same fake-game spike, and it passed when rerun alone (33 / 13 / 2 / 10). After the override commit: unit 18/18 and T-M2 1/1 in both
+  trees. (The phase 2 report said 19 unit tests: a miscount, there are 18.) `git diff --check cec0c3d^1 HEAD` clean.
+
+### 20.2 The readiness override (owner, 2026-11-13)
+
+- Readiness was red on free commit only, against the registered 10,240 MB: 2,146 MB with avidemux, EmuHawk, Steam and the NVIDIA
+  overlay open; 7,501 MB after closing them; 7,964 MB after the Claude app restart. The commit limit is 17,318 MB (16 GB RAM plus a 1 GB
+  page file). The owner declined a PC restart.
+- **Built (`380f11e`, D only):** `order_search.py --min-commit-free-mb N --override-reason "..."`. Both or neither; 1 <= N < the
+  registered value; `plan` and `run` must carry the same pair (the run refuses otherwise). It admits a red readiness only when free commit
+  is its only problem and is at least N; any other problem still refuses. Recorded in `plan.json`, `config.json`, `summary.json`,
+  `report.md`, `progress.md` and the run log, with the reason. The default is unchanged; `rl/frs_machine.py` and run 3's files are
+  untouched. An override is for one folder: never reused.
+
+### 20.3 The smoke run: `order_2026-11-13_smoke` (2026-11-12 23:45 to 2026-11-13 00:05 local; owner's go)
+
+- **Command (tree `967ce00`):** `python -B tools/frs/order_search.py plan` then `run --lab-root C:/BattleShip_lab --frontier
+  C:/BattleShip_lab/crossing_2026-11-11_run3c --out C:/BattleShip_lab/order_2026-11-13_smoke --rng-seed 1 --workers 3 --max-ticks 80000000
+  --max-wall-min 25 --summary-every-s 600 --min-commit-free-mb 7000 --override-reason "owner declined PC restart; 3-worker smoke"`.
+- **Readiness:** free commit the only problem, 8,152 MB before `run`; the override was applied at the open at 8,119 MB.
+- **Open (7.4 s):** the two tick-0 reads equal (root digest `2817d8cf...`); pace lines 120 + 48 L (120 to 600); claim threshold 907.
+- **Stop:** WALL_CAP, exit 0; search 1,192.6 s, close 3 s. 1,604 dispatches, 525,369 ticks (prefix 321,369, burst 204,000), 0 falls,
+  0 claims.
+- **Section 7.1 criteria, all pass:** 0 prefix mismatches, 0 tick-0 inequalities, root equal; lab digest `81b88be6` and D digest
+  `08aaab17` equal at the open and the close (run 3 `73cbde95` after the run); no game process left; every end record fused (no cell
+  without one; 0 fused, 0 mismatches); set and order counts within 1 at every level in the level draw (selector violations none at both
+  records; from the dispatch rows, sets 0 violations; the order rows flagged at level 4 all come from one order, 4-5-0-9, that left the
+  rotation at count 114 and rejoined at its siblings' count).
+- **Measured:** 4,842 dispatches per hour (3 workers); 1.32 new cells per dispatch (1.88 in the first 10 minutes, 0.77 in the second);
+  main memory 4.88 MB per 1,000 cells; the workers' tree flat at about 1.0 to 1.3 GB (peak 1,351 MB private, 13 processes).
+- **Levels:** earliest arrivals 1@26, 2@47, 3@122, **4@207** (line 312, lead 105, dispatch 420, minute 6). Nothing deeper in pace after
+  that: **level 5 only beyond the line**, 17 reaches, earliest **392 against line 360** (+32). At the close level 4 was one target set
+  in 5 orders (182 cells); level 3 had 4 sets in 10 orders.
+- **Rejected reaches (by the line):** 11,590: level 0 175, level 1 930, level 2 2,260, level 3 3,484, level 4 4,724, level 5 17; the
+  earliest rejected at levels 0 to 4 was +1 over the line.
+- **Same-tick breaks 0; retirements 0** (no cell reached 300 dispatches); stale dispatches 9.
+- **Memory:** free commit 8,132 MB at the start, lowest 6,753 MB (3 workers and 3 standbys up at once), median 7,071 MB. Cost per
+  worker (worker process, game and standby) about 350 MB steady, 460 MB at peak. Soft memory floor of the run: 3,072 MB free commit
+  (hard 2,048).
+- **Breadth flag:** the close record's 0.1706 tripped the 0.18 to 0.22 band. Breadth is a per-dispatch coin at 0.2, so that is sampling
+  noise over 803 dispatches; the whole smoke drew 0.183.
+- **Display defect (queued, owner 2026-11-13: not fixed before the pilot, it changes D's digest):** `hourly.md` prints "breadth share 0"
+  because the formatter rounds the float; `hourly.jsonl` holds the value (0.1948, 0.1706).
+- **Owner's review (2026-11-13): pass.**
+
+### 20.4 The pilot night: `order_2026-11-13_pilot` (planned; owner's go 2026-11-13)
+
+- **Parameters:** frontier `crossing_2026-11-11_run3c` (claim threshold 907, frontier paused: no frontier night tonight); `--rng-seed 11`;
+  5 workers; `--max-wall-min 480`; `--max-ticks 80000000`; `--max-cells 400000`; `--summary-every-s 3600` (design 7.2's hourly record);
+  selection at the decided defaults (goal 480, slack 120, level weights 0.4 / 0.3 / 0.2 / 0.1, breadth 0.2, retire after 300).
+- **`max_cells` from the smoke projection:** 80 % of the 2,560 MB soft budget is about 414,000 cells at 4.88 MB per 1,000, so 400,000.
+  Eight hours at 5 workers projects about 50,000 to 85,000 cells (main at most about 450 MB), so the wall cap ends the night, not
+  `max_cells`, and it does not end before 6 hours.
+- **Readiness:** an owner override for this folder only, `--min-commit-free-mb 7000 --override-reason "owner declined PC restart; 16 GB
+  machine"`, used only if free commit is the only problem and is at least 7,000 MB, checked before `plan` and again before `run`.
+- **Expected memory:** from 8,100 MB free commit, 5 workers at 460 MB each and 420 MB of main growth give a low point near 5,400 MB,
+  above the run's 3,072 MB soft floor. Not exercised by the smoke: the close's verification replays (there were no claims or milestones).
+- **Commands (from this tree):** `python -B tools/frs/order_search.py plan` then `run`, each with `--lab-root C:/BattleShip_lab --frontier
+  C:/BattleShip_lab/crossing_2026-11-11_run3c --out C:/BattleShip_lab/order_2026-11-13_pilot --rng-seed 11 --workers 5 --max-ticks 80000000
+  --max-wall-min 480 --summary-every-s 3600 --max-cells 400000 --min-commit-free-mb 7000 --override-reason "owner declined PC restart;
+  16 GB machine"`.
+- **Launch:** `run` is started outside the Claude app's process tree and job objects (a Windows WMI process create, no window), so the
+  night survives the session ending. Its console goes to `logs/order_2026-11-13_pilot/console.log` (ignored by Git).
+- **Gate M1:** a verified level-6 arrival at or before tick 408 (D-Q8: two replays from tick 0 at the close). No early stop at M1 (D-Q7).
+  The close report fills section 7.4's decision table.
