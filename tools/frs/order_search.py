@@ -28,6 +28,10 @@
                     SEARCH_INVALID at the close.
     archive id      frs_order_v1|seed<rng seed>: no run 3 archive id, so no frontier burst is repeated (section 5.3); the same seed gives
                     the same night (E1).
+    readiness       the registered readiness rule (rl/frs_machine.readiness) at the open, unchanged by default. An explicit owner
+                    override (--min-commit-free-mb with --override-reason, given to both plan and run) lowers only the free-commit
+                    minimum, for that folder only; any other readiness problem still refuses. It is recorded in plan.json, config.json,
+                    summary.json and report.md.
 
     python -B tools/frs/order_search.py plan --lab-root C:/BattleShip_lab --frontier DIR --rng-seed 11 [--out DIR] ...
     python -B tools/frs/order_search.py run  --lab-root C:/BattleShip_lab --frontier DIR --rng-seed 11 --out DIR --workers 5 --max-wall-min 480
@@ -175,7 +179,35 @@ def engine_params(dp: osel.OrderParams, **kw: Any) -> C.Params3:
     return p
 
 
-def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderParams, ep: C.Params3, *, code: Optional[str] = None) -> Dict[str, Any]:
+def readiness_override_record(min_commit_free_mb: Optional[int], reason: str) -> Optional[Dict[str, Any]]:
+    """The owner's explicit free-commit override (--min-commit-free-mb with --override-reason), or None: the registered rule, unchanged."""
+    reason = str(reason or "").strip()
+    if min_commit_free_mb is None and not reason:
+        return None
+    if min_commit_free_mb is None or not reason:
+        raise SearchError("refused: --min-commit-free-mb and --override-reason go together (an owner override names its reason)")
+    reg = int(fm.READINESS["min_commit_free_mb"])
+    if not 0 < int(min_commit_free_mb) < reg:
+        raise SearchError(f"refused: --min-commit-free-mb is between 1 and the registered {reg} MB")
+    return {"min_commit_free_mb": int(min_commit_free_mb), "reason": reason, "registered_min_commit_free_mb": reg,
+            "scope": "owner override for this folder only; only the free-commit minimum is lowered; any other readiness problem refuses"}
+
+
+def readiness_verdict(ready: Mapping[str, Any], override: Optional[Mapping[str, Any]]) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    """(admitted, the override's use or None). Without an override, the registered rule. With one, a refusal is admitted only when every
+    problem is the free-commit minimum and free commit is at least the override's value."""
+    if ready.get("ok"):
+        return True, (None if override is None else dict(override, applied=False))
+    if override is None:
+        return False, None
+    probs = [str(p) for p in ready.get("problems") or []]
+    free = (ready.get("memory") or {}).get("commit_free_mb")
+    ok = bool(probs) and all(p.startswith("free commit ") for p in probs) and free is not None and float(free) >= float(override["min_commit_free_mb"])
+    return ok, dict(override, applied=ok, registered_problems=probs, commit_free_mb=free)
+
+
+def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderParams, ep: C.Params3, *, code: Optional[str] = None,
+               readiness_override: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
     """The plan (section 7.1 step 2): the root, the pace table, the parameters, the frontier reference read. Zero ticks."""
     dp.check()
     ep.check()
@@ -192,10 +224,12 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
             "gate": {"milestone": "M1", "level": 6, "line": pace.line(6)},
             "params": dp.as_record(), "params_fingerprint": osel.params_fingerprint(dp), "selection_contract": osel.SELECT_CONTRACT,
             "engine_params": ep.as_dict(), "arm": ep.arm(), "frontier": fb, "claim_threshold": fb["completion_input_tick"],
-            "sources": [fb["summary"]], "code": {"contract": MANIFEST_CONTRACT, "entries": list(ENTRY_MODULES), "digest": digest}}
+            "sources": [fb["summary"]], "code": {"contract": MANIFEST_CONTRACT, "entries": list(ENTRY_MODULES), "digest": digest},
+            "readiness_override": None if readiness_override is None else dict(readiness_override)}
 
 
-def plan_and_write(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderParams, ep: C.Params3, *, code: Optional[str] = None) -> Dict[str, Any]:
+def plan_and_write(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderParams, ep: C.Params3, *, code: Optional[str] = None,
+                   readiness_override: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
     out = Path(out)
     if not out.name.startswith(FOLDER_PREFIX):
         raise SearchError(f"refused: D's folder name starts with {FOLDER_PREFIX!r} ({out.name})")
@@ -206,7 +240,7 @@ def plan_and_write(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.Order
             raise SearchError(f"refused: {out} holds another tool's plan ({old.get('contract')}); D plans only into its own folder")
     if (out / "run").exists():
         raise SearchError(f"refused: {out / 'run'} exists (a run folder is never re-planned)")
-    plan = build_plan(lab_root, frontier_dir, out, dp, ep, code=code)
+    plan = build_plan(lab_root, frontier_dir, out, dp, ep, code=code, readiness_override=readiness_override)
     fs = g.LabFS(Path(lab_root))
     fs.mkdir(out)
     fs.write_json(pp, plan)
@@ -246,6 +280,9 @@ def root_differences(reads: Sequence[Mapping[str, Any]]) -> List[str]:
 
 class OrderEngine(C.Run3Engine):
     """Run 3's engine with D's open (the tick-0 root), keep (the pace rule), selection, milestones, records and code manifest."""
+
+    readiness_override: Optional[Dict[str, Any]] = None     # the plan's owner override (cmd_run sets it); None = the registered rule
+    readiness_use: Optional[Dict[str, Any]] = None          # how the open used it (recorded in config.json and the summary)
 
     def __init__(self, cfg: cs.SearchConfig, env: Any, P: Mapping[str, Any], params: C.Params3, *, order_params: osel.OrderParams,
                  text_replay: Optional[rx.TextReplayFn] = None):
@@ -306,8 +343,10 @@ class OrderEngine(C.Run3Engine):
         if self.dir.exists():
             raise Refused(f"{self.dir} exists (a run folder is never overwritten)")
         ready = env.readiness()
-        if not ready["ok"]:
-            raise Refused(f"readiness: {ready['problems']}")
+        admitted, self.readiness_use = readiness_verdict(ready, self.readiness_override)
+        if not admitted:
+            raise Refused(f"readiness: {ready['problems']}" + ("" if self.readiness_override is None else
+                                                               f" (the owner override, free commit >= {self.readiness_override['min_commit_free_mb']} MB, does not admit it)"))
         pids = env.battleship_pids()
         if pids is None or pids:
             raise Refused(f"BattleShip processes already running (or unreadable): {pids}")
@@ -354,6 +393,10 @@ class OrderEngine(C.Run3Engine):
         self.emit_cell(cs.NEW, c, None)
         self.selector = osel.OrderSelector(self.archive, self.dp, niches={c.cid: rs.seed_niche(osel.ROOT_MASK)}, best_claim=None)
         self.root["cid"] = c.cid
+        if self.readiness_use and self.readiness_use.get("applied"):
+            self.event(f"READINESS OVERRIDE (owner): free commit {self.readiness_use['commit_free_mb']:.0f} MB admitted at >= "
+                       f"{self.readiness_use['min_commit_free_mb']} MB (registered {self.readiness_use['registered_min_commit_free_mb']} MB); "
+                       f"reason: {self.readiness_use['reason']}")
         self.phase_wall["open"] = round(env.now() - self.t0, 1)
         self.log(f"open done in {self.phase_wall['open']:.0f} s; {cfg.n_workers} workers ready; root cell {c.cid} (key {list(c.key)}); pace lines "
                  f"{self.order_plan['pace']['lines']}; claim threshold {self.order_plan['claim_threshold']}; params {self.dp.as_record()}; arm {cs.ARM_NAME} {self.arm}")
@@ -604,6 +647,7 @@ class OrderEngine(C.Run3Engine):
                 "max_wall_s": c.max_wall_s, "job_timeout_s": c.job_timeout_s, "mismatch_limit": c.mismatch_limit, "lifecycle_limit": c.lifecycle_limit,
                 "verify_parallel_close": c.verify_parallel, "max_battleship_processes": fm.MAX_BATTLESHIP, "memory_caps_mb": dict(self.env.caps or fm.CAPS_MB),
                 "memory_soft_budget_mb": dict(self.env.soft or fm.soft_budget(self.env.caps or fm.CAPS_MB)), "readiness": ready,
+                "readiness_override": self.readiness_use,
                 "flags_explore": fv.FLAGS_EXPLORE, "flags_verify": fv.FLAGS_VERIFY, "backend": self.env.backend, "import": str(Path(c.lab_root) / "import"),
                 "root": p["root"], "pace": p["pace"], "milestones": p["milestones"], "gate": p["gate"], "frontier": p["frontier"], "claim_threshold": p["claim_threshold"],
                 "sources": p["sources"], "rng_seed": int(self.p.rng_seed),
@@ -631,7 +675,7 @@ class OrderEngine(C.Run3Engine):
                 ms.append(dict({k: x for k, x in row.items() if k != "words_hex"}, verdict=v.get("verdict"), reasons=v.get("reasons")))
         m1 = ver.get("M1") or {}
         s["order"] = {"plan": {k: self.order_plan.get(k) for k in ("archive_id", "key_family", "pace", "milestones", "gate", "params_fingerprint", "claim_threshold")},
-                      "frontier": self.order_plan.get("frontier"), "root": self.root,
+                      "frontier": self.order_plan.get("frontier"), "root": self.root, "readiness_override": self.readiness_use,
                       "gate_m1": {"met": "M1" in self.ms_rows, "verified": m1.get("verdict") == M_VERIFIED, "tick": (self.ms_rows.get("M1") or {}).get("tick")},
                       "milestones": ms, "milestone_verifications": list(self.ms_verifications),
                       "best": best, "best_start": self.best_start, "best_history": list(self.best_history), "claims_frozen": self.claims_frozen,
@@ -736,6 +780,11 @@ def _summary_lines(s: Mapping[str, Any]) -> List[str]:
              f"(frontier {_f((o.get('best_start') or {}).get('completion_input_tick'))})"]
     for m in o.get("milestones") or []:
         lines.append(f"- {m['milestone']}: tick {m.get('tick')} (line {m['line']}), dispatch {m['n']}, cell {m['cid']}: {m.get('verdict')} {m.get('reasons') or ''}")
+    ov = o.get("readiness_override")
+    if ov:
+        lines.append(f"- readiness: owner override (free commit >= {ov['min_commit_free_mb']} MB instead of the registered {ov['registered_min_commit_free_mb']} MB), "
+                     f"applied {ov.get('applied')}, free commit at the open {_f(ov.get('commit_free_mb'))} MB, problems {ov.get('registered_problems') or []}; "
+                     f"reason: {ov['reason']}")
     return lines
 
 
@@ -773,13 +822,16 @@ def engine_params_from_args(a: argparse.Namespace, dp: osel.OrderParams) -> C.Pa
 def run_command(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> str:
     return (f"python -B tools/frs/order_search.py run --lab-root {Path(lab).as_posix()} --frontier {Path(frontier).as_posix()} --out {Path(out).as_posix()} "
             f"--rng-seed {a.rng_seed} --workers {a.workers} --max-ticks {a.max_ticks} --max-wall-min {a.max_wall_min:g} --summary-every-s {a.summary_every_s:g}"
-            + (f" --max-cells {a.max_cells}" if a.max_cells != C.Params3.max_cells else "") + (f" --max-dispatches {a.max_dispatches}" if a.max_dispatches else ""))
+            + (f" --max-cells {a.max_cells}" if a.max_cells != C.Params3.max_cells else "") + (f" --max-dispatches {a.max_dispatches}" if a.max_dispatches else "")
+            + (f" --min-commit-free-mb {a.min_commit_free_mb} --override-reason \"{a.override_reason}\"" if a.min_commit_free_mb is not None else ""))
 
 
 def cmd_plan(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int:
     dp = order_params_from_args(a)
     ep = engine_params_from_args(a, dp)
-    P = plan_and_write(lab, frontier, out, dp, ep)
+    P = plan_and_write(lab, frontier, out, dp, ep, readiness_override=readiness_override_record(a.min_commit_free_mb, a.override_reason))
+    if P["readiness_override"]:
+        print("readiness override (owner):", json.dumps(P["readiness_override"]))
     print("root:", json.dumps(P["root"]))
     print("pace lines:", json.dumps(P["pace"]["lines"]), "gate:", json.dumps(P["gate"]))
     print("params:", json.dumps(P["params"]), "fingerprint", P["params_fingerprint"][:16])
@@ -808,7 +860,7 @@ def cmd_run(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int:
         return 2
     dp = order_params_from_args(a)
     ep = engine_params_from_args(a, dp)
-    bad = run_flag_problems(plan, dp, ep, frontier)
+    bad = run_flag_problems(plan, dp, ep, frontier, readiness_override_record(a.min_commit_free_mb, a.override_reason))
     if bad:
         print(f"refused: {bad}")
         return 2
@@ -820,13 +872,17 @@ def cmd_run(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int:
     text = rx.make_text_replay(imp / "exe" / "BattleShip.exe", run_dir / "text_replays", frozen)
     eng = OrderNight(cfg, fl.real_env(Path(lab), run_dir), engine_plan(plan, ep), ep, order_params=dp, text_replay=text,
                      anomaly_build={"exe_sha256": frozen["exe_copy_sha256"].get("BattleShip.exe"), "platform": sys.platform})
+    eng.readiness_override = plan.get("readiness_override")
     code = eng.run()
     print(f"exit {code}: {run_dir / 'report.md'} (progress: {run_dir / 'progress.md'}, hourly: {run_dir / 'hourly.md'})")
     return code
 
 
-def run_flag_problems(plan: Mapping[str, Any], dp: osel.OrderParams, ep: C.Params3, frontier: Path) -> Optional[str]:
-    """`run` takes exactly the plan's parameters and frontier (U10, as run 3): a flag that differs is refused, plan again."""
+def run_flag_problems(plan: Mapping[str, Any], dp: osel.OrderParams, ep: C.Params3, frontier: Path,
+                      readiness_override: Optional[Mapping[str, Any]] = None) -> Optional[str]:
+    """`run` takes exactly the plan's parameters, frontier and readiness override (U10, as run 3): a flag that differs is refused, plan again."""
+    if plan.get("readiness_override") != (None if readiness_override is None else dict(readiness_override)):
+        return f"the readiness override differs from the saved plan's ({plan.get('readiness_override')}): plan again with the same flags"
     if plan.get("params") != dp.as_record():
         return f"the selection parameters differ from the saved plan's ({plan.get('params')}): plan again with the same flags"
     if plan.get("engine_params") != ep.as_dict():
@@ -858,6 +914,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--max-dispatches", type=int, default=C.Params3.max_dispatches)
     ap.add_argument("--max-ticks", type=int, default=cs.SearchConfig.max_ticks)
     ap.add_argument("--max-wall-min", type=float, default=480.0)
+    ap.add_argument("--min-commit-free-mb", type=int, default=None,
+                    help="owner override: the free-commit minimum at the open for this folder only (default: the registered rule); needs --override-reason")
+    ap.add_argument("--override-reason", default="", help="the owner's reason for --min-commit-free-mb (recorded in the plan, config and summary)")
     a = ap.parse_args(argv)
     try:
         lab = g.validate_lab_root(Path(a.lab_root))
@@ -877,6 +936,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("refused: --max-ticks and --max-wall-min are positive")
     try:
         engine_params_from_args(a, order_params_from_args(a))
+        readiness_override_record(a.min_commit_free_mb, a.override_reason)
     except (SearchError, osel.OrderParamsError) as exc:
         raise SystemExit(str(exc))
     if not (lab / "import" / "import_manifest.json").is_file():
