@@ -1607,3 +1607,48 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
   unchanged; Get-FileHash 20 equal, 0 differ, 0 missing, 0 extra.
 - **Section 7.4 outcome: night incomplete** (a memory stop before 6 hours): not a test of M1. Next per the table: fix the cause, then
   rerun the pilot (owner's go). Fix options are waiting for the owner; nothing changed or launched.
+
+### 20.6 Fix A: D's own process-tree sampler (owner's choice, 2026-11-13)
+
+- **The defect (20.5):** run 3's sampler (`rl/frs_machine.py` `tree_snapshot`) finds descendants by parent PID alone. An orphan keeps
+  its dead parent's PID and Windows reuses PIDs, so a run process given that PID adopts the orphans and everything under them. In the
+  boot of 2026-11-12, csrss and wininit have the dead parent 912 (about 180 system processes, about 5 GB).
+- **Signature:** one sample jumps from about 14 processes to about 186 with free commit and available memory unchanged.
+- **It also explains the 2026-11-12 fake-game failures** read then as fake-process churn: E6 (185 processes, 5,056 MB), the E1
+  SEARCH_INCOMPLETE flake, and run 3's `e2e_same_seed_runs` (5,467 MB).
+- **Fix B (run 3's sampler) is required before the next frontier night;** handoff open item 3.
+- **Built (D only, `8698fd6` on `build/option-d`):** `order_search.guarded_tree` (a child counts only if its creation time is known and at
+  or after its parent's), `d_tree_snapshot` (run 3's record and memory sums over that walk) and `sampler_snapshot` (run 3's real
+  snapshot replaced at the open; a test's injected snapshot kept). Test U14 on a fake process table with a reused PID. Design section
+  6.6 and the U14 entry in section 9. No run 3 file changed.
+- **Read only, on this machine (zero ticks):**
+
+  | case | run 3's sampler | D's sampler |
+  | --- | --- | --- |
+  | ghost root 912 | 191 processes, 5,680 MB private, 7,525 MB working set | 1 process, 0 MB |
+  | a run process created now at PID 912 (live table) | 191 (wininit 1096, fontdrvhost, lsass, ...) | 1 |
+  | a normal tree (explorer 7496) | 15 processes, 725.5 MB private, 1,206.3 MB working set | the same |
+
+- **Tests:** D's unit suite 19/19 (U14 added); fake-game E-group 9/9 (E1 to E6, U11, U13, T-M2); in the main tree after the merge
+  T-M1 (`73cbde95`, 54 files), U14, T-M2 and the frontier read (907 / 906) 4/4.
+- **Merged into `run3/integration`:** `2efc72a` (`merge --no-commit --no-ff` preview: the design doc, `order_search.py`,
+  `order_search_tests.py`, no conflict). Pushed. **D's manifest: `8fd3fee3`** (56 files); run 3 `73cbde95` unchanged.
+- **Smoke backup** (owner's go, zero ticks): `D:/BattleShip_lab_backup/2026-11-13_order_smoke` (the folder plus its console log): 19
+  files, 6,694,695 bytes, 6 empty folders listed; Python 19/19 equal, sources unchanged; Get-FileHash 19 equal, 0 differ, 0 missing,
+  0 extra.
+
+### 20.7 The pilot rerun: `order_2026-11-13_pilot2` (planned; owner's go 2026-11-13)
+
+- **Parameters as 20.4:** frontier `crossing_2026-11-11_run3c` (claim threshold 907; frontier paused), `--rng-seed 11`, 5 workers,
+  `--max-wall-min 480`, `--max-ticks 80000000`, `--max-cells 400000`, `--summary-every-s 3600`, selection at the decided defaults.
+  The only code change from the first pilot is fix A (D's digest `8fd3fee3` instead of `08aaab17`).
+- **Readiness:** the owner override for this folder, `--min-commit-free-mb 7000 --override-reason "owner declined PC restart; 16 GB
+  machine"`, used only if free commit is the only problem and is at least 7,000 MB, before `plan` and again before `run`.
+- **Expected memory (from 20.5):** lowest free commit about 4,740 MB with all 10 game processes up, about 4,400 MB at 8 hours; the
+  run's soft floor is 3,072 MB.
+- **Commands (this tree):** `python -B tools/frs/order_search.py plan` then `run`, each with `--lab-root C:/BattleShip_lab --frontier
+  C:/BattleShip_lab/crossing_2026-11-11_run3c --out C:/BattleShip_lab/order_2026-11-13_pilot2 --rng-seed 11 --workers 5 --max-ticks 80000000
+  --max-wall-min 480 --summary-every-s 3600 --max-cells 400000 --min-commit-free-mb 7000 --override-reason "owner declined PC restart;
+  16 GB machine"`; `run` through WMI (`logs/order_2026-11-13_pilot2/launch.cmd`, console `logs/order_2026-11-13_pilot2/console.log`).
+- **Checks:** the root and the first dispatches after the open; one look at about 30 minutes (past the first pilot's 13), with the
+  process count of the latest memory sample. Then no polling until the close.
