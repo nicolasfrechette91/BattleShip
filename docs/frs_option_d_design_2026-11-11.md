@@ -434,6 +434,23 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
 - The replay lab viewer (add D's folder to `sources.json`).
 - The backups: D's folders join the lab backup.
 
+### 6.6 The memory sampler: D's own process-tree snapshot (owner, 2026-11-13, fix A)
+
+- **The defect.** Run 3's sampler (`rl/frs_machine.py`, `tree_snapshot`) finds the run's processes by parent PID alone. An orphan keeps
+  the PID of its dead parent, and Windows reuses PIDs: when a process of the run is given that PID, the walk adopts the orphan and its
+  whole subtree. In the boot of 2026-11-12, csrss and wininit have the dead parent 912, so a run process holding PID 912 adds about
+  180 system processes and about 5 GB to the "tree".
+- **Signature:** one sample jumps from about 14 processes to about 186, its working set far over the registered 4,096 MB cap, while
+  the system's available memory and free commit do not move. It stopped the pilot `order_2026-11-13_pilot` after 13 minutes
+  (SEARCH_INCOMPLETE; session log 20.5).
+- **It also explains** the fake-game failures of 2026-11-12, read at the time as fake-process churn: E6 (185 processes, 5,056 MB), the
+  E1 SEARCH_INCOMPLETE flake, and run 3's `e2e_same_seed_runs` (5,467 MB).
+- **Fix A (D only):** `order_search.d_tree_snapshot`, given to run 3's `Sampler` at the open in place of run 3's real snapshot. A
+  process counts as a child only if it was created at or after its parent; a process whose creation time cannot be read is not counted.
+  Same record, same caps and soft budget. Test U14. No run 3 file changes (`73cbde95`).
+- **Fix B is required before the next frontier night:** run 3's own sampler has the same defect, so a frontier night can stop the same
+  way. It is an open item in the handoff.
+
 ## 7. Pilot night protocol (frontier paused)
 
 ### 7.1 Before the night
@@ -644,6 +661,10 @@ All zero native ticks unless marked native. D's tests live in `tools/frs/order_s
   - this is the test that no rule prefers a target.
 - **U13 no human input:** the plan's source list holds only D's own folder and the frontier's best record. No file under the scripted
   baseline's or the M1e fixtures' paths is opened (checked by an open-hook in the test).
+- **U14 process-tree sampler (fix A, section 6.6):** on a fake process table where a run process is given the dead parent's PID, the
+  bare parent-PID walk adopts the orphans and D's walk does not; a normal tree is counted the same by both; a child created at its
+  parent's instant counts, a child whose creation time cannot be read does not, and a PID cycle ends; run 3's real snapshot is replaced
+  at the open, while a test's injected snapshot is kept.
 
 **Manifest:**
 

@@ -32,6 +32,9 @@
                     override (--min-commit-free-mb with --override-reason, given to both plan and run) lowers only the free-commit
                     minimum, for that folder only; any other readiness problem still refuses. It is recorded in plan.json, config.json,
                     summary.json and report.md.
+    memory          run 3's sampler and caps (rl/frs_machine.Sampler), but D's own process-tree snapshot (d_tree_snapshot, owner
+                    2026-11-13): a process counts as a child only if it was created at or after its parent, so a run process that reuses
+                    a dead parent's PID does not adopt that parent's orphans (the pilot's false memory-cap stop, session log 20.5).
 
     python -B tools/frs/order_search.py plan --lab-root C:/BattleShip_lab --frontier DIR --rng-seed 11 [--out DIR] ...
     python -B tools/frs/order_search.py run  --lab-root C:/BattleShip_lab --frontier DIR --rng-seed 11 --out DIR --workers 5 --max-wall-min 480
@@ -49,7 +52,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 assert sys.flags.dont_write_bytecode, "run with python -B"
 
@@ -129,6 +132,124 @@ def changed_files(manifest: Mapping[str, str], repo: Path = REPO) -> List[str]:
         if not p.is_file() or lf_sha256(p) != h:
             out.append(rel)
     return out
+
+
+# -- D's process-tree snapshot (owner 2026-11-13, fix A) -------------------------------------------------------------------------------------
+# rl/frs_machine.tree_snapshot finds descendants by parent PID alone. An orphan keeps its dead parent's PID, and Windows reuses PIDs, so a
+# process of the run given that PID adopts the orphan and its whole subtree: in the boot of 2026-11-12, csrss and wininit (dead parent 912)
+# and every service under them, about 180 processes and 5 GB, which stopped the pilot on the registered working-set cap (session log 20.5).
+# D's snapshot keeps a child only if its creation time is known and not earlier than its parent's; the rest of the record is run 3's.
+
+
+def guarded_tree(root: int, parent_of: Mapping[int, int], created: Callable[[int], Optional[int]]) -> List[int]:
+    """The root and its descendants by parent PID, a child kept only if created(child) is known and >= created(parent). The root is always
+    in the list; when its own creation time is unknown nothing is adopted under it (a process that cannot be read is not counted)."""
+    children: Dict[int, List[int]] = {}
+    for pid, ppid in parent_of.items():
+        if pid != ppid:
+            children.setdefault(int(ppid), []).append(int(pid))
+    times: Dict[int, Optional[int]] = {}
+
+    def t(pid: int) -> Optional[int]:
+        if pid not in times:
+            times[pid] = created(pid)
+        return times[pid]
+
+    tree: List[int] = []
+    seen = set()
+    stack = [int(root)]
+    while stack:
+        p = stack.pop()
+        if p in seen:
+            continue
+        seen.add(p)
+        tree.append(p)
+        tp = t(p)
+        if tp is None:
+            continue
+        for c in children.get(p, []):
+            if c not in seen:
+                tc = t(c)
+                if tc is not None and tc >= tp:
+                    stack.append(c)
+    return tree
+
+
+def d_tree_snapshot(root_pid: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """rl/frs_machine.tree_snapshot's record (same keys, same memory sums, same system figures) over guarded_tree instead of the bare
+    parent-PID walk. None off Windows or on failure, as run 3's."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class PE(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                        ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                        ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                        ("szExeFile", ctypes.c_wchar * 260)]
+
+        k32 = fm._k32()
+        k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PE)]
+        k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PE)]
+        k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+        snap = k32.CreateToolhelp32Snapshot(0x2, 0)
+        if snap in (None, wintypes.HANDLE(-1).value, -1):
+            return None
+        parent_of: Dict[int, int] = {}
+        name_of: Dict[int, str] = {}
+        try:
+            pe = PE()
+            pe.dwSize = ctypes.sizeof(PE)
+            ok = k32.Process32FirstW(snap, ctypes.byref(pe))
+            while ok:
+                parent_of[int(pe.th32ProcessID)] = int(pe.th32ParentProcessID)
+                name_of[int(pe.th32ProcessID)] = str(pe.szExeFile)
+                ok = k32.Process32NextW(snap, ctypes.byref(pe))
+        finally:
+            k32.CloseHandle(snap)
+
+        def created(pid: int) -> Optional[int]:
+            h = k32.OpenProcess(0x1000, False, pid)
+            if not h:
+                return None
+            try:
+                ft = [wintypes.FILETIME() for _ in range(4)]
+                if not k32.GetProcessTimes(h, *[ctypes.byref(x) for x in ft]):
+                    return None
+                return (int(ft[0].dwHighDateTime) << 32) | int(ft[0].dwLowDateTime)
+            finally:
+                k32.CloseHandle(h)
+
+        root = int(root_pid if root_pid is not None else os.getpid())
+        tree = guarded_tree(root, parent_of, created)
+        priv = ws = main = 0.0
+        for pid in tree:
+            h = k32.OpenProcess(0x1000, False, pid)
+            if not h:
+                continue
+            try:
+                pmc = fm._PMC()
+                pmc.cb = ctypes.sizeof(fm._PMC)
+                if k32.K32GetProcessMemoryInfo(h, ctypes.byref(pmc), pmc.cb):
+                    priv += pmc.PrivateUsage / 2 ** 20
+                    ws += pmc.WorkingSetSize / 2 ** 20
+                    if pid == root:
+                        main = pmc.PrivateUsage / 2 ** 20
+            finally:
+                k32.CloseHandle(h)
+        mem = fm.memory_status() or {}
+        return {"main_private_mb": round(main, 1), "tree_private_mb": round(priv, 1), "tree_working_set_mb": round(ws, 1),
+                "processes": len(tree), "battleship": sum(1 for p in tree if name_of.get(p, "").lower() == "battleship.exe"),
+                "system_available_mb": round(mem.get("available_mb", 0.0), 1), "system_commit_free_mb": round(mem.get("commit_free_mb", 0.0), 1)}
+    except Exception:  # noqa: BLE001 - a measurement fault is reported as no sample, never raised into the run (as run 3's)
+        return None
+
+
+def sampler_snapshot(env_snapshot: Callable[[], Optional[Dict[str, Any]]]) -> Callable[[], Optional[Dict[str, Any]]]:
+    """D's snapshot in place of run 3's real one; any other (a test's injected snapshot) is kept."""
+    return d_tree_snapshot if env_snapshot is fm.tree_snapshot else env_snapshot
 
 
 # -- the frontier's best (read only, at the plan; D-Q6) ------------------------------------------------------------------------------------
@@ -366,7 +487,7 @@ class OrderEngine(C.Run3Engine):
         self.fs.mkdir(self.dir)
         self.fs.write_json(self.dir / "config.json", self.config_record(ready))
         self.sampler = fm.Sampler(lambda r: self.fs.append_jsonl(self.dir / "memory.jsonl", r), interval=env.sample_s, row_every=env.row_every_s,
-                                  caps=env.caps or fm.CAPS_MB, soft=env.soft, snapshot=env.snapshot, now=env.now,
+                                  caps=env.caps or fm.CAPS_MB, soft=env.soft, snapshot=sampler_snapshot(env.snapshot), now=env.now,
                                   extra=lambda: {"cells": len(self.archive.cells), "phase": self.phase, "dispatches": self.c["dispatches"], "jobs": self.c["jobs"],
                                                  "words_mb": round(self.archive.words_bytes / 2 ** 20, 1)}).start()
         self.phase = "root"
