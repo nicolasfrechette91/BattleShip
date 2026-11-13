@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -940,6 +941,7 @@ def order_child(a: Mapping[str, Any]) -> Dict[str, Any]:
     plan = O.plan_and_write(lab, frontier, out, dp, ep)
     world = a.get("world", "easy")
     flags = dict(E_FLAGS, FAKEGAME_WORLD=world)
+    os.environ["FAKEGAME_WORLD"] = world          # this child only: the text replay passes the environment (minus SSB64_*) to the fake game
     text = None
     if a.get("stub"):
         inject = dict(a.get("inject") or {})
@@ -1030,6 +1032,7 @@ def dbench() -> DBench:
     return _DBENCH
 
 
+PORT_LEASE_NAME = re.compile(r"port_\d+\.lease(\.[0-9a-f]{32}\.tmp)?")   # rl/port_lease.py: lease_path() and its atomic write
 HOURLY_VOLATILE = ("utc", "elapsed_s", "dispatches", "status", "memory_main_mb", "jobs_per_h", "verified", "best_verified")
 
 
@@ -1043,7 +1046,7 @@ def e2e_e1_same_seed() -> Dict[str, Any]:
     A, B = b.run("a"), b.run("b")
     for r in (A, B):
         check(r["code"] == 0 and r["summary"]["status"] == "DISPATCH_CAP" and not r["violations"] and len(_bursts(r)) == 160,
-              f"a clean 160-dispatch night: {r['code']} {r.get('summary', {}).get('status')} {r['violations']}")
+              f"a clean 160-dispatch night: {r['code']} {r.get('summary', {}).get('status')} {r.get('summary', {}).get('stop')} {r['violations']}")
     check(det.dispatch_signature(A["dispatches"]) == det.dispatch_signature(B["dispatches"]), "the same dispatch rows (cell, k, draw id, words, outcome, kept, cont)")
     sel = lambda r: [(x["n"], x.get("stream"), x.get("group"), x.get("niche"), json.dumps(x.get("draw"), sort_keys=True)) for x in _bursts(r)]  # noqa: E731
     check(sel(A) == sel(B), "the same draws (stream, set, order, counts, rank)")
@@ -1144,7 +1147,9 @@ def e2e_e6_exports() -> Dict[str, Any]:
     """E6: a fake verified clear (the trivial world clears at tick 1) gives a .btt.txt and a .bk2 with the round trip, a text replay of
     the new best, and the clear-line milestone's verified prefix export; ten targets on one tick are counted as same-tick breaks."""
     b = dbench()
-    T6 = b.run("trivial", world="trivial", engine=dict(E_ENGINE, max_dispatches=12), text_replay=True)
+    # one worker: in the trivial world every burst ends at tick 1, so three workers cycle fake processes fast enough for one memory sample
+    # to catch 185 of them (5,056 MB) and trip the registered tree cap; the caps stay as registered
+    T6 = b.run("trivial", world="trivial", workers=1, engine=dict(E_ENGINE, max_dispatches=12), text_replay=True)
     o = T6["summary"]["order"]
     ver = [v for v in T6["verifications"] if v.get("verdict") == "VERIFIED"]
     check(T6["code"] == 0 and ver and o["best"]["completion_input_tick"] == 1 and o["faster_than_frontier"] >= 1, f"a verified clear at tick 1: {o['best']}")
@@ -1200,15 +1205,21 @@ def e2e_u13_no_human_input() -> Dict[str, Any]:
     recording (an audit hook on every open of the main process)."""
     b = dbench()
     H = b.run("audit", audit=True, engine=dict(E_ENGINE, max_dispatches=30))
-    check(H["code"] == 0 and H["plan"]["sources"] == [str(b.frontier / "run" / "summary.json")], f"the plan's source list: {H['plan']['sources']}")
+    check(H["code"] == 0, f"a clean night: exit {H['code']}, {(H.get('summary') or {}).get('status')} {(H.get('summary') or {}).get('stop')}")
+    check(H["plan"]["sources"] == [str(b.frontier / "run" / "summary.json")], f"the plan's source list: {H['plan']['sources']}")
     bad = [p for p in H["opened"] if any(f in p.replace("\\", "/").lower() for f in g.FORBIDDEN_FRAGMENTS)]
     check(not bad, f"no forbidden path opened: {bad[:5]}")
     lab, own, fr_dir = g.norm(b.lab), g.norm(H["out"]), g.norm(b.frontier)
     outside = sorted({p for p in H["opened"] if g.under(g.norm(p), lab) and not g.under(g.norm(p), own) and not g.under(g.norm(p), g.norm(b.lab / "fake"))
                       and not g.under(g.norm(p), g.norm(b.lab / f"replays_{H['out'].name}"))})
-    check(all(g.under(g.norm(p), fr_dir) for p in outside) and {Path(p).name for p in outside} <= {"plan.json", "summary.json"},
-          f"in the lab, only D's folder and the frontier's plan and summary are opened: {outside}")
-    return {"opened": len(H["opened"]), "lab_outside_own": outside}
+    # rl/port_lease.py: the machine-wide port lease the shared launcher (rl/battleship_process.py) holds for every game process it starts,
+    # under the guard in <lab root>/port_leases (the fresh-process verification and milestone replays launch from the main process).
+    # Launch bookkeeping, read by no rule of D: only these two exact name patterns, only directly in <lab root>/port_leases.
+    leases = [p for p in outside if g.norm(Path(p).parent) == g.norm(b.lab / "port_leases") and PORT_LEASE_NAME.fullmatch(Path(p).name)]
+    rest = [p for p in outside if p not in leases]
+    check(all(g.under(g.norm(p), fr_dir) for p in rest) and {Path(p).name for p in rest} <= {"plan.json", "summary.json"},
+          f"in the lab, only D's folder, the frontier's plan and summary, and port leases are opened: {rest}")
+    return {"opened": len(H["opened"]), "lab_outside_own": rest, "port_leases": len(leases)}
 
 
 def e2e_tm2_code_digest() -> Dict[str, Any]:
