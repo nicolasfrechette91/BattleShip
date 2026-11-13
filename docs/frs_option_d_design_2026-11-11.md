@@ -758,6 +758,10 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
    recorded tick and give a chain digest equal to D's record. Only the first qualifying arrival per milestone, at the close. A mismatch
    is an integrity finding and the night is "not a test of M1"; no fallback to the next arrival for now. Rationale: the per-tick chain
    already covers the 16 compared end-record fields, so (b) adds nothing; an in-run reading alone is not enough for a gate.
+   **Refinement, confirmed by the owner 2026-11-12 (phase 2 build):** a mismatch gives the night the status SEARCH_INVALID. That
+   means "not a test of M1", as above, and one thing more: SEARCH_INVALID is not a clean status, so any later use of the folder (a
+   later D night reading it, or the hand-off of D-Q9) needs the owner's explicit acceptance naming it, as run 3's `--accept-run` does.
+   Clears verified during the night stay claimed: a milestone mismatch does not freeze claims.
 9. **Hand-off:** designed and built only after a verified M1 (recommended), or designed now.
    **Decided 2026-11-12 (owner): deferred.** The hand-off (section 6.4) is built only after a verified M1 or a verified D clear faster
    than the frontier's best; each hand-off night remains a plan the owner approves. Deferring keeps about a day and a run 3 manifest
