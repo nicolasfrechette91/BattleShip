@@ -836,6 +836,68 @@ def unit_root_differences() -> Dict[str, Any]:
     return {"fields": len(a["obs"])}
 
 
+# -- U14: D's process-tree sampler (owner 2026-11-13, fix A; session log 20.5) -----------------------------------------------------------
+
+
+def _bare_walk(root: int, parent_of: Mapping[int, int]) -> List[int]:
+    """rl/frs_machine.tree_snapshot's walk (lines 127-137 at 73cbde95): descendants by parent PID alone."""
+    children: Dict[int, List[int]] = {}
+    for pid, ppid in parent_of.items():
+        if pid != ppid:
+            children.setdefault(ppid, []).append(pid)
+    tree, stack = [], [root]
+    while stack:
+        p = stack.pop()
+        if p in tree:
+            continue
+        tree.append(p)
+        stack.extend(children.get(p, []))
+    return tree
+
+
+def unit_u14_tree_sampler() -> Dict[str, Any]:
+    # The pilot's machine in miniature: the run (python 18288, five workers, a game and a standby each), one game given PID 912, the
+    # dead parent of csrss and wininit since boot; services and svchosts under wininit; explorer an orphan of the dead 7456.
+    parent_of: Dict[int, int] = {4: 0, 608: 912, 1096: 912, 700: 1096, 7496: 7456, 17800: 900, 18288: 17800}
+    created: Dict[int, Optional[int]] = {4: 0, 608: 10, 1096: 11, 700: 12, 7496: 900, 900: 5000, 17800: 6000, 18288: 6001}
+    for i in range(30):
+        parent_of[710 + 4 * i], created[710 + 4 * i] = 700, 13 + i                 # svchosts
+    parent_of[900] = 710                                                            # WmiPrvSE, the launcher's parent
+    run = [18288]
+    for w in range(5):
+        wp = 20000 + 4 * w
+        parent_of[wp], created[wp] = 18288, 6010 + w
+        run.append(wp)
+        for j, gp in enumerate((21000 + 8 * w, 21004 + 8 * w)):
+            parent_of[gp], created[gp] = wp, 7000 + 10 * w + j
+            run.append(gp)
+    bare_before = set(_bare_walk(18288, parent_of))
+    guarded_before = set(O.guarded_tree(18288, parent_of, created.get))
+    check(bare_before == guarded_before == set(run), f"a normal tree: both walks count exactly the run ({len(run)} processes)")
+    # A worker's new game is given PID 912 (reuse): the bare walk adopts csrss, wininit and everything under them.
+    parent_of[912], created[912] = 20008, 9000
+    bare = set(_bare_walk(18288, parent_of))
+    guarded = set(O.guarded_tree(18288, parent_of, created.get))
+    adopted = bare - set(run) - {912}
+    check({608, 1096, 700} <= adopted and 900 in adopted and 18288 in bare, f"the bare walk adopts {len(adopted)} system processes")
+    check(guarded == set(run) | {912}, "D's walk keeps the run and the reused-PID game, and adopts none of the orphans")
+    check(set(O.guarded_tree(912, parent_of, created.get)) == {912}, "from the reused PID itself: csrss and wininit are older, not children")
+    check(set(O.guarded_tree(912, {608: 912, 1096: 912}, lambda p: None)) == {912}, "a root whose creation time is unknown adopts nothing")
+    # Edges: a child created at its parent's instant counts; a child whose time cannot be read is not counted, nor its subtree; a cycle ends.
+    check(set(O.guarded_tree(1, {2: 1, 3: 2}, {1: 5, 2: 5, 3: 6}.get)) == {1, 2, 3}, "created at the parent's instant: a child")
+    check(set(O.guarded_tree(1, {2: 1, 3: 2}, {1: 5, 2: None, 3: 6}.get)) == {1}, "an unreadable child and its subtree are not counted")
+    check(set(O.guarded_tree(1, {1: 2, 2: 1}, {1: 5, 2: 6}.get)) == {1, 2}, "a parent-PID cycle terminates")
+    # The wiring at the sampler (order_search.py, the open): run 3's real snapshot is replaced; a test's injected snapshot is kept.
+    fake = lambda: None  # noqa: E731
+    check(O.sampler_snapshot(O.fm.tree_snapshot) is O.d_tree_snapshot and O.sampler_snapshot(fake) is fake, "sampler_snapshot wiring")
+    live = O.d_tree_snapshot()
+    if os.name == "nt":
+        ref = O.fm.tree_snapshot()
+        check(live is not None and ref is not None and set(live) == set(ref) and live["processes"] >= 1,
+              f"the live record has run 3's keys: {sorted(live or {})}")
+    return {"run": len(run), "bare_with_reuse": len(bare), "guarded_with_reuse": len(guarded), "live_processes": (live or {}).get("processes")}
+
+
 def unit_f3_pace_filter() -> Dict[str, Any]:
     night = object.__new__(O.OrderNight)                 # only the attributes continuation_asof reads
     night.pace = osel.Pace(osel.OrderParams())
@@ -1261,7 +1323,8 @@ def real_frontier_best() -> Dict[str, Any]:
 
 UNIT = {f.__name__: f for f in (unit_u1_pace_line, unit_u2_rejected_readout, unit_u2_group_move, unit_u3_root_and_niches, unit_u4_set_then_order,
                                 unit_u4_ties, unit_u4_cell_draw_is_run3s, unit_u5_newcomers, unit_u6_level_weights, unit_u7_retirement,
-                                unit_u7_stale_clear_fallback, unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_root_differences, unit_f3_pace_filter, unit_tm1_run3_digest)}
+                                unit_u7_stale_clear_fallback, unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_root_differences,
+                                unit_u14_tree_sampler, unit_f3_pace_filter, unit_tm1_run3_digest)}
 
 E2E = {f.__name__: f for f in (e2e_e1_same_seed, e2e_e2_root, e2e_e3_pace_budget, e2e_e4_milestone, e2e_e5_caps_stops, e2e_e6_exports,
                                e2e_u11_isolation, e2e_u13_no_human_input, e2e_tm2_code_digest)}
