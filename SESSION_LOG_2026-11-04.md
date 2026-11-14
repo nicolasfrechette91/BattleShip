@@ -1736,3 +1736,37 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
 - **Section 7.4 outcome: M1 verified.** Reading: the 48-per-target pace plus slack is reachable at level 6 by D's own budget. Next
   per the table (owner's go each time): a second D night (new rng seed, same parameters; the budget then presses levels 7 and 8), and
   the hand-off loader (D-Q9) built between nights. Nothing launched after this close.
+
+### 20.9 D night 2: `order_2026-11-14_night2` (planned; owner's go 2026-11-14)
+
+- **Owner's review of 20.8 (2026-11-14):** M1 verified.
+- **Why this night:**
+  - to test whether M1 reproduces under another seed (pilot 2 met it once, at 6.26 h, with seed 11);
+  - to push the budget toward level 7 (M2, line 456) once level 6 is present, as section 7.4 foresees.
+  - D starts again from its one tick-0 root (D-Q6) and reads nothing from pilot 2's folder; only the frontier's best is read, as the
+    claim threshold.
+- **Parameters, as pilot 2 except the seed and the folder:**
+  - frontier `crossing_2026-11-11_run3c` (claim threshold 907; the frontier stays paused);
+  - **`--rng-seed 12`**;
+  - `--max-wall-min 480`, `--max-ticks 80000000`, `--max-cells 400000`, `--summary-every-s 3600`;
+  - selection at the decided defaults (goal 480, slack 120, level weights 0.4 / 0.3 / 0.2 / 0.1, breadth 0.2, retire after 300).
+  - The code is unchanged since the fix-A merge `2efc72a`: D's digest is `8fd3fee3`, run 3's `73cbde95`.
+- **Workers (owner):** 5 if free commit is at least 8,000 MB at the readiness check, otherwise 4. Pilot 2 went from 7,898 MB at the
+  open to a low of 4,028 MB with 5 workers.
+- **Readiness:** an owner override for this folder only, `--min-commit-free-mb 7000 --override-reason "owner declined PC restart; 16 GB
+  machine"`. It is used only if free commit is the only problem and is at least 7,000 MB, checked before `plan` and again before
+  `run`.
+- **Commands (this tree):** `python -B tools/frs/order_search.py plan` then `run`, each with:
+
+  ```
+  --lab-root C:/BattleShip_lab --frontier C:/BattleShip_lab/crossing_2026-11-11_run3c
+  --out C:/BattleShip_lab/order_2026-11-14_night2 --rng-seed 12 --workers N --max-ticks 80000000 --max-wall-min 480
+  --summary-every-s 3600 --max-cells 400000 --min-commit-free-mb 7000 --override-reason "owner declined PC restart; 16 GB machine"
+  ```
+
+  Here N is 5 or 4, by the rule above, and is the same for `plan` and `run`.
+- **Launch:** `run` through WMI:
+  - `logs/order_2026-11-14_night2/launch.cmd` for 5 workers, `launch_4w.cmd` for 4;
+  - console log `logs/order_2026-11-14_night2/console.log`.
+- **Checks:** the root and the first dispatches after the open; one look at about 30 minutes; then no polling until the close.
+- **At the close (owner's queue):** check whether leftover worker runtime folders (`workers/*/rt/g*`) recur, as in pilot 2 (20.8).
