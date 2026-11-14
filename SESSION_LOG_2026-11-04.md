@@ -1652,3 +1652,87 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
   16 GB machine"`; `run` through WMI (`logs/order_2026-11-13_pilot2/launch.cmd`, console `logs/order_2026-11-13_pilot2/console.log`).
 - **Checks:** the root and the first dispatches after the open; one look at about 30 minutes (past the first pilot's 13), with the
   process count of the latest memory sample. Then no polling until the close.
+
+### 20.8 The pilot rerun: `order_2026-11-13_pilot2` (2026-11-13 19:02 to 2026-11-14 02:58 local): M1 verified
+
+- **Launch:** plan then run as in 20.7 (tree `c957e48`, D `8fd3fee3`), `run` through WMI. Readiness: free commit the only problem,
+  8,042 MB before `plan`, 7,990 MB before `run`; the override was applied at the open at 7,898 MB.
+- **Open (6 s):** 5 workers; the two tick-0 reads equal (root `2817d8cf...`, chain `a93277e7...`).
+- **Stop: WALL_CAP, exit 0** at 02:57:49 (search 28,494 s, close 8.5 s). Console last line `run exit=0 end ... 2:58:01.39`; no
+  BattleShip.exe or python left; lab lock released.
+- **Work:** 51,139 dispatches (6,461 per hour), 19,351,271 ticks (prefix 13,176,264, burst 6,175,007; 2.44 M per hour), 1,042 falls,
+  8,967 cells at the close (8,697 new; 12.7 MB per 1,000), 0 claims (no clear). Breadth per hour 0.193 to 0.208 (night 0.199).
+- **Gate M1: VERIFIED.** A level-6 arrival at **tick 353** (line 408, lead 55), dispatch 40,189 at 6.26 h (01:18 local), cell 8500
+  from cell 7581, k 7. Breaks 9@51, 0@91, 4@133, 3@278, 5@341, 7@353 (order `9-0-4-3-5-7`, set `6|326`). Both close replays
+  (fresh processes, verify flags): 353 ticks, action digest ok, final chain `6fc0cf01...` equal to the record, the same six breaks
+  at the same ticks. Export `run/milestones/M1_n40189_t353.btt.txt` (353 frames, sha256 `b198d30a...`); replay traces in `run/traces/`.
+- **M2 to M4: not reached.** No level-7 reach at any tick (not even beyond the line).
+- **For the record (no rule reads it):** the 907 route breaks the same six targets, in the order 4-0-5-7-9-3, with its sixth at 461
+  (19.9). D reached that set 108 ticks earlier, by its own search from tick 0.
+
+- **Deepest level per hourly record** (earliest kept arrival at that level, against its line):
+
+  | record | 1 h | 2 h | 3 h | 4 h | 5 h | 6 h | 7 h | close 7.92 h |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | deepest | 5 @ 336 (-24) | 5 @ 241 (-119) | 5 @ 241 | 5 @ 200 (-160) | 5 @ 200 | 5 @ 200 | **6 @ 353 (-55)** | 6 @ 353 |
+
+  First kept arrivals: level 4 at 579 s (270), level 5 at 2,660 s (336), level 6 at 22,541 s (353). At the close: 1@16, 2@38,
+  3@74, 4@124, 5@200, 6@353. The flag "deepest active level not grown in 2 h" was raised at records 3 to 6 (report only).
+
+- **Rejected reaches per level per hourly period** (count; levels 0 to 5 had their earliest rejected tick at +1 over the line in
+  every period):
+
+  | level | 1 h | 2 h | 3 h | 4 h | 5 h | 6 h | 7 h | close | night |
+  | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 6 | - | 9 (436, +28) | 2 (464, +56) | - | - | - | 16,960 (409, +1) | 22,714 (409, +1) | 39,685 |
+  | 5 | 10,219 | 34,550 | 31,121 | 31,117 | 27,324 | 24,104 | 20,091 | 16,590 | 195,116 |
+  | 4 | 17,700 | 18,239 | 16,389 | 18,125 | 19,348 | 19,846 | 15,856 | 13,708 | 139,211 |
+  | 3 | 9,960 | 7,067 | 9,539 | 9,642 | 10,489 | 11,374 | 8,595 | 7,100 | 73,766 |
+  | 2 | 6,629 | 4,862 | 4,602 | 5,441 | 5,991 | 6,331 | 3,394 | 2,404 | 39,654 |
+  | 1 | 2,393 | 1,104 | 1,222 | 1,115 | 1,301 | 1,329 | 976 | 1,167 | 10,607 |
+  | 0 | 691 | 389 | 345 | 485 | 529 | 451 | 463 | 391 | 3,744 |
+
+  501,783 in all. Level 7: none.
+
+- **Retirements** (retired cells at each record; 16 retirement events in the night, 3 cells active again by replacement):
+
+  | level | 1 h | 2 h | 3 h | 4 h | 5 h | 6 h | 7 h | close |
+  | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 6 | - | - | - | - | - | - | 1 | 6 |
+  | 5 | 0 | 0 | 1 | 2 | 3 | 4 | 4 | 4 |
+  | 4 | 0 | 1 | 1 | 2 | 2 | 1 | 1 | 2 |
+  | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+
+  Levels 0 to 2: none. **Level 4 never fully retired** (1,684 of 1,686 cells active at the close).
+
+- **Target sets and orders at the close:** level 6: 1 set (`6|326`), 1 order, 23 cells (17 active, 6 retired); level 5: 2 sets
+  (`5|334` 9 orders, `5|454` 2), 11 orders, 628 cells; level 4: 9 sets, 32 orders, 1,686; level 3: 10 sets, 25 orders, 2,486; level
+  2: 11 sets, 16 orders, 2,386; level 1: 4 sets, 4 orders, 1,342; level 0: 1 set, 1 order, 416 cells. Set counts within 1 at
+  every level at every record.
+- **Same-tick breaks: 1** (level 5, 2 targets on one tick, in hour 5).
+- **Section 7.1 criteria, all pass:** 0 prefix mismatches, 0 tick-0 inequalities, root equal; lab digest `81b88be6` and D digest
+  `8fd3fee3` equal at the open and the close (run 3 `73cbde95`, 54 files, after the run); no game process left; no cell without an end
+  record (0 fused); within 1: selector violations none at all 8 records. From the dispatch rows (40,949 exploitation draws): 4,254 set
+  rows and 7,528 order rows show a spread above 1 in my reconstruction, and every one is a set or order out of the rotation at that row
+  (3 set and 6 order rejoins at the siblings' count, plus orders that left and never returned); 0 unexplained. The smoke (173 order
+  rows) and pilot 1 (108) give the same result.
+- **Memory:** lowest free commit **4,028 MB** over the sampler's 5-second samples, which ran through the close; in the 948 recorded rows
+  the lowest is 4,457 MB at 6.24 h with all 10 game processes up. The close ran the two M1 replays after the workers had stopped; its
+  one row (after the replays) reads 8,287 MB with 1 process. Lowest available 7,957 MB. Peak tree private 3,796 MB, working set
+  1,283 MB, main 306 MB (at the close; 120 MB in the search). No soft, hard or process breach.
+- **Max process count:** 25 in any 5-second sample (peak record); 23 in the recorded rows (t 16,510 s, 9 games); usually 11 to 14.
+  Fix A held: no adoption spike all night.
+- **Anomalies (recorded, never steering):** 12,187 events in 7,329 bursts, 0 non-finite: beyond camera bounds 4,180, pass-through
+  3,309, position snap 2,934, beyond map bounds 1,042 (the falls), corner pass near a vertex 566, freeze unexplained 114, break
+  occluded 42.
+- **Observation, cause not established:** 9 worker runtime folders (`workers/*/rt/g59xxa1`, 4 small files each, empty
+  `BattleShip.log`) were left behind, all written 23:42:56 to 23:43:11, the minute of the one sample with 21 processes and only 5
+  games (t 16,811 s). The smoke and pilot 1 left none. No lifecycle failure, no aborted dispatch, no BattleShip crash in the Windows
+  event logs.
+- **Section 7.3:** status WALL_CAP, exit 0; integrity as above; M1 verified twice from tick 0, exported (`.btt.txt`); no claims, so no
+  clear verifications and no native text replays. Backup (zero ticks): `D:/BattleShip_lab_backup/2026-11-14_order_pilot2` (the folder
+  plus `logs/order_2026-11-13_pilot2`): 62 files, 139,371,044 bytes, 6 empty folders listed; Python 62/62 equal, sources unchanged;
+  Get-FileHash 62 equal, 0 differ, 0 missing, 0 extra.
+- **Section 7.4 outcome: M1 verified.** Reading: the 48-per-target pace plus slack is reachable at level 6 by D's own budget. Next
+  per the table (owner's go each time): a second D night (new rng seed, same parameters; the budget then presses levels 7 and 8), and
+  the hand-off loader (D-Q9) built between nights. Nothing launched after this close.
