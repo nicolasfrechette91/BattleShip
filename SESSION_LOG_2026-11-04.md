@@ -1928,3 +1928,47 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
     against 9.2 rejections per level-6 dispatch), so it is not a like-for-like rate.
   - The lower levels were less compressed at night 2's close: level 4 at 191 against 124, and level 5 at 265 against 200.
   - Falls: 3 against 1,042; beyond camera bounds: 750 against 4,180.
+
+### 20.11 The n 35928 replay, and the fix B / hand-off decisions (owner's go 2026-11-14)
+
+- **Native replay (owner's go, after night 2's close):** pilot 2 burst n 35928 k 1 (cell 8094, start 259, event `971264fe34f1417f`),
+  replayed once from tick 0, windowed, in the replay viewer with its HUD overlay.
+  - Setup: the lab's executable and frozen config (`C:/BattleShip_lab/import/exe`, `30a3913b`). The lab's verify flags were set
+    without no-render. There was no headless pre-pass (`--no-markers`), so it was one game process.
+  - A scratch wrapper (no repository change) recorded every reply, and a scratch route-schema episode held the 379 words.
+  - **It matches the record.**
+    - At the burst start (tick 259), the chain, the end-record digest and the cell key equal cell 8094's recorded ones.
+    - The tick contract held for all 379 ticks, and no target broke after the start (7 left at 259 and at 379).
+    - All 18 recorded fighter states of the burst's 9 detector events (before and after each) are equal in the replay.
+    - D records no final chain for a burst that keeps nothing, so the replay's chain at 379 (`db0ed4a1...`) is new.
+  - **Around tick 331:** Mario is in up-B (status 226, `SpecialAirHi`), moving up and left at about (-79, +98) per tick.
+    - At input tick 329 the ceiling line 8 stops him at y = -1070.0.
+    - At input tick 330 the wall line 11 (reported as `rwall_line_id`, 10 before) stops him at x = 2550.0.
+    - **His position stays exactly (2550.0, -1070.0) for 10 ticks (input ticks 330 to 339).** The game keeps reducing his air
+      velocity, from (-72.0, +86.2) to (-26.8, +4.0), and the contacts stay `lwall 18`, `rwall 11`, `ceil 8`. These are
+      last-contact ids; `lwall 18` was already there at tick 300.
+    - At input tick 340 the vertical velocity turns negative and he slides down the wall at x = 2550.0 until tick 347. He drifts
+      right from tick 348.
+    - At tick 356 he is in `FallSpecial` (helpless). He rests against the same wall again at x = 2550.0 from tick 371 to 376, and
+      passes below the wall's end at about y = -3040 (tick 377).
+  - **Reading:** an inside-corner clamp. Wall and ceiling block both components of the up-B motion, so the detector's
+    "freeze unexplained" (velocity without displacement) fires on each of the 9 ticks. Nothing beyond the ordinary collision
+    response is visible in these values.
+  - Nothing else native ran. No game process was left afterwards.
+- **Fix B and the D -> frontier hand-off: the owner's go on the recommended answers 1 to 12 (2026-11-14):**
+  1. Fix B in `rl/frs_machine.tree_snapshot` itself: a child counts only if it was created at or after its parent, as D's fix A.
+  2. D's own sampler (`order_search.d_tree_snapshot`) stays unchanged; D's files do not change.
+  3. Fix B and the hand-off land together: one frontier smoke, one T-M1 update.
+  4. Seed validation by the fused first dispatch (run 3's rule for inherited cells), not a native seed phase at the open.
+  5. Seeds: every final level-6-or-deeper cell of a D folder inside the frontier's bound, retired ones included.
+  6. A key collision is decided by the archive's own rule: the faster cell wins and moves to D's niche.
+  7. Selection: run 3's rules, unchanged.
+  8. A D folder is admitted only if it has a clean status, a clean integrity record and a verified M1; anything else needs
+     `--accept-run`.
+  9. `--best-from` for D folders is built now, and the smoke exercises it with zero D clears.
+  10. D's free-commit override is ported to run 3, with the same rule.
+  11. The smoke: 3 workers, 25 minutes, `crossing_<date>_run3d_smoke`. It inherits the run 3 chain and takes both D folders as
+      `--seeds-from` and `--best-from`.
+  12. A seed's niche label is 1023 plus D's break order.
+- **Build:** worktree `BattleShip_fixB`, branch `build/fixb-handoff` from `run3/integration`. The decisions are in the design (D-Q9 and
+  section 6.7). Only fake-game tests run, nothing native.
