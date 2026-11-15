@@ -2087,3 +2087,20 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
   merge, because `docs/frs_option_d_design_2026-11-11.md` is CRLF (since `8698fd6`). In the worktree another doc trips it first (the
   checkout's CRLF). No code is involved.
 - **Nothing native ran in the build.** The frontier smoke is ready for the owner's go.
+
+### 20.13 Queue closed: the `ceiling_velocity_kept` replays; the design doc's line endings (owner, 2026-11-14)
+
+- **Closed: "replay the 4 `ceiling_velocity_kept` events"** (queued in 19.8; handoff open item 6). The n 35928 replay (20.11) explains
+  the signature, so no further replays are needed.
+  - The four events (19.7) are up-B, 11 ticks, `vel_y` 97.6 -> 4.0.
+  - In n 35928, Mario in up-B meets the ceiling (line 8) at input tick 329 with `vel_y` 97.57 and the wall (line 11) at tick 330.
+    The ceiling holds y at -1070.0 from tick 329 to 339, which is 11 ticks, while `vel_y` decays to 4.0 at 339. The wall and ceiling
+    together hold the whole position for 10 ticks (330 to 339).
+  - It is the same signature: an inside-corner wall + ceiling clamp during up-B, with the velocity kept while the position does not move.
+- **The red `unit_source_guard_and_lf` (pre-existing, 20.12): fixed, `a885ae3`.**
+  - `docs/frs_option_d_design_2026-11-11.md` was CRLF only in the main tree's working copy: `core.autocrlf` rewrote it at the
+    `ce49517` merge (and the `8698fd6` one). The committed blob was already LF.
+  - The working copy is converted to LF (blob `5e27d185`, unchanged), and `.gitattributes` gains `docs/frs_*.md text eol=lf`, so
+    checkouts and merges keep these docs LF.
+  - `rl/frs_tests.py unit` 26/26; `unit_source_guard_and_lf` passes.
+  - No code digest changed: run 3 `e9dad437`, D `457ac430`, lab `2074e288`.
