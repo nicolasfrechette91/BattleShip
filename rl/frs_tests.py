@@ -312,6 +312,71 @@ def unit_machine_budget_readiness_and_snapshot() -> Dict[str, Any]:
     return {"main_mb": snap["main_private_mb"], "tree_mb": snap["tree_private_mb"]}
 
 
+def _bare_walk(root: int, parent_of: Mapping[int, int]) -> List[int]:
+    """tree_snapshot's walk before fix B (rl/frs_machine.py at 73cbde95): descendants by parent PID alone."""
+    children: Dict[int, List[int]] = {}
+    for pid, ppid in parent_of.items():
+        if pid != ppid:
+            children.setdefault(ppid, []).append(pid)
+    tree, stack = [], [root]
+    while stack:
+        p = stack.pop()
+        if p in tree:
+            continue
+        tree.append(p)
+        stack.extend(children.get(p, []))
+    return tree
+
+
+@unit
+def unit_machine_tree_guard() -> Dict[str, Any]:
+    """Fix B (owner 2026-11-14, design 6.7): tree_snapshot's walk keeps a child only if it was created at or after its parent. A fake process
+    table in the shape of the 2026-11-12 boot: csrss and wininit orphaned by the dead PID 912, services under wininit; a run whose worker's
+    new game is given PID 912. Then the live record against D's own guarded snapshot (fix A)."""
+    import frs_machine as fm
+
+    parent_of: Dict[int, int] = {4: 0, 608: 912, 1096: 912, 700: 1096, 7496: 7456, 17800: 900, 18288: 17800}
+    created: Dict[int, Optional[int]] = {4: 0, 608: 10, 1096: 11, 700: 12, 7496: 900, 900: 5000, 17800: 6000, 18288: 6001}
+    for i in range(30):
+        parent_of[710 + 4 * i], created[710 + 4 * i] = 700, 13 + i
+    parent_of[900] = 710
+    run = [18288]
+    for w in range(5):
+        wp = 20000 + 4 * w
+        parent_of[wp], created[wp] = 18288, 6010 + w
+        run.append(wp)
+        for j, gp in enumerate((21000 + 8 * w, 21004 + 8 * w)):
+            parent_of[gp], created[gp] = wp, 7000 + 10 * w + j
+            run.append(gp)
+    check(set(_bare_walk(18288, parent_of)) == set(fm.guarded_tree(18288, parent_of, created.get)) == set(run),
+          f"a normal tree: both walks count exactly the run ({len(run)} processes)")
+    parent_of[912], created[912] = 20008, 9000                       # PID reuse: a worker's new game is given 912
+    bare = set(_bare_walk(18288, parent_of))
+    guarded = set(fm.guarded_tree(18288, parent_of, created.get))
+    adopted = bare - set(run) - {912}
+    check({608, 1096, 700, 900} <= adopted, f"the old walk adopts {len(adopted)} system processes")
+    check(guarded == set(run) | {912}, "the guarded walk keeps the run and the reused-PID game, and adopts none of the orphans")
+    check(set(fm.guarded_tree(912, parent_of, created.get)) == {912}, "from the reused PID itself: csrss and wininit are older, not children")
+    check(set(fm.guarded_tree(912, {608: 912, 1096: 912}, lambda p: None)) == {912}, "a root whose creation time is unknown adopts nothing")
+    check(set(fm.guarded_tree(1, {2: 1, 3: 2}, {1: 5, 2: 5, 3: 6}.get)) == {1, 2, 3}, "created at the parent's instant: a child")
+    check(set(fm.guarded_tree(1, {2: 1, 3: 2}, {1: 5, 2: None, 3: 6}.get)) == {1}, "an unreadable child and its subtree are not counted")
+    check(set(fm.guarded_tree(1, {1: 2, 2: 1}, {1: 5, 2: 6}.get)) == {1, 2}, "a parent-PID cycle terminates")
+    live = fm.tree_snapshot()
+    d_live = None
+    if os.name == "nt":
+        frs = REPO / "tools" / "frs"
+        if str(frs) not in sys.path:
+            sys.path.insert(0, str(frs))
+        import order_search as O
+
+        d_live = O.d_tree_snapshot()
+        live = fm.tree_snapshot()
+        check(live is not None and d_live is not None and set(live) == set(d_live) and live["processes"] == d_live["processes"] >= 1
+              and live["battleship"] == d_live["battleship"], f"the live record equals D's guarded snapshot: {live} vs {d_live}")
+    return {"run": len(run), "old_walk_with_reuse": len(bare), "guarded_with_reuse": len(guarded),
+            "live_processes": (live or {}).get("processes"), "d_live_processes": (d_live or {}).get("processes")}
+
+
 @unit
 def unit_machine_sampler_breaches_and_projection() -> Dict[str, Any]:
     import frs_machine as fm
