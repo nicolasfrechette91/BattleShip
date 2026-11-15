@@ -213,8 +213,28 @@ def breaks_index(runs: Sequence[Mapping[str, Any]]) -> Dict[Tuple[int, int], Lis
     return out
 
 
+def niche_of_label(label: str) -> rs.Niche:
+    """rs.niche_label's inverse: '1023:0-3-9-4-5-7' -> (1023, (0, 3, 9, 4, 5, 7)); '1023:' -> (1023, ())."""
+    head, sep, tail = str(label).partition(":")
+    if not sep or not head.isdigit():
+        raise LoadError(f"not a niche label: {label!r}")
+    try:
+        order = tuple(int(t) for t in tail.split("-")) if tail else ()
+    except ValueError:
+        raise LoadError(f"not a niche label: {label!r}")
+    if rs.niche_label((int(head), order)) != str(label):
+        raise LoadError(f"not a canonical niche label: {label!r}")
+    return (int(head), order)
+
+
+def is_d_seed(origin: Optional[Mapping[str, Any]]) -> bool:
+    """A cell row seeded from a D folder (tools/frs/run3_dseeds.py, owner 2026-11-14): a root whose origin names its niche."""
+    return bool(origin) and origin.get("kind") == "seed" and origin.get("source") == "order" and isinstance(origin.get("niche"), str)
+
+
 class NicheIndex:
-    """Order niche of every cell row of runs 1 + 2 by its exact lineage (d4b_niche_units.py's derivation)."""
+    """Order niche of every cell row of runs 1 + 2 by its exact lineage (d4b_niche_units.py's derivation). A row seeded from a D folder is a
+    root whose niche is the one its origin records (D's own order from D's tick-0 root; design 6.7)."""
 
     def __init__(self, runs: Sequence[Mapping[str, Any]]):
         self.bydig: Dict[str, Dict[str, Any]] = {}
@@ -242,7 +262,11 @@ class NicheIndex:
             cur = nxt
         if base is None:
             root = path.pop()
-            base = rs.seed_niche(int(root["key"][3]))
+            if is_d_seed(root.get("origin")):
+                base = niche_of_label(root["origin"]["niche"])
+                self.stats["d_seed_roots"] += 1
+            else:
+                base = rs.seed_niche(int(root["key"][3]))
             self.memo[str(root["digest"])] = base
             self.stats["roots"] += 1
         for row in reversed(path):
@@ -342,6 +366,9 @@ def inherited_history(R3: Mapping[str, Any], state: Mapping[str, Any], bound: in
     best_claim = int(best_claim) if best_claim is not None else 10 ** 9
     ev_by_n: Dict[int, List[Mapping[str, Any]]] = defaultdict(list)
     for r in R3["rows"]:
+        if is_d_seed(r.get("origin")):                         # seeded at the run's open, before any dispatch (design 6.7)
+            put(int(r["cid"]), r)
+            continue
         ev_by_n[int(r["origin"]["n"])].append(r)
     st: Dict[rs.GKey, Counter] = defaultdict(Counter)
     own: Dict[str, Counter] = defaultdict(Counter)
