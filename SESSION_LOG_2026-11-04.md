@@ -2104,3 +2104,71 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
     checkouts and merges keep these docs LF.
   - `rl/frs_tests.py unit` 26/26; `unit_source_guard_and_lf` passes.
   - No code digest changed: run 3 `e9dad437`, D `457ac430`, lab `2074e288`.
+
+### 20.14 The frontier smoke after fix B and the hand-off: `crossing_2026-11-14_run3d_smoke` (2026-11-14 21:16 to 21:37 local); the night planned
+
+- **Launch:** plan, then run, through WMI.
+  - Readiness: first 6,520 MB free commit, below the override's 7,000, so I stopped. After the owner closed apps it read 7,319 MB
+    before `plan` and 7,426 MB before `run`; the override was applied at the open at 7,133 MB.
+  - Command as in 20.12: 3 workers, 25 min, `--rng-seed 1`, `--summary-every-s 600`, level weights 0.20 / 0.35 / 0.35 / 0.10.
+  - It inherits run3, run3b, run3c_smoke2 and run3c, and takes both D nights as `--seeds-from` and `--best-from`.
+  - Console: `logs/crossing_2026-11-14_run3d_smoke/console.log`.
+- **Open (18 s):**
+  - The seeds were written before any dispatch: 33 replaced, 14 later.
+  - The reference replayed exactly (1,885 / 1,884), and so did the start's best (907 / 906, run3c); bound 882.
+  - 47,596 inherited cells; eligible 94 / 783 / 6,314 / 10,243 at levels 9 to 6; 14 groups.
+- **Stop: WALL_CAP, exit 0** at 21:37:35.
+  - The search ran 1,182 s: the 25-minute cap counts the plan child, the open and the close reserve.
+  - 1,347 dispatches, 1,235,555 ticks, 470 falls, 0 claims; best 907 unchanged.
+  - Console last line `run exit=0 end ... 21:37:36.16`; no BattleShip.exe left, lab lock released.
+- **Integrity: clean.**
+  - 0 prefix mismatches, 0 tick-0 inequalities, 0 lifecycle failures, 0 aborted dispatches;
+  - reference ok; run 3 digest `e9dad437` and lab digest `2074e288` at the open and the close;
+  - no guard violation, no demotion event, no memory breach.
+- **Seeds:**
+
+  | folder | replaced | dropped as later |
+  | --- | ---: | ---: |
+  | pilot 2 | 10 | 13 |
+  | night 2 | 23 | 1 |
+
+  All 33 kept seeds were still the representative of their key at the close.
+- **Fused seed dispatches: all ok.** 12 seed cells were dispatched (20 dispatches). Each first dispatch was fused and reproduced D's
+  chain and end-record digest, with 0 mismatches; 12 end records were stored.
+- **The D groups: 35 of 1,347 dispatches (2.6 %; 10.7 % of level 6's 327).**
+  - `6|326|1023:0-3-9-4-5-7`: 14 dispatches (8 rank, 6 anchor);
+  - `6|326|1023:9-0-4-3-5-7`: 21 (10 rank, 10 anchor, 1 breadth).
+  - Night split by level: 6: 327, 7: 407, 8: 386, 9: 227.
+- **The key signal: no D-lineage burst broke a target**, so there was no level-7 reach at any tick.
+  - The 35 bursts started at 351 to 517, ran 1 or 2 segments, and none fell.
+  - They kept 199 level-6 cells, every one a replacement: an earlier tick (409 to 570) for an existing frontier key.
+  - The smoke's earliest arrivals by level: 6 at 351 (D's group), 7 at 493, 8 at 798, 9 at 856.
+- **Memory:**
+  - Lowest free commit 4,535 MB in the 5-second samples (4,911 MB in the rows); the close's row reads 6,846 MB with 1 process.
+  - Max process count 16 in the 5-second samples, 13 in the rows.
+  - Anomalies: 1,371 events, 0 non-finite.
+- **Plan-only inherit check (zero ticks, nothing written):** a plan inheriting the chain plus the smoke loads it.
+  - The smoke's 357 rows re-derive every niche (33 D-seed roots).
+  - Its 1,347 dispatches replay into its own table (14 groups), and its 12 end records import.
+  - Both D folders as `--seeds-from` again give 47 "later": the smoke already holds the seeds.
+  - At that start the D groups have 88 and 82 eligible cells and a share of 0.077 each in level 6.
+- **Owner's review:** clean.
+- **The night: one change from the recommendation (owner, 2026-11-14): level weights 0.10 / 0.15 / 0.25 / 0.50 for levels 9 / 8 / 7 / 6,
+  instead of 0.20 / 0.35 / 0.35 / 0.10.**
+  - Reason (owner): the old split was chosen from the incumbent route's bottleneck. This night's purpose is to test whether D's own
+    level-6 lineages reach level 7 or deeper without a pace line, and the old split would give each D group only about 250 to 300
+    dispatches.
+  - **Projection (zero ticks; run 3's selector on that start; throughput from night 3, 5,515 per hour with 5 workers, times 0.90 for 4;
+    search 7.91 h):**
+    - level 6 takes 0.50 of exploitation, and each D group 0.077 of level 6;
+    - with 4 workers: 157 dispatches per hour per D group, **2,489 for the two together uncapped**;
+    - with 5 workers: 2,765.
+    - Run 3's zero-break demotion (no break and no e in a group's last 1,000 dispatches) would demote each D group after about 6.2 h
+      (4 workers) if it never breaks a target. The two would then total **about 2,070** (5 workers: 2,120). A break resets it.
+    - Above the owner's 2,000 floor, so the night goes ahead.
+  - **Parameters:**
+    - folder `C:/BattleShip_lab/crossing_2026-11-14_run3d`; `--rng-seed 5`;
+    - workers 5 if free commit is at least 8,000 MB at readiness, otherwise 4;
+    - 480 min, `--max-ticks 80000000`, `--summary-every-s 3600`;
+    - inherits run3, run3b, run3c_smoke2, run3c, run3d_smoke; both D folders as `--seeds-from` and `--best-from`;
+    - the override 7,000 MB with the same reason; launch through WMI.
