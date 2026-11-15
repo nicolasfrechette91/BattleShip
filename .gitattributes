@@ -17,3 +17,7 @@ port/resource/RelocFileTable.cpp text eol=lf
 
 # PowerShell tolerates either, but pinning LF keeps the repo consistent.
 *.ps1 text eol=lf
+
+# Fast-route lab docs: rl/frs_tests.py unit_source_guard_and_lf requires docs/frs_*.md without CR bytes. Without this attribute a
+# Windows checkout or merge with core.autocrlf=true writes them with CRLF (the option D design did, 2026-11-13).
+docs/frs_*.md text eol=lf
