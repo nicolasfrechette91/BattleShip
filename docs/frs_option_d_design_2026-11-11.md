@@ -450,6 +450,66 @@ Each hand-off is a plan the owner approves before a night. Nothing passes live.
   Same record, same caps and soft budget. Test U14. No run 3 file changes (`73cbde95`).
 - **Fix B is required before the next frontier night:** run 3's own sampler has the same defect, so a frontier night can stop the same
   way. It is an open item in the handoff.
+- **Fix B: decided 2026-11-14 (owner), section 6.7.**
+
+### 6.7 Fix B and the hand-off to the frontier (owner, 2026-11-14)
+
+The owner accepted the recommended answers 1 to 12 (session log 20.11). Both land together, between nights: one frontier smoke, one
+T-M1 update.
+
+- **Fix B (answers 1 and 2).**
+  - `rl/frs_machine.tree_snapshot` keeps its record but walks the tree with `guarded_tree`: a process counts as a child only if its
+    creation time is known and not earlier than its parent's. A process whose creation time cannot be read adopts nothing.
+  - `rl/frs_lab.py` hands `fm.tree_snapshot` to every lab runner, so run 3 and the older runners all get the fix.
+  - D keeps its own `d_tree_snapshot` (fix A) unchanged; D's files do not change.
+- **The readiness override (answer 10).**
+  - Run 3 takes D's owner override: `--min-commit-free-mb N --override-reason TEXT`, given to both `plan` and `run`.
+  - It admits a red readiness only when every problem is the free-commit minimum and free commit is at least N. It is recorded in the
+    plan, config, summary and report, and logged as an event at the open.
+  - `run` refuses an override that differs from the saved plan's.
+- **Admitting a D folder (answer 8), for `--seeds-from` and `--best-from` alike.** The folder must meet all of these:
+  - contract `frs_order_search_v1`, lab mode;
+  - a clean status (as run 3's `CLEAN_STATUSES`), unless `--accept-run` names it;
+  - a clean integrity record: no guard violation, prefix mismatch, tick-0 inequality or game left; root equal; D's and the lab's code
+    unchanged during the run; every recorded milestone verified;
+  - a verified M1.
+  A D folder given twice is refused. A D folder given as `--inherit` is refused by its contract, as before.
+- **Seeds (answers 4, 5, 6, 7 and 12).** From each `--seeds-from` folder, in the order given:
+  - the final representative of every cell id at level 6 or deeper whose tick is within the frontier plan's bound, retired cells
+    included (retirement is D's budget state);
+  - each one's words must give its words digest, its key's level must be its level, and its niche, recomputed from D's own lineage
+    (`run3_load.NicheIndex` over D's rows and dispatch breaks), must equal the niche D recorded;
+  - each enters through the archive's own keep rule, mirrored at the plan as `load_run1` mirrors it:
+    - a new key is a new cell id after the frontier's ids;
+    - a strictly earlier tick replaces the frontier's representative (the cell id stays, the new representative starts fresh, its
+      claimed clears are dropped). The cell moves to D's group; the old group keeps its history;
+    - an equal or later tick is dropped and recorded as later.
+    Seeds are taken in tick order, ties in the order given, so between two D folders the faster one wins.
+  - Origin: `{"kind": "seed", "fsid": <negative id per D folder>, "source": "order", "folder", "d_cid", "d_digest", "niche"}`.
+  - Niche: 1023 plus D's break order (for example `1023:0-3-9-4-5-7`), the form run 3 gives any lineage from a mask-1023 root.
+  - A seed's first dispatch is fused, as every inherited cell's: the prefix is replayed and checked by D's chain and end-record digest,
+    and a mismatch is run 2's prefix mismatch (the cell quarantined, the mismatch limit).
+  - Selection is run 3's, unchanged: a new group starts at its level's pooled rate.
+- **The seeded night's records.**
+  - The plan records every source folder (status, sha256 of its cells and dispatches) and every seed (cell id, verdict, folder, D cell
+    id, digests, key, level, tick, niche, and for a replacement the replaced representative). It also records a seed-set digest.
+  - `run` refuses `--seeds-from` folders that differ from the saved plan's.
+  - At the open, before any dispatch, the night writes one `new` or `replaced` row per kept seed to its `cells.jsonl`, with its words,
+    niche and group. A later night that inherits it therefore reads the seeds as its rows:
+    - `run3_load` takes a seed row's niche from its origin;
+    - it places the seed rows before replaying the night's dispatches.
+- **Best from D (answer 9).**
+  - `--best-from` accepts D folders. Their verified clears (`verifications.jsonl`, kind clear, verdict VERIFIED) join the best, with the
+    source `order:<folder>`.
+  - A D best needs an equal native text replay, as a run 3 best does, and is replayed exactly at the open (the anchor).
+  - A D folder with no verified clear changes nothing and is recorded.
+- **Digests.**
+  - Fix B changes the lab digest (`81b88be6`), run 3's (`73cbde95` and its LF twin `11ec3040`) and D's (`8fd3fee3`).
+  - The hand-off adds `tools/frs/run3_dseeds.py` to run 3's manifest and to D's, and changes run 3's and D's digests again. T-M1 gets
+    the new pair.
+  - Older folders stay readable: the loaders compare each folder's own open and close digests, not the current code's.
+- **Not changed:** D's selection, pace and files; run 3's selection rules; the discovery rule. The hand-off moves only D's own cells
+  and verified clears, grown from its tick-0 root, and no rule reads a target id, route or order as a preference.
 
 ## 7. Pilot night protocol (frontier paused)
 
@@ -787,3 +847,6 @@ The hand-off loader steps (6.4) are not in this build. They are designed and bui
    **Decided 2026-11-12 (owner): deferred.** The hand-off (section 6.4) is built only after a verified M1 or a verified D clear faster
    than the frontier's best; each hand-off night remains a plan the owner approves. Deferring keeps about a day and a run 3 manifest
    change out of the build, and loses no data: D's `cells.jsonl` keeps every kept cell with its inputs, chain, end record and order.
+   **Decided 2026-11-14 (owner), after M1 was verified twice (pilot 2 at 353, night 2 at 351): built now**, as section 6.7: `--seeds-from`
+   for D's level-6-or-deeper lineages and `--best-from` for D folders, with fix B and the ported readiness override, the recommended
+   answers 1 to 12 (session log 20.11). Each hand-off night remains a plan the owner approves; a frontier smoke comes first.
