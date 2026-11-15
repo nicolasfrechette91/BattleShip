@@ -1972,3 +1972,118 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
   12. A seed's niche label is 1023 plus D's break order.
 - **Build:** worktree `BattleShip_fixB`, branch `build/fixb-handoff` from `run3/integration`. The decisions are in the design (D-Q9 and
   section 6.7). Only fake-game tests run, nothing native.
+
+### 20.12 Fix B, the D -> frontier hand-off and the readiness override: built, merged (2026-11-14; owner's go, answers 1 to 12)
+
+- **The n 35928 replay, closed:** the viewer's own verdict was **MATCH**: actions digest `324e3d6c`, per-row clocks, 379 steps, last
+  consumed tick 378, 3 targets. It was closed after 75 minutes (the window was left open for the owner); no game process left.
+- **Build:** worktree `C:/Users/kill_/Bureau/gitRepo/Smash_pc_port/BattleShip_fixB`, branch `build/fixb-handoff` from `run3/integration`
+  (`b3f0f2a`), pushed. Commits:
+
+  | commit | content |
+  | --- | --- |
+  | `09835dc` | design section 6.7 and D-Q9 decided |
+  | `5f9a913` | fix B |
+  | `e2845dd` | hand-off and override |
+  | `6cae3ac` | T-M1 pair |
+
+  - **Merge `ce49517`** into the main tree, after a no-commit preview listing exactly the 9 planned paths: the design, `rl/frs_machine.py`,
+    `rl/frs_tests.py`, `tools/frs/crossing_search_run3.py`, `run3_load.py`, `run3_search.py`, `run3_dseeds.py` (new),
+    `run3_dseeds_tests.py` (new) and `order_search_tests.py`. Pushed.
+- **What is built:**
+  - **Fix B.** `rl/frs_machine.guarded_tree` and `tree_snapshot` use it: a child counts only if it was created at or after its parent.
+    D's own sampler and D's files are unchanged.
+  - **The override.** `tools/frs/run3_search.readiness_override_record` and `readiness_verdict`, the same rule as D's, decided at the
+    open; `--min-commit-free-mb` and `--override-reason` on `plan` and `run`. It is recorded in the plan, config, summary and report,
+    and logged as an event at the open. `run` refuses a different override.
+  - **The hand-off.**
+    - `tools/frs/run3_dseeds.py`: D folder admission, seeds (level >= 6 inside the bound, niche re-derived from D's lineage), the keep
+      rule mirrored on the plan's rows, and D best sources.
+    - `crossing_search_run3.py`:
+      - `--seeds-from`, and `--best-from` accepting D folders (source `order:<name>`, equal text replay);
+      - a D folder given twice is refused;
+      - the plan records the sources, the seeds, the counts, the seed-set digest and the rule;
+      - `run` refuses differing `--seeds-from` folders or seeds;
+      - the seed rows are written to `cells.jsonl` at the open; records and report lines.
+    - `run3_load.py`: a seed row's niche comes from its origin, and seed rows are placed before a later night's dispatches.
+- **Digests:**
+
+  | | before | after |
+  | --- | --- | --- |
+  | run 3, main tree | `73cbde95` (54 files) | **`e9dad437`** (55 files) |
+  | run 3, LF twin | `11ec3040` | **`89e64150`** |
+  | D | `8fd3fee3` (56 files) | **`457ac430`** (57 files) |
+  | lab, main tree | `81b88be6` | **`2074e288`** |
+  | lab, LF checkout | - | `e21f83b0` |
+
+  T-M1 holds the new run 3 pair and passes in both trees.
+- **Fix B checks:**
+  - Unit `unit_machine_tree_guard`: on the fake table with PID 912 reused, the old walk counts 52 processes and the guarded walk 17
+    (the run's 16 plus the game). The edge cases pass.
+  - Live: `tree_snapshot` equals D's `d_tree_snapshot` (1 process in both).
+  - Ghost root 912 on the live machine (read-only; csrss 608 and wininit 1096 still have parent 912):
+    - the old run 3 walk: **192 processes, 4,741 MB private, 5,700 MB working set**;
+    - fix B: **1 process, 0 MB**; D's fix A: 1 process.
+- **H1 to H9, all pass:**
+
+  | test | result |
+  | --- | --- |
+  | H1 admission | 11 refusal reasons each refused and each admitted by `--accept-run` with the reasons recorded; another contract refused even with `--accept-run`; given twice refused; a D folder as `--inherit` refused by run 3's reader |
+  | H2 niche | niches re-derived; an altered niche refused; altered words refused |
+  | H3 selection | by level and bound; stable seed-set digest; negative, stable lineage root id |
+  | H4 keep rule | new / replaced / later / equal tick / tie to the folder given first; claimed clears dropped, niche moved |
+  | H7 run flags | `--seeds-from` dropped or reordered, and an override dropped, changed or added at `run`, all refused |
+  | H8 best | D source shape and admission; see the e2e below |
+  | H9 manifest | `run3_dseeds.py` in both manifests, 55 / 57 files, T-M1 pair |
+
+  The override rule gives the same records and verdicts as D's in 6 cases.
+- **Fake-game e2e** (`run3_dseeds_tests.py e2e`, a fresh bench: synthetic runs 1 + 2, then D's own e2e night on the same fake world):
+  - D reached level 6 at 335 with M1 verified and was admitted: 498 seeds (304 at level 6, 194 at level 7), all new.
+  - **H5 and H6.** A seeded run 3 night opened under the override, with free commit the only problem (7,600 MB >= 7,000; event
+    logged, applied in config and summary). Its `cells.jsonl` starts with one row per seed (origin source `order`, niche, group).
+    - 51 seeds were dispatched; every one was fused and stored its end record, with 0 mismatches and 0 quarantined.
+    - 186 seeds were replaced during the night by faster representatives that run 3 found.
+    - The same readiness without the override was refused at the open (no run folder).
+    - A later plan inheriting the seeded night re-derives every niche (d-seed roots counted).
+  - **H5 mismatch.** A copy with the seeds' end digests altered: 7 fused mismatches, 7 quarantined, SEARCH_INVALID by run 2's mismatch
+    limit.
+  - **H8.** The fake D night has no verified clear, so the best and the bound are unchanged.
+    - A D folder copy holding the frontier's best row is labelled `order:<name>`, and is refused when its text replay is not equal.
+    - **Not exercised end to end:** a D clear faster than the frontier's lowering the bound. No fake night produced one; the bound
+      comes from run 3's unchanged rule over the combined list.
+  - **Older folders.** A run 3 folder whose plan and summary record another code digest loads under today's code.
+- **Real, zero ticks, main tree:**
+  - `real_d_folders`: pilot 2 gives 23 seeds (353..408, `1023:9-0-4-3-5-7`), night 2 gives 24 (351..405, `1023:0-3-9-4-5-7`); the smoke
+    and pilot 1 are refused (no verified M1).
+  - **`real_chain_plan`, the smoke's plan in process:** runs 1 + 2, the four chain folders (planned under older run 3 digests, they load,
+    niches equal), both D folders as `--seeds-from` and `--best-from`, the override.
+    - Best 907 (run3c), bound 882.
+    - **All 47 seeds hit keys the frontier already holds:**
+      - 33 replace frontier cells of group `6|326|326:` that sat at ticks 511 to 565 (night 2: 23, gains 106 to 172; pilot 2: 10,
+        gains 112 to 201);
+      - 14 are dropped as later: 13 pilot 2 cells lose to night 2 on the same keys, and one night 2 cell (357) loses to pilot 2's
+        353.
+    - The start table at level 6 has 4 groups: `6|330|330:` 5,109 cells (share 0.40), `6|326|326:` 5,101 (0.10), D night 2 23 cells
+      (0.25), D pilot 2 10 cells (0.25). Level 6 has the fourth level weight (0.10).
+    - Seed set `b97d3af7`, archive set `266fa1dc`; both D best sources recorded with 0 verified clears.
+- **Regressions (worktree, fake game or zero ticks):**
+
+  | suite | result |
+  | --- | --- |
+  | `rl/frs_tests.py` | 31/32 |
+  | run 3 archive | 2/2 |
+  | run 3 anomaly | 10/10 |
+  | run 3 search | 13/13 |
+  | run 3 night unit | 20/20 |
+  | run 3 night e2e | 7/7 |
+  | run 3 night real (main tree) | 6/6 |
+  | D unit | 19/19 (T-M1 included) |
+  | D e2e | 9/9 (T-M2 included) |
+  | hand-off unit | 9/9 |
+  | hand-off e2e | 4/4 |
+  | hand-off real (main tree) | 2/2 |
+
+  The one `frs_tests` failure is `unit_source_guard_and_lf`. It is **pre-existing**: it fails the same way in the main tree before the
+  merge, because `docs/frs_option_d_design_2026-11-11.md` is CRLF (since `8698fd6`). In the worktree another doc trips it first (the
+  checkout's CRLF). No code is involved.
+- **Nothing native ran in the build.** The frontier smoke is ready for the owner's go.
