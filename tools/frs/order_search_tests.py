@@ -42,11 +42,13 @@ import run3_select as rs  # noqa: E402
 from infra_testlib import check, cleanup, run_suite, tmpdir  # noqa: E402
 
 D_MODULES = ("order_select", "order_search", "order_search_tests")
-# The run 3 manifest digest (tools/frs/run3_manifest.py) of the frontier code at 73cbde95 (contract run3_select_v4). The manifest hashes
-# working-file bytes: the main tree's working copy holds 7 rl/ files with CRLF line endings (the index has LF), a fresh checkout holds
-# them with LF. Same content, two digests; both are the frontier code. Any other value means a run 3 file changed.
-RUN3_DIGESTS = {"73cbde955079b7abfd5635288d1adfd8511aae7db469deba84ac10d3e1193262": "main tree working copy (7 rl/ files CRLF)",
-                "11ec3040c29543072ace9712f0a549660fa0fafe2b17e02b98b833c512307f87": "the same files with LF (fresh checkout)"}
+# The run 3 manifest digest (tools/frs/run3_manifest.py) of the frontier code (contract run3_select_v4). The manifest hashes working-file
+# bytes: the main tree's working copy holds 7 rl/ files with CRLF line endings (the index has LF), a fresh checkout holds them with LF. Same
+# content, two digests; both are the frontier code. Any other value means a run 3 file changed. Owner 2026-11-14 (design 6.7): fix B
+# (rl/frs_machine.py) and the D hand-off (tools/frs/run3_dseeds.py, 55 files) replace the 73cbde95 / 11ec3040 pair of 54 files.
+RUN3_FILES = 55
+RUN3_DIGESTS = {"e9dad437b186984dfa553208507a5f1b7577e8ea1f271d92430bd8553af9b4f3": "main tree working copy (7 rl/ files CRLF)",
+                "89e641509ae56f0715d6e16d28799fb1c58923ea81ad75196d33b4f8e9c7522b": "the same files with LF (fresh checkout)"}
 
 
 def _refused(fn, *a, **k) -> bool:
@@ -169,8 +171,8 @@ def unit_tm1_run3_digest() -> Dict[str, Any]:
     names = set(m.get("entries") or []) | {Path(k).stem for k in (m.get("manifest") or {})}
     leaked = sorted(set(D_MODULES) & names)
     check(not leaked, f"D's modules are not in the run 3 manifest: {leaked}")
-    check(m["files"] == 54, f"the run 3 manifest still has 54 files ({m['files']})")
-    check(m["digest"] in RUN3_DIGESTS, f"the run 3 digest {m['digest']} is the frontier code's (73cbde95, or the same files with LF)")
+    check(m["files"] == RUN3_FILES, f"the run 3 manifest has {RUN3_FILES} files ({m['files']})")
+    check(m["digest"] in RUN3_DIGESTS, f"the run 3 digest {m['digest']} is the frontier code's (e9dad437, or the same files with LF)")
     return {"digest": m["digest"][:16], "which": RUN3_DIGESTS[m["digest"]], "files": m["files"]}
 
 
