@@ -21,6 +21,11 @@ by import, the fused first dispatch, end records, D4, anomaly keeping, the run 3
     unchanged       claims replayed only when faster than the best, twice from tick 0 (verify flags); run 2's CONT arm (120 words, at most
                     6 segments, window 20); 5 workers + standby; caps; readiness; mismatch limit 3; lab digest recorded (not enforced),
                     run 3 digest enforced; identity unverified with the pinned executable.
+    hand-off        (owner 2026-11-14; docs/frs_option_d_design_2026-11-11.md section 6.7) --seeds-from D folders: their level-6-or-deeper
+                    lineages inside the bound enter the plan's archive by the keep rule (tools/frs/run3_dseeds.py), each first dispatch fused, and
+                    are written to cells.jsonl at the open; --best-from also takes D folders (their verified clears, an equal text replay).
+    override        (owner 2026-11-14) --min-commit-free-mb N --override-reason TEXT, given to plan and run: D's free-commit override, the
+                    same rule (tools/frs/run3_search.readiness_verdict); recorded in the plan, config, summary and report.
 
     python -B tools/frs/crossing_search_run3.py plan --lab-root C:/BattleShip_lab --run1 DIR --run2 DIR [--out DIR] ...
     python -B tools/frs/crossing_search_run3.py run  --lab-root ... --run1 DIR --run2 DIR --out DIR [--workers 5] [--max-wall-min 480] ...
@@ -56,6 +61,7 @@ import frs_report as frep  # noqa: E402
 import frs_verify as fv  # noqa: E402
 import m8_sd2_select as s6  # noqa: E402
 import run3_anomaly as ra  # noqa: E402
+import run3_dseeds as ds  # noqa: E402
 import run3_export as rx  # noqa: E402
 import run3_load as rl3  # noqa: E402
 import run3_manifest as rm  # noqa: E402
@@ -228,10 +234,33 @@ def inherit_chain_problems(run1_block: Mapping[str, Any], run2_block: Mapping[st
     return out
 
 
+def read_best_source_any(d: Path, ref_t: int, archive_id: str, accepted: Sequence[Path] = ()) -> Dict[str, Any]:
+    """A --best-from folder: a D folder (owner 2026-11-14, design 6.7: admitted by run3_dseeds, its verified clears) or a run 3 folder."""
+    if ds.is_d_folder(Path(d)):
+        return ds.d_best_source(ds.read_d_folder(Path(d), accepted))
+    return read_best_source(Path(d), ref_t, archive_id, accepted)
+
+
+def d_folders_twice(*lists: Sequence[Path]) -> List[str]:
+    """D folders given twice within one flag (design 6.7: refused)."""
+    out: List[str] = []
+    for given in lists:
+        seen: List[str] = []
+        for x in given:
+            k = str(g.norm(Path(x)))
+            if k in seen and ds.is_d_folder(Path(x)):
+                out.append(str(x))
+            seen.append(k)
+    return out
+
+
 def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, analyse: fv.Analyse = fv.real_analyse, *,
                code_digest: Optional[str] = None, best_from: Sequence[Path] = (), accept_runs: Sequence[Path] = (),
-               inherit: Sequence[Path] = ()) -> Dict[str, Any]:
+               inherit: Sequence[Path] = (), seeds_from: Sequence[Path] = (), readiness_override: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
     params.check()
+    twice = d_folders_twice(best_from, seeds_from)
+    if twice:
+        raise SearchError(f"refused: D folders given twice: {twice}")
     R, meta = cs.read_reference(lab_root, analyse)
     R1 = r2.read_run1(run1_dir)
     p1 = R1["plan"]
@@ -247,7 +276,7 @@ def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, 
     both = {str(g.norm(Path(x))) for x in best_from} & {str(g.norm(Path(x))) for x in inherit}
     if both:
         raise SearchError(f"refused: {sorted(both)} given as --best-from and --inherit (an inherited folder's clears already count)")
-    extra = [read_best_source(Path(x), ref_t, meta["archive_id"], accept_runs) for x in best_from]
+    extra = [read_best_source_any(Path(x), ref_t, meta["archive_id"], accept_runs) for x in best_from]
     inh = [read_best_source(Path(x), ref_t, meta["archive_id"], accept_runs) for x in inherit]
     best = r2.best_verified_of(list(R1["verifications"]) + v2 + [v for X in extra + inh for v in X["verifications"]], ref_t)
 
@@ -257,7 +286,7 @@ def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, 
     best["source"] = "run2" if any(is_best(v) for v in v2) else "run1"
     for X in extra + inh:
         if any(is_best(v) for v in X["verifications"]):
-            best["source"] = f"run3:{Path(X['dir']).name}"
+            best["source"] = f"{'order' if X.get('kind') == 'order' else 'run3'}:{Path(X['dir']).name}"
             tr = X["text"].get(best["n"])
             if not tr or tr.get("equal") is not True:
                 raise SearchError(f"refused: the best clear {best['completion_input_tick']} of {X['dir']} has no equal native text replay ({tr})")
@@ -278,6 +307,12 @@ def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, 
     if bound > int(p2["e7"]["bound_max_L"]):                  # the best of both runs is never slower than run 2's start
         raise SearchError(f"refused: run 3's bound {bound} is above run 2's {p2['e7']['bound_max_L']}")
     archive = r2.ResumeArchive(meta["archive_id"], arrival, bound, params)
+    Ds = [ds.read_d_folder(Path(x), accept_runs) for x in seeds_from]         # owner 2026-11-14 (design 6.7): D's lineages as seeds
+    sources: List[Tuple[Dict[str, Any], List[Dict[str, Any]]]] = []
+    for Dx in Ds:
+        seeds_x, rep_x = ds.d_seeds(Dx, bound)
+        sources.append((rep_x, seeds_x))
+    d_records, d_counts = ds.insert_seeds(M["final"], M["origins"], M["cleared"], D["niches"], sources, archive.lead_of)
     load = archive.load_run1({"final": M["final"], "origins": M["origins"], "dispatch_stats": M["dispatch_stats"]}, bound_check, M["cleared"],
                              reset_novelty=params.reset_novelty)
     best_claim = min(x for x in [M["best_claim"], int(best["completion_input_tick"])] + [X["claims_min"] for X in extra + inh] if x is not None)
@@ -326,7 +361,13 @@ def build_plan(lab_root: Path, run1_dir: Path, run2_dir: Path, params: Params3, 
                      "accept_runs": [str(Path(x)) for x in accept_runs], "inherit": inherit_rec,
                      "windows_rule": ("a: the group's last `window` real dispatches, u at this bound, padded with its whole-history rate" if inherit
                                       else "DECISIVE 1: `window` pseudo-dispatches at the group's whole-run-2 rate"),
-                     "anchors": sum(r["anchors"] for r in sel.start if r["eligible"]), "demoted": [r["group"] for r in sel.start if r["demoted"]]}}
+                     "anchors": sum(r["anchors"] for r in sel.start if r["eligible"]), "demoted": [r["group"] for r in sel.start if r["demoted"]],
+                     "seeds_from": [rep for rep, _s in sources],
+                     "d_seeds": d_records, "d_seed_counts": d_counts, "d_seed_set_digest": ds.seed_set_digest(d_records),
+                     "d_seed_rule": (f"design 6.7 (owner 2026-11-14): every final D cell at level >= {ds.SEED_MIN_LEVEL} inside the bound, words, level and "
+                                     "niche from D's own lineage checked; the archive's keep rule (new key: new cell id; strictly earlier: replaces, moves "
+                                     "to D's group; else later, dropped), tick order, ties in the order given; first dispatch fused")},
+            "readiness_override": None if readiness_override is None else dict(readiness_override)}
     return {"plan": plan, "seeds": [], "R": R, "meta": meta, "bound": bound, "bound_run1": bound_check, "best": best, "R1": R1, "archive": archive,
             "cleared": M["cleared"], "run3_code_digest": code, "accept_runs": [str(Path(x)) for x in accept_runs], "inherit": [str(Path(x)) for x in inherit],
             "end_record_files": [str(Path(x) / "run" / "cells.jsonl") for x in inherit],
@@ -410,7 +451,8 @@ def _plan_child(a: Mapping[str, Any]) -> None:
         analyse = stub.analyse
     P = build_plan(Path(a["lab_root"]), Path(a["run1"]), Path(a["run2"]), Params3(**a["params"]), analyse, code_digest=a.get("code_digest"),
                    best_from=[Path(x) for x in a.get("best_from") or []], accept_runs=[Path(x) for x in a.get("accept_runs") or []],
-                   inherit=[Path(x) for x in a.get("inherit") or []])
+                   inherit=[Path(x) for x in a.get("inherit") or []], seeds_from=[Path(x) for x in a.get("seeds_from") or []],
+                   readiness_override=a.get("readiness_override"))
     data = pickle.dumps(plan_payload(P), protocol=pickle.HIGHEST_PROTOCOL)
     with open(a["payload"], "wb") as f:
         f.write(data)
@@ -418,7 +460,8 @@ def _plan_child(a: Mapping[str, Any]) -> None:
 
 def plan_via_child(lab_root: Path, run1_dir: Path, run2_dir: Path, out: Path, params: Params3, *, code_digest: Optional[str],
                    analyse: str = "real", timeout: float = 900.0, best_from: Sequence[Path] = (), accept_runs: Sequence[Path] = (),
-                   inherit: Sequence[Path] = ()) -> Dict[str, Any]:
+                   inherit: Sequence[Path] = (), seeds_from: Sequence[Path] = (),
+                   readiness_override: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
     """build_plan in a fresh child process (same code, same inputs), its payload read back and removed; the main process holds only
     what the run keeps."""
     import os
@@ -431,7 +474,8 @@ def plan_via_child(lab_root: Path, run1_dir: Path, run2_dir: Path, out: Path, pa
     pdict = {k: (list(v) if isinstance(v, tuple) else v) for k, v in params.__dict__.items()}
     args = {"lab_root": str(lab_root), "run1": str(run1_dir), "run2": str(run2_dir), "params": pdict, "code_digest": code_digest,
             "analyse": analyse, "payload": str(payload), "best_from": [str(x) for x in best_from], "accept_runs": [str(x) for x in accept_runs],
-            "inherit": [str(x) for x in inherit]}
+            "inherit": [str(x) for x in inherit], "seeds_from": [str(x) for x in seeds_from],
+            "readiness_override": None if readiness_override is None else dict(readiness_override)}
     code = PLAN_CHILD % (str(REPO / "rl"), str(HERE))
     r = subprocess.run([sys.executable, "-B", "-c", code, json.dumps(args)], capture_output=True, text=True, timeout=timeout, cwd=str(HERE))
     try:
@@ -449,9 +493,10 @@ def plan_via_child(lab_root: Path, run1_dir: Path, run2_dir: Path, out: Path, pa
 
 def plan_and_write(lab_root: Path, run1_dir: Path, run2_dir: Path, out: Path, params: Params3, analyse: fv.Analyse = fv.real_analyse, *,
                    code_digest: Optional[str] = None, best_from: Sequence[Path] = (), accept_runs: Sequence[Path] = (),
-                   inherit: Sequence[Path] = ()) -> Dict[str, Any]:
+                   inherit: Sequence[Path] = (), seeds_from: Sequence[Path] = (),
+                   readiness_override: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
     P = build_plan(Path(lab_root), Path(run1_dir), Path(run2_dir), params, analyse, code_digest=code_digest, best_from=best_from, accept_runs=accept_runs,
-                   inherit=inherit)
+                   inherit=inherit, seeds_from=seeds_from, readiness_override=readiness_override)
     fs = g.LabFS(lab_root)
     saved = Path(out) / "plan.json"
     if saved.is_file():
@@ -482,6 +527,7 @@ class Run3Engine(r3.Run3Core):
     def __init__(self, cfg: cs.SearchConfig, env: Any, P: Mapping[str, Any], params: Params3, *, text_replay: Optional[rx.TextReplayFn] = None):
         super().__init__(cfg, env, P, params)
         self.p3 = params
+        self.readiness_override = self.plan.get("readiness_override")      # owner 2026-11-14: the plan's free-commit override, or None
         X = P["run3"]
         self.selector = rs.Run3Selector(self.archive, params, niches=X["niches"], history=X["history"], cid_dispatches=X["cid_dispatches"],
                                         best_claim=X["best_claim"], history_tails=X["history_tails"], history_windows=X.get("history_windows"))
@@ -516,6 +562,32 @@ class Run3Engine(r3.Run3Core):
         self.archive.keep = keep  # an instance attribute: DeterministicSchedule wraps this one in turn
 
     # -- open -------------------------------------------------------------------------------------------------------------------------------
+
+    def emit_plan_seeds(self) -> None:
+        """Design 6.7: one `new` or `replaced` row per kept seed of the plan (--seeds-from D folders), before any dispatch, with its words,
+        niche and group, so a later night that inherits this folder reads the seeds as its rows (run3_load: niche from the origin)."""
+        for rec in (self.plan.get("run3") or {}).get("d_seeds") or []:
+            if rec["verdict"] not in (cs.NEW, cs.REPLACED):
+                continue
+            c = self.archive.cells[int(rec["cid"])]
+            if c.digest != rec["digest"] or not rl3.is_d_seed(c.origin):
+                raise SearchError(f"refused: seed cell {rec['cid']} is not the plan's (digest {c.digest[:16]} vs {str(rec['digest'])[:16]})")
+            niche = rl3.niche_of_label(rec["niche"])
+            row = {"ev": rec["verdict"], "cid": c.cid, "key": list(c.key), "level": c.level, "tick": c.tick, "lead": c.lead, "slack": self.archive.slack_of(c.tick),
+                   "digest": c.digest, "end_digest": c.end_digest.hex(), "chain": c.chain.hex(), "origin": c.origin, "n": 0, "seen": c.seen,
+                   "replaced": c.replaced, "first_at_level": c.first_level_reach if rec["verdict"] == cs.NEW else False, "utc": g.utc(),
+                   "words_hex": c.words.hex() if c.words is not None else None, "end": None, "niche": rs.niche_label(niche),
+                   "group": rs.glabel(self.selector.gkey_of(c, niche))}
+            prev = rec.get("previous")
+            if prev:
+                row["previous"] = dict(prev)
+                if prev.get("niche") is not None and prev["niche"] != row["niche"]:
+                    row["moved_from"] = rs.glabel((c.level, int(c.key[3]), prev["niche"]))
+            with self._lock:
+                self.fs.append_jsonl(self.dir / "cells.jsonl", row)
+        n = (self.plan.get("run3") or {}).get("d_seed_counts")
+        if n:
+            self.log(f"seeds from D folders written at the open: {json.dumps(n)} (set {str((self.plan.get('run3') or {}).get('d_seed_set_digest'))[:16]})")
 
     def anchor_phase(self) -> None:
         """The best verified clear of runs 1 + 2 replayed once from tick 0 in a fresh process with the verify flags: it must reproduce exactly."""
@@ -749,6 +821,9 @@ class Run3Engine(r3.Run3Core):
         rec["run3"]["selection"] = {"contract": rs.SELECT_CONTRACT, "params": self.p3.as_dict(), "rules": SELECTION_RULES, "start": self.plan["run3"]["start"],
                                     "demoted_at_start": self.plan["run3"]["demoted"], "anchors_at_start": self.plan["run3"]["anchors"],
                                     "history": self.plan["run3"]["history"], "niche_stats": self.plan["run3"]["niche_stats"], "det_lag": getattr(self, "det_lag", None)}
+        rec["readiness_override"] = self.readiness_use
+        rec["run3"]["d_seeds"] = {"sources": (self.plan["run3"].get("seeds_from") or []), "counts": self.plan["run3"].get("d_seed_counts"),
+                                  "set_digest": self.plan["run3"].get("d_seed_set_digest"), "rule": self.plan["run3"].get("d_seed_rule")}
         rec["origins"]["selection"] = "tools/frs/run3_select.py (DECISIVE 1-4b; SESSION_LOG_2026-11-04.md section 16)"
         rec["origins"]["archive"] = "runs 1 + 2 cells.jsonl merged: the last row per cell id (tools/frs/run3_load.py)"
         rec["origins"]["e7"] = "the registered rule on the best VERIFIED clear of runs 1 + 2 and the registered margin; fixed for the run"
@@ -764,8 +839,18 @@ class Run3Engine(r3.Run3Core):
                           "best_unconfirmed": {k: v for k, v in self.best.items() if k != "words"} if self.claims_frozen else None,
                           "faster_than_start": 0 if self.claims_frozen else sum(1 for v in verified if int(v["completion_input_tick"]) < int(self.best_start["completion_input_tick"])),
                           "selection": self.selector.summary(), "start": self.plan["run3"]["start"], "plateau": self.plateau(), "niche_live": dict(self.niche_live),
-                          "exports": list(self.exports), "text_replays": list(self.text_replays), "hourly_records": list(self.hourly)})
+                          "exports": list(self.exports), "text_replays": list(self.text_replays), "hourly_records": list(self.hourly),
+                          "readiness_override": self.readiness_use, "d_seeds": self.d_seed_summary()})
         return s
+
+    def d_seed_summary(self) -> Dict[str, Any]:
+        """The seeds from D folders (design 6.7): counts at the plan, and how many of their cell ids were dispatched and fused-checked."""
+        recs = [r for r in (self.plan.get("run3") or {}).get("d_seeds") or [] if r["verdict"] in (cs.NEW, cs.REPLACED)]
+        cells = [self.archive.cells[int(r["cid"])] for r in recs]
+        own = [c for c, r in zip(cells, recs) if c.digest == r["digest"]]
+        return {"counts": (self.plan.get("run3") or {}).get("d_seed_counts"), "sources": [x.get("dir") for x in (self.plan.get("run3") or {}).get("seeds_from") or []],
+                "kept": len(recs), "still_the_seed": len(own), "dispatched": sum(1 for c in own if c.dispatched), "end_record_stored": sum(1 for c in own if c.verified),
+                "quarantined": sum(1 for c in own if c.quarantined), "replaced_since": len(recs) - len(own)}
 
     def write_summary(self) -> Dict[str, Any]:
         if not self._final_record and self.selector.n_ingested:
@@ -912,6 +997,15 @@ def _status_lines(s: Mapping[str, Any]) -> List[str]:
             else f"(the start's, {b0.get('source')}): no faster clear verified in this run."), ""]
     cl = (s.get("run2") or {}).get("claims") or {}
     L.append(f"Claims: {_f(cl.get('claimed'))} claimed, {_f(cl.get('replayed'))} replayed (faster than the best), {_f(cl.get('not_replayed'))} not replayed.")
+    ov = r3s.get("readiness_override")
+    if ov:
+        L += ["", f"Readiness: owner override (free commit >= {ov['min_commit_free_mb']} MB instead of the registered {ov['registered_min_commit_free_mb']} MB), "
+                  f"applied {ov.get('applied')}, free commit at the open {_f(ov.get('commit_free_mb'))} MB; reason: {ov.get('reason')}."]
+    sd = r3s.get("d_seeds") or {}
+    if sd.get("sources"):
+        L += ["", f"Seeds from D folders (design 6.7): {json.dumps(sd.get('counts'))} from {[Path(str(x)).name for x in sd['sources']]}; kept {sd.get('kept')}, "
+                  f"still the seed at the close {sd.get('still_the_seed')}, dispatched {sd.get('dispatched')}, end record stored {sd.get('end_record_stored')}, "
+                  f"quarantined {sd.get('quarantined')}."]
     return L
 
 
@@ -977,15 +1071,21 @@ def params_from_args(a: argparse.Namespace) -> Params3:
     return p
 
 
-def plan_flag_problems(saved_plan: Mapping[str, Any], best_from: Sequence[Path], accept_runs: Sequence[Path], inherit: Sequence[Path] = ()) -> Optional[str]:
-    """`run` takes exactly the --best-from and --accept-run folders its saved plan records (owner 2026-11-06: admitting a run that did not
-    stop cleanly is a plan decision, so a flag given only at `run` is refused, and so is one dropped there)."""
+def plan_flag_problems(saved_plan: Mapping[str, Any], best_from: Sequence[Path], accept_runs: Sequence[Path], inherit: Sequence[Path] = (),
+                       seeds_from: Sequence[Path] = (), readiness_override: Optional[Mapping[str, Any]] = None) -> Optional[str]:
+    """`run` takes exactly the --best-from, --accept-run, --inherit and --seeds-from folders and the readiness override its saved plan records
+    (owner 2026-11-06: admitting a run that did not stop cleanly is a plan decision, so a flag given only at `run` is refused, and so is one
+    dropped there; owner 2026-11-14: the same for the D seeds and the override)."""
     r3p = saved_plan.get("run3") or {}
     pairs = (("--best-from", best_from, [X.get("dir") for X in r3p.get("best_from") or []]), ("--accept-run", accept_runs, list(r3p.get("accept_runs") or [])),
-             ("--inherit", inherit, [X.get("dir") for X in r3p.get("inherit") or []]))
+             ("--inherit", inherit, [X.get("dir") for X in r3p.get("inherit") or []]),
+             ("--seeds-from", seeds_from, [X.get("dir") for X in r3p.get("seeds_from") or []]))
     for flag, given, planned in pairs:
         if [g.norm(Path(x)) for x in given] != [g.norm(Path(str(x))) for x in planned]:
             return f"{flag} {[str(x) for x in given]} differs from the saved plan's {[str(x) for x in planned]}: plan again with the same flags"
+    if saved_plan.get("readiness_override") != (None if readiness_override is None else dict(readiness_override)):
+        return (f"the readiness override {readiness_override} differs from the saved plan's {saved_plan.get('readiness_override')}: "
+                "plan again with the same --min-commit-free-mb and --override-reason")
     return None
 
 
@@ -995,13 +1095,21 @@ def run_command(lab_root: Path, run1: Path, run2: Path, out: Path, a: argparse.N
             f"--summary-every-s {a.summary_every_s:g}" + (f" --max-dispatches {a.max_dispatches}" if a.max_dispatches else "")
             + (f" --level-weights {a.level_weights}" if a.level_weights else "")
             + "".join(f" --best-from {Path(x).as_posix()}" for x in a.best_from) + "".join(f" --accept-run {Path(x).as_posix()}" for x in a.accept_run)
-            + "".join(f" --inherit {Path(x).as_posix()}" for x in a.inherit))
+            + "".join(f" --inherit {Path(x).as_posix()}" for x in a.inherit) + "".join(f" --seeds-from {Path(x).as_posix()}" for x in a.seeds_from)
+            + (f" --min-commit-free-mb {a.min_commit_free_mb} --override-reason \"{a.override_reason}\"" if a.min_commit_free_mb is not None else ""))
 
 
 def cmd_plan(lab_root: Path, run1: Path, run2: Path, out: Path, a: argparse.Namespace) -> int:
     params = params_from_args(a)
-    P = plan_and_write(lab_root, run1, run2, out, params, best_from=a.best_from, accept_runs=a.accept_run, inherit=a.inherit)
+    P = plan_and_write(lab_root, run1, run2, out, params, best_from=a.best_from, accept_runs=a.accept_run, inherit=a.inherit, seeds_from=a.seeds_from,
+                       readiness_override=r3.readiness_override_record(a.min_commit_free_mb, a.override_reason))
     p = P["plan"]
+    if p.get("readiness_override"):
+        print("readiness override (owner):", json.dumps(p["readiness_override"]))
+    if p["run3"].get("seeds_from"):
+        print("seeds from D folders:", json.dumps({"counts": p["run3"]["d_seed_counts"], "set": p["run3"]["d_seed_set_digest"],
+                                                     "sources": [{k: X[k] for k in ("dir", "status", "candidates", "per_level", "m1")} for X in p["run3"]["seeds_from"]]},
+                                                    default=str))
     print(json.dumps({k: p[k] for k in ("e7", "best", "archive_set_digest")}, separators=(",", ":"), default=str))
     print(json.dumps({"params": p["params"], "arm": p["arm"]}, separators=(",", ":"), default=str))
     for lv, d in p["archive"]["per_level"].items():
@@ -1032,12 +1140,16 @@ def cmd_run(lab_root: Path, run1: Path, run2: Path, out: Path, a: argparse.Names
         return 2
     params = params_from_args(a)
     old = json.loads(saved.read_text(encoding="utf-8"))
-    bad = plan_flag_problems(old, a.best_from, a.accept_run, a.inherit)
+    ov = r3.readiness_override_record(a.min_commit_free_mb, a.override_reason)
+    bad = plan_flag_problems(old, a.best_from, a.accept_run, a.inherit, seeds_from=a.seeds_from, readiness_override=ov)
     if bad:
         print(f"refused: {bad}")
         return 2
     P = plan_via_child(lab_root, run1, run2, out, params, code_digest=old.get("run3", {}).get("code_digest"), best_from=a.best_from,
-                       accept_runs=a.accept_run, inherit=a.inherit)
+                       accept_runs=a.accept_run, inherit=a.inherit, seeds_from=a.seeds_from, readiness_override=ov)
+    if old.get("run3", {}).get("d_seed_set_digest") != P["plan"]["run3"].get("d_seed_set_digest"):
+        print("refused: the seeds from D folders differ from the saved plan's")
+        return 2
     if old.get("archive_set_digest") != P["plan"]["archive_set_digest"]:
         print("refused: the archive set differs from the saved plan")
         return 2
@@ -1066,8 +1178,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--lab-root", default=str(g.DEFAULT_LAB_ROOT))
     ap.add_argument("--run1", required=True, help="run 1's output folder")
     ap.add_argument("--run2", required=True, help="run 2's output folder (planned on --run1)")
-    ap.add_argument("--best-from", action="append", default=[], help="a clean run 3 folder whose verified clears join the best and the bound "
-                                                                     "(its archive is not inherited); repeatable")
+    ap.add_argument("--best-from", action="append", default=[], help="a clean run 3 folder, or an admitted D folder (design 6.7), whose verified "
+                                                                     "clears join the best and the bound (its archive is not inherited); repeatable")
+    ap.add_argument("--seeds-from", action="append", default=[], help="an admitted D folder (owner 2026-11-14, design 6.7): its level-6-or-deeper "
+                                                                      "lineages inside the bound enter the archive by the keep rule; repeatable")
+    ap.add_argument("--min-commit-free-mb", type=int, default=None, help="owner override: the free-commit minimum for this folder (with "
+                                                                         "--override-reason; given to plan and run; only free commit is lowered)")
+    ap.add_argument("--override-reason", default="", help="the owner's reason for --min-commit-free-mb (recorded)")
     ap.add_argument("--accept-run", action="append", default=[], help="the owner's decision to admit a run 3 folder that did not stop cleanly "
                                                                       "(CLAIMS_FROZEN, SEARCH_INVALID ...) as a --best-from source or an end-record source; repeatable")
     ap.add_argument("--inherit", action="append", default=[], help="a run 3 folder whose archive, end records and history this run continues "
@@ -1097,7 +1214,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         a.best_from = [g.validate_run_dir(Path(x), lab) for x in a.best_from]
         a.accept_run = [g.validate_run_dir(Path(x), lab) for x in a.accept_run]
         a.inherit = [g.validate_run_dir(Path(x), lab) for x in a.inherit]
+        a.seeds_from = [g.validate_run_dir(Path(x), lab) for x in a.seeds_from]
     except g.LabRootError as exc:
+        raise SystemExit(str(exc))
+    try:
+        r3.readiness_override_record(a.min_commit_free_mb, a.override_reason)
+    except SearchError as exc:
         raise SystemExit(str(exc))
     for d in (run1, run2):
         if g.norm(out) == g.norm(d) or g.under(g.norm(out), g.norm(d)):

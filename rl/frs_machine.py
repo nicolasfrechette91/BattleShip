@@ -91,9 +91,46 @@ def main_private_mb() -> Optional[float]:
     return pmc.PrivateUsage / 2 ** 20
 
 
+def guarded_tree(root: int, parent_of: Mapping[int, int], created: Callable[[int], Optional[int]]) -> List[int]:
+    """The root and its descendants by parent PID, a child kept only if created(child) is known and >= created(parent) (fix B, owner
+    2026-11-14; the rule of D's fix A, tools/frs/order_search.guarded_tree). An orphan keeps its dead parent's PID and Windows reuses PIDs,
+    so the bare parent-PID walk adopted csrss, wininit and their whole subtree whenever a process of the run was given that PID (session
+    log 20.5). The root is always in the list; when its own creation time is unknown nothing is adopted under it."""
+    children: Dict[int, List[int]] = {}
+    for pid, ppid in parent_of.items():
+        if pid != ppid:
+            children.setdefault(int(ppid), []).append(int(pid))
+    times: Dict[int, Optional[int]] = {}
+
+    def t(pid: int) -> Optional[int]:
+        if pid not in times:
+            times[pid] = created(pid)
+        return times[pid]
+
+    tree: List[int] = []
+    seen = set()
+    stack = [int(root)]
+    while stack:
+        p = stack.pop()
+        if p in seen:
+            continue
+        seen.add(p)
+        tree.append(p)
+        tp = t(p)
+        if tp is None:
+            continue
+        for c in children.get(p, []):
+            if c not in seen:
+                tc = t(c)
+                if tc is not None and tc >= tp:
+                    stack.append(c)
+    return tree
+
+
 def tree_snapshot(root_pid: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """Private bytes and working set of this process and every descendant (workers, BattleShip, standbys), the BattleShip count among them,
-    and the system available memory / free commit. None off Windows or on failure."""
+    and the system available memory / free commit. Descendants by parent PID, guarded by creation time (guarded_tree, fix B). None off
+    Windows or on failure."""
     if os.name != "nt":
         return None
     try:
@@ -108,6 +145,7 @@ def tree_snapshot(root_pid: Optional[int] = None) -> Optional[Dict[str, Any]]:
         k32 = _k32()
         k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PE)]
         k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PE)]
+        k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
         snap = k32.CreateToolhelp32Snapshot(0x2, 0)
         if snap in (None, wintypes.HANDLE(-1).value, -1):
             return None
@@ -123,18 +161,20 @@ def tree_snapshot(root_pid: Optional[int] = None) -> Optional[Dict[str, Any]]:
                 ok = k32.Process32NextW(snap, ctypes.byref(pe))
         finally:
             k32.CloseHandle(snap)
+        def created(pid: int) -> Optional[int]:
+            h = k32.OpenProcess(0x1000, False, pid)
+            if not h:
+                return None
+            try:
+                ft = [wintypes.FILETIME() for _ in range(4)]
+                if not k32.GetProcessTimes(h, *[ctypes.byref(x) for x in ft]):
+                    return None
+                return (int(ft[0].dwHighDateTime) << 32) | int(ft[0].dwLowDateTime)
+            finally:
+                k32.CloseHandle(h)
+
         root = int(root_pid if root_pid is not None else os.getpid())
-        children: Dict[int, List[int]] = {}
-        for pid, ppid in parent_of.items():
-            if pid != ppid:
-                children.setdefault(ppid, []).append(pid)
-        tree, stack = [], [root]
-        while stack:
-            p = stack.pop()
-            if p in tree:
-                continue
-            tree.append(p)
-            stack.extend(children.get(p, []))
+        tree = guarded_tree(root, parent_of, created)
         priv = ws = 0.0
         main = 0.0
         for pid in tree:

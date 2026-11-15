@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence, Set
+from typing import Any, Dict, Mapping, Optional, Sequence, Set, Tuple
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -60,6 +60,36 @@ RUN3_CORE_CONTRACT = "frs_run3_core_v1"
 KEY_FAMILY = "crossing3"
 END_RECORD_EV = "end_record"
 SearchError, Refused = cs.SearchError, cs.Refused
+
+
+# -- the owner's free-commit override (ported from D, tools/frs/order_search.py; owner 2026-11-14, design 6.7, answer 10) ----------------------
+
+
+def readiness_override_record(min_commit_free_mb: Optional[int], reason: str) -> Optional[Dict[str, Any]]:
+    """The owner's explicit free-commit override (--min-commit-free-mb with --override-reason), or None: the registered rule, unchanged."""
+    reason = str(reason or "").strip()
+    if min_commit_free_mb is None and not reason:
+        return None
+    if min_commit_free_mb is None or not reason:
+        raise SearchError("refused: --min-commit-free-mb and --override-reason go together (an owner override names its reason)")
+    reg = int(fm.READINESS["min_commit_free_mb"])
+    if not 0 < int(min_commit_free_mb) < reg:
+        raise SearchError(f"refused: --min-commit-free-mb is between 1 and the registered {reg} MB")
+    return {"min_commit_free_mb": int(min_commit_free_mb), "reason": reason, "registered_min_commit_free_mb": reg,
+            "scope": "owner override for this folder only; only the free-commit minimum is lowered; any other readiness problem refuses"}
+
+
+def readiness_verdict(ready: Mapping[str, Any], override: Optional[Mapping[str, Any]]) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    """(admitted, the override's use or None). Without an override, the registered rule. With one, a refusal is admitted only when every
+    problem is the free-commit minimum and free commit is at least the override's value."""
+    if ready.get("ok"):
+        return True, (None if override is None else dict(override, applied=False))
+    if override is None:
+        return False, None
+    probs = [str(p) for p in ready.get("problems") or []]
+    free = (ready.get("memory") or {}).get("commit_free_mb")
+    ok = bool(probs) and all(p.startswith("free commit ") for p in probs) and free is not None and float(free) >= float(override["min_commit_free_mb"])
+    return ok, dict(override, applied=ok, registered_problems=probs, commit_free_mb=free)
 
 
 class Run3Archive(r2.ResumeArchive):
@@ -111,6 +141,9 @@ def adopt_archive(archive: r2.ResumeArchive) -> Run3Archive:
 class Run3Core(r2.ResumeSearch):
     """Run 2's engine without native checks, with fused first dispatches and end records (see the module docstring)."""
 
+    readiness_override: Optional[Dict[str, Any]] = None     # the plan's owner override (crossing_search_run3 sets it); None = the registered rule
+    readiness_use: Optional[Dict[str, Any]] = None          # how the open used it (recorded in config.json and the summary)
+
     def __init__(self, cfg: cs.SearchConfig, env: Any, P: Mapping[str, Any], params: r2.Params2):
         super().__init__(cfg, env, P, params)
         self.archive = adopt_archive(self.archive)
@@ -137,8 +170,10 @@ class Run3Core(r2.ResumeSearch):
         if self.dir.exists():
             raise Refused(f"{self.dir} exists (a run folder is never overwritten)")
         ready = env.readiness()
-        if not ready["ok"]:
-            raise Refused(f"readiness: {ready['problems']}")
+        admitted, self.readiness_use = readiness_verdict(ready, self.readiness_override)
+        if not admitted:
+            raise Refused(f"readiness: {ready['problems']}" + ("" if self.readiness_override is None else
+                                                               f" (the owner override, free commit >= {self.readiness_override['min_commit_free_mb']} MB, does not admit it)"))
         pids = env.battleship_pids()
         if pids is None or pids:
             raise Refused(f"BattleShip processes already running (or unreadable): {pids}")
@@ -160,6 +195,11 @@ class Run3Core(r2.ResumeSearch):
                           f"({len(self.run3_code)} files; the tree is not the planned one)")
         self.fs.mkdir(self.dir)
         self.fs.write_json(self.dir / "config.json", self.config_record(ready))
+        if self.readiness_use and self.readiness_use.get("applied"):
+            self.event(f"READINESS OVERRIDE (owner): free commit {self.readiness_use['commit_free_mb']:.0f} MB admitted at >= "
+                       f"{self.readiness_use['min_commit_free_mb']} MB (registered {self.readiness_use['registered_min_commit_free_mb']} MB); "
+                       f"reason: {self.readiness_use['reason']}")
+        self.emit_plan_seeds()
         self.sampler = fm.Sampler(lambda r: self.fs.append_jsonl(self.dir / "memory.jsonl", r), interval=env.sample_s, row_every=env.row_every_s,
                                   caps=env.caps or fm.CAPS_MB, soft=env.soft, snapshot=env.snapshot, now=env.now,
                                   extra=lambda: {"cells": len(self.archive.cells), "phase": self.phase, "dispatches": self.c["dispatches"], "jobs": self.c["jobs"],
@@ -202,6 +242,11 @@ class Run3Core(r2.ResumeSearch):
                  f"{json.dumps({lv: d['eligible'] for lv, d in pl.items()})}, without an end record {self.archive.end_pending():,}; E7 bound {self.bound}; "
                  f"params {self.p.as_dict()}; arm {cs.ARM_NAME} {self.arm}")
         self.write_progress()
+
+    def emit_plan_seeds(self) -> None:
+        """The plan's seeds from D folders (crossing_search_run3, `--seeds-from`), written to cells.jsonl before any dispatch so a later night
+        that inherits this folder reads them as its rows. None in the core."""
+        return None
 
     # -- dispatch ---------------------------------------------------------------------------------------------------------------------------
 
