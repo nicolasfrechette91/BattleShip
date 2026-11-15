@@ -2172,3 +2172,89 @@ exploitation draws, static archive): current split L9 17,808 draws (39 cells: me
     - 480 min, `--max-ticks 80000000`, `--summary-every-s 3600`;
     - inherits run3, run3b, run3c_smoke2, run3c, run3d_smoke; both D folders as `--seeds-from` and `--best-from`;
     - the override 7,000 MB with the same reason; launch through WMI.
+
+### 20.15 Frontier night run3d: `crossing_2026-11-14_run3d` (2026-11-14 22:23 to 2026-11-15 06:20 local): best 902, no D-lineage break
+
+- **Launch** (as planned in 20.14): readiness 7,305 MB, then 7,065 MB (free commit the only problem, under 8,000, so **4 workers**).
+  - The first WMI launch (22:08) was **refused at the open**: free commit 6,907 MB < 7,000. The run's main process loads the plan and
+    archive (about 500 MB) before the open's readiness check. Nothing ran.
+  - The retry at 22:23:33 (readiness 7,163 MB) passed the open at 7,431 MB, with the override applied.
+- **Open (17 s):** the reference replayed exactly (1,885 / 1,884) and so did the start's best (907 / 906, run3c); bound 882.
+  - 47,599 inherited cells, eligible 94 / 786 / 6,323 / 10,247 at levels 9 to 6.
+  - Seeds: all 47 later (the smoke holds them).
+- **Stop: WALL_CAP, exit 0** at 06:19:33 (search 28,482 s, close 39 s).
+  - Console last line `run exit=0 end ... 6:20:15.15`; no BattleShip.exe or python left, lab lock released.
+- **Work:** 44,548 dispatches (5,630 per hour), 35,974,216 ticks (prefix 30,193,055, burst 5,774,757), 13,624 falls, 21 claimed clears.
+- **Integrity: clean.**
+  - 0 prefix mismatches, 0 tick-0 inequalities, 0 lifecycle failures, 0 aborted dispatches;
+  - reference ok; run 3 digest `e9dad437` and lab digest `2074e288` at the open and the close;
+  - 44 fused dispatches, all ok (0 mismatch), 44 end records stored;
+  - no guard violation, no memory breach.
+- **New best verified clear: 902 / 901**, after a 904 / 903 earlier in the night. Both are from group `9|2|326:2-6-8`, the incumbent
+  order family, and **not** from a D lineage. Both replays agree (chains, clocks, breaks), both native text replays are equal, and the
+  `.btt.txt` + `.bk2` exports round-trip.
+
+  | best | found | dispatch | cell | from level 9 at | stream |
+  | --- | --- | --- | --- | --- | --- |
+  | 904 / 903 | 01:42, 3.3 h | 18,103 | 8593 | 865 | rank |
+  | 902 / 901 | 03:35, 5.2 h | 28,951 | 9711 | 882 | rank |
+
+  - The 902 breaks 4@29 0@80 5@167 7@184 9@305 3@461 2@530 **6@804 8@861 1@902**: the 929 / 907 order 4-0-5-7-9-3-2-6-8-1, faster on
+    the last three.
+  - Claims: 21 in all (19 from `9|2|326:2-6-8`, 2 from `8|258|326:2-6`). The 904 and the 902 were replayed; the other 19 were slower
+    than the best at the time (905 x2, 906, 910, 914, 931 ... 1,093).
+  - The summary labels the in-run best's source `run2`: run 2's engine label for a best found by this run (cosmetic).
+- **The key signal: no D-seeded lineage broke any target.**
+  - 2,232 D-group dispatches (1,122 for `0-3-9-4-5-7`, 1,110 for `9-0-4-3-5-7`), all 1 or 2 segments from 351 to 583: 0 breaks,
+    0 falls, no level-7 reach at any tick.
+  - They kept 821 cells, all at level 6 and all replacements (ticks 409 to 583): faster representatives of existing level-6 keys.
+  - D's earliest stays level 6 at 351 / 353. The frontier's own: level 7 at 493 (unchanged, `7|322|322:`), level 8 798 -> **779**
+    (`8|258|326:2-6`, hour 2), level 9 856 -> 855 -> **854** (`9|2|326:2-6-8`, hours 5 and 6).
+- **D groups per hourly period** (dispatches / share of the period / cells in the group):
+
+  | hour | 1 | 2 | 3 | 4 | 5 | 6 | 7 | close |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | `0-3-9-4-5-7` | 219 / 4.2 % / 248 | 234 / 4.2 % / 276 | 274 / 4.8 % / 303 | 242 / 4.2 % / 315 | 45 / 0.8 % / 313 | 37 / 0.7 % / 314 | 36 / 0.6 % / 314 | 35 / 0.7 % / 315 |
+  | `9-0-4-3-5-7` | 192 / 3.7 % / 39 | 234 / 4.2 % / 40 | 245 / 4.3 % / 40 | 230 / 4.0 % / 29 | 95 / 1.7 % / 31 | 48 / 0.8 % / 31 | 36 / 0.6 % / 30 | 30 / 0.6 % / 29 |
+
+  - **Demotion** (the zero-break rule: 1,000 dispatches with no break and no e):
+    - `0-3-9-4-5-7` at dispatch 22,760 (02:30, 4.1 h);
+    - `9-0-4-3-5-7` at dispatch 24,945 (02:53, 4.5 h).
+  - Total 2,232, against the projection's 2,068 with demotion (20.14); throughput was higher than projected.
+- **Frontier groups:**
+  - Level split per period: 6 about 55 %, 7 about 25 %, 8 about 12 %, 9 about 8 %.
+  - New earliest arrivals (Q11 reading: progress) in `7|266|330:6` (859 -> 817), `7|322|326:2` (498 -> 497), `7|322|330:3`
+    (658 -> 656), `7|70|326:8` (863 -> 840), `8|258|326:2-6` (803 -> 779), `8|320|326:2-1` (877 -> 863) and `9|2|326:2-6-8`
+    (856 -> 854).
+  - New groups: `7|74|330:8` (782), `8|10|330:8-6` (806), `9|2|326:2-8-6` (862).
+  - Demotion events: `9|2|326:2-6-8` demoted at dispatch 7,767 and exited at 11,913; `7|70|326:8` demoted at 16,234; `7|74|330:8`
+    exited at 42,990.
+- **Memory:**
+  - Lowest free commit 3,917 MB in the 5-second samples (soft budget minimum 3,072), 4,073 MB in the rows (5.83 h, 8 games); the close's
+    row reads 7,019 MB with 1 process.
+  - Max process count 23 in the 5-second samples, 19 in the rows. No breach.
+- **Anomalies:** 37,099 events in 21,819 bursts, 0 non-finite.
+
+  | class | events |
+  | --- | ---: |
+  | beyond camera bounds | 13,906 |
+  | beyond map bounds (the falls) | 13,624 |
+  | position snap | 5,940 |
+  | pass-through | 2,248 |
+  | corner pass near a vertex | 729 |
+  | freeze unexplained | 587 |
+  | break occluded | 54 |
+  | line crossing | 11 |
+
+- **Leftover worker runtime folders: recurred.** 7 (`workers/*/rt/g2292a1` ... `g2304a1`), all written 00:08:32 to 00:08:48 (1.7 h
+  in), each with 4 small files and an empty `BattleShip.log`.
+  - The memory row of that minute shows 18 processes with 5 games: pilot 2's signature (20.8). The smoke and D night 2 left none.
+  - No run-log event, no lifecycle failure, and the dispatch rate was steady. Cause not established.
+- **Backup** (zero ticks): `D:/BattleShip_lab_backup/2026-11-15_run3d` (the folder plus `logs/crossing_2026-11-14_run3d`).
+  - 73 files, 213,282,340 bytes; 5 empty folders listed.
+  - Python: 73/73 equal, sources unchanged.
+  - Get-FileHash: 73 equal, 0 differ, 0 missing, 0 extra.
+  - The run3d smoke folder is not on D: yet.
+- **Reading:** the frontier keeps improving inside its own order family (907 -> 904 -> 902). D's level-6 states (set 6|326, ticks
+  351 to 583) gave no seventh target in 2,232 random bursts here plus D's own level-6 budget (about 6,400 dispatches over two nights).
+  The test's answer for this budget is no. Nothing was launched after this close.
