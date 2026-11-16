@@ -48,6 +48,7 @@ from replay_episode import (EPISODE_FORMAT, REPO_ROOT, TARGETS_TOTAL_DEFAULT, ar
                             episode_id_of, is_route, recorded_end, recorded_last_tick, recorded_prefix,
                             recorded_profile, recorded_role, recorded_steps, recorded_targets)
 import replay_breaks  # noqa: E402
+from replay_igt import frames_to_igt  # noqa: E402
 import replay_lab  # noqa: E402  the fast-route lab as an extra read-only source (LAB (unregistered))
 from replay_tags import EXTRACTORS, Fact, extractor_for, summary_file_names  # noqa: E402
 from replay_task import UNKNOWN, character_name, task_identity  # noqa: E402
@@ -60,7 +61,6 @@ VERDICTS_FILE = LOCAL_DIR / "verdicts.jsonl"
 SOURCES_FILE = LOCAL_DIR / "sources.json"  # added folders: extra read-only roots scanned like runs/ (see "sources")
 VIEWER = Path(__file__).resolve().parent / "replay.py"
 SCHEMA_VERSION = 5  # 5: M9 artifacts (role = labels.phase, end_reason clear, terminal.completion clocks)
-TICKS_PER_SECOND = 60  # native ticks and the game's time_passed are both 1/60 s
 
 # Directory names that never contain episode artifacts in any runs/ layout (per-process game dirs, runtime
 # copies, logs, checkpoints). Pruned for speed; --no-prune walks everything.
@@ -594,21 +594,13 @@ def end_label(r: Dict[str, Any]) -> str:
     return "unknown"
 
 
-def time_seconds(r: Dict[str, Any]) -> Optional[float]:
-    """Completion time for a clear (the game's time_passed), else the end tick, in seconds."""
-    if r.get("end_kind") == "clear" and r.get("completion_time") is not None:
-        return r["completion_time"] / TICKS_PER_SECOND
-    if r.get("last_tick") is not None:
-        return r["last_tick"] / TICKS_PER_SECOND
-    return None
-
-
 def time_text(r: Dict[str, Any]) -> str:
-    """'7.43 s' for a clear; '2975 · 49.6 s' (end tick · seconds) otherwise."""
+    """'7.43 s' for a clear (the game's time_passed); '2975 · 49.59 s' (end tick · seconds) otherwise. Seconds are
+    the game timer's (replay_igt.frames_to_igt), from the integer frame count."""
     if r.get("end_kind") == "clear" and r.get("completion_time") is not None:
-        return f"{r['completion_time'] / TICKS_PER_SECOND:.2f} s"
+        return f"{frames_to_igt(r['completion_time'])} s"
     if r.get("last_tick") is not None:
-        return f"{r['last_tick']} · {r['last_tick'] / TICKS_PER_SECOND:.1f} s"
+        return f"{r['last_tick']} · {frames_to_igt(r['last_tick'])} s"
     return "–"
 
 
@@ -672,7 +664,6 @@ def load_rows(db_path: Optional[Path] = None, verdicts_path: Optional[Path] = No
         r["replay_mode"] = v.get("mode") if v else None
         r["character_name"] = character_name(r["character"])
         r["end_label"] = end_label(r)
-        r["time_s"] = time_seconds(r)
         r["time_text"] = time_text(r)
         r["is_test"] = is_test(r)
         mine_breaks = dict(breaks.get(r["episode_id"], {}))

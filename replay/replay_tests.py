@@ -252,7 +252,7 @@ def index_scan_incremental_and_tags() -> None:
         assert rb["tags"] == [] and dict(rb["tag_details"])["crossing"] == "no (no left entry)"
         assert (ru["character"], ru["stage"], ru["character_name"], ru["tags"]) == (None, None, "?", [])
         assert (ra["end_label"], rb["end_label"], rb["time_text"], ra["targets_total"]) == (
-            "fall", "timeout", "3 · 0.1 s", 10)
+            "fall", "timeout", "3 · 0.05 s", 10)
         # filters: character (? = not recorded), tag, and the text search over tags
         base = dict(milestone=None, run=None, role=None, character=None, stage=None, end=None, min_targets=None,
                     max_targets=None, cleared=False, tag=None, replay=None, text=None)
@@ -371,12 +371,53 @@ def another_stage_adds_tags_without_touching_the_index() -> None:
 
 
 @test
+def game_timer_text() -> None:
+    from replay_igt import frames_to_igt
+
+    cases = {899: "14.99", 901: "15.01", 903: "15.05", 906: "15.10", 917: "15.29", 919: "15.31", 920: "15.33",
+             928: "15.47", 977: "16.29", 1244: "20.73", 0: "0.00", 60: "1.00", 6: "0.10", 1: "0.01", 446: "7.43"}
+    for frames, text in cases.items():
+        assert frames_to_igt(frames) == text, (frames, frames_to_igt(frames), text)
+    previous = None
+    for frames in range(0, 7201):
+        text = frames_to_igt(frames)
+        whole, _, frac = text.partition(".")
+        assert len(frac) == 2 and frac[1] in "013579", (frames, text)
+        assert int(whole) == frames // 60 and int(frac[0]) == (frames % 60) // 6, (frames, text)
+        key = (int(whole), int(frac))
+        assert previous is None or key > previous, (frames, text)  # strictly increasing: one text per frame
+        previous = key
+    for bad in (1.0, "899", None, True):
+        try:
+            frames_to_igt(bad)
+        except TypeError:
+            continue
+        raise AssertionError(f"frames_to_igt accepted {bad!r}")
+    try:
+        frames_to_igt(-1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("frames_to_igt accepted -1")
+    # the two display functions use it: a clear's last target and end tick, a non-clear's last target
+    clear = {"targets": 10, "end_kind": "clear", "completion_tick": 900, "completion_time": 899, "last_tick": 899}
+    assert rbk_last_target(clear) == (899, "899 · 14.99 s", "completion") and ri.time_text(clear) == "14.99 s"
+    fall = {"targets": 1, "end_kind": "fall", "completion_tick": None, "completion_time": None, "prefix_rows": None}
+    assert ri.replay_breaks.last_target(fall, {"evaluation": [917]}) == (917, "917 · 15.29 s", "evaluation")
+
+
+def rbk_last_target(r: Dict[str, Any]) -> Any:
+    return ri.replay_breaks.last_target(r, {})
+
+
+@test
 def display_fields() -> None:
     import datetime as dt
 
     clear = {"end_kind": "clear", "completion_time": 446, "last_tick": 446, "end_detail": ""}
-    assert ri.time_text(clear) == "7.43 s" and abs(ri.time_seconds(clear) - 446 / 60) < 1e-9
-    assert ri.time_text({"end_kind": "fall", "completion_time": None, "last_tick": 2975}) == "2975 · 49.6 s"
+    assert ri.time_text(clear) == "7.43 s" and not hasattr(ri, "time_seconds")  # no float seconds anywhere
+    assert ri.time_text(dict(clear, completion_time=899)) == "14.99 s"  # the game's timer, not 899 / 60 rounded
+    assert ri.time_text({"end_kind": "fall", "completion_time": None, "last_tick": 2975}) == "2975 · 49.59 s"
     assert ri.time_text({"end_kind": "unknown", "completion_time": None, "last_tick": None}) == "–"
     labels = {"end_reason=horizon, truncation=max_episode_steps": "timeout",
               "end_reason=horizon, truncation=tick_quota": "timeout",
@@ -881,7 +922,7 @@ def target_break_sources_and_last_target() -> None:
     assert rbk.from_replay(match, "e6")[3] == [3, 9] and rbk.from_replay(dict(match, verdict="DESYNC"), "e6") is None
 
     base = {"targets": 3, "end_kind": "fall", "completion_tick": None, "completion_time": None, "prefix_rows": None}
-    assert rbk.last_target(base, {"evaluation": [10, 20, 3008]}) == (3008, "3008 · 50.1 s", "evaluation")
+    assert rbk.last_target(base, {"evaluation": [10, 20, 3008]}) == (3008, "3008 · 50.13 s", "evaluation")
     assert rbk.last_target(base, {"evaluation": [10, 20]}) == (None, "?", "not recorded")  # count differs
     assert rbk.last_target(base, {"evaluation": [1, 2, 3], "replay": [4, 5, 6]})[2] == "replay"  # replay first
     assert rbk.last_target(base, {"episodes_log": [], "decisions": [7, 8, 9]})[0] == 9
@@ -950,7 +991,7 @@ def browser_filters_sort_and_card() -> None:
             ids = [r["episode_id"] for r in b.view]
             # targets desc, then last-target tick asc (unknown last); tests hidden
             assert ids == [clear.name, left.name, slow.name, unknown.name, old.name], ids
-            assert [r["last_target_text"] for r in b.view[:4]] == ["446 · 7.43 s", "2500 · 41.7 s", "3000 · 50.0 s",
+            assert [r["last_target_text"] for r in b.view[:4]] == ["446 · 7.43 s", "2500 · 41.67 s", "3000 · 50.00 s",
                                                                    "?"]
             assert b.count.get() == "5 of 7 episodes (2 tests hidden)" and not b.stage_box.winfo_manager()
             assert "tags" not in [c[0] for c in rbw.COLUMNS]  # tags stay in the card and the search only
@@ -1074,7 +1115,7 @@ def browser_check_filtered() -> None:
             batch.step("MATCH", [100, 200])
             b._drain()
             r0 = next(r for r in b.rows if str(ri.REPO_ROOT / r["path"]) == str(batch.paths[0]))
-            assert r0["replay"] == "MATCH" and r0["last_target_text"] == "200 · 3.3 s"  # filled in by the replay
+            assert r0["replay"] == "MATCH" and r0["last_target_text"] == "200 · 3.33 s"  # filled in by the replay
             assert "checking 1/3" in b.status.get() and "1 MATCH" in b.status.get()
             batch.step("DESYNC")
             b._drain()
@@ -1217,7 +1258,7 @@ def scan_reports_what_it_does_not_index() -> None:
         ri.scan(root=root, db_path=db, progress=lambda m: None)
         r3 = next(r for r in ri.load_rows(db_path=db, verdicts_path=Path(tmp) / "v.jsonl")
                   if r["episode_id"] == "route_rd3_T_t")
-        assert (r3["end_label"], r3["last_target_text"], r3["last_target_source"]) == ("prefix", "2 · 0.0 s",
+        assert (r3["end_label"], r3["last_target_text"], r3["last_target_source"]) == ("prefix", "2 · 0.03 s",
                                                                                        "route_trace")
 
 
@@ -1372,7 +1413,7 @@ def m9_artifacts_are_runs_with_clears() -> None:
         h = rows["train-0000042"]
         assert (h["role"], h["profile"], h["end_label"], h["cleared"], h["completion_tick"], h["is_test"]) == (
             "train", "train", "timeout", 0, None, False)
-        assert (h["steps"], h["last_tick"], h["prefix_rows"], h["time_text"], h["run"]) == (6, 5, None, "5 · 0.1 s", "s2")
+        assert (h["steps"], h["last_tick"], h["prefix_rows"], h["time_text"], h["run"]) == (6, 5, None, "5 · 0.09 s", "s2")
         f = rows["audit_sticky-2128-03"]
         assert (f["role"], f["profile"], f["end_label"], f["last_tick"], f["targets"]) == ("audit", "audit_sticky",
                                                                                            "fall", 3, 8)

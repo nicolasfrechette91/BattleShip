@@ -31,7 +31,8 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
-TICKS_PER_SECOND = 60
+from replay_igt import frames_to_igt
+
 SUMMARY_FILES = ("evaluation.json", "episodes.jsonl")
 EPISODE_FILES = ("gate_trace.json.gz", "decisions.json.gz", "trace.json.gz")
 PRIORITY = ("replay", "route_trace", "evaluation", "episodes_log", "gate_trace", "decisions")
@@ -130,15 +131,15 @@ def from_replay(verdict: Mapping[str, Any], episode_id: str) -> Optional[Break]:
 
 
 def last_target(r: Mapping[str, Any], sources: Mapping[str, List[int]]) -> Tuple[Optional[int], str, str]:
-    """(consumed tick of the last break or None, text, source). Text: '3008 · 50.1 s', '446 · 7.43 s' for a
-    clear, '–' when no target broke, '?' when unknown."""
+    """(consumed tick of the last break or None, text, source). Text: '3008 · 50.13 s', '446 · 7.43 s' for a
+    clear, '–' when no target broke, '?' when unknown. Seconds are the game timer's (replay_igt.frames_to_igt)."""
     targets = r.get("targets")
     if targets == 0:
         return None, "–", "no target broken"
     if r.get("end_kind") == "clear" and r.get("completion_tick") is not None:
         tick = r["completion_tick"] - 1  # completion_input_tick - 1 = the consumed tick of the final break
-        secs = (r["completion_time"] if r.get("completion_time") is not None else tick) / TICKS_PER_SECOND
-        return tick, f"{tick} · {secs:.2f} s", "completion"
+        frames = r["completion_time"] if r.get("completion_time") is not None else tick
+        return tick, f"{tick} · {frames_to_igt(frames)} s", "completion"
     if targets is None:
         return None, "?", "targets not recorded"
     prefix = r.get("prefix_rows") or 0
@@ -148,5 +149,5 @@ def last_target(r: Mapping[str, Any], sources: Mapping[str, List[int]]) -> Tuple
             continue
         if len(ticks) == targets or (prefix and len(ticks) < targets and min(ticks) >= prefix):
             tick = max(ticks)
-            return tick, f"{tick} · {tick / TICKS_PER_SECOND:.1f} s", s
+            return tick, f"{tick} · {frames_to_igt(tick)} s", s
     return None, "?", "not recorded"

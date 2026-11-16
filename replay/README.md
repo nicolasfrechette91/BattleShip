@@ -17,6 +17,7 @@ libultraship or build change.
 | `replay_task.py` | Character and stage of an episode, from what the run recorded ("?" otherwise) |
 | `replay_tags.py` | Per-stage tag extractors (Mario Break the Targets: left entry, crossing) |
 | `replay_breaks.py` | Recorded per-target break ticks and the "last target" rule |
+| `replay_igt.py` | `frames_to_igt`: frame count to the game timer's seconds (integers only; hundredths digit from the table 0, 1, 3, 5, 7, 9). Every displayed time uses it |
 | `replay_lab.py` | The fast-route lab (`C:\BattleShip_lab`, unregistered) as an extra read-only source: verified clears as rows, their exact words as episodes, the `lab.lock` refusal (see "Fast-route lab clears") |
 | `replay_widgets.py` | Tk pieces shared by the viewer panel and the browser (tooltips, text shortening, colors) |
 | `replay_episode.py` | Artifact loading, expected outcome, per-step tracking, MATCH/DESYNC comparison |
@@ -763,9 +764,10 @@ The ticks are native consumed ticks. The first rule that applies wins:
 
 - **0 targets:** "–".
 - **Clear:** the completion, e.g. "446 · 7.43 s": the consumed tick, and the
-  game's `time_passed` in seconds.
+  game's `time_passed` in seconds, as the game's timer shows them
+  (`replay_igt.frames_to_igt`, not frames / 60 rounded: 899 is "14.99").
 - **A source with one tick per recorded target:** its last tick, e.g.
-  "3008 · 50.1 s".
+  "3008 · 50.13 s".
 - **An M7h/M7m curriculum episode** whose source lists only the policy
   phase (every tick at or after the prefix, fewer ticks than targets): its
   last tick. The missing breaks are the prefix's.
@@ -893,7 +895,7 @@ only; I recommend no theme package (see the note at the end of this section).
   - end: a pill. Clear is green, fall muted red, timeout grey. Goal (M7s
     goal reached) is blue, aborted (aborted or lifecycle failure) amber, and
     prefix (an M8 route that stops at an archive cell) indigo;
-  - last target: "3008 · 50.1 s"; for a clear, the completion ("446 · 7.43 s",
+  - last target: "3008 · 50.13 s"; for a clear, the completion ("446 · 7.43 s",
     green); "–" when no target broke; "?" when unknown (grey);
   - verdict: ✔ MATCH, ✖ DESYNC or · none, from this tool's replays;
   - role, milestone;

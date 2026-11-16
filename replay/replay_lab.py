@@ -280,7 +280,7 @@ def load_clear(trace: os.PathLike | str) -> Episode:
 
 def _row(c: Mapping[str, Any], path: str, verdict: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
     """One browser row (the index's episode columns plus its display fields) for a verified clear."""
-    from replay_index import created_text, end_label, set_last_target, time_seconds, time_text  # it imports us
+    from replay_index import created_text, end_label, set_last_target, time_text  # it imports us
     from replay_task import character_name
 
     n, cid, k = c["n"], c["cid"], c["k"]
@@ -301,7 +301,6 @@ def _row(c: Mapping[str, Any], path: str, verdict: Optional[Mapping[str, Any]]) 
     r["replay_mode"] = verdict.get("mode") if verdict else None
     r["character_name"] = character_name(None)
     r["end_label"] = end_label(r)
-    r["time_s"] = time_seconds(r)
     r["time_text"] = time_text(r)
     r["is_test"] = False
     set_last_target(r, {})
