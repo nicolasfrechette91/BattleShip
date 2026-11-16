@@ -68,8 +68,19 @@ def unit_u1_pace_line() -> Dict[str, Any]:
     want = [120, 168, 216, 264, 312, 360, 408, 456, 504, 552, 600]
     check(list(pace.lines) == want, f"line(L) at G 480, s 120: {pace.lines}")
     check(all(osel.pace_line(L) == want[L] for L in range(11)), "pace_line defaults")
-    for L in range(10):
-        check(pace.keeps(L, want[L]) and not pace.keeps(L, want[L] + 1), f"level {L}: kept at line(L), not at line(L) + 1")
+    for L in range(10):                                  # the arrival rule (order_select_v2): arrival <= line(L), own tick <= line(L + 1)
+        a = want[L] if L > 0 else 0
+        check(pace.keeps(L, want[L + 1], a) and not pace.keeps(L, want[L + 1] + 1, a), f"level {L}: kept until line({L + 1}), not one tick later")
+        if L > 0:
+            check(not pace.keeps(L, want[L] + 1, want[L] + 1) and pace.reason(L, want[L] + 1, want[L] + 1) == ("late_arrival", 1),
+                  f"level {L}: an arrival at line({L}) + 1 is late")
+        check(pace.reason(L, want[L + 1] + 5, a) == ("window_passed", 5) and pace.window_end(L) == want[L + 1], f"level {L}: the window ends at line({L + 1})")
+    check(pace.keeps(6, 456, 351) and not pace.keeps(6, 457, 351) and pace.keeps(6, 456, 408) and not pace.keeps(6, 420, 409),
+          "a level-6 state that arrived at 351 stays until line(7) = 456; an arrival at 409 is not kept")
+    check(pace.keeps(9, 600, 552) and not pace.keeps(9, 601, 552) and pace.window_end(9) == 600, "level 9's limit is the clear line line(10) = 600")
+    check(not pace.keeps(10, 600, 600), "level 10 (a clear) is never a kept state")
+    check(_raises_value(pace.reason, 6, 400, 401) and _raises_value(osel.arrival_tick, [1, 2], 3) and osel.arrival_tick([], 0) == 0
+          and osel.arrival_tick([5, 9, 9], 3) == 9, "an arrival after the state's tick, or a break-tick count that is not the level, is refused")
     check(pace.line(6) == 408, "the gate M1 = line(6) = 408")
     other = osel.Pace(osel.OrderParams(goal=500, slack=90))
     check(list(other.lines) == [(500 * L) // 10 + 90 for L in range(11)], "G and s are parameters")
@@ -89,21 +100,28 @@ def unit_u1_pace_line() -> Dict[str, Any]:
 def unit_u2_rejected_readout() -> Dict[str, Any]:
     pace = osel.Pace(osel.OrderParams())
     rr = pace.rejected
-    check(rr.note(6, 409) == 1, "a reach at line(6) + 1 is rejected at level 6 with distance +1")
-    rr.note(6, 450)
-    rr.note(6, 415)
-    rr.note(3, 400)
-    check(_raises_value(rr.note, 6, 408), "a reach at line(L) is not a rejected reach")
+
+    def rej(level: int, tick: int, arrival: int) -> int:
+        why = pace.reason(level, tick, arrival)
+        assert why is not None
+        return rr.note(level, tick, *why)
+
+    check(rej(6, 457, 351) == 1, "a level-6 state at line(7) + 1 = 457 is rejected (window passed, +1)")
+    check(rej(6, 409, 409) == 1, "a level-6 arrival at line(6) + 1 = 409 is rejected (late arrival, +1)")
+    rej(6, 470, 351)
+    rej(3, 400, 200)
+    check(_raises_value(rr.note, 6, 408, "late_arrival", 0) and _raises_value(rr.note, 6, 500, "pace", 3), "a distance under 1 or an unknown reason is refused")
     night = rr.summary()
-    check(night["6"] == {"count": 3, "earliest_tick": 409, "distance": 1}, f"level 6: count 3, earliest the minimum (409, +1): {night['6']}")
-    check(night["3"] == {"count": 1, "earliest_tick": 400, "distance": 136}, f"level 3: {night['3']}")
+    check(night["6"] == {"count": 3, "earliest_tick": 409, "distance": 1, "reason": "late_arrival", "window_passed": 2, "window_passed_min_distance": 1,
+                         "late_arrival": 1, "late_arrival_min_distance": 1}, f"level 6: count 3, earliest the minimum (409, +1, late): {night['6']}")
+    check(night["3"]["count"] == 1 and night["3"]["earliest_tick"] == 400 and night["3"]["distance"] == 88 and night["3"]["reason"] == "window_passed",
+          f"level 3 (window line(4) = 312): {night['3']}")
     hour = rr.snapshot()
     check(hour == night, "the first period equals the night so far")
-    rr.note(6, 430)
-    check(rr.snapshot() == {"6": {"count": 1, "earliest_tick": 430, "distance": 22}} and rr.summary()["6"]["count"] == 4,
-          "the period resets at each snapshot; the night accumulates")
+    rej(6, 430, 420)
+    check(rr.snapshot()["6"]["count"] == 1 and rr.summary()["6"]["count"] == 4, "the period resets at each snapshot; the night accumulates")
     fresh = osel.Pace(osel.OrderParams())
-    check(all(fresh.keeps(L, t) == pace.keeps(L, t) for L in range(10) for t in (0, 100, 408, 409, 600)),
+    check(all(fresh.keeps(L, t, a) == pace.keeps(L, t, a) for L in range(10) for t in (100, 408, 409, 600) for a in (0, 100, 300) if a <= t),
           "the readout enters no keep rule (the same answers with and without rejected reaches noted)")
     return {"night": rr.summary()}
 
@@ -238,12 +256,27 @@ class FArchive:
         return REPLACED, c
 
 
+class TickArrivals(dict):
+    """The selector's break ticks for the fake archive's cells: a fake cell's arrival is its own (current) tick, so under the arrival rule a
+    fake cell is eligible exactly when its tick <= line(L) (the v1 rule the in-process tests were written for). An explicit entry wins.
+    The engine's own break ticks are tested on the fake game (E3, E7, E8)."""
+
+    def __init__(self, a: "FArchive"):
+        super().__init__()
+        self.a = a
+
+    def __missing__(self, cid: int) -> Tuple[int, ...]:
+        c = self.a.cells[int(cid)]
+        return tuple([int(c.tick)] * int(c.level))
+
+
 class Static:
     """A fixed archive built from orders (target labels in break order) under the single tick-0 root."""
 
     def __init__(self, spec: Sequence[Tuple[Any, ...]] = (), root: bool = True):
         self.a = FArchive()
         self.niches: Dict[int, Any] = {}
+        self.breaks = TickArrivals(self.a)
         self.x = 0
         self.root = self.add((), 0) if root else None
         for item in spec:
@@ -258,7 +291,7 @@ class Static:
         return c
 
     def selector(self, **kw: Any) -> osel.OrderSelector:
-        return osel.OrderSelector(self.a, osel.OrderParams(**kw), niches=self.niches)
+        return osel.OrderSelector(self.a, osel.OrderParams(**kw), niches=self.niches, breaks=self.breaks)
 
 
 class ScriptRng:
@@ -360,8 +393,9 @@ def run_fake(sel: osel.OrderSelector, a: FArchive, game: Game, rng: Any, N: int)
             if lv >= osel.TARGETS_TOTAL:
                 claim = {"completion_input_tick": t, "words_digest": _digest(w)}
                 break
-            if not sel.pace.keeps(lv, t):
-                sel.pace.rejected.note(lv, t)
+            why = sel.pace.reason(lv, t, t if lv else 0)       # the fake's arrival is its tick (TickArrivals)
+            if why is not None:
+                sel.pace.rejected.note(lv, t, *why)
                 continue
             v, cell = a.keep((x, y, res, m, fl), t, w)
             if v in (NEW, REPLACED):
@@ -497,7 +531,7 @@ def unit_u4_cell_draw_is_run3s() -> Dict[str, Any]:
     """Section 3.4: inside an order, the cell draw (anchors, rank draw, staleness) is run 3's, unchanged."""
     s = Static([((0, 1, 2), 100 + 7 * i, "ab"[i % 2]) for i in range(12)], root=False)
     p = osel.OrderParams(breadth_share=0.0)
-    d = osel.OrderSelector(s.a, p, niches=s.niches)
+    d = osel.OrderSelector(s.a, p, niches=s.niches, breaks=s.breaks)
     r3 = rs.Run3Selector(s.a, osel.run3_view(p), niches=s.niches, history={}, cid_dispatches={}, best_claim=None)
     src = random.Random(7)
     streams: Counter = Counter()
@@ -761,17 +795,26 @@ def unit_u8_milestones() -> Dict[str, Any]:
         assert level_of(mask) == level
         return FCell(cid, (0, 0, "a", mask, 0), level, tick, b"", f"d{cid}", b"\x01\x02")
 
+    def ticks(level: int, arrival: int) -> List[int]:
+        return [max(0, arrival - 10 * (level - i)) for i in range(1, level)] + [arrival]
+
     for name, L in osel.MILESTONES:
         line = pace.line(L)
         for high in (False, True):
             ms = osel.Milestones(pace)
-            check(ms.observe_kept(fc(L, line + 1, high=high), 5) == [], f"{name}: not at line({L}) + 1 = {line + 1}")
-            check(ms.observe_kept(fc(L, line, 7, high=high), 6) == [name], f"{name}: met at line({L}) = {line}, in either mask")
+            check(ms.observe_kept(fc(L, line + 30, high=high), 5, ticks(L, line + 1)) == [], f"{name}: not with the L-th break at line({L}) + 1 = {line + 1}")
+            check(ms.observe_kept(fc(L, line + 30, 7, high=high), 6, ticks(L, line)) == [name],
+                  f"{name}: met by a cell at line({L}) + 30 whose L-th break came at line({L}) = {line}, in either mask (the arrival rule)")
+            check(ms.met[name]["tick"] == line and ms.met[name]["cell_tick"] == line + 30, f"{name}: the milestone's tick is the break's: {ms.met[name]}")
     ms = osel.Milestones(pace)
-    check(ms.observe_kept(fc(7, 400), 3) == ["M1", "M2"], "gap E: a level-7 arrival at 400 with no level-6 cell meets M1 and M2")
-    check(ms.observe_kept(fc(6, 300, cid=9), 4) == [] and ms.met["M1"]["cid"] == 1, "recorded once, at the first occurrence")
-    check(ms.met["M1"] == {"milestone": "M1", "level": 6, "line": 408, "arrival_level": 7, "tick": 400, "n": 3, "cid": 1, "digest": "d1", "chain": "0102"},
-          f"with dispatch, cell and lineage digest: {ms.met['M1']}")
+    check(ms.observe_kept(fc(7, 420), 3, ticks(5, 300) + [400, 400]) == ["M1", "M2"],
+          "gap E: a level-7 cell whose 6th and 7th breaks came at 400 (no level-6 cell) meets M1 and M2")
+    check(ms.observe_kept(fc(6, 300, cid=9), 4, ticks(6, 300)) == [] and ms.met["M1"]["cid"] == 1, "recorded once, at the first occurrence")
+    check(ms.met["M1"] == {"milestone": "M1", "level": 6, "line": 408, "arrival_level": 7, "tick": 400, "cell_tick": 420, "n": 3, "cid": 1, "digest": "d1",
+                           "chain": "0102"}, f"with dispatch, cell and lineage digest: {ms.met['M1']}")
+    ms = osel.Milestones(pace)
+    check(ms.observe_kept(fc(7, 450), 1, ticks(5, 300) + [430, 430]) == ["M2"], "a double break at 430: M2 (line 456) but not M1 (line 408)")
+    check(_raises_value(ms.observe_kept, fc(7, 450), 2, [1, 2]), "a cell whose break-tick count is not its level is refused")
     ms = osel.Milestones(pace)
     check(not ms.observe_clear(601, 1, 2, {}) and ms.observe_clear(600, 2, 3, {"words_digest": "w", "final_chain": "ab"})
           and ms.met[osel.CLEAR_LINE]["completion_input_tick"] == 600 and not ms.observe_clear(500, 3, 4, {}), "the clear line: 600, not 601; once")
@@ -900,22 +943,88 @@ def unit_u14_tree_sampler() -> Dict[str, Any]:
     return {"run": len(run), "bare_with_reuse": len(bare), "guarded_with_reuse": len(guarded), "live_processes": (live or {}).get("processes")}
 
 
-def unit_f3_pace_filter() -> Dict[str, Any]:
-    night = object.__new__(O.OrderNight)                 # only the attributes continuation_asof reads
+def unit_cont_window_rule() -> Dict[str, Any]:
+    """The continuation rule (owner 2026-11-16, replaces F3): at a boundary the burst continues while the state there is inside the arrival
+    rule; the main process follows the job's mask through the reaches of every boundary question (one whole segment each)."""
+    night = object.__new__(O.OrderNight)                 # only the attributes window_decision reads
     night.pace = osel.Pace(osel.OrderParams())
-    night._asof = det.AsOfIndex()
-    six = (1, 1, "a", (osel.ROOT_MASK << 6) & osel.ROOT_MASK, 0)
-    three = (2, 1, "a", (osel.ROOT_MASK << 3) & osel.ROOT_MASK, 0)
-    night._asof.record(three, 0, 250, new=True)
-    d = O.OrderNight.continuation_asof(night, [[409, list(six)]], 0)
-    check(not d["go"] and d["outside_line"] == 1 and d["reaches"] == 0, f"a new key behind the line does not continue the burst: {d}")
-    d = O.OrderNight.continuation_asof(night, [[408, list(six)]], 0)
-    check(d["go"] and d["new"] == 1 and d["outside_line"] == 0, f"a new key on the line continues it: {d}")
-    d = O.OrderNight.continuation_asof(night, [[240, list(three)], [265, list(six)]], 0)
-    check(d["go"] and d["shorter"] == 1 and d["max_gain"] == 10, f"a faster arrival inside the line continues it: {d}")
-    d = O.OrderNight.continuation_asof(night, [[265, list(three)]], 0)
-    check(not d["go"] and d["outside_line"] == 1, f"level 3 at 265 is behind line(3) = 264: {d}")
-    return {"line6": night.pace.line(6)}
+    m5, m6, m7 = ((osel.ROOT_MASK << k) & osel.ROOT_MASK for k in (5, 6, 7))
+    p5 = ((50, 0), (90, 1), (130, 2), (200, 3), (240, 4))
+
+    def job() -> Dict[str, Any]:
+        return {"n": 1, "d_pairs0": p5, "d_mask0": m5}
+
+    def ask(info: Dict[str, Any], words: int, reaches: Sequence[Tuple[int, int]], L: int = 250) -> Dict[str, Any]:
+        return O.OrderEngine.window_decision(night, info, {"L": L, "words": words, "reaches": [[j, [j % 7, 0, "A2", m, -1]] for j, m in reaches]})
+
+    a = job()
+    d = ask(a, 120, [(300, m5), (351, m6), (360, m6)])
+    check(d == {"go": True, "level": 6, "arrival": 351, "tick": 370}, f"a 6th break at 351 inside line(6): the state at 370 <= line(7) = 456 goes on: {d}")
+    d = ask(a, 240, [(400, m6)])
+    check(d == {"go": False, "level": 6, "arrival": 351, "tick": 490}, f"the same lineage at 490 > 456 stops (the arrival is remembered): {d}")
+    b = job()
+    check(ask(b, 120, [(260, m5)])["go"] and not ask(b, 240, [])["go"], "no break: level 5 (arrival 240) goes on at 370 <= line(6) = 408, stops at 490")
+    c = job()
+    d = ask(c, 240, [(420, m6)], L=250)
+    check(d["go"] is False and d["arrival"] == 420 and d["level"] == 6, f"a 6th break at 420 > line(6) = 408 is a late arrival: stop: {d}")
+    e = job()
+    d = ask(e, 120, [(330, m7)], L=250)
+    check(d == {"go": True, "level": 7, "arrival": 330, "tick": 370}, f"two targets on one tick: level 7, both breaks at 330: {d}")
+    check(e["d_track"]["pairs"][-2:] == [(330, 5), (330, 6)], f"the followed break pairs: {e['d_track']['pairs']}")
+    f = job()
+    ask(f, 120, [(300, m6)])
+    try:
+        ask(f, 240, [(400, m5)])
+        raise AssertionError("a live target came back and was accepted")
+    except O.SearchError:
+        pass
+    g9 = {"n": 2, "d_pairs0": tuple((10 * (i + 1), i) for i in range(9)), "d_mask0": 1 << 9}
+    check(O.OrderEngine.window_decision(night, g9, {"L": 540, "words": 60, "reaches": []})["go"] and
+          not O.OrderEngine.window_decision(night, {"n": 3, "d_pairs0": g9["d_pairs0"], "d_mask0": 1 << 9}, {"L": 540, "words": 61, "reaches": []})["go"],
+          "level 9: the window ends at the clear line line(10) = 600")
+    return {"line6": night.pace.line(6), "window6": night.pace.window_end(6)}
+
+
+def unit_resume_lineage() -> Dict[str, Any]:
+    """Resume (owner 2026-11-16): a folder row's niche and break pairs from the folder's own lineage (root, burst rows by parent digest and
+    dispatch breaks, resumed rows and rows recording d_breaks); a dispatch whose breaks are not the targets the mask lost is refused."""
+    root = {"cid": 0, "digest": "r", "key": [0, 0, "G", osel.ROOT_MASK, 4], "tick": 0, "level": 0, "origin": {"kind": "root"}}
+    m1 = osel.ROOT_MASK & ~(1 << 4)
+    m3 = m1 & ~(1 << 0) & ~(1 << 9)
+    a = {"cid": 1, "digest": "a", "key": [1, 0, "A2", m1, -1], "tick": 30, "level": 1, "origin": {"kind": "burst", "parent_digest": "r", "n": 1}}
+    b = {"cid": 2, "digest": "b", "key": [2, 0, "A1", m3, -1], "tick": 90, "level": 3, "origin": {"kind": "burst", "parent_digest": "a", "n": 2}}
+    disp = {1: [[16, 4], [70, 0]], 2: [[60, 9], [60, 0], [95, 2]]}
+    lx = O.LineageIndex([root, a, b], disp)
+    na, pa = lx.of(a)
+    nb, pb = lx.of(b)
+    check(rs.niche_label(na) == "1023:4" and pa == ((16, 4),), f"a: one break at 16 (dispatch 1's break at 70 is after its tick 30): {na} {pa}")
+    check(rs.niche_label(nb) == "1023:4-0-9" and pb == ((16, 4), (60, 0), (60, 9)), f"b: the same-tick pair ordered by target label: {nb} {pb}")
+    r = {"cid": 3, "digest": "z", "key": [3, 0, "G", m3, 2], "tick": 120, "level": 3,
+         "origin": {"kind": "resume", "niche": "1023:9-4-0", "d_breaks": [[12, 9], [40, 4], [99, 0]]}}
+    c = {"cid": 4, "digest": "c", "key": [4, 0, "A2", m3 & ~(1 << 2), -1], "tick": 150, "level": 4,
+         "origin": {"kind": "burst", "parent_digest": "z", "n": 3, "d_breaks": [[12, 9], [40, 4], [99, 0], [140, 2]]}}
+    lx2 = O.LineageIndex([r, c], {3: [[140, 2]]})
+    nc, pc = lx2.of(c)
+    check(rs.niche_label(nc) == "1023:9-4-0-2" and pc == ((12, 9), (40, 4), (99, 0), (140, 2)), f"from a resumed row: {nc} {pc}")
+    bad = dict(c, origin=dict(c["origin"], d_breaks=[[12, 9], [40, 4], [99, 0], [141, 2]]))
+    try:
+        O.LineageIndex([r, bad], {3: [[140, 2]]}).of(bad)
+        raise AssertionError("a row whose recorded break ticks disagree with its lineage was accepted")
+    except O.SearchError:
+        pass
+    wrong = dict(b, origin=dict(b["origin"], n=1))
+    try:
+        O.LineageIndex([root, a, wrong], disp).of(wrong)
+        raise AssertionError("a dispatch whose breaks are not the lost targets was accepted")
+    except O.SearchError:
+        pass
+    orphan = dict(b, origin=dict(b["origin"], parent_digest="missing"))
+    try:
+        O.LineageIndex([root, orphan], disp).of(orphan)
+        raise AssertionError("an orphan row was accepted")
+    except O.SearchError:
+        pass
+    return {"b": [rs.niche_label(nb), list(pb)], "c": [rs.niche_label(nc), list(pc)]}
 
 
 # -- fake-game end to end (run 3's fake game; zero native ticks) -----------------------------------------------------------------------------
@@ -1002,7 +1111,7 @@ def order_child(a: Mapping[str, Any]) -> Dict[str, Any]:
             if ev == "open" and args and isinstance(args[0], (str, bytes, os.PathLike)):
                 opened.append(os.fsdecode(args[0]))
         sys.addaudithook(hook)
-    plan = O.plan_and_write(lab, frontier, out, dp, ep)
+    plan = O.plan_and_write(lab, frontier, out, dp, ep, resume=[Path(x) for x in a.get("resume") or []])
     world = a.get("world", "easy")
     flags = dict(E_FLAGS, FAKEGAME_WORLD=world)
     os.environ["FAKEGAME_WORLD"] = world          # this child only: the text replay passes the environment (minus SSB64_*) to the fake game
@@ -1037,7 +1146,7 @@ def order_child(a: Mapping[str, Any]) -> Dict[str, Any]:
     if a.get("code_override"):
         P["order"]["code"] = {"digest": a["code_override"]}
     rc = ENGINES[a.get("engine_class", "night")](cfg, env, P, ep, order_params=dp, text_replay=text, anomaly_build={"exe": "fake", "platform": sys.platform}).run()
-    res = {"code": rc, "violations": g.LabGuard.violations[:3], "plan": {k: plan[k] for k in ("sources", "archive_id", "claim_threshold", "code")}}
+    res = {"code": rc, "violations": g.LabGuard.violations[:3], "plan": {k: plan[k] for k in ("sources", "archive_id", "claim_threshold", "code", "resume", "pace")}}
     if a.get("audit"):
         res["opened"] = sorted(set(opened))
     return res
@@ -1073,6 +1182,7 @@ class DBench:
         if (d / "summary.json").is_file():
             res.update({"summary": json.loads((d / "summary.json").read_text(encoding="utf-8")), "config": json.loads((d / "config.json").read_text(encoding="utf-8")),
                         "root": json.loads((d / "root.json").read_text(encoding="utf-8")) if (d / "root.json").is_file() else None,
+                        "deep": read_jsonl(d / "deep_reaches.jsonl"), "report": (d / "report.md").read_text(encoding="utf-8") if (d / "report.md").is_file() else "",
                         "dispatches": read_jsonl(d / "dispatches.jsonl"), "cells": read_jsonl(d / "cells.jsonl"), "hourly": read_jsonl(d / "hourly.jsonl"),
                         "milestones": read_jsonl(d / "milestones.jsonl"), "mver": read_jsonl(d / "milestone_verifications.jsonl"),
                         "verifications": read_jsonl(d / "verifications.jsonl"), "exports": read_jsonl(d / "exports.jsonl"), "text": read_jsonl(d / "text_replays.jsonl")})
@@ -1151,7 +1261,18 @@ def e2e_e3_pace_budget() -> Dict[str, Any]:
     o = A["summary"]["order"]
     lines = o["plan"]["pace"]["lines"]
     kept = [c for c in A["cells"] if c["ev"] in ("new", "replaced")]
-    check(kept and all(int(c["tick"]) <= int(lines[str(c["level"])]) for c in kept), "no kept cell behind the line")
+
+    def inside(c: Mapping[str, Any]) -> bool:
+        lv = int(c["level"])
+        bt = sorted(int(t) for t, _i in (c["origin"].get("d_breaks") or []))
+        if len(bt) != lv:
+            return False
+        a = bt[-1] if lv else 0
+        return a <= int(lines[str(lv)]) and int(c["tick"]) <= int(lines[str(lv + 1)])
+
+    check(kept and all(inside(c) for c in kept), "every kept cell records its break ticks and is inside the arrival rule (arrival <= line(L), tick <= line(L + 1))")
+    later = [c for c in kept if int(c["level"]) > 0 and int(c["tick"]) > int(lines[str(c["level"])])]
+    check(later, f"some kept cells are past line(L) (kept by the arrival rule only): {len(later)}")
     check(o["rejected_reaches"] > 0 and sum(r["count"] for r in o["rejected"].values()) == o["rejected_reaches"]
           and all(r["distance"] >= 1 for r in o["rejected"].values()), f"the line rejected reaches (report-only): {o['rejected']}")
     streams = Counter(x.get("stream") for x in _bursts(A))
@@ -1227,6 +1348,120 @@ def e2e_e6_exports() -> Dict[str, Any]:
     st = o["selection"]["same_tick"]
     check(st.get("10", {}).get("targets", 0) >= 10, f"ten targets on one tick are a same-tick break at level 10: {st}")
     return {"best": o["best"]["completion_input_tick"], "exports": len(T6["exports"]), "same_tick": st}
+
+
+def _finals(r: Mapping[str, Any]) -> Dict[int, Dict[str, Any]]:
+    out: Dict[int, Dict[str, Any]] = {}
+    for c in r["cells"]:
+        if c.get("ev") in ("new", "replaced"):
+            out[int(c["cid"])] = c
+    return out
+
+
+def e2e_e7_resume() -> Dict[str, Any]:
+    """Resume (owner 2026-11-16): a night resumed from two D folders (A, and B = A's twin by the same seed) inherits A's final
+    representatives through the keep rule (B's are all later), counts and retirement from zero, the folders' root equal to its own; the
+    inherited cells replay their prefixes exactly (no mismatch); no milestone comes from an inherited cell; a tighter line drops cells by
+    the arrival rule at the plan; changed folder files and differing roots are refused."""
+    b = dbench()
+    A, B = b.run("a"), b.run("b")
+    R = b.run("resumed", resume=[str(A["out"]), str(B["out"])], order={"slack": 200}, engine=dict(E_ENGINE, max_dispatches=80, rng_seed=8))
+    s, o = R["summary"], R["summary"]["order"]
+    check(R["code"] == 0 and s["status"] == "DISPATCH_CAP" and not R["violations"], f"a clean resumed night: {R['code']} {s['status']} {s['stop']}")
+    rz = R["plan"]["resume"]
+    fa_ = {k: v for k, v in _finals(A).items() if (v["origin"] or {}).get("kind") != "root"}
+    check(rz["counts"]["candidates"] == 2 * len(fa_) and rz["counts"]["dropped_rule"] == 0, f"every final representative of both folders is a candidate: {rz['counts']}")
+    check(rz["counts"]["inherited"] + rz["counts"]["dropped_later"] + rz["counts"]["replaced_in_resume"] == rz["counts"]["candidates"]
+          and rz["counts"]["dropped_later"] >= len(fa_), f"B's twin cells are all later (equal ticks): {rz['counts']}")
+    res_rows = [c for c in R["cells"] if (c.get("origin") or {}).get("kind") == "resume"]
+    check(len(res_rows) == rz["inserts"] and o["resume"]["open"]["cells"] == rz["counts"]["inherited"] and o["resume"]["root_equal"] is True,
+          f"one cells.jsonl row per insertion, the plan's set, the root equal: {len(res_rows)} {o['resume']}")
+    byd = {(int(c["origin"]["d_cid"]), c["digest"]) for c in res_rows}
+    check(byd <= {(cid, c["digest"]) for cid, c in fa_.items()} and all(c["origin"]["folder"] == str(A["out"]) for c in res_rows),
+          "the inherited representatives are A's final ones (B gives way on equal ticks)")
+    check(all(len(c["origin"]["d_breaks"]) == int(c["level"]) for c in res_rows), "every inherited row carries its break ticks")
+    w = s["work"]
+    inh = {int(c["cid"]) for c in res_rows}
+    from_inh = [x for x in _bursts(R) if int(x["cid"]) in inh]
+    check(w["mismatches"] == 0 and w["tick0_unequal"] == 0 and len(from_inh) >= 10, f"inherited cells dispatched with exact prefixes: {len(from_inh)}, {w['mismatches']}")
+    check(max(int(x["level"]) for x in from_inh) >= max(int(c["level"]) for c in res_rows) - 1, "the inherited deep levels are dispatched from the start")
+    check(all(int(m["n"]) > 0 for m in R["milestones"]), f"no milestone at the open (inherited cells meet none): {[(m['milestone'], m['n']) for m in R['milestones']]}")
+    d0 = (_bursts(R)[0].get("draw") or {})
+    check((d0.get("set_count"), d0.get("order_count")) == (0, 0) if d0.get("stream") in ("rank", "anchor") else d0.get("count") == 0,
+          f"the selector's counts start from zero (the first draw): {d0}")
+    sc = o["scoreboard"]
+    check(sc["levels"] and any(v.get("inherited_best") for v in sc["levels"].values()) and sc["sets_orders"]["open"], "the scoreboard shows the inherited levels")
+    dp = osel.OrderParams(slack=60)
+    P = O.build_plan(b.lab, b.frontier, b.lab / "order_tight_preview", dp, O.engine_params(dp, rng_seed=9), code="preview", resume=[A["out"]])
+    tc = P["resume"]["counts"]
+    check(tc["dropped_rule"] > 0 and tc["inherited"] < rz["counts"]["inherited"], f"a tighter line (s = 60) drops cells by the arrival rule at the plan: {tc}")
+    plan_r = dict(rz, folders=[dict(rz["folders"][0], files_sha256=dict(rz["folders"][0]["files_sha256"], **{"run/cells.jsonl": "0" * 64}))] + rz["folders"][1:])
+    check("changed since the plan" in str(O.resume_check(plan_r, [A["out"], B["out"]])) and "not the plan's" in str(O.resume_check(rz, [B["out"], A["out"]])),
+          "a changed folder file, or the folders in another order, refuses the run")
+    twin = b.lab / "order_root_altered"
+    if not twin.exists():
+        import shutil
+        shutil.copytree(A["out"], twin, ignore=shutil.ignore_patterns("traces", "workers", "milestones", "vw"))
+        rj = json.loads((twin / "run" / "root.json").read_text(encoding="utf-8"))
+        rj["reads"][0]["digest"] = "0" * 64
+        (twin / "run" / "root.json").write_text(json.dumps(rj), encoding="utf-8")
+    try:
+        O.resume_selection([A["out"], twin], osel.Pace(osel.OrderParams()))
+        raise AssertionError("folders with different roots were accepted")
+    except O.SearchError as exc:
+        check("roots differ" in str(exc), str(exc))
+    return {"counts": rz["counts"], "per_level_res": rz["per_level_res"], "inherited_dispatches": len(from_inh), "tight": tc}
+
+
+def e2e_e8_long_bursts() -> Dict[str, Any]:
+    """Longer bursts (owner 2026-11-16): a burst continues at a boundary exactly when the state there is inside the arrival rule, up to
+    max_segments segments; every recorded answer agrees with the job's exact break ticks (cont_mismatches 0)."""
+    b = dbench()
+    A = b.run("a")
+    o = A["summary"]["order"]
+    lines = {int(k): int(v) for k, v in o["plan"]["pace"]["lines"].items()}
+    seg, mx = 120, int(E_ENGINE["max_segments"])
+    check(o["continuation"]["checked"] > 0 and o["continuation"]["mismatches"] == 0, f"every boundary answer recomputed from the exact breaks: {o['continuation']}")
+    longer = 0
+    for x in _bursts(A):
+        cont = x.get("cont") or []
+        gos = [int(e[5]) for e in cont]
+        if x["outcome"] == "out_of_words":
+            check(x["segments"] == min(mx, 1 + sum(gos)) and (not gos or gos[:-1] == [1] * (len(gos) - 1)),
+                  f"dispatch {x['n']}: segments {x['segments']} follow the answers {gos}")
+        for e in cont:
+            lv, arr, tick, go = e[2], e[3], e[4], int(e[5])
+            if lv is None:
+                continue
+            inside = lv < 10 and arr <= lines[lv] and tick <= lines[min(lv + 1, 10)]
+            check(go == int(inside) and tick == int(x["start_tick"]) + seg * int(e[0]), f"dispatch {x['n']} segment {e[0]}: {e}")
+        longer += int(x["words_played"] > seg)
+    check(longer > 0, f"some bursts are longer than one segment: {longer}")
+    check(A["config"]["arm_params"]["window"] == seg, f"D's boundary window is one segment: {A['config']['arm_params']}")
+    return {"longer": longer, "continuation": o["continuation"], "lengths": o["scoreboard"]["burst_lengths"]["all"]}
+
+
+def e2e_e9_scoreboard() -> Dict[str, Any]:
+    """The fixed scoreboard (owner 2026-11-16) is in summary.json and report.md, and its counts agree with the night's own rows."""
+    b = dbench()
+    A = b.run("a")
+    sc = A["summary"]["order"]["scoreboard"]
+    want = {"deepest_level", "levels", "sets_orders", "level6plus_cells", "break_attribution", "dispatches_by_level", "level6_dispatches_by_start_resource_class",
+            "retirements", "deep_reaches", "burst_lengths", "continuation", "m1", "integrity", "lowest_free_commit_mb", "leftover_worker_folders"}
+    check(want <= set(sc) and "error" not in sc, f"every scoreboard field: missing {sorted(want - set(sc))}")
+    n = len(_bursts(A))
+    check(sum(sc["burst_lengths"]["all"].values()) == n and sum(sc["dispatches_by_level"].values()) == n, "burst lengths and dispatches by level count every dispatch")
+    lv6 = [x for x in _bursts(A) if int(x["level"]) == 6]
+    check(sum(sc["level6_dispatches_by_start_resource_class"].values()) == len(lv6), "level-6 dispatches by starting resource class")
+    check(sc["deep_reaches"]["total"] == len(A["deep"]) and all(int(r["level"]) >= 7 for r in A["deep"]), f"deep reaches: {sc['deep_reaches']['total']} rows")
+    brk = sum(len([t for t, _i in (x.get("breaks_after_start") or [])]) for x in _bursts(A))
+    check(sum(d["breaks"] for d in sc["break_attribution"].values()) == brk and all(set(d["hitter"]) == {"unknown (entity off)"} for d in sc["break_attribution"].values()),
+          f"every burst break attributed per level (hitter unknown, entity off): {brk}")
+    m1 = sc["m1"]
+    check(m1["official"]["line"] == 408 and m1["reference"]["line"] == 408 and m1["official"]["met"], f"M1 at both lines: {m1}")
+    check(sc["integrity"]["mismatches"] == 0 and sc["leftover_worker_folders"] == [] and sc["lowest_free_commit_mb"] is not None, f"integrity: {sc['integrity']}")
+    check("## Scoreboard" in A["report"], "report.md carries the scoreboard")
+    return {k: sc[k] for k in ("deepest_level", "dispatches_by_level", "deep_reaches", "m1")}
 
 
 def e2e_u11_isolation() -> Dict[str, Any]:
@@ -1326,10 +1561,10 @@ def real_frontier_best() -> Dict[str, Any]:
 UNIT = {f.__name__: f for f in (unit_u1_pace_line, unit_u2_rejected_readout, unit_u2_group_move, unit_u3_root_and_niches, unit_u4_set_then_order,
                                 unit_u4_ties, unit_u4_cell_draw_is_run3s, unit_u5_newcomers, unit_u6_level_weights, unit_u7_retirement,
                                 unit_u7_stale_clear_fallback, unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_root_differences,
-                                unit_u14_tree_sampler, unit_f3_pace_filter, unit_tm1_run3_digest)}
+                                unit_u14_tree_sampler, unit_cont_window_rule, unit_resume_lineage, unit_tm1_run3_digest)}
 
 E2E = {f.__name__: f for f in (e2e_e1_same_seed, e2e_e2_root, e2e_e3_pace_budget, e2e_e4_milestone, e2e_e5_caps_stops, e2e_e6_exports,
-                               e2e_u11_isolation, e2e_u13_no_human_input, e2e_tm2_code_digest)}
+                               e2e_e7_resume, e2e_e8_long_bursts, e2e_e9_scoreboard, e2e_u11_isolation, e2e_u13_no_human_input, e2e_tm2_code_digest)}
 REAL = {f.__name__: f for f in (real_frontier_best,)}
 
 if __name__ == "__main__":

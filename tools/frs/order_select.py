@@ -3,13 +3,18 @@
 12). Pure: no process, no file, no clock. Built on tools/frs/run3_select.py without editing it.
 
     pace line       line(L) = (G x L) // 10 + s, G = 480 (the owner's goal: completion at input tick 480 = a clock under 8.00 s),
-                    s = 120 (D-Q1: one 120-input explorer segment of slack). A reach at level L with input tick t is kept, and its
-                    cell eligible, only if t <= line(L). Integer arithmetic. The gate M1 = line(6) = 408.
-    rejected        (owner 2026-11-12, section 7.2) per level, the count of reaches the line rejected and the earliest rejected tick
-                    with its distance over line(L): report-only, read by no rule.
+                    s = 120 (D-Q1: one 120-input explorer segment of slack). Integer arithmetic. The gate M1 = line(6).
+    arrival rule    (owner 2026-11-16, order_select_v2) a state at level L < 10 with input tick t whose L-th break came at input tick a
+                    (a = 0 at level 0) is kept, and its cell eligible, only if a <= line(L) AND t <= line(L + 1); level 9's limit is
+                    therefore the clear line line(10). The line applies to the arrival at a level, and the state may then stay until the
+                    next level's line. Keeping, drawing and the milestones use this one rule. (order_select_v1 applied t <= line(L) to
+                    every state.)
+    rejected        (owner 2026-11-12, section 7.2; v2 2026-11-16) per level, the count of reaches the rule rejected and the earliest
+                    rejected tick with its distance over the limit it failed, split by reason: a late arrival (a > line(L)) or a passed
+                    window (t > line(L + 1)): report-only, read by no rule.
     claims          a clear is claimed when its completion input tick is under the frontier's best verified clear read at the plan
                     (section 4.1), at any tick: keeping stops at line(10) = 600, claims do not.
-    active cell     eligible (alive, not cleared, inside the line) and not retired. Exploitation draws only active cells; breadth any
+    active cell     eligible (alive, not cleared, inside the arrival rule) and not retired. Exploitation draws only active cells; breadth any
                     eligible cell, retired or not (D-Q5).
     the draw        (section 3.1) breadth with probability 0.2: run 3's count-based draw, weight 1 / (1 + dispatches of the cell), over
                     every eligible cell in cell-id order, set-blind. Otherwise exploitation: a level, 0.4 / 0.3 / 0.2 / 0.1 by rank among
@@ -28,8 +33,10 @@
                     kept one never retires (a retired cell whose breadth dispatch keeps one is active again); a faster representative
                     restarts the count and the status; a dispatch ingested after its cell's representative was replaced counts for
                     neither.
-    milestones      (section 8, gap E) M1 ... M4: the first kept arrival with at least L = 6 ... 9 targets broken at a tick <= line(L);
-                    the clear line: the first clear whose completion input tick is <= line(10) (section 4.2). Each recorded once.
+    milestones      (section 8, gap E; v2) M1 ... M4: the first cell kept during the night with at least L = 6 ... 9 targets broken whose
+                    L-th break came at or before line(L) (the arrival rule); its tick is that break's. The clear line: the first clear
+                    whose completion input tick is <= line(10) (section 4.2). Each recorded once. Cells inherited by a resume never meet
+                    a milestone (owner 2026-11-16: in-night arrivals only).
     same-tick       (gap G5, report-only) per level reached, the burst ticks with two or more breaks: run 3's label tie orders
                     those targets in the order niche, so the pilot counts how often it decided an order.
 
@@ -48,7 +55,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, 
 
 import run3_select as rs
 
-SELECT_CONTRACT = "order_select_v1"
+SELECT_CONTRACT = "order_select_v2"                 # v2 (owner 2026-11-16): the arrival rule; v1 kept a state only if its tick <= line(L)
+REJECT_REASONS = ("late_arrival", "window_passed")
 TARGETS_TOTAL = 10
 ROOT_MASK = (1 << TARGETS_TOTAL) - 1                 # 1023: nothing broken at tick 0
 STREAMS = ("rank", "anchor", "breadth")              # D-Q5: no trigger stream
@@ -125,8 +133,16 @@ def pace_line(level: int, goal: int = 480, slack: int = 120) -> int:
     return (int(goal) * int(level)) // TARGETS_TOTAL + int(slack)
 
 
+def arrival_tick(break_ticks: Sequence[int], level: int) -> int:
+    """The input tick of the level-th break of a state's break ticks (sorted, one per target broken); 0 at level 0 (the tick-0 root)."""
+    level = int(level)
+    if len(break_ticks) != level:
+        raise ValueError(f"a level-{level} state carries {len(break_ticks)} break ticks")
+    return int(break_ticks[level - 1]) if level > 0 else 0
+
+
 class Pace:
-    """The pace rule for one parameter set: the keep / eligible test, and the rejected-reach readout (report-only)."""
+    """The arrival rule for one parameter set: the keep / eligible test, and the rejected-reach readout (report-only)."""
 
     def __init__(self, p: OrderParams):
         p.check()
@@ -137,55 +153,76 @@ class Pace:
     def line(self, level: int) -> int:
         return self.lines[int(level)]
 
-    def keeps(self, level: int, tick: int) -> bool:
-        """A reach at `level` with input tick `tick` is kept (and its cell eligible) only if tick <= line(level)."""
-        return int(tick) <= self.lines[int(level)]
+    def window_end(self, level: int) -> int:
+        """The last input tick a level-L state may have: line(L + 1) (level 9: the clear line, line(10))."""
+        return self.lines[min(int(level) + 1, TARGETS_TOTAL)]
 
-    def eligible(self, c: Any) -> bool:
-        """A cell (run 3's Cell or any object with level, tick, alive()) is eligible: alive, not cleared, inside the line."""
-        return bool(c.alive()) and int(c.level) < TARGETS_TOTAL and int(c.tick) <= self.lines[int(c.level)]
+    def reason(self, level: int, tick: int, arrival: int) -> Optional[Tuple[str, int]]:
+        """None when a level-L state at `tick` whose L-th break came at `arrival` is inside the rule; otherwise (reason, distance >= 1)."""
+        lv = int(level)
+        if not 0 <= lv < TARGETS_TOTAL:
+            raise ValueError(f"the arrival rule covers levels 0 to {TARGETS_TOTAL - 1} ({lv})")
+        if int(arrival) > int(tick):
+            raise ValueError(f"an arrival at {arrival} after the state's own tick {tick}")
+        if int(arrival) > self.lines[lv]:
+            return ("late_arrival", int(arrival) - self.lines[lv])
+        if int(tick) > self.window_end(lv):
+            return ("window_passed", int(tick) - self.window_end(lv))
+        return None
+
+    def keeps(self, level: int, tick: int, arrival: int) -> bool:
+        """The arrival rule: a state at level L < 10 is kept (and its cell eligible) only if its L-th break came at or before line(L) and
+        its own tick is at or before line(L + 1)."""
+        return int(level) < TARGETS_TOTAL and self.reason(level, tick, arrival) is None
+
+    def eligible(self, c: Any, arrival: int) -> bool:
+        """A cell (run 3's Cell or any object with level, tick, alive()) whose level-th break came at `arrival` is eligible: alive, not
+        cleared, inside the arrival rule."""
+        return bool(c.alive()) and int(c.level) < TARGETS_TOTAL and self.keeps(c.level, c.tick, arrival)
 
 
 class RejectedReaches:
-    """Section 7.2 (owner 2026-11-12): per level, the reaches the line rejected and the earliest rejected tick with its distance over
-    line(L), for the current period and the whole night. Report-only: no rule reads it."""
+    """Section 7.2 (owner 2026-11-12; v2 2026-11-16): per level, the reaches the arrival rule rejected, and the earliest rejected tick with
+    its distance over the limit it failed and that limit's reason; per reason (a late arrival, a passed window) the count and the smallest
+    distance; for the current period and the whole night. Report-only: no rule reads it."""
 
     def __init__(self, lines: Tuple[int, ...]):
         self.lines = tuple(int(x) for x in lines)
-        self.night: Dict[int, Dict[str, int]] = {}
-        self.period: Dict[int, Dict[str, int]] = {}
+        self.night: Dict[int, Dict[str, Any]] = {}
+        self.period: Dict[int, Dict[str, Any]] = {}
 
     @staticmethod
-    def _note(d: Dict[int, Dict[str, int]], level: int, tick: int, over: int) -> None:
+    def _note(d: Dict[int, Dict[str, Any]], level: int, tick: int, reason: str, over: int) -> None:
         r = d.get(level)
         if r is None:
-            d[level] = {"count": 1, "earliest_tick": tick, "distance": over}
-            return
+            r = d[level] = {"count": 0, "earliest_tick": tick, "distance": over, "reason": reason}
         r["count"] += 1
+        r[reason] = r.get(reason, 0) + 1
+        k = f"{reason}_min_distance"
+        r[k] = over if k not in r else min(r[k], over)
         if tick < r["earliest_tick"]:
-            r["earliest_tick"], r["distance"] = tick, over
+            r["earliest_tick"], r["distance"], r["reason"] = tick, over, reason
 
-    def note(self, level: int, tick: int) -> int:
-        """Record one rejected reach; returns its distance over the line (>= 1). A reach inside the line is refused here."""
-        level, tick = int(level), int(tick)
-        over = tick - self.lines[level]
-        if over <= 0:
-            raise ValueError(f"a reach at level {level}, tick {tick} is inside the line ({self.lines[level]}): it is not rejected")
-        self._note(self.night, level, tick, over)
-        self._note(self.period, level, tick, over)
+    def note(self, level: int, tick: int, reason: str, over: int) -> int:
+        """Record one rejected reach (Pace.reason's answer); returns its distance (>= 1)."""
+        level, tick, over = int(level), int(tick), int(over)
+        if reason not in REJECT_REASONS or over <= 0:
+            raise ValueError(f"not a rejected reach: level {level}, tick {tick}, {reason} +{over}")
+        self._note(self.night, level, tick, reason, over)
+        self._note(self.period, level, tick, reason, over)
         return over
 
     @staticmethod
-    def _rec(d: Mapping[int, Mapping[str, int]]) -> Dict[str, Dict[str, int]]:
+    def _rec(d: Mapping[int, Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
         return {str(lv): dict(d[lv]) for lv in sorted(d, reverse=True)}
 
-    def snapshot(self) -> Dict[str, Dict[str, int]]:
+    def snapshot(self) -> Dict[str, Dict[str, Any]]:
         """The hourly per-level readout; the period is reset."""
         out = self._rec(self.period)
         self.period = {}
         return out
 
-    def summary(self) -> Dict[str, Dict[str, int]]:
+    def summary(self) -> Dict[str, Dict[str, Any]]:
         return self._rec(self.night)
 
 
@@ -210,21 +247,25 @@ def _hex(x: Any) -> Optional[str]:
 
 
 class Milestones:
-    """M1 ... M4 = levels 6 ... 9: the first kept arrival with at least L targets broken at a tick <= line(L) (gap E: a same-tick double
-    break can skip level L, so a level-7 arrival at 400 meets M1). The clear line: the first clear with completion input tick <=
-    line(10) (section 4.2; the archive keeps no level-10 cell). Each is recorded once, at its first occurrence, with the dispatch, the cell
-    and the lineage digests (U8)."""
+    """M1 ... M4 = levels 6 ... 9 (v2, the arrival rule): the first cell kept during the night with at least L targets broken whose L-th
+    break came at or before line(L); the milestone's tick is that break's input tick, the cell's own tick is recorded beside it (gap E: a
+    same-tick double break can skip level L, so a level-7 cell whose 6th and 7th breaks came at 400 meets M1). The clear line: the first
+    clear with completion input tick <= line(10) (section 4.2; the archive keeps no level-10 cell). Each is recorded once, at its first
+    occurrence, with the dispatch, the cell and the lineage digests (U8). Inherited (resumed) cells are never observed."""
 
     def __init__(self, pace: Pace):
         self.lines = tuple(pace.lines)
         self.met: Dict[str, Dict[str, Any]] = {}
 
-    def observe_kept(self, c: Any, n: int) -> List[str]:
+    def observe_kept(self, c: Any, n: int, break_ticks: Sequence[int]) -> List[str]:
+        bt = [int(t) for t in break_ticks]
+        if len(bt) != int(c.level):
+            raise ValueError(f"cell {c.cid} at level {c.level} carries {len(bt)} break ticks")
         out = []
         for name, L in MILESTONES:
-            if name not in self.met and int(c.level) >= L and int(c.tick) <= self.lines[L]:
-                self.met[name] = {"milestone": name, "level": L, "line": self.lines[L], "arrival_level": int(c.level), "tick": int(c.tick),
-                                  "n": int(n), "cid": int(c.cid), "digest": str(c.digest), "chain": _hex(getattr(c, "chain", None))}
+            if name not in self.met and int(c.level) >= L and bt[L - 1] <= self.lines[L]:
+                self.met[name] = {"milestone": name, "level": L, "line": self.lines[L], "arrival_level": int(c.level), "tick": bt[L - 1],
+                                  "cell_tick": int(c.tick), "n": int(n), "cid": int(c.cid), "digest": str(c.digest), "chain": _hex(getattr(c, "chain", None))}
                 out.append(name)
         return out
 
@@ -327,14 +368,18 @@ def run3_view(p: OrderParams) -> SimpleNamespace:
 
 class OrderSelector(rs.Run3Selector):
     """D's draw and its state. `archive`: the engine's archive (cells indexed by id; each cell with cid, key, level, tick, digest,
-    alive()); `p`: OrderParams; `niches`: the order niche of every cell (the tick-0 root: seed_niche(1023)). The engine calls `select`
-    with its keyed uniforms, `on_dispatch` when the job is sent and `on_ingest` at the in-order ingest, as for run 3; `kept` holds only
-    the cells the pace rule kept (NEW or REPLACED)."""
+    alive()); `p`: OrderParams; `niches`: the order niche of every cell (the tick-0 root: seed_niche(1023)); `breaks`: every cell's break
+    ticks, sorted, one per target broken (the root: ()), a mapping the engine keeps current (it sets a kept cell's ticks before the ingest
+    that brings the cell in; the selector holds the same object, not a copy). The engine calls `select` with its keyed uniforms,
+    `on_dispatch` when the job is sent and `on_ingest` at the in-order ingest, as for run 3; `kept` holds only the cells the arrival rule
+    kept (NEW or REPLACED)."""
 
-    def __init__(self, archive: Any, p: OrderParams, *, niches: Mapping[int, Any], best_claim: Optional[int] = None):
+    def __init__(self, archive: Any, p: OrderParams, *, niches: Mapping[int, Any], breaks: Mapping[int, Sequence[int]],
+                 best_claim: Optional[int] = None):
         p.check()
         self.dp = p
         self.pace = Pace(p)
+        self.breaks_of = breaks                            # the engine's mapping (v2): cell id -> sorted break ticks
         self.R = int(p.retire_after)
         self.retired: Set[int] = set()                     # D's own: run 3's Cell.retired would take the cell out of breadth too
         self.deeper: Set[int] = set()                      # representatives one of whose dispatches kept a deeper cell: never retire
@@ -348,23 +393,31 @@ class OrderSelector(rs.Run3Selector):
         self.milestones = Milestones(self.pace)
         self.same_tick = SameTickBreaks()
         self.dstat: Counter = Counter()
+        self.retired_by_level: Counter = Counter()          # retirement events per level of the retired cell (report-only)
         super().__init__(archive, run3_view(p), niches=niches, history={}, cid_dispatches={}, best_claim=best_claim)
         self._rotate(set(self.gall))
 
     # -- run 3 hooks: membership, breadth pool, level weights; run 3's shares and demotion are not used -------------------------------
 
+    def arrival(self, cid: int) -> int:
+        """The input tick of the cell's level-th break (0 at level 0)."""
+        return arrival_tick(self.breaks_of[int(cid)], int(self.a.cells[int(cid)].level))
+
+    def eligible_cid(self, cid: int) -> bool:
+        return self.pace.eligible(self.a.cells[int(cid)], self.arrival(cid))
+
     def members(self, g: GKey) -> List[int]:
-        """The order's ACTIVE cells (eligible under the pace rule, not retired) in rank order (tick, cell id)."""
+        """The order's ACTIVE cells (eligible under the arrival rule, not retired) in rank order (tick, cell id)."""
         m = self._mem.get(g)
         if m is None:
-            m = [cid for _t, cid in self.gall.get(g, []) if cid not in self.retired and self.pace.eligible(self.a.cells[cid])]
+            m = [cid for _t, cid in self.gall.get(g, []) if cid not in self.retired and self.eligible_cid(cid)]
             self._mem[g] = m
         return m
 
     def breadth_pool(self) -> List[int]:
-        """D-Q5: every eligible cell (inside the line), retired or not, in cell-id order; set-blind."""
+        """D-Q5: every eligible cell (inside the arrival rule), retired or not, in cell-id order; set-blind."""
         if self._pool is None:
-            self._pool = sorted(cid for cid in self.group if self.pace.eligible(self.a.cells[cid]))
+            self._pool = sorted(cid for cid in self.group if self.eligible_cid(cid))
         return self._pool
 
     def level_weights(self, levels: Sequence[int]) -> Dict[int, float]:
@@ -589,6 +642,7 @@ class OrderSelector(rs.Run3Selector):
             elif cid0 not in self.deeper and cid0 not in self.retired and self.rcount[cid0] >= self.R:
                 self.retired.add(cid0)
                 self.dstat["retired"] += 1
+                self.retired_by_level[str(lv0)] += 1
                 retired_now = True
             if retired_now or again:
                 g0 = self.group[cid0]
@@ -596,7 +650,7 @@ class OrderSelector(rs.Run3Selector):
                 touched.add(g0)
         met: List[str] = []
         for _v, c, _niche in kept:
-            met += self.milestones.observe_kept(c, n)
+            met += self.milestones.observe_kept(c, n, self.breaks_of[int(c.cid)])
         if row.get("outcome") == "clear":
             claim = row.get("claimed") or {}
             if claim.get("completion_input_tick") is not None and self.milestones.observe_clear(int(claim["completion_input_tick"]), n, cid0, claim):
@@ -615,7 +669,7 @@ class OrderSelector(rs.Run3Selector):
     # -- readings -------------------------------------------------------------------------------------------------------------------
 
     def is_active(self, cid: int) -> bool:
-        return cid in self.group and cid not in self.retired and self.pace.eligible(self.a.cells[cid])
+        return cid in self.group and cid not in self.retired and self.eligible_cid(cid)
 
     def within_one_violations(self) -> List[str]:
         """At every level in the level draw: the set counts differ by at most 1, and within each set the order counts do (D-Q3)."""

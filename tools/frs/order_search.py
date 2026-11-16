@@ -8,18 +8,32 @@
                     SEARCH_INVALID. The root is level 0, mask 1023, niche (1023, ()), empty prefix; its end record is the tick-0
                     observation (stored, so no dispatch is fused) and the tick-0 record is the pin of every later dispatch, each one a
                     fresh process from tick 0.
-    keep            the pace rule (tools/frs/order_select.Pace): a reach at level L < 10 with input tick t > line(L) is not kept (the
-                    BEYOND verdict) and counts in the rejected-reach readout (report-only); everything else is run 3's keep rule.
-    F3              a CONT boundary continues only on a reach the pace rule would keep (section 4.4): run 3's as-of answer over the
-                    reported reaches inside the line.
+    keep            the arrival rule (tools/frs/order_select.Pace, order_select_v2, owner 2026-11-16): a reach at level L < 10 with input
+                    tick t whose L-th break came at a is kept only if a <= line(L) and t <= line(L + 1); otherwise it is not kept (the
+                    BEYOND verdict) and counts in the rejected-reach readout (report-only); everything else is run 3's keep rule. A
+                    reach's break ticks are the job's own (`breaks_all`: the prefix replay's and the burst's), so the rule reads nothing
+                    but the trajectory. Every kept cell's origin records them (`d_breaks`, [[tick, target], ...]).
+    continuation    (owner 2026-11-16, replaces F3) at every 120-word boundary a burst continues while the episode is live (the worker
+                    asks only then) and the state at the boundary is inside the arrival rule, up to max_segments x 120 = 720 words. D's
+                    jobs carry a boundary window of one segment (the arm's window = segment_words), so each boundary question holds all
+                    the reaches of its segment; the main process follows the job's mask through them (a break is always a first visit
+                    of a new key) and answers from the job's own trajectory only (no archive state: deterministic). At the ingest each
+                    recorded answer is recomputed from the job's exact break ticks; a disagreement is counted (`cont_mismatches`).
+    resume          (owner 2026-11-16) --resume-from <D folder>, repeatable: every final representative of the folders (all levels,
+                    any retirement state) with its words, end record, chain and niche, and its break ticks from the folder's own
+                    lineage; a cell outside this night's arrival rule is dropped; the rest enter through the archive's keep rule at the
+                    open, in tick order, ties in the order the folders are given (a new key is a new cell, a strictly earlier tick
+                    replaces, an equal or later tick is dropped as later). The selector's counts and the retirement counts start from
+                    zero. The folders' root must equal this night's root. Inherited cells meet no milestone (in-night arrivals only).
+    scoreboard      (owner 2026-11-16) a fixed close record in summary.json (order.scoreboard) and report.md; report-only.
     selection       tools/frs/order_select.OrderSelector (section 3; gaps A-F, G1-G5). No trigger draws.
     claims          a clear faster than the frontier's best verified clear, read at the plan, is verified twice from tick 0, as run 3
                     (then against D's own best); exports and native text replays of new bests as run 3.
-    milestones      M1 ... M4 and the clear line (section 8, gap E), recorded at their first occurrence (milestones.jsonl) and verified
-                    at the close by two fresh-process replays of the arrival's prefix with the verify flags: both must show at least L
-                    targets broken by the recorded tick and the recorded chain (D-Q8). Only the first arrival per milestone; no
-                    fallback. A disagreement is SEARCH_INVALID (the night is not a test of M1); a verified prefix is exported as a
-                    .btt.txt (section 7.3).
+    milestones      M1 ... M4 and the clear line (section 8, gap E; arrival rule), recorded at their first occurrence (milestones.jsonl)
+                    and verified at the close by two fresh-process replays of the kept cell's words with the verify flags: both must show
+                    at least L targets broken by the recorded tick (the L-th break's) and the recorded chain (D-Q8). Only the first
+                    arrival per milestone; no fallback. A disagreement is SEARCH_INVALID (the night is not a test of M1); a verified
+                    prefix is exported as a .btt.txt (section 7.3).
     records         dispatches.jsonl, cells.jsonl (the root's NEW row first), root.json, milestones.jsonl, milestone_verifications.jsonl,
                     hourly.jsonl / hourly.md (section 7.2), run 3's files (verifications, claims not replayed, exports, best times, text
                     replays, anomalies, schedule), summary.json, report.md, progress.md.
@@ -36,8 +50,9 @@
                     2026-11-13): a process counts as a child only if it was created at or after its parent, so a run process that reuses
                     a dead parent's PID does not adopt that parent's orphans (the pilot's false memory-cap stop, session log 20.5).
 
-    python -B tools/frs/order_search.py plan --lab-root C:/BattleShip_lab --frontier DIR --rng-seed 11 [--out DIR] ...
+    python -B tools/frs/order_search.py plan --lab-root C:/BattleShip_lab --frontier DIR --rng-seed 11 [--out DIR] [--resume-from DIR ...] ...
     python -B tools/frs/order_search.py run  --lab-root C:/BattleShip_lab --frontier DIR --rng-seed 11 --out DIR --workers 5 --max-wall-min 480
+                                              [--resume-from DIR ...]
 
 `plan` is zero native ticks; `run` is native. Writes only under the output folder (`order_*`) through the lab's guard; takes the lab lock, so
 D and the frontier never run together; nothing reads native RNG. Zero-tick tests: tools/frs/order_search_tests.py. Run with python -B.
@@ -51,6 +66,8 @@ import json
 import os
 import subprocess
 import sys
+from collections import Counter
+from collections.abc import Mapping as ABCMapping
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -66,6 +83,7 @@ import crossing_search as cs  # noqa: E402
 import crossing_search_run2 as r2  # noqa: E402
 import crossing_search_run3 as C  # noqa: E402
 import det_schedule as det  # noqa: E402
+import frs_archive as fa  # noqa: E402
 import frs_guard as g  # noqa: E402
 import frs_machine as fm  # noqa: E402
 import frs_report as frep  # noqa: E402
@@ -75,6 +93,7 @@ import frs_worker as fw  # noqa: E402
 import m8_rd_cells as mcell  # noqa: E402
 import order_select as osel  # noqa: E402
 import run3_anomaly as ra  # noqa: E402
+import run3_dseeds as ds  # noqa: E402
 import run3_export as rx  # noqa: E402
 import run3_load as rl3  # noqa: E402
 import run3_manifest as rm  # noqa: E402
@@ -91,6 +110,15 @@ FOLDER_PREFIX = "order_"
 MILESTONE_NAMES = [name for name, _L in osel.MILESTONES] + [osel.CLEAR_LINE]
 M_VERIFIED, M_NOT_VERIFIED, M_ERROR, M_NOT_RUN = "VERIFIED", "NOT_VERIFIED", "ERROR", "NOT_RUN"
 SearchError, Refused = cs.SearchError, cs.Refused
+RESUME_CONTRACT = "order_resume_v1"
+RESUME_KIND = "resume"
+DEEP_REACH_LEVEL = 7                   # owner 2026-11-16: every reach at level 7 or deeper, kept or not, is logged (deep_reaches.jsonl)
+M1_REFERENCE_SLACK = osel.OrderParams.slack   # owner 2026-11-16: M1 also shown at the decided D-Q1 slack (120: line(6) = 408), report-only
+CONT_RULE = ("at a segment boundary (n a multiple of segment_words, the episode live): continue iff the state at the boundary is inside the "
+             "arrival rule (its level-L break at or before line(L), its tick at or before line(L + 1)); the boundary window is one segment, "
+             "so the main process follows the job's mask through every reach; at most max_segments segments")
+OBS_GROUND = mcell.OBS_INDEX["ground_air_state"]
+OBS_STATUS = mcell.OBS_INDEX["fighter_status_id"]
 
 
 # -- D's code manifest (T-M2): line endings normalised to LF ------------------------------------------------------------------------------
@@ -288,6 +316,239 @@ def read_frontier_best(d: Path) -> Dict[str, Any]:
             "words_digest": best.get("words_digest"), "n": best.get("n"), "source": best.get("source")}
 
 
+# -- resume from D's own folders (owner 2026-11-16; zero native ticks) ------------------------------------------------------------------------
+# The ruling: D may resume from its own folders; the selector's counts and the retirement counts start from zero; a cell outside this
+# night's arrival rule is dropped; the rest enter through the archive's keep rule. Nothing here reads a coordinate, target id or route as a
+# preference: a cell's niche and break ticks are records of its own trajectory.
+
+RESUME_FILES = ("plan.json", "run/root.json", "run/summary.json", "run/cells.jsonl", "run/dispatches.jsonl")
+
+
+def _jsonl(p: Path) -> Any:
+    with open(p, encoding="utf-8") as f:
+        for ln in f:
+            if ln.strip():
+                yield json.loads(ln)
+
+
+def break_pairs(x: Any) -> Tuple[Tuple[int, int], ...]:
+    """[[tick, target], ...] as a sorted tuple of (tick, target) pairs (ties on one tick by target label, run 3's order)."""
+    return tuple(sorted((int(t), int(i)) for t, i in (x or ())))
+
+
+def resume_folder(d: Path) -> Dict[str, Any]:
+    """A D folder admitted as a resume source: run3_dseeds' admission (contract, lab mode, a clean status, a clean integrity record: no guard
+    violation, prefix mismatch, tick-0 inequality or game left, root equal, D's code unchanged during the run, every recorded milestone
+    verified) except its verified-M1 condition, which belongs to the hand-off and not to a resume; plus its tick-0 root."""
+    d = Path(d)
+    rec = ds.read_d_folder(d, accepted=[d])            # every admission problem is listed, none raised; the resume's own rule is applied here
+    probs = [p for p in rec["admission_problems"] if p != "M1 not verified"]
+    if probs:
+        raise SearchError(f"refused: the D folder {d} is not admitted as a resume source ({'; '.join(probs)})")
+    missing = [f for f in RESUME_FILES if not (d / f).is_file()]
+    if missing:
+        raise SearchError(f"refused: the D folder {d} lacks {missing}")
+    root = json.loads((d / "run" / "root.json").read_text(encoding="utf-8"))
+    reads = root.get("reads") or []
+    if root.get("equal") is not True or not reads or not reads[0].get("digest") or not reads[0].get("chain") or not reads[0].get("key"):
+        raise SearchError(f"refused: the D folder {d} records no equal tick-0 root")
+    return {"dir": str(d), "archive_id": rec["archive_id"], "status": rec["status"], "utc_start": rec["utc_start"], "utc_end": rec["utc_end"], "m1": rec["m1"],
+            "admission_problems_ignored": [p for p in rec["admission_problems"] if p not in probs],
+            "selection_contract": (rec["plan"] or {}).get("selection_contract"), "pace": (rec["plan"] or {}).get("pace"),
+            "root": {"digest": reads[0]["digest"], "chain": reads[0]["chain"], "key": list(reads[0]["key"])},
+            "files_sha256": {f: g.sha256_file(d / f) for f in RESUME_FILES}}
+
+
+class LineageIndex:
+    """Every kept row's order niche and break pairs (tick, target) from its folder's own lineage. The tick-0 root has none. A burst row has
+    its parent representative's (found by parent_digest) plus its dispatch's breaks at or before its tick, which must be exactly the
+    targets the parent's mask has and the row's has not; the niche is run 3's child_niche of the parent's. A resumed row (origin kind
+    `resume`) carries its own niche and break pairs. A row that records its break pairs (origin d_breaks, this build on) must agree."""
+
+    def __init__(self, rows: Sequence[Mapping[str, Any]], dispatch_breaks: Mapping[int, Sequence[Sequence[int]]]):
+        self.bydig: Dict[str, Mapping[str, Any]] = {}
+        for r in rows:
+            self.bydig.setdefault(str(r["digest"]), r)
+        self.disp = dispatch_breaks
+        self.memo: Dict[str, Tuple[rs.Niche, Tuple[Tuple[int, int], ...]]] = {}
+
+    def of(self, r: Mapping[str, Any]) -> Tuple[rs.Niche, Tuple[Tuple[int, int], ...]]:
+        path: List[Mapping[str, Any]] = []
+        cur: Optional[Mapping[str, Any]] = r
+        base: Optional[Tuple[rs.Niche, Tuple[Tuple[int, int], ...]]] = None
+        while cur is not None:
+            dg = str(cur["digest"])
+            if dg in self.memo:
+                base = self.memo[dg]
+                break
+            o = cur.get("origin") or {}
+            kind = o.get("kind")
+            if kind == "root":
+                if int(cur["key"][3]) != osel.ROOT_MASK or int(cur["tick"]) != 0:
+                    raise SearchError(f"cell {cur.get('cid')}: a root row that is not the tick-0 root ({cur['key']}, tick {cur['tick']})")
+                base = self.memo[dg] = (rs.seed_niche(osel.ROOT_MASK), ())
+                break
+            if kind == RESUME_KIND:
+                base = self.memo[dg] = (rl3.niche_of_label(o["niche"]), break_pairs(o.get("d_breaks")))
+                break
+            if kind != "burst":
+                raise SearchError(f"cell {cur.get('cid')}: origin kind {kind!r} is not root, burst or resume")
+            path.append(cur)
+            pd = o.get("parent_digest")
+            nxt = self.bydig.get(str(pd)) if pd else None
+            if nxt is None:
+                raise SearchError(f"cell {cur.get('cid')}: its parent representative {str(pd)[:16]} is not among the folder's rows")
+            cur = nxt
+        assert base is not None
+        niche, pairs = base
+        for row in reversed(path):
+            o = row["origin"]
+            prev = osel.mask_of_order(niche)
+            m = int(row["key"][3])
+            new = break_pairs([(t, i) for t, i in (self.disp.get(int(o["n"])) or []) if int(t) <= int(row["tick"])])
+            gone = sorted(i for i in range(osel.TARGETS_TOTAL) if (prev >> i) & 1 and not (m >> i) & 1)
+            if m & ~prev or sorted(i for _t, i in new) != gone:
+                raise SearchError(f"cell {row.get('cid')}: dispatch {o['n']}'s breaks {list(new)} are not the targets its mask lost {gone}")
+            niche = rs.child_niche(niche, m, int(row["tick"]), [[t, i] for t, i in new])
+            pairs = break_pairs(pairs + new)
+            if o.get("d_breaks") is not None and break_pairs(o["d_breaks"]) != pairs:
+                raise SearchError(f"cell {row.get('cid')}: its recorded break ticks {o['d_breaks']} are not its lineage's {list(pairs)}")
+            self.memo[str(row["digest"])] = (niche, pairs)
+        return niche, pairs
+
+
+def resume_candidates(d: Path, rec: Mapping[str, Any]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Every final representative of an admitted D folder (all levels, any retirement state; the tick-0 root aside), each checked: its words
+    give its tick and words digest, its key's level is its level, it has its end record, end-record digest and chain, its niche from the
+    folder's own lineage is the recorded one and starts at the tick-0 root, and it carries one break tick per target broken."""
+    d = Path(d)
+    rows: List[Dict[str, Any]] = []
+    for i, r in enumerate(_jsonl(d / "run" / "cells.jsonl")):
+        if r.get("ev") not in (cs.NEW, cs.REPLACED):
+            continue
+        if not r.get("key") or r.get("words_hex") is None or not r.get("digest"):
+            raise SearchError(f"refused: {d} cells.jsonl row {i + 1}: not a kept representative with its key, words and digest")
+        rows.append(r)
+    disp = {int(x["n"]): list(x.get("breaks_after_start") or []) for x in _jsonl(d / "run" / "dispatches.jsonl")
+            if x.get("kind", "burst") == "burst" and x.get("n") is not None}
+    final: Dict[int, Dict[str, Any]] = {}
+    for r in rows:
+        final[int(r["cid"])] = r
+    lx = LineageIndex(rows, disp)
+    cands: List[Dict[str, Any]] = []
+    roots = 0
+    for cid in sorted(final):
+        r = final[cid]
+        if (r.get("origin") or {}).get("kind") == "root":
+            roots += 1
+            continue
+        level, tick = int(r["level"]), int(r["tick"])
+        k = fa.norm_key(r["key"])
+        words = bytes.fromhex(r["words_hex"])
+        if level >= osel.TARGETS_TOTAL or mcell.level_of_mask(k[3]) != level:
+            raise SearchError(f"refused: {d} cell {cid}: level {level} / key level {mcell.level_of_mask(k[3])}")
+        if len(words) != tick or mcell.words_digest(words) != r["digest"]:
+            raise SearchError(f"refused: {d} cell {cid}: its words do not give its tick and words digest")
+        end = r.get("end")
+        if not isinstance(end, list) or len(end) != len(mcell.OBS_FIELDS):
+            raise SearchError(f"refused: {d} cell {cid}: no 17-field end record")
+        if len(bytes.fromhex(str(r.get("end_digest") or ""))) != 32 or len(bytes.fromhex(str(r.get("chain") or ""))) != 32:
+            raise SearchError(f"refused: {d} cell {cid}: no end-record digest or chain")
+        niche, pairs = lx.of(r)
+        label = rs.niche_label(niche)
+        if label != r.get("niche") or not label.startswith(f"{osel.ROOT_MASK}:"):
+            raise SearchError(f"refused: {d} cell {cid}: its niche from the folder's own lineage {label} is not the recorded {r.get('niche')}")
+        if len(pairs) != level:
+            raise SearchError(f"refused: {d} cell {cid}: {len(pairs)} break ticks at level {level}")
+        cands.append({"folder": str(d), "d_archive_id": rec["archive_id"], "d_cid": cid, "digest": r["digest"], "key": list(k), "level": level, "tick": tick,
+                      "words_hex": r["words_hex"], "end": list(end), "end_digest": r["end_digest"], "chain": r["chain"], "niche": label,
+                      "breaks": [list(p) for p in pairs]})
+    rep = {"dir": str(d), "rows": len(rows), "finals": len(final), "roots_skipped": roots, "candidates": len(cands), "dispatches": len(disp),
+           "per_level": dict(sorted(Counter(str(c["level"]) for c in cands).items(), key=lambda kv: int(kv[0])))}
+    return cands, rep
+
+
+def _lr(level: Any, res: Any) -> str:
+    return f"{int(level)}|{res}"
+
+
+def resume_selection(folders: Sequence[Path], pace: osel.Pace) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """The resume (zero native ticks): every folder's candidates through this night's arrival rule, then the archive's keep rule mirrored,
+    in tick order, ties in the order the folders are given, then by D cell id; this night's tick-0 root holds the root's key at tick 0.
+    Returns the insertion sequence (each entry new or replaced, in order, with its candidate) and the record (None with no folder)."""
+    if not folders:
+        return [], None
+    seen: List[str] = []
+    for d in folders:
+        n = g.norm(Path(d))
+        if n in seen:
+            raise SearchError(f"refused: {d} is given twice as --resume-from")
+        seen.append(n)
+    recs, reps, sources = [], [], []
+    for d in folders:
+        rec = resume_folder(Path(d))
+        cands, rep = resume_candidates(Path(d), rec)
+        recs.append(rec)
+        reps.append(rep)
+        sources.append(cands)
+    roots = {(r["root"]["digest"], r["root"]["chain"], json.dumps(r["root"]["key"])) for r in recs}
+    if len(roots) != 1:
+        raise SearchError(f"refused: the resume folders' tick-0 roots differ ({sorted(x[0][:16] for x in roots)})")
+    root_key = fa.norm_key(recs[0]["root"]["key"])
+    held: Dict[Tuple[Any, ...], int] = {root_key: 0}
+    queue = sorted(((int(c["tick"]), i, int(c["d_cid"]), c) for i, cands in enumerate(sources) for c in cands), key=lambda x: x[:3])
+    seq: List[Dict[str, Any]] = []
+    per: Dict[str, Counter] = {}
+    reasons: Counter = Counter()
+    h = hashlib.sha256()
+    for tick, i, d_cid, c in queue:
+        lv = int(c["level"])
+        why = pace.reason(lv, tick, osel.arrival_tick([p[0] for p in c["breaks"]], lv))
+        pc = per.setdefault(_lr(lv, c["key"][2]), Counter())
+        pc["candidates"] += 1
+        if why is not None:
+            pc["dropped_rule"] += 1
+            reasons[why[0]] += 1
+            continue
+        k = fa.norm_key(c["key"])
+        if k not in held:
+            verdict = cs.NEW
+        elif tick < held[k]:
+            verdict = cs.REPLACED
+        else:
+            pc["dropped_later"] += 1
+            continue
+        held[k] = tick
+        pc["inherited" if verdict == cs.NEW else "replaced_in_resume"] += 1
+        seq.append({"verdict": verdict, "folder_index": i, "cand": c})
+        h.update(f"{verdict}:{i}:{d_cid}:{c['digest']}:{tick};".encode("utf-8"))
+    tot = Counter()
+    for pc in per.values():
+        tot.update(pc)
+    record = {"contract": RESUME_CONTRACT, "folders": recs, "reports": reps, "root": dict(recs[0]["root"]),
+              "rule": "all final representatives; a cell outside this night's arrival rule is dropped; the rest enter through the archive's keep "
+                      "rule in tick order (ties: folder order, then D cell id); selector and retirement counts start at zero",
+              "counts": {k: int(tot.get(k, 0)) for k in ("candidates", "inherited", "replaced_in_resume", "dropped_rule", "dropped_later")},
+              "dropped_rule_reasons": dict(reasons), "inserts": len(seq), "cells_after": int(tot.get("inherited", 0)),
+              "per_level_res": {k: {x: int(v.get(x, 0)) for x in ("candidates", "inherited", "replaced_in_resume", "dropped_rule", "dropped_later")}
+                                for k, v in sorted(per.items(), key=lambda kv: (int(kv[0].split("|")[0]), kv[0]))},
+              "set_digest": h.hexdigest()}
+    return seq, record
+
+
+def resume_check(plan_resume: Optional[Mapping[str, Any]], folders: Sequence[Path]) -> Optional[str]:
+    """Why `run`'s --resume-from folders are not the plan's (their list, order and file digests); None when they are."""
+    want = [f["dir"] for f in (plan_resume or {}).get("folders") or []]
+    got = [str(Path(d)) for d in folders]
+    if [g.norm(Path(x)) for x in want] != [g.norm(Path(x)) for x in got]:
+        return f"the --resume-from folders {got} are not the plan's {want}: plan again with the same flags"
+    for f in (plan_resume or {}).get("folders") or []:
+        for rel, h in f["files_sha256"].items():
+            if g.sha256_file(Path(f["dir"]) / rel) != h:
+                return f"{Path(f['dir']) / rel} changed since the plan: plan again"
+    return None
+
+
 # -- the plan (zero native ticks) -----------------------------------------------------------------------------------------------------------
 
 
@@ -298,6 +559,14 @@ def engine_params(dp: osel.OrderParams, **kw: Any) -> C.Params3:
     p = C.Params3(breadth_share=float(dp.breadth_share), trigger_classes=(), **kw)
     p.check()
     return p
+
+
+def d_arm(ep: C.Params3) -> Dict[str, int]:
+    """D's arm (owner 2026-11-16): run 3's CONT arm with the boundary window set to one segment (window = segment_words), so each boundary
+    question carries every reach of its segment (the continuation rule, CONT_RULE). The worker reads the window from the job."""
+    a = dict(ep.arm())
+    a["window"] = int(a["segment_words"])
+    return a
 
 
 def readiness_override_record(min_commit_free_mb: Optional[int], reason: str) -> Optional[Dict[str, Any]]:
@@ -328,14 +597,21 @@ def readiness_verdict(ready: Mapping[str, Any], override: Optional[Mapping[str, 
 
 
 def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderParams, ep: C.Params3, *, code: Optional[str] = None,
-               readiness_override: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
-    """The plan (section 7.1 step 2): the root, the pace table, the parameters, the frontier reference read. Zero ticks."""
+               readiness_override: Optional[Mapping[str, Any]] = None, resume: Sequence[Path] = ()) -> Dict[str, Any]:
+    """The plan (section 7.1 step 2): the root, the pace table, the parameters, the frontier reference read, the resume. Zero ticks."""
     dp.check()
     ep.check()
     pace = osel.Pace(dp)
     fb = read_frontier_best(frontier_dir)
     osel.claim_wanted(1, fb["completion_input_tick"])
+    for d in resume:
+        if g.norm(Path(d)) == g.norm(Path(out)) or g.under(g.norm(Path(d)), g.norm(Path(out))) or g.under(g.norm(Path(out)), g.norm(Path(d))):
+            raise SearchError(f"refused: the resume folder {d} overlaps the output folder {out}")
+    _seq, res_rec = resume_selection([Path(d) for d in resume], pace)
     digest = code or code_digest(order_code_manifest())
+    ref = osel.Pace(osel.OrderParams(goal=dp.goal, slack=M1_REFERENCE_SLACK, level_weights=dp.level_weights, breadth_share=dp.breadth_share,
+                                     retire_after=dp.retire_after))
+    sources = [fb["summary"]] + [str(Path(f["dir"]) / "run" / "summary.json") for f in (res_rec or {}).get("folders") or []]
     return {"contract": ORDER_CONTRACT, "mode": "lab", "utc": g.utc(), "lab_root": str(lab_root), "out": str(out),
             "archive_id": ARCHIVE_ID.format(seed=int(ep.rng_seed)), "key_family": KEY_FAMILY,
             "root": {"level": 0, "mask": osel.ROOT_MASK, "niche": rs.niche_label(rs.seed_niche(osel.ROOT_MASK)), "words": 0,
@@ -343,14 +619,19 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
             "pace": {"goal": dp.goal, "slack": dp.slack, "lines": {str(L): pace.line(L) for L in range(osel.TARGETS_TOTAL + 1)}},
             "milestones": {name: {"level": L, "line": pace.line(L)} for name, L in list(osel.MILESTONES) + [(osel.CLEAR_LINE, osel.TARGETS_TOTAL)]},
             "gate": {"milestone": "M1", "level": 6, "line": pace.line(6)},
+            "gate_reference": {"milestone": "M1", "level": 6, "slack": M1_REFERENCE_SLACK, "line": ref.line(6),
+                               "note": "report-only: the earliest in-night 6th break against line(6) at the decided D-Q1 slack"},
+            "keep_rule": {"selection_contract": osel.SELECT_CONTRACT, "rule": "arrival: L-th break <= line(L) and own tick <= line(L + 1)",
+                          "windows": {str(L): [pace.line(L), pace.window_end(L)] for L in range(osel.TARGETS_TOTAL)}},
+            "continuation": CONT_RULE,
             "params": dp.as_record(), "params_fingerprint": osel.params_fingerprint(dp), "selection_contract": osel.SELECT_CONTRACT,
-            "engine_params": ep.as_dict(), "arm": ep.arm(), "frontier": fb, "claim_threshold": fb["completion_input_tick"],
-            "sources": [fb["summary"]], "code": {"contract": MANIFEST_CONTRACT, "entries": list(ENTRY_MODULES), "digest": digest},
-            "readiness_override": None if readiness_override is None else dict(readiness_override)}
+            "engine_params": ep.as_dict(), "arm": d_arm(ep), "frontier": fb, "claim_threshold": fb["completion_input_tick"],
+            "sources": sources, "code": {"contract": MANIFEST_CONTRACT, "entries": list(ENTRY_MODULES), "digest": digest},
+            "readiness_override": None if readiness_override is None else dict(readiness_override), "resume": res_rec}
 
 
 def plan_and_write(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderParams, ep: C.Params3, *, code: Optional[str] = None,
-                   readiness_override: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+                   readiness_override: Optional[Mapping[str, Any]] = None, resume: Sequence[Path] = ()) -> Dict[str, Any]:
     out = Path(out)
     if not out.name.startswith(FOLDER_PREFIX):
         raise SearchError(f"refused: D's folder name starts with {FOLDER_PREFIX!r} ({out.name})")
@@ -361,7 +642,7 @@ def plan_and_write(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.Order
             raise SearchError(f"refused: {out} holds another tool's plan ({old.get('contract')}); D plans only into its own folder")
     if (out / "run").exists():
         raise SearchError(f"refused: {out / 'run'} exists (a run folder is never re-planned)")
-    plan = build_plan(lab_root, frontier_dir, out, dp, ep, code=code, readiness_override=readiness_override)
+    plan = build_plan(lab_root, frontier_dir, out, dp, ep, code=code, readiness_override=readiness_override, resume=resume)
     fs = g.LabFS(Path(lab_root))
     fs.mkdir(out)
     fs.write_json(pp, plan)
@@ -438,24 +719,95 @@ class OrderEngine(C.Run3Engine):
         self.ms_rows: Dict[str, Dict[str, Any]] = {}
         self.ms_verifications: List[Dict[str, Any]] = []
         self.deepest_history: List[Tuple[float, Optional[int]]] = []
-        self.c.update({"rejected_reaches": 0, "milestone_ticks": 0})
+        self.c.update({"rejected_reaches": 0, "milestone_ticks": 0, "cont_checked": 0, "cont_mismatches": 0, "deep_reaches": 0, "new_in_night": 0})
+        self.arm = d_arm(params)                             # the boundary window = one segment (CONT_RULE); jobs carry it
+        self.breaks_of: Dict[int, Tuple[Tuple[int, int], ...]] = {}   # every kept cell's break pairs (tick, target), sorted (v2)
+        self._insert_pairs: Optional[Tuple[Tuple[int, int], ...]] = None   # set while the open keeps the root and the resumed cells
+        self.resume_plan: Optional[Dict[str, Any]] = self.order_plan.get("resume")
+        self.resume_folders: List[Path] = [Path(f["dir"]) for f in (self.resume_plan or {}).get("folders") or []]
+        self.resume_seq: List[Dict[str, Any]] = []
+        self.resume_open: Dict[str, Any] = {}
+        self.clf = mcell.Classifier()                        # status classes, for the scoreboard's status at a break (report-only)
+        self.sb: Dict[str, Any] = {"first": {}, "best": {}, "inherited_best": {}, "dispatches": Counter(), "dispatches_res": Counter(),
+                                   "bursts": Counter(), "bursts_by_level": {}, "breaks": {}, "deep": Counter(), "new_by_level": Counter()}
+        self.scoreboard: Optional[Dict[str, Any]] = None
+        self.sets_orders_open: Dict[str, Dict[str, int]] = {}
         orig_keep = self.archive.keep
 
         def keep(key: Sequence[Any], level: int, tick: int, words: bytes, end: Sequence[Any], end_digest: bytes, chain: bytes, origin: Mapping[str, Any],
                  n_dispatch: int, **kw: Any) -> Tuple[str, Optional[cs.Cell]]:
             lv, t = int(level), int(tick)
-            if not kw.get("terminal") and lv < osel.TARGETS_TOTAL and not self.pace.keeps(lv, t):
-                self.archive.counts[cs.BEYOND] += 1              # the pace rule: not kept; counted in the rejected-reach readout
-                self.pace.rejected.note(lv, t)
-                self.c["rejected_reaches"] += 1
-                return cs.BEYOND, None
+            pairs = self.reach_pairs(lv, t)
+            arrival = osel.arrival_tick([p[0] for p in pairs], lv) if lv < osel.TARGETS_TOTAL else None
+            deep = self._cur is not None and lv >= DEEP_REACH_LEVEL
+            if not kw.get("terminal") and lv < osel.TARGETS_TOTAL:
+                why = self.pace.reason(lv, t, int(arrival))
+                if why is not None:
+                    self.archive.counts[cs.BEYOND] += 1          # the arrival rule: not kept; counted in the rejected-reach readout
+                    self.pace.rejected.note(lv, t, why[0], why[1])
+                    self.c["rejected_reaches"] += 1
+                    if deep:
+                        self.log_deep_reach(key, lv, t, arrival, cs.BEYOND, why)
+                    return cs.BEYOND, None
+            if lv < osel.TARGETS_TOTAL:
+                origin = dict(origin, d_breaks=[list(p) for p in pairs])
             verdict, c = orig_keep(key, level, tick, words, end, end_digest, chain, origin, n_dispatch, **kw)
-            if verdict in (cs.NEW, cs.REPLACED) and c is not None and self._cur is not None:
-                info = self._cur[0]
-                self._kept.append((verdict, c, rs.child_niche(info["niche"], int(c.key[3]), int(c.tick), self._post, self.niche_live)))
+            if verdict in (cs.NEW, cs.REPLACED) and c is not None:
+                self.breaks_of[int(c.cid)] = pairs
+                if self._cur is not None:
+                    info = self._cur[0]
+                    niche = rs.child_niche(info["niche"], int(c.key[3]), int(c.tick), self._post, self.niche_live)
+                    self._kept.append((verdict, c, niche))
+                    self.note_arrival(self.sb, c, pairs, niche, in_night=True)
+                    self.c["new_in_night"] += int(verdict == cs.NEW)
+                    self.sb["new_by_level"][str(lv)] += int(verdict == cs.NEW)
+            if deep:
+                self.log_deep_reach(key, lv, t, arrival, verdict, None)
             return verdict, c
 
         self.archive.keep = keep  # an instance attribute: DeterministicSchedule wraps this one in turn
+
+    # -- the arrival rule's inputs and the scoreboard's arrivals -------------------------------------------------------------------------------
+
+    def reach_pairs(self, level: int, tick: int) -> Tuple[Tuple[int, int], ...]:
+        """A reach's break pairs: the job's own (breaks_all: the prefix replay's and the burst's) at or before its tick; at the open, the root's
+        (none) and each resumed cell's. One pair per target broken, or SearchError."""
+        if self._insert_pairs is not None:
+            pairs = self._insert_pairs
+        elif self._cur is not None:
+            pairs = break_pairs([(t, i) for t, i in (self._cur[1].get("breaks_all") or []) if int(t) <= int(tick)])
+        else:
+            raise SearchError(f"a reach at level {level}, tick {tick} with no job and no inserted break ticks")
+        if len(pairs) != int(level):
+            raise SearchError(f"a reach at level {level}, tick {tick} carries {len(pairs)} break ticks ({list(pairs)[:12]})")
+        return pairs
+
+    def note_arrival(self, sb: Dict[str, Any], c: Any, pairs: Sequence[Tuple[int, int]], niche: Any, *, in_night: bool) -> None:
+        """Scoreboard (report-only): for every level L <= the cell's, its L-th break against the best so far (the order of its first L
+        targets); in the night, the first kept arrival at each level (wall time, dispatch, tick)."""
+        order = list(niche[1]) if niche is not None else []
+        key_best = "best" if in_night else "inherited_best"
+        for L in range(1, int(c.level) + 1):
+            t = int(pairs[L - 1][0])
+            b = sb[key_best].get(str(L))
+            if b is None or t < b["tick"]:
+                sb[key_best][str(L)] = {"tick": t, "order": "-".join(str(x) for x in order[:L]), "cid": int(c.cid), "cell_tick": int(c.tick),
+                                        "n": int(self._cur[0]["n"]) if (in_night and self._cur is not None) else 0,
+                                        "elapsed_s": round(self.elapsed(), 1) if in_night else 0.0}
+            if in_night and str(L) not in sb["first"]:
+                sb["first"][str(L)] = {"tick": t, "elapsed_s": round(self.elapsed(), 1), "n": int(self._cur[0]["n"]) if self._cur is not None else None,
+                                       "cid": int(c.cid), "order": "-".join(str(x) for x in order[:L])}
+
+    def log_deep_reach(self, key: Sequence[Any], level: int, tick: int, arrival: Optional[int], verdict: str, why: Optional[Tuple[str, int]]) -> None:
+        """Every reach at level >= DEEP_REACH_LEVEL of an in-night burst, kept or not (owner 2026-11-16): deep_reaches.jsonl. Report-only."""
+        info = self._cur[0] if self._cur is not None else {}
+        row = {"n": info.get("n"), "cid": info.get("cid"), "k": info.get("k"), "start_level": info.get("level"), "start_tick": info.get("tick"),
+               "level": int(level), "tick": int(tick), "arrival": arrival, "key": list(key), "verdict": verdict,
+               "reason": why[0] if why else None, "over": why[1] if why else None, "utc": g.utc()}
+        self.c["deep_reaches"] += 1
+        self.sb["deep"][f"{int(level)}|{verdict}"] += 1
+        with self._lock:
+            self.fs.append_jsonl(self.dir / "deep_reaches.jsonl", row)
 
     # -- open: checks, D's code digest, the workers, the tick-0 root -------------------------------------------------------------------------
 
@@ -484,6 +836,16 @@ class OrderEngine(C.Run3Engine):
         self.order_code_dig = code_digest(self.order_code)
         if self.order_code_dig != self.order_code_expect:
             raise Refused(f"D's code digest {self.order_code_dig[:16]} differs from the plan's {str(self.order_code_expect)[:16]} ({len(self.order_code)} files)")
+        if self.resume_plan is not None:                    # the resume, derived again from the same folders: the plan's set, or refused
+            bad = resume_check(self.resume_plan, self.resume_folders)
+            if bad:
+                raise Refused(f"resume: {bad}")
+            try:
+                self.resume_seq, rec = resume_selection(self.resume_folders, self.pace)
+            except (SearchError, rl3.LoadError, ValueError, OSError) as exc:
+                raise Refused(f"resume: {exc}")
+            if rec is None or rec["set_digest"] != self.resume_plan["set_digest"]:
+                raise Refused(f"resume: the inserted set {None if rec is None else rec['set_digest'][:16]} is not the plan's {self.resume_plan['set_digest'][:16]}")
         self.fs.mkdir(self.dir)
         self.fs.write_json(self.dir / "config.json", self.config_record(ready))
         self.sampler = fm.Sampler(lambda r: self.fs.append_jsonl(self.dir / "memory.jsonl", r), interval=env.sample_s, row_every=env.row_every_s,
@@ -507,13 +869,31 @@ class OrderEngine(C.Run3Engine):
         if r0.get("key") is None or int(r0["mask"]) != osel.ROOT_MASK:
             self.mark("SEARCH_INVALID", f"the tick-0 state is not a root with every target live (key {r0.get('key')}, mask {r0.get('mask')})")
             return
+        if self.resume_plan is not None:
+            want = self.resume_plan["root"]
+            if r0["digest"] != want["digest"] or r0["chain"] != want["chain"] or list(r0["key"]) != list(want["key"]):
+                self.root["resume_root_equal"] = False
+                self.fs.write_json(self.dir / "root.json", self.root)
+                self.mark("SEARCH_INVALID", f"the tick-0 root ({r0['digest'][:16]}) is not the resume folders' ({want['digest'][:16]}): their cells' chains "
+                                            f"would not replay")
+                return
+            self.root["resume_root_equal"] = True
+            self.fs.write_json(self.dir / "root.json", self.root)
         self.pin = {"obs": list(r0["obs"]), "digest": r0["digest"], "chain": r0["chain"], "lines": r0["lines"]}
-        verdict, c = self.archive.keep(tuple(r0["key"]), 0, 0, b"", tuple(r0["obs"]), bytes.fromhex(r0["digest"]), bytes.fromhex(r0["chain"]), {"kind": "root"}, 0)
+        self._insert_pairs = ()
+        try:
+            verdict, c = self.archive.keep(tuple(r0["key"]), 0, 0, b"", tuple(r0["obs"]), bytes.fromhex(r0["digest"]), bytes.fromhex(r0["chain"]), {"kind": "root"}, 0)
+        finally:
+            self._insert_pairs = None
         if verdict != cs.NEW or c is None:
             raise SearchError(f"the root was not kept ({verdict})")
         self.emit_cell(cs.NEW, c, None)
-        self.selector = osel.OrderSelector(self.archive, self.dp, niches={c.cid: rs.seed_niche(osel.ROOT_MASK)}, best_claim=None)
+        niches: Dict[int, rs.Niche] = {c.cid: rs.seed_niche(osel.ROOT_MASK)}
         self.root["cid"] = c.cid
+        if self.resume_plan is not None:
+            niches.update(self.insert_resumed())
+        self.selector = osel.OrderSelector(self.archive, self.dp, niches=niches, breaks=self.tick_view(), best_claim=None)
+        self.sets_orders_open = self.sets_orders()
         if self.readiness_use and self.readiness_use.get("applied"):
             self.event(f"READINESS OVERRIDE (owner): free commit {self.readiness_use['commit_free_mb']:.0f} MB admitted at >= "
                        f"{self.readiness_use['min_commit_free_mb']} MB (registered {self.readiness_use['registered_min_commit_free_mb']} MB); "
@@ -522,6 +902,55 @@ class OrderEngine(C.Run3Engine):
         self.log(f"open done in {self.phase_wall['open']:.0f} s; {cfg.n_workers} workers ready; root cell {c.cid} (key {list(c.key)}); pace lines "
                  f"{self.order_plan['pace']['lines']}; claim threshold {self.order_plan['claim_threshold']}; params {self.dp.as_record()}; arm {cs.ARM_NAME} {self.arm}")
         self.write_progress()
+
+    def tick_view(self) -> "TickView":
+        return TickView(self.breaks_of)
+
+    def insert_resumed(self) -> Dict[int, rs.Niche]:
+        """The resume (owner 2026-11-16): the planned sequence through the archive's keep rule (each verdict must be the plan's), one
+        cells.jsonl row per insertion (origin kind resume: its folder, D cell id and digest, niche and break pairs). Returns the niches of the
+        inherited representatives. Their dispatch counts and retirement start from zero; they meet no milestone."""
+        niches: Dict[int, rs.Niche] = {}
+        counts: Counter = Counter()
+        for e in self.resume_seq:
+            cd = e["cand"]
+            pairs = break_pairs(cd["breaks"])
+            origin = {"kind": RESUME_KIND, "folder": cd["folder"], "d_archive_id": cd["d_archive_id"], "d_cid": int(cd["d_cid"]), "d_digest": cd["digest"],
+                      "niche": cd["niche"]}
+            self._insert_pairs = pairs
+            try:
+                verdict, c = self.archive.keep(tuple(cd["key"]), int(cd["level"]), int(cd["tick"]), bytes.fromhex(cd["words_hex"]), tuple(cd["end"]),
+                                               bytes.fromhex(cd["end_digest"]), bytes.fromhex(cd["chain"]), origin, 0)
+            finally:
+                self._insert_pairs = None
+            if verdict != e["verdict"] or c is None:
+                raise SearchError(f"resume: D cell {cd['d_cid']} of {cd['folder']} was {verdict}; the plan says {e['verdict']}")
+            niches[c.cid] = rl3.niche_of_label(cd["niche"])
+            counts[verdict] += 1
+            row = {"ev": verdict, "cid": c.cid, "key": list(c.key), "level": c.level, "tick": c.tick, "lead": c.lead, "slack": self.archive.slack_of(c.tick),
+                   "digest": c.digest, "end_digest": c.end_digest.hex(), "chain": c.chain.hex(), "origin": c.origin, "n": 0, "seen": c.seen, "replaced": c.replaced,
+                   "first_at_level": False, "utc": g.utc(), "words_hex": c.words.hex(), "end": list(c.end), "niche": cd["niche"],
+                   "group": rs.glabel((int(c.level), int(c.key[3]), cd["niche"]))}
+            if verdict == cs.REPLACED and c.previous:
+                row["previous"] = dict(c.previous)
+            with self._lock:
+                self.fs.append_jsonl(self.dir / "cells.jsonl", row)
+        for cid, niche in niches.items():                   # the inherited bests over the representatives the archive holds
+            self.note_arrival(self.sb, self.archive.cells[cid], self.breaks_of[cid], niche, in_night=False)
+        self.resume_open = {"inserted": {k: int(v) for k, v in sorted(counts.items())}, "cells": len(niches), "set_digest": self.resume_plan["set_digest"]}
+        self.log(f"resume: {len(niches)} cells inherited from {len(self.resume_folders)} D folder(s) ({json.dumps(self.resume_open['inserted'])}; set "
+                 f"{self.resume_plan['set_digest'][:16]}); counts and retirement start at zero")
+        return niches
+
+    def sets_orders(self) -> Dict[str, Dict[str, int]]:
+        """Per level: cells, distinct target sets (live masks) and orders (niches) among the selector's cells (report-only)."""
+        per: Dict[int, Dict[str, set]] = {}
+        for _cid, gk in self.selector.group.items():
+            d = per.setdefault(int(gk[0]), {"cells": set(), "sets": set(), "orders": set()})
+            d["cells"].add(_cid)
+            d["sets"].add(int(gk[1]))
+            d["orders"].add(str(gk[2]))
+        return {str(lv): {k: len(v) for k, v in per[lv].items()} for lv in sorted(per, reverse=True)}
 
     def root_reads(self) -> List[Dict[str, Any]]:
         """Section 5.1: two fresh processes reach tick 0 with no input word (one worker each, or one worker twice): both replies."""
@@ -566,7 +995,8 @@ class OrderEngine(C.Run3Engine):
         self.c["dispatches"] += 1
         self.inflight[w] = {"n": self.c["dispatches"], "cid": c.cid, "k": k, "level": c.level, "tick": c.tick, "lead": c.lead, "draw_id": draw_id, "draw": dict(draw),
                             "fresh": c.fresh, "seen": c.seen, "breaks": c.breaks, "digest": c.digest, "words": bytes(c.words), "reserved": int(want), "cont": [],
-                            "root": c.root, "inherited": c.inherited, "cleared": c.cleared, "fused": False}
+                            "root": c.root, "inherited": c.inherited, "cleared": c.cleared, "fused": False,
+                            "d_pairs0": tuple(self.breaks_of[int(c.cid)]), "d_mask0": int(c.key[3]), "d_res": str(c.key[2])}
         self.reserved += int(want)
         return job
 
@@ -575,6 +1005,69 @@ class OrderEngine(C.Run3Engine):
     def commit(self, info: Mapping[str, Any], c: cs.Cell, res: Mapping[str, Any]) -> None:
         super().commit(info, c, res)
         self.log_milestones(info)
+        self.score_dispatch(info, res)
+
+    def score_dispatch(self, info: Mapping[str, Any], res: Mapping[str, Any]) -> None:
+        """Scoreboard counters of one ingested burst (report-only), and the check of its boundary answers against its exact break ticks."""
+        sb = self.sb
+        lv0 = str(int(info["level"]))
+        sb["dispatches"][lv0] += 1
+        sb["dispatches_res"][f"{lv0}|{info.get('d_res')}"] += 1
+        L = int(res["L"])
+        n_words = len(res.get("words") or b"")
+        sb["bursts"][str(n_words)] += 1
+        sb["bursts_by_level"].setdefault(lv0, Counter())[str(n_words)] += 1
+        row = self._row or {}
+        if row.get("n") == info.get("n") and row.get("outcome") == "clear" and (row.get("claimed") or {}).get("completion_input_tick") is not None:
+            t10 = int(row["claimed"]["completion_input_tick"])
+            rec10 = {"tick": t10, "elapsed_s": round(self.elapsed(), 1), "n": int(info["n"]), "cid": int(info["cid"]), "order": None}
+            sb["first"].setdefault(str(osel.TARGETS_TOTAL), rec10)
+            if str(osel.TARGETS_TOTAL) not in sb["best"] or t10 < sb["best"][str(osel.TARGETS_TOTAL)]["tick"]:
+                sb["best"][str(osel.TARGETS_TOTAL)] = rec10
+        allp = break_pairs(res.get("breaks_all"))
+        obs_at = {int(r[0]): r[2] for r in (res.get("reaches") or [])}
+        for idx, (t, _i) in enumerate(allp):
+            if int(t) <= L:
+                continue
+            d = sb["breaks"].setdefault(str(idx + 1), {"breaks": 0, "hitter": Counter(), "status_at_break": Counter()})
+            d["breaks"] += 1
+            d["hitter"]["unknown (entity off)"] += 1
+            o = obs_at.get(int(t))
+            d["status_at_break"]["no reach at the break tick" if o is None else self.clf.name(o[OBS_STATUS])] += 1
+        for e in info.get("cont") or []:
+            if e[2] is None:
+                continue
+            tick = int(e[4])
+            p = [x for x in allp if int(x[0]) <= tick]
+            lv = len(p)
+            arr = osel.arrival_tick([x[0] for x in p], lv) if lv < osel.TARGETS_TOTAL else None
+            go = lv < osel.TARGETS_TOTAL and self.pace.keeps(lv, tick, int(arr))
+            self.c["cont_checked"] += 1
+            if [int(e[2]), e[3], bool(e[5])] != [lv, arr, go]:
+                self.c["cont_mismatches"] += 1
+                self.event(f"boundary answer of dispatch {info['n']} segment {e[0]}: recorded level {e[2]} arrival {e[3]} go {e[5]}, exact {lv} {arr} {go}")
+
+    def window_decision(self, info: Dict[str, Any], payload: Mapping[str, Any]) -> Dict[str, Any]:
+        """The continuation rule (owner 2026-11-16): the job's mask followed through the reaches of every boundary question so far (each
+        holds its whole segment), the state at the boundary inside the arrival rule. From the job's own trajectory only."""
+        tr = info.setdefault("d_track", {"pairs": list(info["d_pairs0"]), "mask": int(info["d_mask0"]), "seen_to": int(payload["L"])})
+        for rj, rk in sorted(((int(r[0]), r[1]) for r in payload["reaches"]), key=lambda x: x[0]):
+            if rj <= tr["seen_to"]:
+                continue
+            m = int(rk[3])
+            if m != tr["mask"]:
+                if m & ~tr["mask"]:
+                    raise SearchError(f"dispatch {info['n']}: a live target came back at tick {rj} ({tr['mask']:#x} -> {m:#x})")
+                tr["pairs"] += [(rj, i) for i in range(osel.TARGETS_TOTAL) if (tr["mask"] >> i) & 1 and not (m >> i) & 1]
+                tr["mask"] = m
+        t_now = int(payload["L"]) + int(payload["words"])
+        tr["seen_to"] = t_now
+        lv = mcell.level_of_mask(tr["mask"])
+        if lv >= osel.TARGETS_TOTAL:
+            return {"go": False, "level": lv, "arrival": None, "tick": t_now}
+        ticks = sorted(int(t) for t, _i in tr["pairs"])
+        arrival = osel.arrival_tick(ticks, lv)
+        return {"go": self.pace.keeps(lv, t_now, arrival), "level": lv, "arrival": arrival, "tick": t_now}
 
     def log_milestones(self, info: Mapping[str, Any]) -> None:
         met = self.selector.milestones.met
@@ -770,15 +1263,21 @@ class OrderEngine(C.Run3Engine):
                 "memory_soft_budget_mb": dict(self.env.soft or fm.soft_budget(self.env.caps or fm.CAPS_MB)), "readiness": ready,
                 "readiness_override": self.readiness_use,
                 "flags_explore": fv.FLAGS_EXPLORE, "flags_verify": fv.FLAGS_VERIFY, "backend": self.env.backend, "import": str(Path(c.lab_root) / "import"),
-                "root": p["root"], "pace": p["pace"], "milestones": p["milestones"], "gate": p["gate"], "frontier": p["frontier"], "claim_threshold": p["claim_threshold"],
+                "root": p["root"], "pace": p["pace"], "milestones": p["milestones"], "gate": p["gate"], "gate_reference": p.get("gate_reference"),
+                "keep_rule": p.get("keep_rule"), "continuation": p.get("continuation"), "frontier": p["frontier"], "claim_threshold": p["claim_threshold"],
                 "sources": p["sources"], "rng_seed": int(self.p.rng_seed),
+                "resume": None if self.resume_plan is None else {k: v for k, v in self.resume_plan.items() if k != "reports"},
                 "origins": {"root": "two fresh-process tick-0 reads at the open (section 5.1); the tick-0 record is every dispatch's pin",
-                            "keep": "the pace line line(L) = (G x L) // 10 + s (tools/frs/order_select.Pace); run 3's keep rule inside it",
+                            "keep": "the arrival rule (order_select_v2): L-th break <= line(L) and own tick <= line(L + 1), line(L) = (G x L) // 10 + s; "
+                                    "run 3's keep rule inside it",
+                            "continuation": CONT_RULE,
+                            "resume": "--resume-from D folders: final representatives through the arrival rule, then the archive's keep rule at the open; "
+                                      "counts and retirement from zero; no milestone from an inherited cell",
                             "selection": "tools/frs/order_select.OrderSelector (section 3; gaps A-F, G1-G5); no trigger draws",
                             "draw_id": f"<archive id>|{KEY_FAMILY}|<prefix words digest>, iteration k = 0.. per representative",
                             "claims": "a clear faster than the frontier's best (read at the plan), then than D's own best, verified twice from tick 0 (run 3)",
-                            "milestones": "first kept arrival with at least L targets broken at a tick <= line(L); clear line on the completion input tick; "
-                                          "verified at the close by two fresh-process replays (D-Q8)",
+                            "milestones": "first cell kept in the night with at least L targets whose L-th break came at or before line(L); clear line on the "
+                                          "completion input tick; verified at the close by two fresh-process replays (D-Q8)",
                             "rng": "keyed draws (det_schedule), seed --rng-seed; native RNG never read"}}
 
     def summary(self) -> Dict[str, Any]:
@@ -809,8 +1308,93 @@ class OrderEngine(C.Run3Engine):
                                                              "rotation": {k: int(v) for k, v in sorted(sel.dstat.items())}, "retired_now": len(sel.retired),
                                                              "within_one_violations": sel.within_one_violations(), "levels": sel.level_readout(),
                                                              "same_tick": sel.same_tick.summary(), "moves": int(sel.cnt["moves"])},
-                      "niche_live": dict(self.niche_live), "exports": list(self.exports), "text_replays": list(self.text_replays), "hourly_records": list(self.hourly)}
+                      "niche_live": dict(self.niche_live), "exports": list(self.exports), "text_replays": list(self.text_replays), "hourly_records": list(self.hourly),
+                      "keep_rule": self.order_plan.get("keep_rule"), "continuation": {"rule": CONT_RULE, "checked": self.c["cont_checked"],
+                                                                                      "mismatches": self.c["cont_mismatches"]},
+                      "resume": None if self.resume_plan is None else {"plan": {k: self.resume_plan.get(k) for k in ("counts", "dropped_rule_reasons", "inserts",
+                                                                                                                   "cells_after", "set_digest", "root")},
+                                                                       "open": dict(self.resume_open), "root_equal": self.root.get("resume_root_equal"),
+                                                                       "folders": [f["dir"] for f in self.resume_plan.get("folders") or []]},
+                      "scoreboard": self.scoreboard}
         return s
+
+    def build_scoreboard(self, s: Mapping[str, Any]) -> Dict[str, Any]:
+        """The fixed close record (owner 2026-11-16), report-only: read by no rule."""
+        sel, sb = self.selector, self.sb
+        levels_in_archive = sorted({int(c.level) for c in self.archive.cells if c.words is not None and c.level < osel.TARGETS_TOTAL})
+        deepest_in_night = max((int(k) for k in sb["first"]), default=None)
+        per_level: Dict[str, Dict[str, Any]] = {}
+        readout = sel.level_readout() if sel is not None else {}
+        for L in range(1, osel.TARGETS_TOTAL + 1):
+            k = str(L)
+            row = {"line": self.pace.line(L), "first_in_night": sb["first"].get(k), "best_in_night": sb["best"].get(k), "inherited_best": sb["inherited_best"].get(k)}
+            if any(v is not None for v in row.values() if not isinstance(v, int)):
+                per_level[k] = row
+        sets_orders_close = self.sets_orders() if sel is not None else {}
+        cells6: Dict[str, Dict[str, Any]] = {}
+        for c in self.archive.cells:
+            if c.words is None or not 6 <= int(c.level) < osel.TARGETS_TOTAL:
+                continue
+            src = "inherited" if (c.origin or {}).get("kind") == RESUME_KIND else "night"
+            d = cells6.setdefault(str(c.level), {"cells": 0, "by_resource_class": Counter(), "grounded": 0, "airborne": 0, "by_source": Counter()})
+            d["cells"] += 1
+            d["by_resource_class"][str(c.key[2])] += 1
+            d["grounded" if int(c.end[OBS_GROUND]) == 0 else "airborne"] += 1
+            d["by_source"][src] += 1
+        left: List[str] = []
+        wd = self.dir / "workers"
+        if wd.is_dir():
+            for w in sorted(p for p in wd.iterdir() if p.is_dir()):
+                for sub in ("rt", "ep"):
+                    if (w / sub).is_dir():
+                        left += [f"{w.name}/{sub}/{x.name}" for x in sorted((w / sub).iterdir())]
+        ver = {v["milestone"]: v for v in self.ms_verifications}
+        m1row = self.ms_rows.get("M1") or {}
+        ref = self.order_plan.get("gate_reference") or {}
+        b6 = sb["best"].get("6")
+        work, integ = s.get("work") or {}, s.get("integrity") or {}
+        dispatched = {lv: int(n) for lv, n in sorted(sb["dispatches"].items(), key=lambda kv: -int(kv[0]))}
+        res6 = {k.split("|", 1)[1]: int(v) for k, v in sorted(sb["dispatches_res"].items()) if k.split("|", 1)[0] == "6"}
+        deep = {}
+        for k, v in sorted(sb["deep"].items()):
+            lv, verdict = k.split("|", 1)
+            deep.setdefault(lv, {})[verdict] = int(v)
+        return {
+            "deepest_level": {"in_archive": max(levels_in_archive, default=None), "first_reached_in_night": deepest_in_night},
+            "levels": per_level,
+            "sets_orders": {"open": self.sets_orders_open, "close": sets_orders_close},
+            "level6plus_cells": {lv: {"cells": d["cells"], "by_resource_class": dict(sorted(d["by_resource_class"].items())), "grounded": d["grounded"],
+                                      "airborne": d["airborne"], "by_source": dict(d["by_source"])} for lv, d in sorted(cells6.items(), key=lambda kv: -int(kv[0]))},
+            "break_attribution": {lv: {"breaks": d["breaks"], "hitter": dict(d["hitter"]), "status_at_break": dict(d["status_at_break"].most_common())}
+                                  for lv, d in sorted(sb["breaks"].items(), key=lambda kv: -int(kv[0]))},
+            "break_attribution_note": "hitter unknown: the entity block is off in search workers; status_at_break is Mario's status class on the break "
+                                      "tick (the reach at that tick), not a hitter",
+            "dispatches_by_level": dispatched,
+            "level6_dispatches_by_start_resource_class": res6,
+            "dispatches_by_level_and_resource_class": {k: int(v) for k, v in sorted(sb["dispatches_res"].items())},
+            "retirements": {"events_by_level": {k: int(v) for k, v in sorted(sel.retired_by_level.items(), key=lambda kv: -int(kv[0]))} if sel else {},
+                            "retired_at_close_by_level": {lv: d.get("retired") for lv, d in readout.items()}},
+            "new_cells_in_night_by_level": {k: int(v) for k, v in sorted(sb["new_by_level"].items(), key=lambda kv: -int(kv[0]))},
+            "deep_reaches": {"min_level": DEEP_REACH_LEVEL, "total": self.c["deep_reaches"], "by_level_and_verdict": deep, "file": "deep_reaches.jsonl"},
+            "burst_lengths": {"all": {k: int(v) for k, v in sorted(sb["bursts"].items(), key=lambda kv: int(kv[0]))},
+                              "by_start_level": {lv: {k: int(v) for k, v in sorted(c.items(), key=lambda kv: int(kv[0]))}
+                                                 for lv, c in sorted(sb["bursts_by_level"].items(), key=lambda kv: -int(kv[0]))}},
+            "continuation": {"boundaries": self.c["boundaries"], "continued": self.c["continued"], "checked": self.c["cont_checked"],
+                             "mismatches": self.c["cont_mismatches"]},
+            "m1": {"official": {"line": self.pace.line(6), "slack": self.dp.slack, "met": "M1" in self.ms_rows, "tick": m1row.get("tick"),
+                                "cell_tick": m1row.get("cell_tick"), "n": m1row.get("n"), "verdict": (ver.get("M1") or {}).get("verdict")},
+                   "reference": {"line": ref.get("line"), "slack": ref.get("slack"), "earliest_6th_break_in_night": None if b6 is None else b6["tick"],
+                                 "order": None if b6 is None else b6["order"], "met": b6 is not None and ref.get("line") is not None and b6["tick"] <= int(ref["line"]),
+                                 "verified_by_M1_replays": (ver.get("M1") or {}).get("verdict") == M_VERIFIED and m1row.get("tick") is not None
+                                 and ref.get("line") is not None and int(m1row["tick"]) <= int(ref["line"])},
+                   "inherited_earliest_6th_break": (sb["inherited_best"].get("6") or {}).get("tick")},
+            "integrity": {"status": s.get("status"), "stop": (s.get("stop") or {}).get("reason"),
+                          **{k: work.get(k) for k in ("mismatches", "tick0_unequal", "lifecycle_failures", "aborted", "fused_mismatch")},
+                          **{k: integ.get(k) for k in ("guard_violations_main", "battleship_left", "root_equal", "order_code_digest", "order_code_digest_end",
+                                                       "order_code_changed_during_run", "lab_code_changed_during_run", "milestones_not_verified")},
+                          "resume_root_equal": self.root.get("resume_root_equal"), "cont_mismatches": self.c["cont_mismatches"]},
+            "lowest_free_commit_mb": _finite((self.sampler.peak or {}).get("system_commit_free_min_mb")) if self.sampler is not None else None,
+            "leftover_worker_folders": left}
 
     def write_summary(self) -> Dict[str, Any]:
         if not self._final_record and self.selector is not None and self.selector.n_ingested:
@@ -830,6 +1414,12 @@ class OrderEngine(C.Run3Engine):
         if self.sampler is not None:
             self.sampler.stop()
         s = self.summary()
+        try:
+            self.scoreboard = self.build_scoreboard(s)
+        except Exception as exc:  # noqa: BLE001 - a report, never the close
+            self.scoreboard = {"error": f"{type(exc).__name__}: {exc}"[:400]}
+            self.log(f"the scoreboard failed: {self.scoreboard['error']}")
+        s["order"]["scoreboard"] = self.scoreboard
         self.fs.write_text(self.dir / "summary.json", frep.compact_json(s), atomic=True)
         self.fs.write_text(self.dir / "report.md", report_md(s), atomic=True)
         self.fs.write_text(self.dir / "progress.md", progress_md(s, final=True), atomic=True)
@@ -842,19 +1432,45 @@ class OrderEngine(C.Run3Engine):
             pass
 
 
+class TickView(ABCMapping):
+    """The selector's view of the engine's break pairs: cell id -> sorted break ticks. A live view (the engine's dict, not a copy)."""
+
+    def __init__(self, pairs: Mapping[int, Sequence[Tuple[int, int]]]):
+        self.pairs = pairs
+
+    def __getitem__(self, cid: int) -> Tuple[int, ...]:
+        return tuple(int(t) for t, _i in self.pairs[cid])
+
+    def __iter__(self) -> Any:
+        return iter(self.pairs)
+
+    def __len__(self) -> int:
+        return len(self.pairs)
+
+
 class OrderNight(det.DeterministicSchedule, ra.AnomalyIngest, OrderEngine):
     """Option D: deterministic scheduling (D4), anomaly keeping, D's engine."""
 
-    def continuation_asof(self, reaches: Sequence[Sequence[Any]], seq: int) -> Dict[str, Any]:
-        """F3 read with the pace filter (section 4.4): only a reach the pace rule would keep can continue a burst."""
-        inside = []
-        for j, k in reaches:
-            lv = mcell.level_of_mask(int(k[3]))
-            if lv >= osel.TARGETS_TOTAL or self.pace.keeps(lv, int(j)):
-                inside.append((j, k))
-        d = super().continuation_asof(inside, seq)
-        d["outside_line"] = len(reaches) - len(inside)
-        return d
+    def on_boundary(self, w: int, payload: Dict[str, Any]) -> None:
+        """det_schedule.on_boundary's protocol with D's continuation rule (owner 2026-11-16, CONT_RULE) in place of F3: the answer reads the
+        job's own trajectory and the pace lines only, so it is deterministic without an as-of archive. Only an abort forces "do not
+        continue" (a stop for a cap lets in-flight jobs end as they would have). Each answer is recorded as [segment, reaches, level,
+        arrival, tick, go] in the dispatch row's `cont`, and recomputed from the job's exact break ticks at the ingest."""
+        info = self.inflight.get(w)
+        aborting = self.pool is not None and self.pool.abort.is_set()
+        if aborting or info is None or info["k"] != int(payload["iteration"]):
+            d: Dict[str, Any] = {"go": False, "level": None, "arrival": None, "tick": None}
+        else:
+            d = self.window_decision(info, payload)
+        go = bool(d["go"])
+        self.c["boundaries"] += 1
+        self.c["continued"] += int(go)
+        if info is not None:
+            info["cont"].append([int(payload["segment"]), len(payload["reaches"]), d.get("level"), d.get("arrival"), d.get("tick"), int(go)])
+        try:
+            self.pool.conns[w].send(("continue", {"iteration": payload["iteration"], "segment": payload["segment"], "go": go}))
+        except (OSError, BrokenPipeError):
+            pass
 
 
 # -- rendering ----------------------------------------------------------------------------------------------------------------------------------
@@ -862,6 +1478,10 @@ class OrderNight(det.DeterministicSchedule, ra.AnomalyIngest, OrderEngine):
 
 def _f(x: Any) -> str:
     return frep.fmt(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else ("-" if x is None else str(x))
+
+
+def _finite(x: Any) -> Any:
+    return None if x is None or (isinstance(x, float) and x in (float("inf"), float("-inf"))) else (round(x, 1) if isinstance(x, float) else x)
 
 
 def hourly_md(rec: Mapping[str, Any]) -> str:
@@ -913,11 +1533,59 @@ def progress_md(s: Mapping[str, Any], *, final: bool) -> str:
     return "\n".join([f"# Option D {'report' if final else 'progress'} ({s.get('utc_end')})", ""] + _summary_lines(s)) + "\n"
 
 
+def scoreboard_md(sc: Optional[Mapping[str, Any]]) -> List[str]:
+    """The fixed scoreboard (owner 2026-11-16) as markdown; report-only."""
+    if not sc:
+        return ["", "## Scoreboard", "", "- not built"]
+    if sc.get("error"):
+        return ["", "## Scoreboard", "", f"- failed: {sc['error']}"]
+    so = sc.get("sets_orders") or {}
+    out = ["", "## Scoreboard (report-only)", "", f"- deepest level: in the archive {_f((sc['deepest_level'] or {}).get('in_archive'))}, "
+           f"first reached in the night {_f((sc['deepest_level'] or {}).get('first_reached_in_night'))}", "",
+           "| level | line | first in night (tick, wall s, dispatch) | best in night (tick, order) | inherited best (tick, order) | sets / orders open | sets / orders close | dispatches | retirements |",
+           "| ---: | ---: | --- | --- | --- | --- | --- | ---: | ---: |"]
+    for L in range(10, 0, -1):
+        k = str(L)
+        row = (sc.get("levels") or {}).get(k) or {}
+        fi, be, ih = row.get("first_in_night") or {}, row.get("best_in_night") or {}, row.get("inherited_best") or {}
+        op, cl = (so.get("open") or {}).get(k) or {}, (so.get("close") or {}).get(k) or {}
+        disp = (sc.get("dispatches_by_level") or {}).get(k)
+        ret = ((sc.get("retirements") or {}).get("events_by_level") or {}).get(k)
+        if not (fi or be or ih or op or cl or disp):
+            continue
+        out.append(f"| {L} | {_f(row.get('line'))} | {_f(fi.get('tick'))}, {_f(fi.get('elapsed_s'))}, {_f(fi.get('n'))} | {_f(be.get('tick'))}, {be.get('order') or '-'} | "
+                   f"{_f(ih.get('tick'))}, {ih.get('order') or '-'} | {_f(op.get('sets'))} / {_f(op.get('orders'))} | {_f(cl.get('sets'))} / {_f(cl.get('orders'))} | "
+                   f"{_f(disp)} | {_f(ret)} |")
+    m1 = sc.get("m1") or {}
+    of, rf = m1.get("official") or {}, m1.get("reference") or {}
+    out += ["", f"- M1 at {of.get('line')} (slack {of.get('slack')}): met {of.get('met')}, tick {_f(of.get('tick'))}, verdict {of.get('verdict')}; "
+                f"M1 at {rf.get('line')} (slack {rf.get('slack')}, report-only): earliest in-night 6th break {_f(rf.get('earliest_6th_break_in_night'))} "
+                f"({rf.get('order') or '-'}), met {rf.get('met')}, verified by M1's replays {rf.get('verified_by_M1_replays')}; inherited earliest 6th break "
+                f"{_f(m1.get('inherited_earliest_6th_break'))}",
+            f"- level 6+ cells: {json.dumps(sc.get('level6plus_cells'))}",
+            f"- level-6 dispatches by starting resource class: {json.dumps(sc.get('level6_dispatches_by_start_resource_class'))}",
+            f"- break attribution ({sc.get('break_attribution_note')}): {json.dumps(sc.get('break_attribution'))}",
+            f"- reaches at level >= {(sc.get('deep_reaches') or {}).get('min_level')}: {(sc.get('deep_reaches') or {}).get('total')} "
+            f"{json.dumps((sc.get('deep_reaches') or {}).get('by_level_and_verdict'))} (each in deep_reaches.jsonl)",
+            f"- burst lengths (words): {json.dumps((sc.get('burst_lengths') or {}).get('all'))}; continuation {json.dumps(sc.get('continuation'))}",
+            f"- integrity: {json.dumps(sc.get('integrity'))}",
+            f"- lowest free commit {_f(sc.get('lowest_free_commit_mb'))} MB; leftover worker folders {len(sc.get('leftover_worker_folders') or [])} "
+            f"{(sc.get('leftover_worker_folders') or [])[:12]}"]
+    return out
+
+
 def report_md(s: Mapping[str, Any]) -> str:
     o = s.get("order") or {}
-    lines = ["# Option D: night report", ""] + _summary_lines(s) + ["", "## Rejected reaches (whole night; report-only)", ""]
+    lines = ["# Option D: night report", ""] + _summary_lines(s) + scoreboard_md(o.get("scoreboard"))
+    rz = o.get("resume")
+    if rz:
+        lines += ["", "## Resume", "", f"- folders {rz.get('folders')}; root equal {rz.get('root_equal')}; plan {json.dumps((rz.get('plan') or {}).get('counts'))}; "
+                                       f"open {json.dumps(rz.get('open'))}"]
+    lines += ["", "## Rejected reaches (whole night; report-only)", ""]
     for lv, r in (o.get("rejected") or {}).items():
-        lines.append(f"- level {lv}: {r['count']} rejected, earliest {r['earliest_tick']} (+{r['distance']} over the line)")
+        lines.append(f"- level {lv}: {r['count']} rejected, earliest {r['earliest_tick']} (+{r['distance']}, {r.get('reason')}); "
+                     f"late arrival {r.get('late_arrival', 0)} (min +{r.get('late_arrival_min_distance', '-')}), "
+                     f"window passed {r.get('window_passed', 0)} (min +{r.get('window_passed_min_distance', '-')})")
     sel = o.get("selection") or {}
     lines += ["", "## Selection", "", f"- streams {json.dumps(sel.get('streams'))}; rotation {json.dumps(sel.get('rotation'))}",
               f"- within-1 violations at the close: {sel.get('within_one_violations')}", f"- same-tick breaks {json.dumps(sel.get('same_tick'))}",
@@ -944,17 +1612,26 @@ def run_command(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> 
     return (f"python -B tools/frs/order_search.py run --lab-root {Path(lab).as_posix()} --frontier {Path(frontier).as_posix()} --out {Path(out).as_posix()} "
             f"--rng-seed {a.rng_seed} --workers {a.workers} --max-ticks {a.max_ticks} --max-wall-min {a.max_wall_min:g} --summary-every-s {a.summary_every_s:g}"
             + (f" --max-cells {a.max_cells}" if a.max_cells != C.Params3.max_cells else "") + (f" --max-dispatches {a.max_dispatches}" if a.max_dispatches else "")
-            + (f" --min-commit-free-mb {a.min_commit_free_mb} --override-reason \"{a.override_reason}\"" if a.min_commit_free_mb is not None else ""))
+            + (f" --min-commit-free-mb {a.min_commit_free_mb} --override-reason \"{a.override_reason}\"" if a.min_commit_free_mb is not None else "")
+            + (f" --goal {a.goal}" if a.goal != osel.OrderParams.goal else "") + (f" --slack {a.slack}" if a.slack != osel.OrderParams.slack else "")
+            + "".join(f" --resume-from {Path(d).as_posix()}" for d in (a.resume_from or [])))
 
 
 def cmd_plan(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int:
     dp = order_params_from_args(a)
     ep = engine_params_from_args(a, dp)
-    P = plan_and_write(lab, frontier, out, dp, ep, readiness_override=readiness_override_record(a.min_commit_free_mb, a.override_reason))
+    P = plan_and_write(lab, frontier, out, dp, ep, readiness_override=readiness_override_record(a.min_commit_free_mb, a.override_reason),
+                       resume=[Path(d) for d in (a.resume_from or [])])
     if P["readiness_override"]:
         print("readiness override (owner):", json.dumps(P["readiness_override"]))
     print("root:", json.dumps(P["root"]))
-    print("pace lines:", json.dumps(P["pace"]["lines"]), "gate:", json.dumps(P["gate"]))
+    print("pace lines:", json.dumps(P["pace"]["lines"]), "gate:", json.dumps(P["gate"]), "reference:", json.dumps(P["gate_reference"]))
+    print("keep windows (line(L), line(L + 1)):", json.dumps(P["keep_rule"]["windows"]))
+    if P["resume"]:
+        rz = P["resume"]
+        print("resume:", json.dumps({"folders": [f["dir"] for f in rz["folders"]], "counts": rz["counts"], "dropped_rule_reasons": rz["dropped_rule_reasons"],
+                                     "set": rz["set_digest"][:16], "root": rz["root"]["digest"][:16]}))
+        print("resume per level|class:", json.dumps(rz["per_level_res"]))
     print("params:", json.dumps(P["params"]), "fingerprint", P["params_fingerprint"][:16])
     print("frontier best (claim threshold):", json.dumps({k: P["frontier"][k] for k in ("completion_input_tick", "completion_time_passed", "dir", "status")}))
     print("D code digest:", P["code"]["digest"][:16], "archive id:", P["archive_id"])
@@ -981,7 +1658,8 @@ def cmd_run(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int:
         return 2
     dp = order_params_from_args(a)
     ep = engine_params_from_args(a, dp)
-    bad = run_flag_problems(plan, dp, ep, frontier, readiness_override_record(a.min_commit_free_mb, a.override_reason))
+    bad = run_flag_problems(plan, dp, ep, frontier, readiness_override_record(a.min_commit_free_mb, a.override_reason)) \
+        or (resume_check(plan.get("resume"), [Path(d) for d in (a.resume_from or [])]) if (plan.get("resume") or a.resume_from) else None)
     if bad:
         print(f"refused: {bad}")
         return 2
@@ -1038,13 +1716,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--min-commit-free-mb", type=int, default=None,
                     help="owner override: the free-commit minimum at the open for this folder only (default: the registered rule); needs --override-reason")
     ap.add_argument("--override-reason", default="", help="the owner's reason for --min-commit-free-mb (recorded in the plan, config and summary)")
+    ap.add_argument("--resume-from", action="append", default=[], metavar="DIR",
+                    help="a D folder (order_*) to resume from, repeatable, in priority order for equal ticks (owner 2026-11-16); plan and run take the same list")
     a = ap.parse_args(argv)
     try:
         lab = g.validate_lab_root(Path(a.lab_root))
         out = g.validate_run_dir(Path(a.out) if a.out else lab / f"{FOLDER_PREFIX}{dt.date.today().isoformat()}", lab)
         frontier = g.validate_run_dir(Path(a.frontier), lab)
+        a.resume_from = [g.validate_run_dir(Path(d), lab) for d in (a.resume_from or [])]
     except g.LabRootError as exc:
         raise SystemExit(str(exc))
+    for d in a.resume_from:
+        if not d.name.startswith(FOLDER_PREFIX):
+            raise SystemExit(f"refused: a resume folder is a D folder ({FOLDER_PREFIX}*): {d}")
+        if g.norm(d) == g.norm(out) or g.under(g.norm(d), g.norm(out)) or g.under(g.norm(out), g.norm(d)):
+            raise SystemExit(f"refused: the resume folder {d} overlaps the output folder")
     if g.norm(out) == g.norm(frontier) or g.under(g.norm(out), g.norm(frontier)) or g.under(g.norm(frontier), g.norm(out)):
         raise SystemExit("refused: the output folder and the frontier folder overlap (the frontier is read only)")
     if not out.name.startswith(FOLDER_PREFIX):
