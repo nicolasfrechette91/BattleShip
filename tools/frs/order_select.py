@@ -33,10 +33,11 @@
                     kept one never retires (a retired cell whose breadth dispatch keeps one is active again); a faster representative
                     restarts the count and the status; a dispatch ingested after its cell's representative was replaced counts for
                     neither.
-    milestones      (section 8, gap E; v2) M1 ... M4: the first cell kept during the night with at least L = 6 ... 9 targets broken whose
-                    L-th break came at or before line(L) (the arrival rule); its tick is that break's. The clear line: the first clear
-                    whose completion input tick is <= line(10) (section 4.2). Each recorded once. Cells inherited by a resume never meet
-                    a milestone (owner 2026-11-16: in-night arrivals only).
+    milestones      (section 8, gap E; v3) M1 ... M4: the first cell kept during the night with at least L = 6 ... 9 targets broken whose
+                    L-th break came at or before line(L) (the arrival rule) and happened during one of the night's bursts (owner
+                    2026-11-16: in-night arrivals only; a break inherited in a resumed cell's prefix does not count, even in a cell kept
+                    tonight); its tick is that break's. The clear line: the first clear whose completion input tick is <= line(10)
+                    (section 4.2). Each recorded once. Cells inherited by a resume never meet a milestone.
     same-tick       (gap G5, report-only) per level reached, the burst ticks with two or more breaks: run 3's label tie orders
                     those targets in the order niche, so the pilot counts how often it decided an order.
 
@@ -55,7 +56,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, 
 
 import run3_select as rs
 
-SELECT_CONTRACT = "order_select_v2"                 # v2 (owner 2026-11-16): the arrival rule; v1 kept a state only if its tick <= line(L)
+SELECT_CONTRACT = "order_select_v3"                 # v2 (owner 2026-11-16): the arrival rule; v1 kept a state only if its tick <= line(L);
+                                                     # v3 (owner 2026-11-16): a milestone's L-th break must happen in one of the night's bursts
 REJECT_REASONS = ("late_arrival", "window_passed")
 TARGETS_TOTAL = 10
 ROOT_MASK = (1 << TARGETS_TOTAL) - 1                 # 1023: nothing broken at tick 0
@@ -247,25 +249,28 @@ def _hex(x: Any) -> Optional[str]:
 
 
 class Milestones:
-    """M1 ... M4 = levels 6 ... 9 (v2, the arrival rule): the first cell kept during the night with at least L targets broken whose L-th
-    break came at or before line(L); the milestone's tick is that break's input tick, the cell's own tick is recorded beside it (gap E: a
-    same-tick double break can skip level L, so a level-7 cell whose 6th and 7th breaks came at 400 meets M1). The clear line: the first
-    clear with completion input tick <= line(10) (section 4.2; the archive keeps no level-10 cell). Each is recorded once, at its first
-    occurrence, with the dispatch, the cell and the lineage digests (U8). Inherited (resumed) cells are never observed."""
+    """M1 ... M4 = levels 6 ... 9 (v3, the arrival rule, in-night breaks): the first cell kept during the night with at least L targets
+    broken whose L-th break came at or before line(L) AND happened during one of the night's bursts (its tick is after the tick up to which
+    the cell's lineage is inherited, `after`: 0 for the night's own root lineage, a resumed cell's own tick for its descendants; owner
+    2026-11-16). The milestone's tick is that break's input tick, the cell's own tick is recorded beside it (gap E: a same-tick double break
+    can skip level L, so a level-7 cell whose 6th and 7th breaks came at 400 meets M1). The clear line: the first clear with completion
+    input tick <= line(10) (section 4.2; the archive keeps no level-10 cell). Each is recorded once, at its first occurrence, with the
+    dispatch, the cell and the lineage digests (U8). Inherited (resumed) cells are never observed."""
 
     def __init__(self, pace: Pace):
         self.lines = tuple(pace.lines)
         self.met: Dict[str, Dict[str, Any]] = {}
 
-    def observe_kept(self, c: Any, n: int, break_ticks: Sequence[int]) -> List[str]:
+    def observe_kept(self, c: Any, n: int, break_ticks: Sequence[int], after: int = 0) -> List[str]:
         bt = [int(t) for t in break_ticks]
         if len(bt) != int(c.level):
             raise ValueError(f"cell {c.cid} at level {c.level} carries {len(bt)} break ticks")
         out = []
         for name, L in MILESTONES:
-            if name not in self.met and int(c.level) >= L and bt[L - 1] <= self.lines[L]:
+            if name not in self.met and int(c.level) >= L and int(after) < bt[L - 1] <= self.lines[L]:
                 self.met[name] = {"milestone": name, "level": L, "line": self.lines[L], "arrival_level": int(c.level), "tick": bt[L - 1],
-                                  "cell_tick": int(c.tick), "n": int(n), "cid": int(c.cid), "digest": str(c.digest), "chain": _hex(getattr(c, "chain", None))}
+                                  "cell_tick": int(c.tick), "inherited_until": int(after), "n": int(n), "cid": int(c.cid), "digest": str(c.digest),
+                                  "chain": _hex(getattr(c, "chain", None))}
                 out.append(name)
         return out
 
@@ -375,11 +380,12 @@ class OrderSelector(rs.Run3Selector):
     kept (NEW or REPLACED)."""
 
     def __init__(self, archive: Any, p: OrderParams, *, niches: Mapping[int, Any], breaks: Mapping[int, Sequence[int]],
-                 best_claim: Optional[int] = None):
+                 best_claim: Optional[int] = None, inherited_until: Optional[Mapping[int, int]] = None):
         p.check()
         self.dp = p
         self.pace = Pace(p)
         self.breaks_of = breaks                            # the engine's mapping (v2): cell id -> sorted break ticks
+        self.inherited_until: Mapping[int, int] = inherited_until if inherited_until is not None else {}   # v3: engine's; missing = 0
         self.R = int(p.retire_after)
         self.retired: Set[int] = set()                     # D's own: run 3's Cell.retired would take the cell out of breadth too
         self.deeper: Set[int] = set()                      # representatives one of whose dispatches kept a deeper cell: never retire
@@ -650,7 +656,7 @@ class OrderSelector(rs.Run3Selector):
                 touched.add(g0)
         met: List[str] = []
         for _v, c, _niche in kept:
-            met += self.milestones.observe_kept(c, n, self.breaks_of[int(c.cid)])
+            met += self.milestones.observe_kept(c, n, self.breaks_of[int(c.cid)], after=int(self.inherited_until.get(int(c.cid), 0)))
         if row.get("outcome") == "clear":
             claim = row.get("claimed") or {}
             if claim.get("completion_input_tick") is not None and self.milestones.observe_clear(int(claim["completion_input_tick"]), n, cid0, claim):

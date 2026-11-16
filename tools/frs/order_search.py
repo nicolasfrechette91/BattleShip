@@ -29,8 +29,9 @@
     selection       tools/frs/order_select.OrderSelector (section 3; gaps A-F, G1-G5). No trigger draws.
     claims          a clear faster than the frontier's best verified clear, read at the plan, is verified twice from tick 0, as run 3
                     (then against D's own best); exports and native text replays of new bests as run 3.
-    milestones      M1 ... M4 and the clear line (section 8, gap E; arrival rule), recorded at their first occurrence (milestones.jsonl)
-                    and verified at the close by two fresh-process replays of the kept cell's words with the verify flags: both must show
+    milestones      M1 ... M4 and the clear line (section 8, gap E; arrival rule; v3: the L-th break must happen during one of the night's
+                    bursts, so a break inherited in a resumed cell's prefix never counts; each cell carries the tick up to which its
+                    lineage is inherited), recorded at their first occurrence (milestones.jsonl) and verified at the close by two fresh-process replays of the kept cell's words with the verify flags: both must show
                     at least L targets broken by the recorded tick (the L-th break's) and the recorded chain (D-Q8). Only the first
                     arrival per milestone; no fallback. A disagreement is SEARCH_INVALID (the night is not a test of M1); a verified
                     prefix is exported as a .btt.txt (section 7.3).
@@ -723,6 +724,10 @@ class OrderEngine(C.Run3Engine):
         self.arm = d_arm(params)                             # the boundary window = one segment (CONT_RULE); jobs carry it
         self.breaks_of: Dict[int, Tuple[Tuple[int, int], ...]] = {}   # every kept cell's break pairs (tick, target), sorted (v2)
         self._insert_pairs: Optional[Tuple[Tuple[int, int], ...]] = None   # set while the open keeps the root and the resumed cells
+        # v3 (owner 2026-11-16): per cell, the input tick up to which its lineage's breaks are inherited: 0 for the night's root lineage, a
+        # resumed cell's own tick; a cell kept from a burst takes the dispatched cell's value. Its breaks after that tick happened tonight.
+        self.inherited_until: Dict[int, int] = {}
+        self._insert_inh: Optional[int] = None
         self.resume_plan: Optional[Dict[str, Any]] = self.order_plan.get("resume")
         self.resume_folders: List[Path] = [Path(f["dir"]) for f in (self.resume_plan or {}).get("folders") or []]
         self.resume_seq: List[Dict[str, Any]] = []
@@ -754,11 +759,15 @@ class OrderEngine(C.Run3Engine):
             verdict, c = orig_keep(key, level, tick, words, end, end_digest, chain, origin, n_dispatch, **kw)
             if verdict in (cs.NEW, cs.REPLACED) and c is not None:
                 self.breaks_of[int(c.cid)] = pairs
+                if self._insert_pairs is not None:
+                    self.inherited_until[int(c.cid)] = int(self._insert_inh if self._insert_inh is not None else 0)
+                elif self._cur is not None:
+                    self.inherited_until[int(c.cid)] = int(self._cur[0]["d_inh0"])
                 if self._cur is not None:
                     info = self._cur[0]
                     niche = rs.child_niche(info["niche"], int(c.key[3]), int(c.tick), self._post, self.niche_live)
                     self._kept.append((verdict, c, niche))
-                    self.note_arrival(self.sb, c, pairs, niche, in_night=True)
+                    self.note_arrival(self.sb, c, pairs, niche, in_night=True, after=int(info["d_inh0"]))
                     self.c["new_in_night"] += int(verdict == cs.NEW)
                     self.sb["new_by_level"][str(lv)] += int(verdict == cs.NEW)
             if deep:
@@ -782,21 +791,24 @@ class OrderEngine(C.Run3Engine):
             raise SearchError(f"a reach at level {level}, tick {tick} carries {len(pairs)} break ticks ({list(pairs)[:12]})")
         return pairs
 
-    def note_arrival(self, sb: Dict[str, Any], c: Any, pairs: Sequence[Tuple[int, int]], niche: Any, *, in_night: bool) -> None:
+    def note_arrival(self, sb: Dict[str, Any], c: Any, pairs: Sequence[Tuple[int, int]], niche: Any, *, in_night: bool, after: int = 0) -> None:
         """Scoreboard (report-only): for every level L <= the cell's, its L-th break against the best so far (the order of its first L
-        targets); in the night, the first kept arrival at each level (wall time, dispatch, tick)."""
+        targets); in the night, the first kept arrival at each level (wall time, dispatch, tick). In the night (v3), a level counts only if
+        its L-th break happened during one of the night's bursts: its tick is after `after`, the tick up to which the lineage is inherited."""
         order = list(niche[1]) if niche is not None else []
         key_best = "best" if in_night else "inherited_best"
         for L in range(1, int(c.level) + 1):
             t = int(pairs[L - 1][0])
+            if in_night and t <= int(after):
+                continue
             b = sb[key_best].get(str(L))
             if b is None or t < b["tick"]:
                 sb[key_best][str(L)] = {"tick": t, "order": "-".join(str(x) for x in order[:L]), "cid": int(c.cid), "cell_tick": int(c.tick),
                                         "n": int(self._cur[0]["n"]) if (in_night and self._cur is not None) else 0,
-                                        "elapsed_s": round(self.elapsed(), 1) if in_night else 0.0}
+                                        "elapsed_s": round(self.elapsed(), 1) if in_night else 0.0, "inherited_until": int(after) if in_night else None}
             if in_night and str(L) not in sb["first"]:
                 sb["first"][str(L)] = {"tick": t, "elapsed_s": round(self.elapsed(), 1), "n": int(self._cur[0]["n"]) if self._cur is not None else None,
-                                       "cid": int(c.cid), "order": "-".join(str(x) for x in order[:L])}
+                                       "cid": int(c.cid), "order": "-".join(str(x) for x in order[:L]), "inherited_until": int(after)}
 
     def log_deep_reach(self, key: Sequence[Any], level: int, tick: int, arrival: Optional[int], verdict: str, why: Optional[Tuple[str, int]]) -> None:
         """Every reach at level >= DEEP_REACH_LEVEL of an in-night burst, kept or not (owner 2026-11-16): deep_reaches.jsonl. Report-only."""
@@ -880,11 +892,11 @@ class OrderEngine(C.Run3Engine):
             self.root["resume_root_equal"] = True
             self.fs.write_json(self.dir / "root.json", self.root)
         self.pin = {"obs": list(r0["obs"]), "digest": r0["digest"], "chain": r0["chain"], "lines": r0["lines"]}
-        self._insert_pairs = ()
+        self._insert_pairs, self._insert_inh = (), 0         # the night's own root: nothing inherited
         try:
             verdict, c = self.archive.keep(tuple(r0["key"]), 0, 0, b"", tuple(r0["obs"]), bytes.fromhex(r0["digest"]), bytes.fromhex(r0["chain"]), {"kind": "root"}, 0)
         finally:
-            self._insert_pairs = None
+            self._insert_pairs, self._insert_inh = None, None
         if verdict != cs.NEW or c is None:
             raise SearchError(f"the root was not kept ({verdict})")
         self.emit_cell(cs.NEW, c, None)
@@ -892,7 +904,8 @@ class OrderEngine(C.Run3Engine):
         self.root["cid"] = c.cid
         if self.resume_plan is not None:
             niches.update(self.insert_resumed())
-        self.selector = osel.OrderSelector(self.archive, self.dp, niches=niches, breaks=self.tick_view(), best_claim=None)
+        self.selector = osel.OrderSelector(self.archive, self.dp, niches=niches, breaks=self.tick_view(), best_claim=None,
+                                           inherited_until=self.inherited_until)
         self.sets_orders_open = self.sets_orders()
         if self.readiness_use and self.readiness_use.get("applied"):
             self.event(f"READINESS OVERRIDE (owner): free commit {self.readiness_use['commit_free_mb']:.0f} MB admitted at >= "
@@ -917,12 +930,12 @@ class OrderEngine(C.Run3Engine):
             pairs = break_pairs(cd["breaks"])
             origin = {"kind": RESUME_KIND, "folder": cd["folder"], "d_archive_id": cd["d_archive_id"], "d_cid": int(cd["d_cid"]), "d_digest": cd["digest"],
                       "niche": cd["niche"]}
-            self._insert_pairs = pairs
+            self._insert_pairs, self._insert_inh = pairs, int(cd["tick"])   # a resumed cell: every break of its words is inherited
             try:
                 verdict, c = self.archive.keep(tuple(cd["key"]), int(cd["level"]), int(cd["tick"]), bytes.fromhex(cd["words_hex"]), tuple(cd["end"]),
                                                bytes.fromhex(cd["end_digest"]), bytes.fromhex(cd["chain"]), origin, 0)
             finally:
-                self._insert_pairs = None
+                self._insert_pairs, self._insert_inh = None, None
             if verdict != e["verdict"] or c is None:
                 raise SearchError(f"resume: D cell {cd['d_cid']} of {cd['folder']} was {verdict}; the plan says {e['verdict']}")
             niches[c.cid] = rl3.niche_of_label(cd["niche"])
@@ -996,7 +1009,8 @@ class OrderEngine(C.Run3Engine):
         self.inflight[w] = {"n": self.c["dispatches"], "cid": c.cid, "k": k, "level": c.level, "tick": c.tick, "lead": c.lead, "draw_id": draw_id, "draw": dict(draw),
                             "fresh": c.fresh, "seen": c.seen, "breaks": c.breaks, "digest": c.digest, "words": bytes(c.words), "reserved": int(want), "cont": [],
                             "root": c.root, "inherited": c.inherited, "cleared": c.cleared, "fused": False,
-                            "d_pairs0": tuple(self.breaks_of[int(c.cid)]), "d_mask0": int(c.key[3]), "d_res": str(c.key[2])}
+                            "d_pairs0": tuple(self.breaks_of[int(c.cid)]), "d_mask0": int(c.key[3]), "d_res": str(c.key[2]),
+                            "d_inh0": int(self.inherited_until.get(int(c.cid), 0))}
         self.reserved += int(want)
         return job
 
@@ -1283,6 +1297,10 @@ class OrderEngine(C.Run3Engine):
     def summary(self) -> Dict[str, Any]:
         s = cs.Search.summary(self)
         s["contract"] = ORDER_CONTRACT
+        th = s.get("throughput") or {}                       # owner 2026-11-16: run 3's figure counts every NEW verdict, the root and the
+        wall = self.search_wall if self.search_wall else max(0.0, self.env.now() - self.t_search)  # resumed cells included; D's counts the
+        th["new_cells_per_h"] = round(self.c["new_in_night"] / max(1e-9, wall / 3600.0), 1)       # cells kept by the night's dispatches only
+        th["new_cells_per_h_basis"] = "cells kept as NEW by the night's dispatches (the root and the resumed cells excluded)"
         sel = self.selector
         verified = self.verified_clears()
         best = self.best_start if self.claims_frozen else {k: v for k, v in self.best.items() if k != "words"}
