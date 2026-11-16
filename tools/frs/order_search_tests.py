@@ -810,11 +810,18 @@ def unit_u8_milestones() -> Dict[str, Any]:
     check(ms.observe_kept(fc(7, 420), 3, ticks(5, 300) + [400, 400]) == ["M1", "M2"],
           "gap E: a level-7 cell whose 6th and 7th breaks came at 400 (no level-6 cell) meets M1 and M2")
     check(ms.observe_kept(fc(6, 300, cid=9), 4, ticks(6, 300)) == [] and ms.met["M1"]["cid"] == 1, "recorded once, at the first occurrence")
-    check(ms.met["M1"] == {"milestone": "M1", "level": 6, "line": 408, "arrival_level": 7, "tick": 400, "cell_tick": 420, "n": 3, "cid": 1, "digest": "d1",
-                           "chain": "0102"}, f"with dispatch, cell and lineage digest: {ms.met['M1']}")
+    check(ms.met["M1"] == {"milestone": "M1", "level": 6, "line": 408, "arrival_level": 7, "tick": 400, "cell_tick": 420, "inherited_until": 0, "n": 3,
+                           "cid": 1, "digest": "d1", "chain": "0102"}, f"with dispatch, cell and lineage digest: {ms.met['M1']}")
     ms = osel.Milestones(pace)
     check(ms.observe_kept(fc(7, 450), 1, ticks(5, 300) + [430, 430]) == ["M2"], "a double break at 430: M2 (line 456) but not M1 (line 408)")
     check(_raises_value(ms.observe_kept, fc(7, 450), 2, [1, 2]), "a cell whose break-tick count is not its level is refused")
+    ms = osel.Milestones(pace)                           # v3 (owner 2026-11-16): the L-th break must happen in one of the night's bursts
+    check(ms.observe_kept(fc(6, 411), 2, ticks(5, 300) + [351], after=351) == [],
+          "a cell kept tonight whose 6th break (351) is in its inherited prefix (inherited until 351) does not meet M1")
+    check(ms.observe_kept(fc(7, 460), 3, ticks(5, 300) + [351, 440], after=351) == ["M2"] and "M1" not in ms.met,
+          "its 7th break at 440, made tonight, meets M2; the inherited 6th break still does not meet M1")
+    check(ms.observe_kept(fc(6, 380), 4, ticks(5, 300) + [352], after=351) == ["M1"] and ms.met["M1"]["inherited_until"] == 351,
+          "a 6th break one tick after the inherited prefix (352) happened tonight: M1")
     ms = osel.Milestones(pace)
     check(not ms.observe_clear(601, 1, 2, {}) and ms.observe_clear(600, 2, 3, {"words_digest": "w", "final_chain": "ab"})
           and ms.met[osel.CLEAR_LINE]["completion_input_tick"] == 600 and not ms.observe_clear(500, 3, 4, {}), "the clear line: 600, not 601; once")
@@ -1386,6 +1393,17 @@ def e2e_e7_resume() -> Dict[str, Any]:
     check(w["mismatches"] == 0 and w["tick0_unequal"] == 0 and len(from_inh) >= 10, f"inherited cells dispatched with exact prefixes: {len(from_inh)}, {w['mismatches']}")
     check(max(int(x["level"]) for x in from_inh) >= max(int(c["level"]) for c in res_rows) - 1, "the inherited deep levels are dispatched from the start")
     check(all(int(m["n"]) > 0 for m in R["milestones"]), f"no milestone at the open (inherited cells meet none): {[(m['milestone'], m['n']) for m in R['milestones']]}")
+    check(all(int(m["tick"]) > int(m["inherited_until"]) for m in R["milestones"]),
+          f"every milestone's break happened in one of the night's bursts (v3): {[(m['milestone'], m['tick'], m['inherited_until']) for m in R['milestones']]}")
+    for lv, row in (o["scoreboard"]["levels"] or {}).items():
+        for col in ("first_in_night", "best_in_night"):
+            e = row.get(col)
+            check(e is None or lv == "10" or int(e["tick"]) > int(e["inherited_until"]), f"level {lv} {col}: an in-night break only: {e}")
+    th = s["throughput"]
+    newn = sum(int(v) for v in o["scoreboard"]["new_cells_in_night_by_level"].values())
+    want_h = newn / max(1e-9, s["phase_wall_s"]["search"] / 3600.0)
+    check(abs(th["new_cells_per_h"] - want_h) <= max(1.0, 0.01 * want_h) and th.get("new_cells_per_h_basis"),
+          f"new cells per hour exclude the inserted cells: {th['new_cells_per_h']} vs {newn} in-night")
     d0 = (_bursts(R)[0].get("draw") or {})
     check((d0.get("set_count"), d0.get("order_count")) == (0, 0) if d0.get("stream") in ("rank", "anchor") else d0.get("count") == 0,
           f"the selector's counts start from zero (the first draw): {d0}")
