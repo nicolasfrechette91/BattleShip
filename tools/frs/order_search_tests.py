@@ -992,6 +992,38 @@ def unit_cont_window_rule() -> Dict[str, Any]:
     return {"line6": night.pace.line(6), "window6": night.pace.window_end(6)}
 
 
+def unit_burst_extent() -> Dict[str, Any]:
+    """The exploration-extent record (owner 2026-11-16, report-only): per level and target set, over every reach, the highest y and the
+    lowest / highest x with their ticks, for all reaches and for those inside the keep window; folded per set with the dispatch."""
+    pace = osel.Pace(osel.OrderParams())
+    m5, m6 = ((osel.ROOT_MASK << k) & osel.ROOT_MASK for k in (5, 6))
+    breaks = [[50, 0], [90, 1], [130, 2], [200, 3], [240, 4], [390, 5]]
+
+    def reach(j: int, m: int, x: float, y: float) -> List[Any]:
+        obs = [0] * len(O.mcell.OBS_FIELDS)
+        obs[O.OBS_X], obs[O.OBS_Y] = x, y
+        return [j, [j % 5, 0, "A2", m, -1], obs, b"", b"", False]
+
+    rs_ = [reach(350, m5, -200.0, 500.0), reach(310, m5, 100.0, 0.0), reach(395, m6, 50.0, 900.0), reach(470, m6, -400.0, 1200.0),
+           reach(480, m6, 700.0, 100.0)]
+    e = O.burst_extent(rs_, breaks, pace)
+    five = {"reaches": 2, "max_y": [500.0, 350], "min_x": [-200.0, 350], "max_x": [100.0, 310]}
+    check(e[f"5|{m5}"] == {"level": 5, "mask": m5, "all": five, "inside": five}, f"level 5, every reach inside line(6) = 408: {e[f'5|{m5}']}")
+    check(e[f"6|{m6}"]["all"] == {"reaches": 3, "max_y": [1200.0, 470], "min_x": [-400.0, 470], "max_x": [700.0, 480]}
+          and e[f"6|{m6}"]["inside"] == {"reaches": 1, "max_y": [900.0, 395], "min_x": [50.0, 395], "max_x": [50.0, 395]},
+          f"level 6: the reaches past line(7) = 456 count under all only: {e[f'6|{m6}']}")
+    acc: Dict[str, Any] = {}
+    O.merge_extent(acc, e[f"6|{m6}"]["all"], 7)
+    O.merge_extent(acc, {"reaches": 2, "max_y": [1500.0, 500], "min_x": [0.0, 499], "max_x": [800.0, 498]}, 9)
+    check(acc == {"reaches": 5, "bursts": 2, "max_y": [1500.0, 500, 9], "min_x": [-400.0, 470, 7], "max_x": [800.0, 498, 9]}, f"folded with the dispatch: {acc}")
+    try:
+        O.burst_extent([reach(400, m6, 0.0, 0.0)], breaks[:5], pace)
+        raise AssertionError("a reach whose break ticks are not its level was accepted")
+    except O.SearchError:
+        pass
+    return {"level6": e[f"6|{m6}"]}
+
+
 def unit_resume_lineage() -> Dict[str, Any]:
     """Resume (owner 2026-11-16): a folder row's niche and break pairs from the folder's own lineage (root, burst rows by parent digest and
     dispatch breaks, resumed rows and rows recording d_breaks); a dispatch whose breaks are not the targets the mask lost is refused."""
@@ -1465,7 +1497,8 @@ def e2e_e9_scoreboard() -> Dict[str, Any]:
     A = b.run("a")
     sc = A["summary"]["order"]["scoreboard"]
     want = {"deepest_level", "levels", "sets_orders", "level6plus_cells", "break_attribution", "dispatches_by_level", "level6_dispatches_by_start_resource_class",
-            "retirements", "deep_reaches", "burst_lengths", "continuation", "m1", "integrity", "lowest_free_commit_mb", "leftover_worker_folders"}
+            "retirements", "deep_reaches", "burst_lengths", "continuation", "m1", "integrity", "lowest_free_commit_mb", "leftover_worker_folders",
+            "level6_extents"}
     check(want <= set(sc) and "error" not in sc, f"every scoreboard field: missing {sorted(want - set(sc))}")
     n = len(_bursts(A))
     check(sum(sc["burst_lengths"]["all"].values()) == n and sum(sc["dispatches_by_level"].values()) == n, "burst lengths and dispatches by level count every dispatch")
@@ -1480,6 +1513,43 @@ def e2e_e9_scoreboard() -> Dict[str, Any]:
     check(sc["integrity"]["mismatches"] == 0 and sc["leftover_worker_folders"] == [] and sc["lowest_free_commit_mb"] is not None, f"integrity: {sc['integrity']}")
     check("## Scoreboard" in A["report"], "report.md carries the scoreboard")
     return {k: sc[k] for k in ("deepest_level", "dispatches_by_level", "deep_reaches", "m1")}
+
+
+def e2e_e10_extent() -> Dict[str, Any]:
+    """The exploration-extent record (owner 2026-11-16): every burst row has it; its reach counts are the row's; inside is a subset of
+    all; every cell the night kept lies inside its dispatch's "inside" extent; the scoreboard's level-6 extents fold the rows."""
+    b = dbench()
+    A = b.run("a")
+    rows = _bursts(A)
+    check(all("extent" in x for x in rows), "every burst row carries its extent")
+    by_n = {int(x["n"]): x for x in rows}
+    for x in rows:
+        ext = x["extent"]
+        check(sum(e["all"]["reaches"] for e in ext.values()) == int(x["reaches"]), f"dispatch {x['n']}: the extent counts every reach")
+        for k, e in ext.items():
+            a, i = e["all"], e.get("inside")
+            if i is not None:
+                check(i["reaches"] <= a["reaches"] and i["max_y"][0] <= a["max_y"][0] and i["min_x"][0] >= a["min_x"][0] and i["max_x"][0] <= a["max_x"][0],
+                      f"dispatch {x['n']} {k}: inside within all")
+    kept = 0
+    for c in A["cells"]:
+        o = c.get("origin") or {}
+        if c.get("ev") not in ("new", "replaced") or o.get("kind") != "burst" or int(o.get("n", 0)) not in by_n:
+            continue
+        e = by_n[int(o["n"])]["extent"].get(f"{c['level']}|{c['key'][3]}", {}).get("inside")
+        x_, y_ = float(c["end"][O.OBS_X]), float(c["end"][O.OBS_Y])
+        check(e is not None and e["min_x"][0] <= x_ <= e["max_x"][0] and y_ <= e["max_y"][0], f"cell {c['cid']} lies inside its dispatch's extent: {e}")
+        kept += 1
+    sc = A["summary"]["order"]["scoreboard"]["level6_extents"]
+    six = {}
+    for x in rows:
+        for e in x["extent"].values():
+            if int(e["level"]) == 6:
+                six[str(e["mask"])] = max(six.get(str(e["mask"]), -1e18), e["all"]["max_y"][0])
+    check(set(six) <= set(sc) and all(sc[m]["bursts"]["all"]["max_y"][0] == v for m, v in six.items()), f"the scoreboard folds the level-6 rows: {sorted(six)}")
+    check(all(sc[m]["kept_cells"] is None or sc[m]["kept_cells"]["cells"] > 0 for m in sc), "kept-cell extents per level-6 set")
+    return {"rows": len(rows), "kept_checked": kept, "level6_sets": {m: {g_: (d.get("max_y"), d.get("min_x"), d.get("max_x")) for g_, d in sc[m]["bursts"].items()}
+                                                                     for m in sorted(sc)[:3]}}
 
 
 def e2e_u11_isolation() -> Dict[str, Any]:
@@ -1579,10 +1649,11 @@ def real_frontier_best() -> Dict[str, Any]:
 UNIT = {f.__name__: f for f in (unit_u1_pace_line, unit_u2_rejected_readout, unit_u2_group_move, unit_u3_root_and_niches, unit_u4_set_then_order,
                                 unit_u4_ties, unit_u4_cell_draw_is_run3s, unit_u5_newcomers, unit_u6_level_weights, unit_u7_retirement,
                                 unit_u7_stale_clear_fallback, unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_root_differences,
-                                unit_u14_tree_sampler, unit_cont_window_rule, unit_resume_lineage, unit_tm1_run3_digest)}
+                                unit_u14_tree_sampler, unit_cont_window_rule, unit_burst_extent, unit_resume_lineage, unit_tm1_run3_digest)}
 
 E2E = {f.__name__: f for f in (e2e_e1_same_seed, e2e_e2_root, e2e_e3_pace_budget, e2e_e4_milestone, e2e_e5_caps_stops, e2e_e6_exports,
-                               e2e_e7_resume, e2e_e8_long_bursts, e2e_e9_scoreboard, e2e_u11_isolation, e2e_u13_no_human_input, e2e_tm2_code_digest)}
+                               e2e_e7_resume, e2e_e8_long_bursts, e2e_e9_scoreboard, e2e_e10_extent, e2e_u11_isolation, e2e_u13_no_human_input,
+                               e2e_tm2_code_digest)}
 REAL = {f.__name__: f for f in (real_frontier_best,)}
 
 if __name__ == "__main__":
