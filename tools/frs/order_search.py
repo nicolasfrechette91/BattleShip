@@ -26,6 +26,9 @@
                     replaces, an equal or later tick is dropped as later). The selector's counts and the retirement counts start from
                     zero. The folders' root must equal this night's root. Inherited cells meet no milestone (in-night arrivals only).
     scoreboard      (owner 2026-11-16) a fixed close record in summary.json (order.scoreboard) and report.md; report-only.
+    extent          (owner 2026-11-16, report-only) every dispatch row's `extent`: per level and target set the burst was at, over every
+                    reach the main process received (rejected ones included), the highest y, the lowest x and the highest x, each with
+                    its tick, for all reaches and for those inside the keep window. Read by no rule: nothing kept or drawn changes.
     selection       tools/frs/order_select.OrderSelector (section 3; gaps A-F, G1-G5). No trigger draws.
     claims          a clear faster than the frontier's best verified clear, read at the plan, is verified twice from tick 0, as run 3
                     (then against D's own best); exports and native text replays of new bests as run 3.
@@ -120,6 +123,8 @@ CONT_RULE = ("at a segment boundary (n a multiple of segment_words, the episode 
              "so the main process follows the job's mask through every reach; at most max_segments segments")
 OBS_GROUND = mcell.OBS_INDEX["ground_air_state"]
 OBS_STATUS = mcell.OBS_INDEX["fighter_status_id"]
+OBS_X, OBS_Y = mcell.OBS_INDEX["position_x"], mcell.OBS_INDEX["position_y"]
+EXTENT_GROUPS = ("all", "inside")
 
 
 # -- D's code manifest (T-M2): line endings normalised to LF ------------------------------------------------------------------------------
@@ -537,6 +542,49 @@ def resume_selection(folders: Sequence[Path], pace: osel.Pace) -> Tuple[List[Dic
     return seq, record
 
 
+# -- the exploration-extent record (owner 2026-11-16; report-only) ------------------------------------------------------------------------
+
+
+def burst_extent(reaches: Sequence[Sequence[Any]], breaks_all: Sequence[Sequence[int]], pace: osel.Pace) -> Dict[str, Dict[str, Any]]:
+    """Per "level|live mask" a burst was at: over every reach (a first visit of a key in the job, kept or not), the highest y, the lowest
+    x and the highest x, each as [value, tick], and the reach count; under "all" for every reach, under "inside" for the reaches inside the
+    keep window (the arrival rule, from the job's own break ticks). Read by no rule."""
+    pairs = break_pairs(breaks_all)
+    out: Dict[str, Dict[str, Any]] = {}
+    for r in sorted(reaches, key=lambda r: int(r[0])):
+        j, m, obs = int(r[0]), int(r[1][3]), r[2]
+        lv = mcell.level_of_mask(m)
+        x, y = float(obs[OBS_X]), float(obs[OBS_Y])
+        groups = ["all"]
+        if lv < osel.TARGETS_TOTAL:
+            bt = [int(t) for t, _i in pairs if int(t) <= j]
+            if len(bt) != lv:
+                raise SearchError(f"a reach at level {lv}, tick {j} carries {len(bt)} break ticks")
+            if pace.keeps(lv, j, osel.arrival_tick(bt, lv)):
+                groups.append("inside")
+        e = out.setdefault(f"{lv}|{m}", {"level": lv, "mask": m})
+        for gname in groups:
+            d = e.setdefault(gname, {"reaches": 0, "max_y": None, "min_x": None, "max_x": None})
+            d["reaches"] += 1
+            if d["max_y"] is None or y > d["max_y"][0]:
+                d["max_y"] = [y, j]
+            if d["min_x"] is None or x < d["min_x"][0]:
+                d["min_x"] = [x, j]
+            if d["max_x"] is None or x > d["max_x"][0]:
+                d["max_x"] = [x, j]
+    return out
+
+
+def merge_extent(acc: Dict[str, Any], d: Mapping[str, Any], n: int) -> None:
+    """Fold one burst's extent group into a running one: [value, tick, dispatch] per extreme, reaches and bursts counted."""
+    acc["reaches"] = acc.get("reaches", 0) + int(d["reaches"])
+    acc["bursts"] = acc.get("bursts", 0) + 1
+    for k, better in (("max_y", lambda a, b: a > b), ("min_x", lambda a, b: a < b), ("max_x", lambda a, b: a > b)):
+        v = d.get(k)
+        if v is not None and (acc.get(k) is None or better(v[0], acc[k][0])):
+            acc[k] = [v[0], v[1], int(n)]
+
+
 def resume_check(plan_resume: Optional[Mapping[str, Any]], folders: Sequence[Path]) -> Optional[str]:
     """Why `run`'s --resume-from folders are not the plan's (their list, order and file digests); None when they are."""
     want = [f["dir"] for f in (plan_resume or {}).get("folders") or []]
@@ -734,7 +782,8 @@ class OrderEngine(C.Run3Engine):
         self.resume_open: Dict[str, Any] = {}
         self.clf = mcell.Classifier()                        # status classes, for the scoreboard's status at a break (report-only)
         self.sb: Dict[str, Any] = {"first": {}, "best": {}, "inherited_best": {}, "dispatches": Counter(), "dispatches_res": Counter(),
-                                   "bursts": Counter(), "bursts_by_level": {}, "breaks": {}, "deep": Counter(), "new_by_level": Counter()}
+                                   "bursts": Counter(), "bursts_by_level": {}, "breaks": {}, "deep": Counter(), "new_by_level": Counter(),
+                                   "extent6": {}}
         self.scoreboard: Optional[Dict[str, Any]] = None
         self.sets_orders_open: Dict[str, Dict[str, int]] = {}
         orig_keep = self.archive.keep
@@ -1015,6 +1064,20 @@ class OrderEngine(C.Run3Engine):
         return job
 
     # -- ingest: milestones ------------------------------------------------------------------------------------------------------------------
+
+    def emit(self, row: Dict[str, Any]) -> None:
+        """The burst row carries its exploration extent (owner 2026-11-16, report-only); level-6 extents also feed the scoreboard."""
+        if self._cur is not None and row.get("kind", "burst") == "burst" and row.get("n") == self._cur[0]["n"]:
+            res = self._cur[1]
+            ext = burst_extent(res.get("reaches") or [], res.get("breaks_all") or [], self.pace)
+            row["extent"] = ext
+            for e in ext.values():
+                if int(e["level"]) == 6:
+                    acc = self.sb["extent6"].setdefault(str(e["mask"]), {})
+                    for gname in EXTENT_GROUPS:
+                        if gname in e:
+                            merge_extent(acc.setdefault(gname, {}), e[gname], int(row["n"]))
+        super().emit(row)
 
     def commit(self, info: Mapping[str, Any], c: cs.Cell, res: Mapping[str, Any]) -> None:
         super().commit(info, c, res)
@@ -1359,6 +1422,18 @@ class OrderEngine(C.Run3Engine):
             d["by_resource_class"][str(c.key[2])] += 1
             d["grounded" if int(c.end[OBS_GROUND]) == 0 else "airborne"] += 1
             d["by_source"][src] += 1
+        kept6: Dict[str, Dict[str, Any]] = {}             # the archive's level-6 cells per target set: the same extremes, from end records
+        for c in self.archive.cells:
+            if c.words is None or int(c.level) != 6:
+                continue
+            k6 = kept6.setdefault(str(int(c.key[3])), {"cells": 0, "max_y": None, "min_x": None, "max_x": None})
+            k6["cells"] += 1
+            x, y = float(c.end[OBS_X]), float(c.end[OBS_Y])
+            for k, v, better in (("max_y", y, lambda a, b: a > b), ("min_x", x, lambda a, b: a < b), ("max_x", x, lambda a, b: a > b)):
+                if k6[k] is None or better(v, k6[k][0]):
+                    k6[k] = [v, int(c.tick), int(c.cid)]
+        extent6 = {m: {"bursts": {g_: dict(sb["extent6"].get(m, {}).get(g_) or {}) for g_ in EXTENT_GROUPS}, "kept_cells": kept6.get(m)}
+                   for m in sorted(set(sb["extent6"]) | set(kept6), key=int)}
         left: List[str] = []
         wd = self.dir / "workers"
         if wd.is_dir():
@@ -1412,7 +1487,10 @@ class OrderEngine(C.Run3Engine):
                                                        "order_code_changed_during_run", "lab_code_changed_during_run", "milestones_not_verified")},
                           "resume_root_equal": self.root.get("resume_root_equal"), "cont_mismatches": self.c["cont_mismatches"]},
             "lowest_free_commit_mb": _finite((self.sampler.peak or {}).get("system_commit_free_min_mb")) if self.sampler is not None else None,
-            "leftover_worker_folders": left}
+            "leftover_worker_folders": left,
+            "level6_extents": extent6,
+            "level6_extents_note": "per level-6 target set (live mask): bursts' highest y / lowest x / highest x as [value, tick, dispatch] over all "
+                                   "reaches and over reaches inside the keep window; kept cells' as [value, tick, cell id] from end records"}
 
     def write_summary(self) -> Dict[str, Any]:
         if not self._final_record and self.selector is not None and self.selector.n_ingested:
@@ -1581,6 +1659,7 @@ def scoreboard_md(sc: Optional[Mapping[str, Any]]) -> List[str]:
                 f"({rf.get('order') or '-'}), met {rf.get('met')}, verified by M1's replays {rf.get('verified_by_M1_replays')}; inherited earliest 6th break "
                 f"{_f(m1.get('inherited_earliest_6th_break'))}",
             f"- level 6+ cells: {json.dumps(sc.get('level6plus_cells'))}",
+            f"- level-6 extents (bursts all / inside the window / kept cells): {json.dumps(sc.get('level6_extents'))}",
             f"- level-6 dispatches by starting resource class: {json.dumps(sc.get('level6_dispatches_by_start_resource_class'))}",
             f"- break attribution ({sc.get('break_attribution_note')}): {json.dumps(sc.get('break_attribution'))}",
             f"- reaches at level >= {(sc.get('deep_reaches') or {}).get('min_level')}: {(sc.get('deep_reaches') or {}).get('total')} "
