@@ -37,6 +37,13 @@
     break record    (E1, owner 2026-11-18, report-only) every dispatch row's `break_record`: per credited break (after the start tick)
                     its tick, target, level, Mario's position and what the job result carries for that tick (the reach: 17 observation
                     fields, key, terminal flag, record digest, chain; None without a reach). Read by no rule.
+    hitter record   (owner 2026-11-19, report-only; --hitter-record, default off = no change at all: run 3's pool and worker, no field) the
+                    search workers are tools/frs/order_worker.OrderPool with SSB64_RL_ENTITY=1; its proxy, below run 3's, reads the entity
+                    object of every reply and hands the reply on without it (run 3's observer, detectors and the worker see an entity-off
+                    reply). Every break_record entry gains hitter, hitter_serial, hitter_owner, hitter_first_tick, hitter_weapon_kind,
+                    hitter_candidates, hitter_why and hitter_evidence (order_worker.HITTER_RULE: mario / projectile / unseen / ambiguous /
+                    unavailable); the scoreboard's break attribution counts the kinds. Read by no rule: keep, draw, retirement, credit,
+                    milestones and cell keys are the option-off night's.
     selection       tools/frs/order_select.OrderSelector (section 3; gaps A-F, G1-G5). No trigger draws.
     claims          a clear faster than the frontier's best verified clear, read at the plan, is verified twice from tick 0, as run 3
                     (then against D's own best); exports and native text replays of new bests as run 3.
@@ -104,6 +111,7 @@ import frs_verify as fv  # noqa: E402
 import frs_worker as fw  # noqa: E402
 import m8_rd_cells as mcell  # noqa: E402
 import order_select as osel  # noqa: E402
+import order_worker as ow  # noqa: E402
 import run3_anomaly as ra  # noqa: E402
 import run3_dseeds as ds  # noqa: E402
 import run3_export as rx  # noqa: E402
@@ -596,13 +604,44 @@ def merge_extent(acc: Dict[str, Any], d: Mapping[str, Any], n: int) -> None:
 # -- E1: the break record (owner 2026-11-18; report-only) ------------------------------------------------------------------------------
 
 
-def break_record(res: Mapping[str, Any]) -> List[Dict[str, Any]]:
+HITTER_FIELDS = ("hitter", "hitter_serial", "hitter_owner", "hitter_first_tick", "hitter_weapon_kind", "hitter_candidates", "hitter_why",
+                 "hitter_evidence")
+NO_HITTER_EVENT = "no hitter event for this break in the job result"
+
+
+def hitter_plan_record() -> Dict[str, Any]:
+    """The plan's record of the hitter option (owner 2026-11-19); a plan with the option off has no such key."""
+    return {"contract": ow.HITTER_CONTRACT, "worker": ow.ORDER_WORKER_CONTRACT, "search_flags_added": dict(ow.ENTITY_FLAGS), "rule": ow.HITTER_RULE,
+            "fields": list(HITTER_FIELDS), "read_by": "no rule (report-only): break_record entries in dispatches.jsonl, the scoreboard's break "
+                                                      "attribution, the summary"}
+
+
+def hitter_events(res: Mapping[str, Any]) -> Dict[Tuple[int, int], Mapping[str, Any]]:
+    """{(tick, target): the worker's hitter event of that break} from one job result (empty without the record)."""
+    out: Dict[Tuple[int, int], Mapping[str, Any]] = {}
+    for ev in (res.get("d_hitters") or {}).get("events") or []:
+        for t in ev.get("targets") or []:
+            out[(int(ev["tick"]), int(t))] = ev
+    return out
+
+
+def hitter_fields(ev: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """The hitter fields of one credited break (HITTER_FIELDS); kind "unavailable" when the job result holds no event for it."""
+    if ev is None:
+        return dict(zip(HITTER_FIELDS, ("unavailable", None, None, None, None, [], NO_HITTER_EVENT, None)))
+    return dict(zip(HITTER_FIELDS, (ev["kind"], ev.get("serial"), ev.get("owner"), ev.get("first_tick"), ev.get("weapon_kind"),
+                                    list(ev.get("candidates") or []), ev.get("why"), ev.get("evidence"))))
+
+
+def break_record(res: Mapping[str, Any], hitter: bool = False) -> List[Dict[str, Any]]:
     """One entry per credited break (a break after the dispatch's start tick L: the row's breaks_after_start, in break order): its tick,
     target and the level it gave (breaks counted from tick 0), Mario's position and what the job result carries for that tick: the reach
     at the break tick (a first visit of a key in the job) with the 17 observation fields by name, the cell key, the terminal flag, the
-    record digest and the chain. `reach` is None when the result holds no reach at that tick (the step was not live). Read by no rule."""
+    record digest and the chain. `reach` is None when the result holds no reach at that tick (the step was not live). With the hitter
+    record (owner 2026-11-19) every entry also carries HITTER_FIELDS. Read by no rule."""
     L = int(res["L"])
     at = {int(r[0]): r for r in (res.get("reaches") or [])}
+    evs = hitter_events(res) if hitter else {}
     out: List[Dict[str, Any]] = []
     for idx, (t, i) in enumerate(break_pairs(res.get("breaks_all"))):
         if t <= L:
@@ -615,6 +654,8 @@ def break_record(res: Mapping[str, Any]) -> List[Dict[str, Any]]:
             obs = tuple(r[2])
             e.update({"x": obs[OBS_X], "y": obs[OBS_Y], "obs": mcell.obs_dict(obs), "key": list(r[1]), "terminal": bool(r[5]),
                       "record_digest": bytes(r[3]).hex(), "chain": bytes(r[4]).hex()})
+        if hitter:
+            e.update(hitter_fields(evs.get((t, i))))
         out.append(e)
     return out
 
@@ -680,8 +721,9 @@ def readiness_verdict(ready: Mapping[str, Any], override: Optional[Mapping[str, 
 
 
 def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderParams, ep: C.Params3, *, code: Optional[str] = None,
-               readiness_override: Optional[Mapping[str, Any]] = None, resume: Sequence[Path] = ()) -> Dict[str, Any]:
-    """The plan (section 7.1 step 2): the root, the pace table, the parameters, the frontier reference read, the resume. Zero ticks."""
+               readiness_override: Optional[Mapping[str, Any]] = None, resume: Sequence[Path] = (), hitter_record: bool = False) -> Dict[str, Any]:
+    """The plan (section 7.1 step 2): the root, the pace table, the parameters, the frontier reference read, the resume. Zero ticks. With the
+    hitter record (owner 2026-11-19) it also holds `hitter_record`; without it the plan has no such key."""
     dp.check()
     ep.check()
     pace = osel.Pace(dp)
@@ -704,7 +746,7 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
                                         f"breaks or the own tick (the archive's own bound is the horizon); the windows above still keep what they keep; "
                                         f"keep, draw, continuation and resume read it, the milestones do not; the cell draw at levels >= {k} is the "
                                         f"fewest dispatches (ties: earlier tick, cell id)")})
-    return {"contract": ORDER_CONTRACT, "mode": "lab", "utc": g.utc(), "lab_root": str(lab_root), "out": str(out),
+    plan = {"contract": ORDER_CONTRACT, "mode": "lab", "utc": g.utc(), "lab_root": str(lab_root), "out": str(out),
             "archive_id": ARCHIVE_ID.format(seed=int(ep.rng_seed)), "key_family": KEY_FAMILY,
             "root": {"level": 0, "mask": osel.ROOT_MASK, "niche": rs.niche_label(rs.seed_niche(osel.ROOT_MASK)), "words": 0,
                      "read": "at the open: two fresh processes reach tick 0 with no input word; tick-0 records, keys and masks must be equal"},
@@ -719,10 +761,13 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
             "engine_params": ep.as_dict(), "arm": d_arm(ep), "frontier": fb, "claim_threshold": fb["completion_input_tick"],
             "sources": sources, "code": {"contract": MANIFEST_CONTRACT, "entries": list(ENTRY_MODULES), "digest": digest},
             "readiness_override": None if readiness_override is None else dict(readiness_override), "resume": res_rec}
+    if hitter_record:                                    # owner 2026-11-19: only with the option, so the plan with it off is v4's
+        plan["hitter_record"] = hitter_plan_record()
+    return plan
 
 
 def plan_and_write(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderParams, ep: C.Params3, *, code: Optional[str] = None,
-                   readiness_override: Optional[Mapping[str, Any]] = None, resume: Sequence[Path] = ()) -> Dict[str, Any]:
+                   readiness_override: Optional[Mapping[str, Any]] = None, resume: Sequence[Path] = (), hitter_record: bool = False) -> Dict[str, Any]:
     out = Path(out)
     if not out.name.startswith(FOLDER_PREFIX):
         raise SearchError(f"refused: D's folder name starts with {FOLDER_PREFIX!r} ({out.name})")
@@ -733,7 +778,7 @@ def plan_and_write(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.Order
             raise SearchError(f"refused: {out} holds another tool's plan ({old.get('contract')}); D plans only into its own folder")
     if (out / "run").exists():
         raise SearchError(f"refused: {out / 'run'} exists (a run folder is never re-planned)")
-    plan = build_plan(lab_root, frontier_dir, out, dp, ep, code=code, readiness_override=readiness_override, resume=resume)
+    plan = build_plan(lab_root, frontier_dir, out, dp, ep, code=code, readiness_override=readiness_override, resume=resume, hitter_record=hitter_record)
     fs = g.LabFS(Path(lab_root))
     fs.mkdir(out)
     fs.write_json(pp, plan)
@@ -797,6 +842,13 @@ class OrderEngine(C.Run3Engine):
         self.order_plan: Dict[str, Any] = dict(P["order"])
         if self.order_plan.get("params") != self.dp.as_record() or self.order_plan.get("engine_params") != params.as_dict():
             raise SearchError("refused: the parameters differ from the plan's")
+        # the hitter record (owner 2026-11-19, report-only): on exactly when the plan holds it, and then this code's record
+        self.hitter_plan: Optional[Dict[str, Any]] = self.order_plan.get("hitter_record")
+        if self.hitter_plan is not None and self.hitter_plan != hitter_plan_record():
+            raise SearchError("refused: the plan's hitter record is not this code's (plan again)")
+        self.hitter = self.hitter_plan is not None
+        self.hit_stats: Dict[str, Any] = {"credited": 0, "by_kind": Counter(), "by_level_kind": Counter(), "unavailable_why": Counter(),
+                                          "jobs_with_record": 0, "jobs_without_record": 0, "tracker_errors": 0}
         self.order_code_expect: Optional[str] = (self.order_plan.get("code") or {}).get("digest")
         self.order_code: Dict[str, str] = {}
         self.order_code_dig = ""
@@ -966,7 +1018,7 @@ class OrderEngine(C.Run3Engine):
                                   extra=lambda: {"cells": len(self.archive.cells), "phase": self.phase, "dispatches": self.c["dispatches"], "jobs": self.c["jobs"],
                                                  "words_mb": round(self.archive.words_bytes / 2 ** 20, 1)}).start()
         self.phase = "root"
-        self.pool = r3w.Run3Pool(env.worker_spec, env.now)
+        self.pool = ow.OrderPool(env.worker_spec, env.now) if self.hitter else r3w.Run3Pool(env.worker_spec, env.now)
         self.pool.start(cfg.n_workers)
         reads = self.root_reads()
         if self.stopping:
@@ -1119,12 +1171,14 @@ class OrderEngine(C.Run3Engine):
 
     def emit(self, row: Dict[str, Any]) -> None:
         """The burst row carries its exploration extent (owner 2026-11-16, report-only; level-6 extents also feed the scoreboard) and its
-        break record (E1, owner 2026-11-18, report-only)."""
+        break record (E1, owner 2026-11-18, report-only), with the hitter fields when the hitter record is on (owner 2026-11-19)."""
         if self._cur is not None and row.get("kind", "burst") == "burst" and row.get("n") == self._cur[0]["n"]:
             res = self._cur[1]
             ext = burst_extent(res.get("reaches") or [], res.get("breaks_all") or [], self.pace)
             row["extent"] = ext
-            row["break_record"] = break_record(res)
+            row["break_record"] = break_record(res, self.hitter)
+            if self.hitter:
+                self.note_hitters(res, row["break_record"])
             for e in ext.values():
                 if int(e["level"]) == 6:
                     acc = self.sb["extent6"].setdefault(str(e["mask"]), {})
@@ -1132,6 +1186,33 @@ class OrderEngine(C.Run3Engine):
                         if gname in e:
                             merge_extent(acc.setdefault(gname, {}), e[gname], int(row["n"]))
         super().emit(row)
+
+    def note_hitters(self, res: Mapping[str, Any], entries: Sequence[Mapping[str, Any]]) -> None:
+        """The hitter record's night counts (report-only): credited breaks by kind and by level, why a break is unavailable, the jobs that
+        carried the worker's record and the tracker's own errors."""
+        hs = self.hit_stats
+        rec = res.get("d_hitters")
+        hs["jobs_with_record" if rec is not None else "jobs_without_record"] += 1
+        hs["tracker_errors"] += len((rec or {}).get("errors") or [])
+        for e in entries:
+            hs["credited"] += 1
+            hs["by_kind"][str(e["hitter"])] += 1
+            hs["by_level_kind"][f"{int(e['level'])}|{e['hitter']}"] += 1
+            if e["hitter"] == "unavailable":
+                hs["unavailable_why"][str(e.get("hitter_why"))] += 1
+
+    def hitter_summary(self) -> Optional[Dict[str, Any]]:
+        if not self.hitter:
+            return None
+        hs = self.hit_stats
+        by_level: Dict[str, Dict[str, int]] = {}
+        for k, v in sorted(hs["by_level_kind"].items(), key=lambda kv: (-int(kv[0].split("|", 1)[0]), kv[0])):
+            lv, kind = k.split("|", 1)
+            by_level.setdefault(lv, {})[kind] = int(v)
+        return {"contract": ow.HITTER_CONTRACT, "worker": ow.ORDER_WORKER_CONTRACT, "search_flags_added": dict(ow.ENTITY_FLAGS),
+                "credited_breaks": hs["credited"], "by_kind": {k: int(hs["by_kind"].get(k, 0)) for k in ow.KINDS}, "by_level": by_level,
+                "unavailable_why": dict(hs["unavailable_why"]), "jobs_with_record": hs["jobs_with_record"],
+                "jobs_without_record": hs["jobs_without_record"], "tracker_errors": hs["tracker_errors"]}
 
     def commit(self, info: Mapping[str, Any], c: cs.Cell, res: Mapping[str, Any]) -> None:
         super().commit(info, c, res)
@@ -1157,12 +1238,16 @@ class OrderEngine(C.Run3Engine):
                 sb["best"][str(osel.TARGETS_TOTAL)] = rec10
         allp = break_pairs(res.get("breaks_all"))
         obs_at = {int(r[0]): r[2] for r in (res.get("reaches") or [])}
+        evs = hitter_events(res) if self.hitter else {}
         for idx, (t, _i) in enumerate(allp):
             if int(t) <= L:
                 continue
             d = sb["breaks"].setdefault(str(idx + 1), {"breaks": 0, "hitter": Counter(), "status_at_break": Counter()})
             d["breaks"] += 1
-            d["hitter"]["unknown (entity off)"] += 1
+            if self.hitter:                                 # owner 2026-11-19: the hitter record's kind (report-only)
+                d["hitter"][str(hitter_fields(evs.get((int(t), int(_i))))["hitter"])] += 1
+            else:
+                d["hitter"]["unknown (entity off)"] += 1
             o = obs_at.get(int(t))
             d["status_at_break"]["no reach at the break tick" if o is None else self.clf.name(o[OBS_STATUS])] += 1
         for e in info.get("cont") or []:
@@ -1383,6 +1468,13 @@ class OrderEngine(C.Run3Engine):
     def config_record(self, ready: Mapping[str, Any]) -> Dict[str, Any]:
         c, p = self.cfg, self.order_plan
         mods = (sys.modules[__name__], osel, C, r3, rs, cs, r2)
+        rec = self._config_record(ready, c, p, mods)
+        if self.hitter:                                     # owner 2026-11-19: only with the option, so the record with it off is v4's
+            rec["hitter_record"] = dict(self.hitter_plan or {}, search_flags=dict(fv.FLAGS_EXPLORE, **ow.ENTITY_FLAGS),
+                                        worker_module_sha256=lf_sha256(Path(ow.__file__)))
+        return rec
+
+    def _config_record(self, ready: Mapping[str, Any], c: Any, p: Mapping[str, Any], mods: Sequence[Any]) -> Dict[str, Any]:
         return {"mode": "lab", "contract": ORDER_CONTRACT, "utc": g.utc(), "files_sha256": {Path(m.__file__).name: lf_sha256(Path(m.__file__)) for m in mods},
                 "lab_code_digest": self.code_dig, "lab_code_files": len(self.code), "expect_code": c.expect_code,
                 "order_code": {"contract": MANIFEST_CONTRACT, "entries": list(ENTRY_MODULES), "digest": self.order_code_dig, "expected": self.order_code_expect,
@@ -1451,6 +1543,8 @@ class OrderEngine(C.Run3Engine):
                                                                        "open": dict(self.resume_open), "root_equal": self.root.get("resume_root_equal"),
                                                                        "folders": [f["dir"] for f in self.resume_plan.get("folders") or []]},
                       "scoreboard": self.scoreboard}
+        if self.hitter:                                     # owner 2026-11-19: only with the option
+            s["order"]["hitter_record"] = self.hitter_summary()
         return s
 
     def build_scoreboard(self, s: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1514,8 +1608,11 @@ class OrderEngine(C.Run3Engine):
                                       "airborne": d["airborne"], "by_source": dict(d["by_source"])} for lv, d in sorted(cells6.items(), key=lambda kv: -int(kv[0]))},
             "break_attribution": {lv: {"breaks": d["breaks"], "hitter": dict(d["hitter"]), "status_at_break": dict(d["status_at_break"].most_common())}
                                   for lv, d in sorted(sb["breaks"].items(), key=lambda kv: -int(kv[0]))},
-            "break_attribution_note": "hitter unknown: the entity block is off in search workers; status_at_break is Mario's status class on the break "
-                                      "tick (the reach at that tick), not a hitter",
+            "break_attribution_note": ((f"hitter = the hitter record's kind ({ow.HITTER_CONTRACT}, owner 2026-11-19, report-only: mario / projectile / "
+                                        f"unseen / ambiguous / unavailable); status_at_break is Mario's status class on the break tick (the reach at "
+                                        f"that tick)") if self.hitter else
+                                       "hitter unknown: the entity block is off in search workers; status_at_break is Mario's status class on the break "
+                                       "tick (the reach at that tick), not a hitter"),
             "dispatches_by_level": dispatched,
             "level6_dispatches_by_start_resource_class": res6,
             "dispatches_by_level_and_resource_class": {k: int(v) for k, v in sorted(sb["dispatches_res"].items())},
@@ -1731,6 +1828,13 @@ def report_md(s: Mapping[str, Any]) -> str:
     kr = o.get("keep_rule") or {}
     if kr.get("open_line_from") is not None:
         lines += ["", "## Open line (owner 2026-11-18)", "", f"- from level {kr['open_line_from']}: {kr.get('open_rule')}; archive bound {kr.get('archive_bound')}"]
+    hr = o.get("hitter_record")
+    if hr:
+        lines += ["", "## Hitter record (owner 2026-11-19; report-only)", "",
+                  f"- {hr.get('contract')}, search flags + {json.dumps(hr.get('search_flags_added'))}: {hr.get('credited_breaks')} credited breaks, by kind "
+                  f"{json.dumps(hr.get('by_kind'))}; unavailable {json.dumps(hr.get('unavailable_why'))}; jobs with / without the record "
+                  f"{hr.get('jobs_with_record')} / {hr.get('jobs_without_record')}; tracker errors {hr.get('tracker_errors')}",
+                  f"- by level: {json.dumps(hr.get('by_level'))}"]
     rz = o.get("resume")
     if rz:
         lines += ["", "## Resume", "", f"- folders {rz.get('folders')}; root equal {rz.get('root_equal')}; plan {json.dumps((rz.get('plan') or {}).get('counts'))}; "
@@ -1770,6 +1874,7 @@ def run_command(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> 
             + (f" --min-commit-free-mb {a.min_commit_free_mb} --override-reason \"{a.override_reason}\"" if a.min_commit_free_mb is not None else "")
             + (f" --goal {a.goal}" if a.goal != osel.OrderParams.goal else "") + (f" --slack {a.slack}" if a.slack != osel.OrderParams.slack else "")
             + (f" --open-line-from {a.open_line_from}" if a.open_line_from is not None else "")
+            + (" --hitter-record" if getattr(a, "hitter_record", False) else "")
             + "".join(f" --resume-from {Path(d).as_posix()}" for d in (a.resume_from or [])))
 
 
@@ -1777,9 +1882,11 @@ def cmd_plan(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int
     dp = order_params_from_args(a)
     ep = engine_params_from_args(a, dp)
     P = plan_and_write(lab, frontier, out, dp, ep, readiness_override=readiness_override_record(a.min_commit_free_mb, a.override_reason),
-                       resume=[Path(d) for d in (a.resume_from or [])])
+                       resume=[Path(d) for d in (a.resume_from or [])], hitter_record=bool(a.hitter_record))
     if P["readiness_override"]:
         print("readiness override (owner):", json.dumps(P["readiness_override"]))
+    if P.get("hitter_record"):
+        print("hitter record (owner 2026-11-19, report-only):", P["hitter_record"]["contract"], "search flags +", json.dumps(P["hitter_record"]["search_flags_added"]))
     print("root:", json.dumps(P["root"]))
     print("pace lines:", json.dumps(P["pace"]["lines"]), "gate:", json.dumps(P["gate"]), "reference:", json.dumps(P["gate_reference"]))
     print("keep windows (line(L), line(L + 1)):", json.dumps(P["keep_rule"]["windows"]))
@@ -1816,7 +1923,7 @@ def cmd_run(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int:
         return 2
     dp = order_params_from_args(a)
     ep = engine_params_from_args(a, dp)
-    bad = run_flag_problems(plan, dp, ep, frontier, readiness_override_record(a.min_commit_free_mb, a.override_reason)) \
+    bad = run_flag_problems(plan, dp, ep, frontier, readiness_override_record(a.min_commit_free_mb, a.override_reason), bool(a.hitter_record)) \
         or (resume_check(plan.get("resume"), [Path(d) for d in (a.resume_from or [])]) if (plan.get("resume") or a.resume_from) else None)
     if bad:
         print(f"refused: {bad}")
@@ -1836,10 +1943,14 @@ def cmd_run(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int:
 
 
 def run_flag_problems(plan: Mapping[str, Any], dp: osel.OrderParams, ep: C.Params3, frontier: Path,
-                      readiness_override: Optional[Mapping[str, Any]] = None) -> Optional[str]:
-    """`run` takes exactly the plan's parameters, frontier and readiness override (U10, as run 3): a flag that differs is refused, plan again."""
+                      readiness_override: Optional[Mapping[str, Any]] = None, hitter_record: bool = False) -> Optional[str]:
+    """`run` takes exactly the plan's parameters, frontier, readiness override and hitter option (U10, as run 3): a flag that differs is
+    refused, plan again."""
     if plan.get("readiness_override") != (None if readiness_override is None else dict(readiness_override)):
         return f"the readiness override differs from the saved plan's ({plan.get('readiness_override')}): plan again with the same flags"
+    if plan.get("hitter_record") != (hitter_plan_record() if hitter_record else None):
+        return (f"--hitter-record {'on' if hitter_record else 'off'} differs from the saved plan's "
+                f"({'on' if plan.get('hitter_record') is not None else 'off'}, or another hitter contract): plan again with the same flags")
     if plan.get("params") != dp.as_record():
         return f"the selection parameters differ from the saved plan's ({plan.get('params')}): plan again with the same flags"
     if plan.get("engine_params") != ep.as_dict():
@@ -1867,6 +1978,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     help="owner 2026-11-18: open the pace line from level K (1-9): a state with K or more targets broken is also kept and drawable "
                          "when its K-th break <= line(K), with no line on later breaks or its own tick; the cell draw at levels >= K is the "
                          "fewest dispatches; default off (order_select_v3's behaviour)")
+    ap.add_argument("--hitter-record", action="store_true",
+                    help="owner 2026-11-19, report-only: D's search workers run with SSB64_RL_ENTITY=1 (tools/frs/order_worker.py) and every "
+                         "break_record entry gains the hitter fields (mario / projectile with its serial, owner and first tick / unseen / "
+                         "ambiguous / unavailable); nothing kept, drawn, retired or credited changes; default off (no change); plan and run "
+                         "take the same flag")
     ap.add_argument("--max-segments", type=int, default=C.Params3.max_segments)
     ap.add_argument("--check-slots", type=int, default=C.Params3.check_slots)
     ap.add_argument("--summary-every-s", type=float, default=C.Params3.summary_every_s)

@@ -339,7 +339,8 @@ def unit_h9_manifest() -> Dict[str, Any]:
     m = rm.run3_code_manifest()
     om = O.order_code_manifest()
     check("tools/frs/run3_dseeds.py" in m and "tools/frs/run3_dseeds.py" in om and "rl/frs_machine.py" in m, "the new module is in both manifests")
-    check(len(m) == 55 and len(om) == 57, f"files: run 3 {len(m)}, D {len(om)}")
+    # D = run 3's 55 + D's three modules (order_search, order_select and, since the hitter record of 2026-11-19, order_worker)
+    check(len(m) == 55 and len(om) == 58, f"files: run 3 {len(m)}, D {len(om)}")
     check(rm.code_digest(m) in OT.RUN3_DIGESTS, f"T-M1: run 3 {rm.code_digest(m)[:8]} is one of {[k[:8] for k in OT.RUN3_DIGESTS]}")
     return {"run3": rm.code_digest(m)[:8], "run3_files": len(m), "d": O.code_digest(om)[:8], "d_files": len(om)}
 

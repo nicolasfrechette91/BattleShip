@@ -37,11 +37,12 @@ import det_schedule as det  # noqa: E402
 import frs_guard as g  # noqa: E402
 import order_search as O  # noqa: E402
 import order_select as osel  # noqa: E402
+import order_worker as OW  # noqa: E402
 import run3_load as rl3  # noqa: E402
 import run3_select as rs  # noqa: E402
 from infra_testlib import check, cleanup, run_suite, tmpdir  # noqa: E402
 
-D_MODULES = ("order_select", "order_search", "order_search_tests")
+D_MODULES = ("order_select", "order_search", "order_worker", "order_search_tests")
 # The run 3 manifest digest (tools/frs/run3_manifest.py) of the frontier code (contract run3_select_v4). The manifest hashes working-file
 # bytes: the main tree's working copy holds 7 rl/ files with CRLF line endings (the index has LF), a fresh checkout holds them with LF. Same
 # content, two digests; both are the frontier code. Any other value means a run 3 file changed. Owner 2026-11-14 (design 6.7): fix B
@@ -1244,6 +1245,243 @@ def unit_break_record() -> Dict[str, Any]:
     return {"entries": len(br)}
 
 
+# -- the hitter record (owner 2026-11-19; report-only) ------------------------------------------------------------------------------------
+
+
+def _ent(hitlag: int = 0, weapons: Sequence[Tuple[int, int, int, int, int]] = (), live: int = 1, anomaly: int = 0, attack: int = 0, tick: int = 0) -> Dict[str, Any]:
+    """A btt_entity_v1 object (weapons: (serial, kind, owned, attack_state, lifetime))."""
+    return {"contract": "btt_entity_v1", "entity_schema": 1, "input_tick": tick, "scene_active": 1, "live": live, "anomaly_flags": anomaly,
+            "fighter": {"valid": 1, "status_total_tics": 0, "hitlag_tics": hitlag, "jumps_max": 2, "attack_active": attack, "cliff_hold": 0,
+                        "shield_active": 0, "fastfall": 0, "hitstun": 0},
+            "weapon_total": len(weapons),
+            "weapons": [{"serial": s, "kind": k, "owned": o, "lr": 1, "ga": 1, "lifetime": lt, "attack_state": a, "translate": [0.0, 0.0],
+                         "velocity": [0.0, 0.0]} for s, k, o, a, lt in weapons]}
+
+
+def _rep(tick: int, mask: int, entity: Optional[Mapping[str, Any]] = None, status: int = 10) -> Dict[str, Any]:
+    """A reply with what the tracker reads: ok, the input tick, the status id, the live mask (and the entity object, when given)."""
+    r: Dict[str, Any] = {"ok": True, "op": "step" if tick else "observe", "observation": {"input_tick": tick, "fighter_status_id": status},
+                         "spatial": {"target_live_mask": mask}}
+    if entity is not None:
+        r["entity"] = entity
+    return r
+
+
+def unit_hitter_rule() -> Dict[str, Any]:
+    """The hitter rule (order_worker.HITTER_RULE) on constructed pairs of entity objects: every kind, its fields and candidates; only zero
+    tests and set membership (the attack flag alone is not a hit)."""
+    def snap(**k: Any) -> Optional[Dict[str, Any]]:
+        return OW.snapshot(_rep(1, 1023, _ent(**k)))
+
+    first = {3: 40, 4: 55}
+    fb, other = (3, 0, 1, 3, 58), (4, 0, 0, 3, 90)       # serial 3: the player's fireball; serial 4: another owner's weapon
+    m = OW.classify(100, [2], snap(), snap(hitlag=5, attack=1), first)
+    check(m["kind"] == "mario" and m["serial"] is None and m["evidence"]["hitlag"] == [0, 5] and m["targets"] == [2], f"a hitlag onset, nothing vanished: {m}")
+    p = OW.classify(100, [2], snap(weapons=[fb]), snap(), first)
+    check(p["kind"] == "projectile" and (p["serial"], p["owner"], p["first_tick"], p["weapon_kind"]) == (3, "mario", 40, 0)
+          and p["evidence"]["vanished"][0]["attack_state"] == 3 and p["evidence"]["vanished"][0]["lifetime"] == 58, f"one weapon vanished: {p}")
+    po = OW.classify(100, [2], snap(weapons=[fb, other]), snap(weapons=[fb]), first)
+    check(po["kind"] == "projectile" and (po["serial"], po["owner"], po["first_tick"]) == (4, "other", 55), f"the one that vanished, with its owner: {po}")
+    check(OW.classify(100, [2], snap(weapons=[fb]), snap(weapons=[fb]), first)["kind"] == "unseen", "no onset, nothing vanished: unseen")
+    check(OW.classify(100, [2], snap(), snap(attack=1), first)["kind"] == "unseen", "the attack flag without a hitlag onset is not a hit")
+    a1 = OW.classify(100, [2], snap(weapons=[fb]), snap(hitlag=5), first)
+    a2 = OW.classify(100, [2], snap(weapons=[fb, other]), snap(), first)
+    a3 = OW.classify(100, [2], snap(hitlag=4), snap(hitlag=3), first)
+    check(a1["kind"] == a2["kind"] == a3["kind"] == "ambiguous" and [c["kind"] for c in a1["candidates"]] == ["mario", "projectile"]
+          and [c["serial"] for c in a2["candidates"]] == [3, 4] and a1["serial"] is None and a3["why"] == "hitlag already running at j - 1",
+          f"ambiguous: {a1['candidates']} {a2['candidates']} {a3['why']}")
+    for prev, cur, why in ((None, snap(), "no entity object at j - 1"), (snap(), None, "no entity object at j"),
+                           (snap(live=0), snap(), "entity not live at j - 1"), (snap(), snap(anomaly=1), "entity anomaly flags 0x1 at j")):
+        u = OW.classify(100, [2], prev, cur, first)
+        check(u["kind"] == "unavailable" and u["why"] == why and u["evidence"] is None, f"unavailable: {u}")
+    bad = OW.snapshot({"entity": {"live": 1}})
+    check(bad is not None and "error" in bad and OW.classify(100, [2], snap(), bad, first)["kind"] == "unavailable", f"a malformed object: {bad}")
+    check(OW.classify(100, [2], snap(weapons=[(0, 0, 1, 3, 9)]), snap(), first)["first_tick"] is None, "serial 0 (the block's overflow value): no first tick")
+    check(set(OW.KINDS) == {"mario", "projectile", "unseen", "ambiguous", "unavailable"}, f"the kinds: {OW.KINDS}")
+    return {"kinds": list(OW.KINDS)}
+
+
+class _FakeProc:
+    def __init__(self, replies: Sequence[Any]):
+        self.replies, self.failed = list(replies), False
+
+    def observe(self) -> Any:
+        return self.replies.pop(0)
+
+    def step(self, b: int, x: int, y: int) -> Any:
+        return self.replies.pop(0)
+
+    def close(self) -> str:
+        return "closed"
+
+
+def unit_hitter_tracker() -> Dict[str, Any]:
+    """The tracker follows the worker's break rule (a bit leaving the live mask, several targets on one tick), keeps each serial's first
+    tick and never raises; the proxy hands every reply on without the entity object (so run 3's D6 check and detectors see an entity-off
+    reply), refuses a tick-0 observe without one, passes an error reply through, and forwards attributes to the real process."""
+    import types
+
+    import run3_anomaly as ra
+
+    m0 = 1023
+    m1 = m0 & ~(1 << 4)
+    m2 = m1 & ~(1 << 7) & ~(1 << 8)
+    m3 = m2 & ~(1 << 9)
+    tr = OW.HitterTracker()
+    for r in (_rep(0, m0, _ent()), _rep(1, m0, _ent(weapons=[(1, 0, 1, 3, 60)])), _rep(2, m0, _ent(weapons=[(1, 0, 1, 3, 59)])),
+              _rep(3, m1, _ent()),                                            # serial 1 gone with target 4
+              _rep(4, m2, _ent(hitlag=6, attack=1)),                          # targets 7 and 8 on one tick, a hitlag onset
+              {"ok": False, "op": "step", "error": "x"}, "not a reply",         # ignored / one counted error, never raised
+              _rep(5, m2, None), _rep(6, m3, None)):                          # target 9 with no entity object
+        tr.feed(r)
+    res = tr.result()
+    ev = res["events"]
+    check([(e["tick"], e["targets"], e["kind"]) for e in ev] == [(3, [4], "projectile"), (4, [7, 8], "mario"), (6, [9], "unavailable")],
+          f"the break ticks and kinds: {[(e['tick'], e['targets'], e['kind']) for e in ev]}")
+    check(ev[0]["serial"] == 1 and ev[0]["first_tick"] == 1 and len(res["errors"]) == 1 and res["replies"] == 7, f"first tick, errors, replies: {ev[0]} {res}")
+    e1 = _ent(weapons=[(1, 0, 1, 3, 9)])
+    e1["weapons"][0]["velocity"] = [None, 0.0]                                 # what the transport sends for a NaN
+    inner = _FakeProc([_rep(0, m0, _ent()), _rep(1, m0, e1)])
+    hb = OW.HitterBackend(types.SimpleNamespace(acquire=lambda: inner, info=lambda: {"pid": 1}))
+    proc = hb.acquire()
+    hb.tracker = OW.HitterTracker()
+    r0, r1 = proc.observe(), proc.step(0, 0, 0)
+    check("entity" not in r0 and "entity" not in r1 and r1["spatial"] == {"target_live_mask": m0} and hb.tracker.replies == 2 and hb.tracker.first == {1: 1},
+          "the replies go on without the entity object; the tracker saw both")
+    check(ra.nonfinite_fields(r1) == [], "a null in the entity object never reaches run 3's D6 check")
+    proc.failed = True
+    check(inner.failed is True and proc.close() == "closed" and hb.info() == {"pid": 1}, "attributes reach the real process and backend")
+    hb2 = OW.HitterBackend(types.SimpleNamespace(acquire=lambda: _FakeProc([_rep(0, m0, None)])))
+    try:
+        hb2.acquire().observe()
+        missing = False
+    except OW.EntityMissing:
+        missing = True
+    check(missing, "a tick-0 observe without the entity object is refused (the flag did not reach the process)")
+    err = {"ok": False, "op": "observe", "error": "no_observation"}
+    check(OW.HitterBackend(types.SimpleNamespace(acquire=lambda: _FakeProc([err]))).acquire().observe() is err, "an error reply passes through unchanged")
+    base = {"rank": 0, "flags": {"SSB64_RL_SPATIAL": "1"}}
+    s = OW.hitter_spec(base)
+    check(s["flags"] == {"SSB64_RL_SPATIAL": "1", "SSB64_RL_ENTITY": "1"} and s[OW.SPEC_KEY] is True and base == {"rank": 0, "flags": {"SSB64_RL_SPATIAL": "1"}},
+          f"the spec gains the entity flag, the given one is unchanged: {s}")
+    return {"events": len(ev)}
+
+
+def unit_hitter_break_record() -> Dict[str, Any]:
+    """With the option every credited break entry gains HITTER_FIELDS (the worker's event for its tick and target, "unavailable" when the
+    result holds none) and keeps every E1 field; without it the entries are E1's exactly (d_hitters ignored)."""
+    obs = lambda x, y, t: tuple([1, 99, t, t, 2, 1, 7, 1, float(x), float(y), 1.5, -2.0, 0.0, 1, 1, 18, 1])  # noqa: E731
+    ev = lambda t, tg, kind, **k: dict({"tick": t, "targets": tg, "kind": kind, "serial": None, "owner": None, "first_tick": None, "weapon_kind": None,  # noqa: E731
+                                        "candidates": [], "why": None, "evidence": {"hitlag": [0, 0]}}, **k)
+    res = {"L": 100, "breaks_all": [(50, 3), (130, 5), (120, 1), (130, 2), (140, 9)],
+           "reaches": [(120, (3, 4, "A1", 998, -1), obs(-300, 400, 120), b"\x03" * 32, b"\x04" * 32, False),
+                       (130, (5, 6, "G", 974, 4), obs(-1650, 1200, 130), b"\x05" * 32, b"\x06" * 32, False)],
+           "d_hitters": {"contract": OW.HITTER_CONTRACT, "events": [ev(50, [3], "mario"), ev(120, [1], "projectile", serial=2, owner="mario", first_tick=90, weapon_kind=0),
+                                                                   ev(130, [2, 5], "mario")], "replies": 141, "errors": []}}
+    off = O.break_record(res)
+    on = O.break_record(res, True)
+    check(off == O.break_record({k: v for k, v in res.items() if k != "d_hitters"}) and not any(set(O.HITTER_FIELDS) & set(e) for e in off),
+          "off: E1's entries exactly")
+    check([{k: v for k, v in e.items() if k not in O.HITTER_FIELDS} for e in on] == off and all(set(O.HITTER_FIELDS) <= set(e) for e in on),
+          "on: every E1 field unchanged, every hitter field present")
+    check((on[0]["hitter"], on[0]["hitter_serial"], on[0]["hitter_owner"], on[0]["hitter_first_tick"], on[0]["hitter_weapon_kind"]) == ("projectile", 2, "mario", 90, 0),
+          f"a projectile: {on[0]}")
+    check(on[1]["hitter"] == on[2]["hitter"] == "mario" and on[1]["hitter_serial"] is None, "a same-tick pair shares its tick's event")
+    check(on[3]["hitter"] == "unavailable" and on[3]["hitter_why"] == O.NO_HITTER_EVENT and on[3]["hitter_evidence"] is None, f"no event: {on[3]}")
+    return {"entries": len(on)}
+
+
+def unit_hitter_plan() -> Dict[str, Any]:
+    """The option in the plan: off, no hitter_record key (the plan is v4's); on, this code's record and nothing else changes; run refuses
+    a different flag either way, and a plan holding another hitter contract."""
+    lab = tmpdir("order_hitter_plan_")
+    try:
+        fr_dir = write_fake_frontier(lab, 3000)
+        dp = osel.OrderParams()
+        ep = O.engine_params(dp, rng_seed=3)
+        off = O.build_plan(lab, fr_dir, lab / "order_off", dp, ep, code="test")
+        on = O.build_plan(lab, fr_dir, lab / "order_on", dp, ep, code="test", hitter_record=True)
+        strip = lambda P: {k: v for k, v in P.items() if k not in ("utc", "out", "hitter_record")}  # noqa: E731
+        check("hitter_record" not in off and on["hitter_record"] == O.hitter_plan_record() and strip(on) == strip(off), "the record only with the option")
+        check(on["hitter_record"]["search_flags_added"] == {"SSB64_RL_ENTITY": "1"} and on["hitter_record"]["fields"] == list(O.HITTER_FIELDS), f"{on['hitter_record']}")
+        check(O.run_flag_problems(off, dp, ep, fr_dir) is None and O.run_flag_problems(on, dp, ep, fr_dir, None, True) is None, "the same flag runs")
+        check("--hitter-record" in (O.run_flag_problems(off, dp, ep, fr_dir, None, True) or "") and "--hitter-record" in (O.run_flag_problems(on, dp, ep, fr_dir) or ""),
+              "a different flag is refused")
+        other = dict(on, hitter_record=dict(on["hitter_record"], contract="order_hitter_v0"))
+        check(O.run_flag_problems(other, dp, ep, fr_dir, None, True) is not None, "another hitter contract is refused")
+        return {"plan_keys_on": len(on), "plan_keys_off": len(off)}
+    finally:
+        cleanup(lab)
+
+
+def fake_hitter_class(tick: int, lost: int) -> int:
+    """The synthetic hitter of a break tick (tests only): (tick + its lowest broken target) % 4 -> 0 mario, 1 projectile, 2 unseen, 3 both."""
+    return (int(tick) + min(b for b in range(osel.TARGETS_TOTAL) if lost >> b & 1)) % 4
+
+
+class FakeEntityProc:
+    """A fake-game process whose ok observe / step replies gain a synthetic btt_entity_v1 object, a pure function of the replies' live
+    masks: one live weapon (serial 1 from tick 0); at a break tick of class 0 or 3 the fighter's hitlag is 5 on that tick only; at class 1
+    or 3 the live weapon is gone and the next serial appears on the same tick. Tests only (the fake game has no entity object)."""
+
+    def __init__(self, proc: Any):
+        object.__setattr__(self, "_proc", proc)
+        object.__setattr__(self, "_st", {"mask": None, "serial": 1})
+
+    def _add(self, reply: Any) -> Any:
+        if not isinstance(reply, dict) or reply.get("ok") is not True or not isinstance(reply.get("observation"), dict) or not isinstance(reply.get("spatial"), dict):
+            return reply
+        st = self._st
+        j, m = int(reply["observation"]["input_tick"]), int(reply["spatial"]["target_live_mask"])
+        lost = 0 if st["mask"] is None else st["mask"] & ~m
+        hitlag = 0
+        if lost:
+            c = fake_hitter_class(j, lost)
+            hitlag = 5 if c in (0, 3) else 0
+            st["serial"] += int(c in (1, 3))
+        st["mask"] = m
+        return dict(reply, entity=_ent(hitlag=hitlag, attack=int(hitlag > 0), weapons=[(st["serial"], 0, 1, 1, 100)], tick=j))
+
+    def observe(self) -> Any:
+        return self._add(self._proc.observe())
+
+    def step(self, b: int, x: int, y: int) -> Any:
+        return self._add(self._proc.step(b, x, y))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._proc, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(self._proc, name, value)
+
+
+class FakeEntityBackend:
+    """rl/m8_rd_worker.RealBackend on the fake game, its processes wrapped in FakeEntityProc when the spec's flags hold SSB64_RL_ENTITY=1
+    (worker spec "backend": "order_search_tests:FakeEntityBackend"). Tests only."""
+
+    def __init__(self, spec: Mapping[str, Any]):
+        import m8_rd_worker as mw
+
+        self._base = mw.RealBackend(spec)
+        self._on = (spec.get("flags") or {}).get("SSB64_RL_ENTITY") == "1"
+
+    def acquire(self, *a: Any, **k: Any) -> Any:
+        p = self._base.acquire(*a, **k)
+        return FakeEntityProc(p) if self._on else p
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._base, name)
+
+
+def expected_fake_kind(tick: int, breaks: Mapping[int, int]) -> str:
+    """The kind FakeEntityProc gives the break tick `tick` ({tick: lost mask} of the whole trajectory from tick 0): ambiguous when the
+    tick before was a hitlag tick (class 0 or 3), else by its own class."""
+    prev = breaks.get(int(tick) - 1)
+    if prev is not None and fake_hitter_class(int(tick) - 1, prev) in (0, 3):
+        return "ambiguous"
+    return ("mario", "projectile", "unseen", "ambiguous")[fake_hitter_class(int(tick), breaks[int(tick)])]
+
+
 # -- fake-game end to end (run 3's fake game; zero native ticks) -----------------------------------------------------------------------------
 
 E_FLAGS = {"SSB64_RL_NO_RENDER": "1", "SSB64_RAPHNET_DISABLE": "1", "SSB64_RL_SPATIAL": "1", "FAKEGAME_WORLD": "easy", "FAKEGAME_BOOT_S": "0.1",
@@ -1328,7 +1566,7 @@ def order_child(a: Mapping[str, Any]) -> Dict[str, Any]:
             if ev == "open" and args and isinstance(args[0], (str, bytes, os.PathLike)):
                 opened.append(os.fsdecode(args[0]))
         sys.addaudithook(hook)
-    plan = O.plan_and_write(lab, frontier, out, dp, ep, resume=[Path(x) for x in a.get("resume") or []])
+    plan = O.plan_and_write(lab, frontier, out, dp, ep, resume=[Path(x) for x in a.get("resume") or []], hitter_record=bool(a.get("hitter")))
     world = a.get("world", "easy")
     flags = dict(E_FLAGS, FAKEGAME_WORLD=world)
     os.environ["FAKEGAME_WORLD"] = world          # this child only: the text replay passes the environment (minus SSB64_*) to the fake game
@@ -1346,7 +1584,10 @@ def order_child(a: Mapping[str, Any]) -> Dict[str, Any]:
         frozen = {"frozen_sha256": a["frozen"], "exe_copy_sha256": a["exe_copy"]}
 
         def spec(rank: int) -> Dict[str, Any]:
-            return dict(r3t.worker_spec(lab, fk, rank, int(a["port_base"]), run_dir / "failures", flags), guard=g.LabGuard.spec(), run3_selfcheck=True)
+            s = dict(r3t.worker_spec(lab, fk, rank, int(a["port_base"]), run_dir / "failures", flags), guard=g.LabGuard.spec(), run3_selfcheck=True)
+            if a.get("fake_entity"):                   # the hitter record's tests: the fake game's replies gain a synthetic entity object
+                s["backend"] = "order_search_tests:FakeEntityBackend"
+            return s
 
         replay = fv.make_real_replay(Path(a["exe"]), lab / f"replays_{out.name}", flags, frozen)
         backend = "real"
@@ -1793,6 +2034,81 @@ def e2e_e11_open_line() -> Dict[str, Any]:
             "levels": dict(Counter(int(c["level"]) for c in kept)), "milestones": [(m["milestone"], m["tick"]) for m in o["milestones"]]}
 
 
+def _no_host(e: Mapping[str, Any]) -> Dict[str, Any]:
+    """A break-record entry without the hitter fields and without host_frame (wall-clock dependent) in its observation."""
+    out = {k: v for k, v in e.items() if k not in O.HITTER_FIELDS}
+    if isinstance(out.get("obs"), dict):
+        out["obs"] = {k: v for k, v in out["obs"].items() if k != "host_frame"}
+    return out
+
+
+def e2e_e12_hitter_record() -> Dict[str, Any]:
+    """The hitter record (owner 2026-11-19, report-only) on the fake game with a synthetic entity object: the same-seed night as E1's "a"
+    with the option on makes the same decisions (dispatch rows, draws, cells, milestones, boundary answers, root, extents, break-record
+    fields, hourly records, glitch counts); every credited break carries the hitter fields, each the kind the synthetic object implies
+    (mario, projectile with its serial and first tick, unseen, ambiguous); the records and counts agree; with the option on and no entity
+    object in the replies the open stops (the tick-0 reads fail)."""
+    b = dbench()
+    A = b.run("a")
+    H = b.run("hit", hitter=True, fake_entity=True, port_base=47000)
+    for r in (A, H):
+        check(r["code"] == 0 and r["summary"]["status"] == "DISPATCH_CAP" and not r["violations"] and len(_bursts(r)) == 160,
+              f"a clean 160-dispatch night: {r['code']} {r.get('summary', {}).get('status')} {r.get('summary', {}).get('stop')} {r['violations']}")
+    check(det.dispatch_signature(A["dispatches"]) == det.dispatch_signature(H["dispatches"]), "the same dispatch rows (cell, k, draw id, words, outcome, kept, cont)")
+    sel = lambda r: [(x["n"], x.get("stream"), x.get("group"), x.get("niche"), json.dumps(x.get("draw"), sort_keys=True)) for x in _bursts(r)]  # noqa: E731
+    check(sel(A) == sel(H), "the same draws (stream, set, order, counts, rank)")
+    check(det.cells_signature(A["cells"]) == det.cells_signature(H["cells"]), "the same cell rows")
+    ms = lambda r: [{k: v for k, v in m.items() if k not in ("utc", "elapsed_s")} for m in r["milestones"]]  # noqa: E731
+    check(ms(A) == ms(H) and [v["verdict"] for v in A["mver"]] == [v["verdict"] for v in H["mver"]], "the same milestones and verdicts")
+    hs = lambda r: [json.dumps({k: v for k, v in h.items() if k not in HOURLY_VOLATILE}, sort_keys=True) for h in r["hourly"]]  # noqa: E731
+    check(hs(A) == hs(H), "the same hourly records")
+    rr = lambda r: [(x["digest"], x["chain"], x["key"], x["mask"]) for x in r["root"]["reads"]]  # noqa: E731
+    check(rr(A) == rr(H), "the same tick-0 root")
+    check([x.get("extent") for x in _bursts(A)] == [x.get("extent") for x in _bursts(H)], "the same extents")
+    check([[_no_host(e) for e in x["break_record"]] for x in _bursts(A)] == [[_no_host(e) for e in x["break_record"]] for x in _bursts(H)],
+          "the same break-record fields (E1's) on every row")
+    ga, gh = A["summary"]["anomalies"], H["summary"]["anomalies"]
+    check(ga == gh and "counts" in ga and ga["counts"], f"the same glitch / anomaly counts (run 3's detectors see entity-off replies): {ga} vs {gh}")
+    check(gh["selfcheck"]["checked"] == len(_bursts(H)) and gh["selfcheck"]["failed"] == 0, f"run 3's rebuild from the replies it saw equals every result: {gh['selfcheck']}")
+    check(all("hitter" not in e for x in _bursts(A) for e in x["break_record"]) and "hitter_record" not in A["config"] and "hitter_record" not in A["summary"]["order"],
+          "option off: no hitter field, no record")
+    # every credited break: the fields, the synthetic kind, a projectile's serial and first tick
+    d_of = {c["digest"]: c["origin"].get("d_breaks") or [] for c in H["cells"] if c["ev"] in ("new", "replaced")}
+    kinds: Counter = Counter()
+    n = 0
+    for x in _bursts(H):
+        lost: Dict[int, int] = {}
+        for t, i in list(d_of[str(x["draw_id"]).rsplit("|", 1)[1]]) + [(e["tick"], e["target"]) for e in x["break_record"]]:
+            lost[int(t)] = lost.get(int(t), 0) | (1 << int(i))
+        for e in x["break_record"]:
+            n += 1
+            check(set(O.HITTER_FIELDS) <= set(e) and e["hitter"] in OW.KINDS, f"dispatch {x['n']}: the hitter fields {e}")
+            want = expected_fake_kind(int(e["tick"]), lost)
+            check(e["hitter"] == want, f"dispatch {x['n']} tick {e['tick']}: {e['hitter']} (the synthetic object implies {want}; {e.get('hitter_why')})")
+            if e["hitter"] == "projectile":
+                check(isinstance(e["hitter_serial"], int) and e["hitter_serial"] >= 1 and e["hitter_owner"] == "mario" and e["hitter_weapon_kind"] == 0
+                      and isinstance(e["hitter_first_tick"], int) and 0 <= e["hitter_first_tick"] < int(e["tick"])
+                      and e["hitter_evidence"]["vanished"][0]["serial"] == e["hitter_serial"], f"dispatch {x['n']}: a projectile's fields {e}")
+            kinds[e["hitter"]] += 1
+    check(n > 0 and {"mario", "projectile", "unseen", "ambiguous"} <= set(kinds) and not kinds["unavailable"], f"every kind but unavailable occurs: {dict(kinds)}")
+    hr = H["summary"]["order"]["hitter_record"]
+    check(hr["credited_breaks"] == n and hr["by_kind"] == {k: kinds.get(k, 0) for k in OW.KINDS} and hr["jobs_without_record"] == 0 and hr["tracker_errors"] == 0
+          and hr["jobs_with_record"] == len(_bursts(H)), f"the summary counts: {hr}")
+    ba = H["summary"]["order"]["scoreboard"]["break_attribution"]
+    sb_k: Counter = Counter()
+    for d in ba.values():
+        sb_k.update(d["hitter"])
+    check(sb_k == kinds and "unknown (entity off)" not in sb_k, f"the scoreboard's break attribution: {dict(sb_k)}")
+    check(H["config"]["hitter_record"]["search_flags"].get("SSB64_RL_ENTITY") == "1" and H["config"]["hitter_record"]["contract"] == OW.HITTER_CONTRACT
+          and "## Hitter record" in H["report"], "config and report record the option")
+    # the option on without an entity object in the replies: the open stops
+    M = b.run("hit_missing", hitter=True, engine=dict(E_ENGINE, max_dispatches=10), port_base=48000)
+    stop = json.dumps(M.get("summary", {}).get("stop"))
+    check(M.get("summary", {}).get("status") == "SEARCH_INVALID" and "EntityMissing" in stop and not _bursts(M), f"no entity object: the open stops: {M.get('summary', {}).get('status')} {stop[:300]}")
+    return {"credited_breaks": n, "kinds": dict(kinds), "dispatches": len(_bursts(H)), "glitch_counts": dict(gh["counts"]), "selfcheck": gh["selfcheck"]["checked"],
+            "missing_stop": stop[:160]}
+
+
 def e2e_u11_isolation() -> Dict[str, Any]:
     """U11: run 3 refuses a D folder; D refuses a D folder as its frontier, another tool's plan in its folder, and any inheritance flag;
     D writes only under its own folder through the guard."""
@@ -1851,7 +2167,7 @@ def e2e_u13_no_human_input() -> Dict[str, Any]:
 
 
 def e2e_tm2_code_digest() -> Dict[str, Any]:
-    """T-M2: D's manifest covers its import closure (D's two modules and every run 3 file), hashes with LF line endings, is enforced at
+    """T-M2: D's manifest covers its import closure (D's three modules and every run 3 file), hashes with LF line endings, is enforced at
     the open, and a change during the run is SEARCH_INVALID at the close."""
     import run3_manifest as rm
 
@@ -1860,8 +2176,9 @@ def e2e_tm2_code_digest() -> Dict[str, Any]:
     oc = A["config"]["order_code"]
     files = set(oc["files"])
     run3 = set(rm.run3_code_manifest())
-    check(oc["digest"] == oc["expected"] == A["plan"]["code"]["digest"] and {"tools/frs/order_search.py", "tools/frs/order_select.py"} <= files and run3 <= files
-          and len(files) == len(run3) + 2, f"D's manifest: {len(files)} files = run 3's {len(run3)} + D's 2")
+    d_own = {"tools/frs/order_search.py", "tools/frs/order_select.py", "tools/frs/order_worker.py"}
+    check(oc["digest"] == oc["expected"] == A["plan"]["code"]["digest"] and d_own <= files and run3 <= files
+          and len(files) == len(run3) + len(d_own), f"D's manifest: {len(files)} files = run 3's {len(run3)} + D's {len(d_own)}")
     t = tmpdir("order_lf_")
     try:
         (t / "lf.py").write_bytes(b"a = 1\nb = 2\n")
@@ -1891,11 +2208,12 @@ UNIT = {f.__name__: f for f in (unit_u1_pace_line, unit_u2_rejected_readout, uni
                                 unit_u4_ties, unit_u4_cell_draw_is_run3s, unit_u5_newcomers, unit_u6_level_weights, unit_u7_retirement,
                                 unit_u7_stale_clear_fallback, unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_root_differences,
                                 unit_u14_tree_sampler, unit_cont_window_rule, unit_burst_extent, unit_resume_lineage, unit_tm1_run3_digest,
-                                unit_open_line_rule, unit_open_line_params, unit_open_line_draw, unit_open_line_plan, unit_break_record)}
+                                unit_open_line_rule, unit_open_line_params, unit_open_line_draw, unit_open_line_plan, unit_break_record,
+                                unit_hitter_rule, unit_hitter_tracker, unit_hitter_break_record, unit_hitter_plan)}
 
 E2E = {f.__name__: f for f in (e2e_e1_same_seed, e2e_e2_root, e2e_e3_pace_budget, e2e_e4_milestone, e2e_e5_caps_stops, e2e_e6_exports,
                                e2e_e7_resume, e2e_e8_long_bursts, e2e_e9_scoreboard, e2e_e10_extent, e2e_u11_isolation, e2e_u13_no_human_input,
-                               e2e_tm2_code_digest, e2e_e11_open_line)}
+                               e2e_tm2_code_digest, e2e_e11_open_line, e2e_e12_hitter_record)}
 REAL = {f.__name__: f for f in (real_frontier_best,)}
 
 if __name__ == "__main__":
