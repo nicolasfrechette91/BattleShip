@@ -13,6 +13,11 @@
                     BEYOND verdict) and counts in the rejected-reach readout (report-only); everything else is run 3's keep rule. A
                     reach's break ticks are the job's own (`breaks_all`: the prefix replay's and the burst's), so the rule reads nothing
                     but the trajectory. Every kept cell's origin records them (`d_breaks`, [[tick, target], ...]).
+    open line       (owner 2026-11-18, order_select_v4; --open-line-from K, default off = the rule above exactly) a reach with K or more
+                    targets broken whose K-th break came at or before line(K) is also kept, whatever its later breaks and its own tick;
+                    the archive's own bound (crossing_search.Archive.keep, line(10) without the option) is then the horizon, so no line
+                    applies to its tick. The keep, the draw's eligibility, the continuation, the resume and the extent's "inside" read
+                    the rule with the option; the milestones do not. The cell draw at levels >= K is the fewest dispatches (order_select).
     continuation    (owner 2026-11-16, replaces F3) at every 120-word boundary a burst continues while the episode is live (the worker
                     asks only then) and the state at the boundary is inside the arrival rule, up to max_segments x 120 = 720 words. D's
                     jobs carry a boundary window of one segment (the arm's window = segment_words), so each boundary question holds all
@@ -29,6 +34,9 @@
     extent          (owner 2026-11-16, report-only) every dispatch row's `extent`: per level and target set the burst was at, over every
                     reach the main process received (rejected ones included), the highest y, the lowest x and the highest x, each with
                     its tick, for all reaches and for those inside the keep window. Read by no rule: nothing kept or drawn changes.
+    break record    (E1, owner 2026-11-18, report-only) every dispatch row's `break_record`: per credited break (after the start tick)
+                    its tick, target, level, Mario's position and what the job result carries for that tick (the reach: 17 observation
+                    fields, key, terminal flag, record digest, chain; None without a reach). Read by no rule.
     selection       tools/frs/order_select.OrderSelector (section 3; gaps A-F, G1-G5). No trigger draws.
     claims          a clear faster than the frontier's best verified clear, read at the plan, is verified twice from tick 0, as run 3
                     (then against D's own best); exports and native text replays of new bests as run 3.
@@ -509,7 +517,7 @@ def resume_selection(folders: Sequence[Path], pace: osel.Pace) -> Tuple[List[Dic
     h = hashlib.sha256()
     for tick, i, d_cid, c in queue:
         lv = int(c["level"])
-        why = pace.reason(lv, tick, osel.arrival_tick([p[0] for p in c["breaks"]], lv))
+        why = pace.reason_ticks(lv, tick, [p[0] for p in c["breaks"]])     # v4: with the open line when it is set
         pc = per.setdefault(_lr(lv, c["key"][2]), Counter())
         pc["candidates"] += 1
         if why is not None:
@@ -560,7 +568,7 @@ def burst_extent(reaches: Sequence[Sequence[Any]], breaks_all: Sequence[Sequence
             bt = [int(t) for t, _i in pairs if int(t) <= j]
             if len(bt) != lv:
                 raise SearchError(f"a reach at level {lv}, tick {j} carries {len(bt)} break ticks")
-            if pace.keeps(lv, j, osel.arrival_tick(bt, lv)):
+            if pace.keeps_ticks(lv, j, bt):
                 groups.append("inside")
         e = out.setdefault(f"{lv}|{m}", {"level": lv, "mask": m})
         for gname in groups:
@@ -583,6 +591,32 @@ def merge_extent(acc: Dict[str, Any], d: Mapping[str, Any], n: int) -> None:
         v = d.get(k)
         if v is not None and (acc.get(k) is None or better(v[0], acc[k][0])):
             acc[k] = [v[0], v[1], int(n)]
+
+
+# -- E1: the break record (owner 2026-11-18; report-only) ------------------------------------------------------------------------------
+
+
+def break_record(res: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """One entry per credited break (a break after the dispatch's start tick L: the row's breaks_after_start, in break order): its tick,
+    target and the level it gave (breaks counted from tick 0), Mario's position and what the job result carries for that tick: the reach
+    at the break tick (a first visit of a key in the job) with the 17 observation fields by name, the cell key, the terminal flag, the
+    record digest and the chain. `reach` is None when the result holds no reach at that tick (the step was not live). Read by no rule."""
+    L = int(res["L"])
+    at = {int(r[0]): r for r in (res.get("reaches") or [])}
+    out: List[Dict[str, Any]] = []
+    for idx, (t, i) in enumerate(break_pairs(res.get("breaks_all"))):
+        if t <= L:
+            continue
+        e: Dict[str, Any] = {"tick": t, "target": i, "level": idx + 1}
+        r = at.get(t)
+        if r is None:
+            e["reach"] = None
+        else:
+            obs = tuple(r[2])
+            e.update({"x": obs[OBS_X], "y": obs[OBS_Y], "obs": mcell.obs_dict(obs), "key": list(r[1]), "terminal": bool(r[5]),
+                      "record_digest": bytes(r[3]).hex(), "chain": bytes(r[4]).hex()})
+        out.append(e)
+    return out
 
 
 def resume_check(plan_resume: Optional[Mapping[str, Any]], folders: Sequence[Path]) -> Optional[str]:
@@ -661,6 +695,15 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
     ref = osel.Pace(osel.OrderParams(goal=dp.goal, slack=M1_REFERENCE_SLACK, level_weights=dp.level_weights, breadth_share=dp.breadth_share,
                                      retire_after=dp.retire_after))
     sources = [fb["summary"]] + [str(Path(f["dir"]) / "run" / "summary.json") for f in (res_rec or {}).get("folders") or []]
+    keep_rule: Dict[str, Any] = {"selection_contract": osel.SELECT_CONTRACT, "rule": "arrival: L-th break <= line(L) and own tick <= line(L + 1)",
+                                 "windows": {str(L): [pace.line(L), pace.window_end(L)] for L in range(osel.TARGETS_TOTAL)}}
+    if pace.open_from is not None:                       # owner 2026-11-18: only with the option, so the plan with it off is v3's
+        k = pace.open_from
+        keep_rule.update({"open_line_from": k, "open_line": pace.line(k), "archive_bound": archive_bound(dp),
+                          "open_rule": (f"levels >= {k}: also kept and drawable when the {k}-th break <= line({k}) = {pace.line(k)}; no line on the later "
+                                        f"breaks or the own tick (the archive's own bound is the horizon); the windows above still keep what they keep; "
+                                        f"keep, draw, continuation and resume read it, the milestones do not; the cell draw at levels >= {k} is the "
+                                        f"fewest dispatches (ties: earlier tick, cell id)")})
     return {"contract": ORDER_CONTRACT, "mode": "lab", "utc": g.utc(), "lab_root": str(lab_root), "out": str(out),
             "archive_id": ARCHIVE_ID.format(seed=int(ep.rng_seed)), "key_family": KEY_FAMILY,
             "root": {"level": 0, "mask": osel.ROOT_MASK, "niche": rs.niche_label(rs.seed_niche(osel.ROOT_MASK)), "words": 0,
@@ -670,8 +713,7 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
             "gate": {"milestone": "M1", "level": 6, "line": pace.line(6)},
             "gate_reference": {"milestone": "M1", "level": 6, "slack": M1_REFERENCE_SLACK, "line": ref.line(6),
                                "note": "report-only: the earliest in-night 6th break against line(6) at the decided D-Q1 slack"},
-            "keep_rule": {"selection_contract": osel.SELECT_CONTRACT, "rule": "arrival: L-th break <= line(L) and own tick <= line(L + 1)",
-                          "windows": {str(L): [pace.line(L), pace.window_end(L)] for L in range(osel.TARGETS_TOTAL)}},
+            "keep_rule": keep_rule,
             "continuation": CONT_RULE,
             "params": dp.as_record(), "params_fingerprint": osel.params_fingerprint(dp), "selection_contract": osel.SELECT_CONTRACT,
             "engine_params": ep.as_dict(), "arm": d_arm(ep), "frontier": fb, "claim_threshold": fb["completion_input_tick"],
@@ -698,12 +740,22 @@ def plan_and_write(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.Order
     return plan
 
 
+def archive_bound(dp: osel.OrderParams) -> int:
+    """The bound the archive's own keep rule applies to every state's tick (crossing_search.Archive.keep: a tick past it is BEYOND): line(10)
+    (the arrival rule is stricter at every level, so it never binds); with the open line (owner 2026-11-18: no line on a level >= K state's
+    own tick) the horizon, which no reach passes."""
+    return int(mcell.HORIZON) if dp.open_line_from is not None else osel.pace_line(osel.TARGETS_TOTAL, dp.goal, dp.slack)
+
+
 def engine_plan(plan: Mapping[str, Any], ep: C.Params3) -> Dict[str, Any]:
     """What run 3's engine core reads from a plan, for D: an empty archive (the root is kept at the open), the pace line as the per-level
-    reference (lead = line(L) - tick), the frontier's best as the claim reference, no seed, no inherited run."""
+    reference (lead = line(L) - tick), the frontier's best as the claim reference, no seed, no inherited run. The archive's bound is
+    archive_bound (line(10), or the horizon with the open line)."""
     lines = {int(L): int(t) for L, t in plan["pace"]["lines"].items()}
     fb = plan["frontier"]
     top = lines[osel.TARGETS_TOTAL]
+    if plan["params"].get("open_line_from") is not None:
+        top = int(mcell.HORIZON)
     archive = r2.ResumeArchive(plan["archive_id"], lines, top, ep)
     best = {"n": None, "cid": None, "k": None, "level": None, "start_tick": None, "completion_input_tick": int(fb["completion_input_tick"]),
             "completion_time_passed": fb.get("completion_time_passed"), "chain": fb.get("chain"), "words_digest": fb.get("words_digest"), "breaks": [],
@@ -795,7 +847,7 @@ class OrderEngine(C.Run3Engine):
             arrival = osel.arrival_tick([p[0] for p in pairs], lv) if lv < osel.TARGETS_TOTAL else None
             deep = self._cur is not None and lv >= DEEP_REACH_LEVEL
             if not kw.get("terminal") and lv < osel.TARGETS_TOTAL:
-                why = self.pace.reason(lv, t, int(arrival))
+                why = self.pace.reason_ticks(lv, t, [p[0] for p in pairs])     # v4: with the open line when it is set
                 if why is not None:
                     self.archive.counts[cs.BEYOND] += 1          # the arrival rule: not kept; counted in the rejected-reach readout
                     self.pace.rejected.note(lv, t, why[0], why[1])
@@ -1066,11 +1118,13 @@ class OrderEngine(C.Run3Engine):
     # -- ingest: milestones ------------------------------------------------------------------------------------------------------------------
 
     def emit(self, row: Dict[str, Any]) -> None:
-        """The burst row carries its exploration extent (owner 2026-11-16, report-only); level-6 extents also feed the scoreboard."""
+        """The burst row carries its exploration extent (owner 2026-11-16, report-only; level-6 extents also feed the scoreboard) and its
+        break record (E1, owner 2026-11-18, report-only)."""
         if self._cur is not None and row.get("kind", "burst") == "burst" and row.get("n") == self._cur[0]["n"]:
             res = self._cur[1]
             ext = burst_extent(res.get("reaches") or [], res.get("breaks_all") or [], self.pace)
             row["extent"] = ext
+            row["break_record"] = break_record(res)
             for e in ext.values():
                 if int(e["level"]) == 6:
                     acc = self.sb["extent6"].setdefault(str(e["mask"]), {})
@@ -1118,7 +1172,7 @@ class OrderEngine(C.Run3Engine):
             p = [x for x in allp if int(x[0]) <= tick]
             lv = len(p)
             arr = osel.arrival_tick([x[0] for x in p], lv) if lv < osel.TARGETS_TOTAL else None
-            go = lv < osel.TARGETS_TOTAL and self.pace.keeps(lv, tick, int(arr))
+            go = lv < osel.TARGETS_TOTAL and self.pace.keeps_ticks(lv, tick, [x[0] for x in p])
             self.c["cont_checked"] += 1
             if [int(e[2]), e[3], bool(e[5])] != [lv, arr, go]:
                 self.c["cont_mismatches"] += 1
@@ -1144,7 +1198,7 @@ class OrderEngine(C.Run3Engine):
             return {"go": False, "level": lv, "arrival": None, "tick": t_now}
         ticks = sorted(int(t) for t, _i in tr["pairs"])
         arrival = osel.arrival_tick(ticks, lv)
-        return {"go": self.pace.keeps(lv, t_now, arrival), "level": lv, "arrival": arrival, "tick": t_now}
+        return {"go": self.pace.keeps_ticks(lv, t_now, ticks), "level": lv, "arrival": arrival, "tick": t_now}
 
     def log_milestones(self, info: Mapping[str, Any]) -> None:
         met = self.selector.milestones.met
@@ -1674,6 +1728,9 @@ def scoreboard_md(sc: Optional[Mapping[str, Any]]) -> List[str]:
 def report_md(s: Mapping[str, Any]) -> str:
     o = s.get("order") or {}
     lines = ["# Option D: night report", ""] + _summary_lines(s) + scoreboard_md(o.get("scoreboard"))
+    kr = o.get("keep_rule") or {}
+    if kr.get("open_line_from") is not None:
+        lines += ["", "## Open line (owner 2026-11-18)", "", f"- from level {kr['open_line_from']}: {kr.get('open_rule')}; archive bound {kr.get('archive_bound')}"]
     rz = o.get("resume")
     if rz:
         lines += ["", "## Resume", "", f"- folders {rz.get('folders')}; root equal {rz.get('root_equal')}; plan {json.dumps((rz.get('plan') or {}).get('counts'))}; "
@@ -1695,7 +1752,8 @@ def report_md(s: Mapping[str, Any]) -> str:
 
 def order_params_from_args(a: argparse.Namespace) -> osel.OrderParams:
     lw = tuple(float(x) for x in a.level_weights.split(",")) if a.level_weights else osel.OrderParams.level_weights
-    p = osel.OrderParams(goal=a.goal, slack=a.slack, level_weights=lw, breadth_share=a.breadth_share, retire_after=a.retire_after)
+    p = osel.OrderParams(goal=a.goal, slack=a.slack, level_weights=lw, breadth_share=a.breadth_share, retire_after=a.retire_after,
+                         open_line_from=a.open_line_from)
     p.check()
     return p
 
@@ -1711,6 +1769,7 @@ def run_command(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> 
             + (f" --max-cells {a.max_cells}" if a.max_cells != C.Params3.max_cells else "") + (f" --max-dispatches {a.max_dispatches}" if a.max_dispatches else "")
             + (f" --min-commit-free-mb {a.min_commit_free_mb} --override-reason \"{a.override_reason}\"" if a.min_commit_free_mb is not None else "")
             + (f" --goal {a.goal}" if a.goal != osel.OrderParams.goal else "") + (f" --slack {a.slack}" if a.slack != osel.OrderParams.slack else "")
+            + (f" --open-line-from {a.open_line_from}" if a.open_line_from is not None else "")
             + "".join(f" --resume-from {Path(d).as_posix()}" for d in (a.resume_from or [])))
 
 
@@ -1724,6 +1783,8 @@ def cmd_plan(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int
     print("root:", json.dumps(P["root"]))
     print("pace lines:", json.dumps(P["pace"]["lines"]), "gate:", json.dumps(P["gate"]), "reference:", json.dumps(P["gate_reference"]))
     print("keep windows (line(L), line(L + 1)):", json.dumps(P["keep_rule"]["windows"]))
+    if P["keep_rule"].get("open_line_from") is not None:
+        print("open line (owner 2026-11-18):", P["keep_rule"]["open_rule"], "| archive bound", P["keep_rule"]["archive_bound"])
     if P["resume"]:
         rz = P["resume"]
         print("resume:", json.dumps({"folders": [f["dir"] for f in rz["folders"]], "counts": rz["counts"], "dropped_rule_reasons": rz["dropped_rule_reasons"],
@@ -1802,6 +1863,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--level-weights", default="", help="comma list, deepest level first (default 0.4,0.3,0.2,0.1)")
     ap.add_argument("--breadth-share", type=float, default=osel.OrderParams.breadth_share)
     ap.add_argument("--retire-after", type=int, default=osel.OrderParams.retire_after)
+    ap.add_argument("--open-line-from", type=int, default=None, metavar="K",
+                    help="owner 2026-11-18: open the pace line from level K (1-9): a state with K or more targets broken is also kept and drawable "
+                         "when its K-th break <= line(K), with no line on later breaks or its own tick; the cell draw at levels >= K is the "
+                         "fewest dispatches; default off (order_select_v3's behaviour)")
     ap.add_argument("--max-segments", type=int, default=C.Params3.max_segments)
     ap.add_argument("--check-slots", type=int, default=C.Params3.check_slots)
     ap.add_argument("--summary-every-s", type=float, default=C.Params3.summary_every_s)
