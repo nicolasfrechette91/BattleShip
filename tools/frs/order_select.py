@@ -27,11 +27,19 @@
                     of that set with the lowest budget count (ties: the earliest active cell's tick, then its cell id, gap A); then
                     run 3's cell draw unchanged (anchors, rank draw, staleness: tools/frs/run3_select.Run3Selector, subclassed, not
                     edited) over the order's active cells. No trigger stream (D-Q5). An exploitation draw with no active cell falls
-                    back to a breadth draw, recorded (gap G2). With the open line set to K (owner 2026-11-18), the cell draw inside an
-                    order at a level >= K is the stream "fewest": the order's active cell with the fewest dispatches of the cell (the
+                    back to a breadth draw, recorded (gap G2). With the open line set to K (owner 2026-11-19, order_select_v5;
+                    v4 drew inside the rotation's order), an exploitation draw at a level >= K is the stream "fewest" over the whole
+                    level: the level's active cell, across every target set and order, with the fewest dispatches of the cell (the
                     breadth count: every stream, counted when selected, from zero each night), ties to the earlier tick, then the cell
-                    id; no anchor or rank draw there. Levels below K keep run 3's cell draw.
-    budget counts   exploitation draws only, counted when the dispatch is selected (D-Q3). A unit (set or order) is in the rotation
+                    id; no set or order rotation, no anchor or rank draw there (the draw record says scope "level"). Levels below K keep
+                    the rotation and run 3's cell draw. Breadth draws are unchanged.
+    fall cut        (owner 2026-11-19, order_select_v5; option fall_cut_y = Y, needs the open line's K, default None = off) at levels >= K
+                    a state whose position y is below Y (y < Y) is not kept as a cell and its cell is not eligible (neither exploitation
+                    nor breadth); an inherited cell below Y stays in the archive (it holds its key) but is not drawable. The engine
+                    gives the selector each cell's y (`y_of`); levels below K, the milestones, the continuation and the reach records
+                    are unchanged. Report-only readout: the reaches the cut did not keep, per level (FallCutReaches).
+    budget counts   exploitation draws only, counted when the dispatch is selected (D-Q3); with the open line, not the level-wide
+                    draws at levels >= K (no rotation there). A unit (set or order) is in the rotation
                     while it has an active cell. A unit entering it starts at max(its count, the minimum over its siblings in the
                     rotation) (gap F); with no sibling in the rotation, at max(its count, the highest count any sibling ever had), 0
                     when there never was one (gap G1). The siblings are read before the ingest that brings it in. A unit leaving keeps
@@ -60,14 +68,16 @@ import math
 from collections import Counter, deque
 from dataclasses import asdict, dataclass, field
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 import run3_select as rs
 
-SELECT_CONTRACT = "order_select_v4"                 # v2 (owner 2026-11-16): the arrival rule; v1 kept a state only if its tick <= line(L);
+SELECT_CONTRACT = "order_select_v5"                 # v2 (owner 2026-11-16): the arrival rule; v1 kept a state only if its tick <= line(L);
                                                      # v3 (owner 2026-11-16): a milestone's L-th break must happen in one of the night's bursts
                                                      # v4 (owner 2026-11-18): the open line from level K and the fewest-dispatches cell draw at
                                                      # levels >= K, both behind open_line_from (default None: v3's behaviour exactly)
+                                                     # v5 (owner 2026-11-19): at levels >= K the fewest draw is over the whole level (no set or
+                                                     # order rotation there); the fall cut behind fall_cut_y (default None: off)
 REJECT_REASONS = ("late_arrival", "window_passed")
 TARGETS_TOTAL = 10
 ROOT_MASK = (1 << TARGETS_TOTAL) - 1                 # 1023: nothing broken at tick 0
@@ -102,6 +112,7 @@ class OrderParams:
     novelty_floor: float = 0.05
     cleared_weight: float = 0.1
     open_line_from: Optional[int] = None             # owner 2026-11-18: K, the open line from level K (1 ... 9); None = off (v3 exactly)
+    fall_cut_y: Optional[float] = None               # owner 2026-11-19: Y, the fall cut at levels >= K (needs K); None = off
 
     def check(self) -> None:
         if not _is_int(self.goal) or not _is_int(self.slack):
@@ -126,13 +137,24 @@ class OrderParams:
         k = self.open_line_from
         if k is not None and (not _is_int(k) or not 1 <= k < TARGETS_TOTAL):
             raise OrderParamsError(f"refused: the open line's level K is an integer in [1, {TARGETS_TOTAL - 1}] or off ({k!r})")
+        y = self.fall_cut_y
+        if y is not None:
+            if not isinstance(y, (int, float)) or isinstance(y, bool) or not math.isfinite(y):
+                raise OrderParamsError(f"refused: the fall cut's Y is a finite number or off ({y!r})")
+            if k is None:
+                raise OrderParamsError("refused: the fall cut applies at levels >= K, the open line's level: it needs open_line_from")
 
     def as_record(self) -> Dict[str, Any]:
-        """The parameters as JSON; the open line appears only when set, so with it off the record (and the plan's) is v3's."""
+        """The parameters as JSON; the open line and the fall cut appear only when set, so with them off the record (and the plan's) is
+        v3's."""
         d = asdict(self)
         d["level_weights"] = list(self.level_weights)
         if self.open_line_from is None:
             d.pop("open_line_from")
+        if self.fall_cut_y is None:
+            d.pop("fall_cut_y")
+        else:
+            d["fall_cut_y"] = float(self.fall_cut_y)
         return d
 
 
@@ -171,7 +193,14 @@ class Pace:
         self.p = p
         self.lines = tuple(pace_line(L, p.goal, p.slack) for L in range(TARGETS_TOTAL + 1))
         self.open_from: Optional[int] = None if p.open_line_from is None else int(p.open_line_from)
+        self.cut_y: Optional[float] = None if p.fall_cut_y is None else float(p.fall_cut_y)
         self.rejected = RejectedReaches(self.lines)
+        self.cut = FallCutReaches()
+
+    def below_cut(self, level: int, y: float) -> bool:
+        """The fall cut (owner 2026-11-19): the option is set to Y, the state is at a level >= K (the open line's) and its position y is
+        below Y (y < Y). Off: never."""
+        return self.cut_y is not None and self.open_from is not None and int(level) >= self.open_from and float(y) < self.cut_y
 
     def line(self, level: int) -> int:
         return self.lines[int(level)]
@@ -262,6 +291,43 @@ class RejectedReaches:
 
     def snapshot(self) -> Dict[str, Dict[str, Any]]:
         """The hourly per-level readout; the period is reset."""
+        out = self._rec(self.period)
+        self.period = {}
+        return out
+
+    def summary(self) -> Dict[str, Dict[str, Any]]:
+        return self._rec(self.night)
+
+
+class FallCutReaches:
+    """The fall cut's readout (owner 2026-11-19, report-only): per level, the in-night reaches the cut did not keep (inside the arrival
+    rule, below Y), with the highest such y and its tick, and the earliest tick; for the current period and the whole night. Read by no
+    rule."""
+
+    def __init__(self) -> None:
+        self.night: Dict[int, Dict[str, Any]] = {}
+        self.period: Dict[int, Dict[str, Any]] = {}
+
+    @staticmethod
+    def _note(d: Dict[int, Dict[str, Any]], level: int, tick: int, y: float) -> None:
+        r = d.get(level)
+        if r is None:
+            r = d[level] = {"count": 0, "earliest_tick": tick, "max_y": [y, tick]}
+        r["count"] += 1
+        r["earliest_tick"] = min(r["earliest_tick"], tick)
+        if y > r["max_y"][0]:
+            r["max_y"] = [y, tick]
+
+    def note(self, level: int, tick: int, y: float) -> None:
+        level, tick, y = int(level), int(tick), float(y)
+        self._note(self.night, level, tick, y)
+        self._note(self.period, level, tick, y)
+
+    @staticmethod
+    def _rec(d: Mapping[int, Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        return {str(lv): {k: (list(v) if isinstance(v, list) else v) for k, v in d[lv].items()} for lv in sorted(d, reverse=True)}
+
+    def snapshot(self) -> Dict[str, Dict[str, Any]]:
         out = self._rec(self.period)
         self.period = {}
         return out
@@ -419,13 +485,18 @@ class OrderSelector(rs.Run3Selector):
     ticks, sorted, one per target broken (the root: ()), a mapping the engine keeps current (it sets a kept cell's ticks before the ingest
     that brings the cell in; the selector holds the same object, not a copy). The engine calls `select` with its keyed uniforms,
     `on_dispatch` when the job is sent and `on_ingest` at the in-order ingest, as for run 3; `kept` holds only the cells the arrival rule
-    kept (NEW or REPLACED)."""
+    kept (NEW or REPLACED). With the fall cut (v5) `y_of(cid)` gives the position y of the cell's current representative (its end
+    record); it is required then and never read otherwise."""
 
     def __init__(self, archive: Any, p: OrderParams, *, niches: Mapping[int, Any], breaks: Mapping[int, Sequence[int]],
-                 best_claim: Optional[int] = None, inherited_until: Optional[Mapping[int, int]] = None):
+                 best_claim: Optional[int] = None, inherited_until: Optional[Mapping[int, int]] = None,
+                 y_of: Optional[Callable[[int], float]] = None):
         p.check()
         self.dp = p
         self.pace = Pace(p)
+        if self.pace.cut_y is not None and y_of is None:
+            raise OrderParamsError("refused: the fall cut reads each cell's position y (y_of)")
+        self.y_of = y_of
         self.breaks_of = breaks                            # the engine's mapping (v2): cell id -> sorted break ticks
         self.inherited_until: Mapping[int, int] = inherited_until if inherited_until is not None else {}   # v3: engine's; missing = 0
         self.R = int(p.retire_after)
@@ -452,8 +523,30 @@ class OrderSelector(rs.Run3Selector):
         return arrival_tick(self.breaks_of[int(cid)], int(self.a.cells[int(cid)].level))
 
     def eligible_cid(self, cid: int) -> bool:
-        """Eligible under the arrival rule, with the open line when it is set (v4; off: v3's answer)."""
-        return self.pace.eligible_ticks(self.a.cells[int(cid)], self.breaks_of[int(cid)])
+        """Eligible under the arrival rule, with the open line when it is set (v4; off: v3's answer), and not below the fall cut (v5)."""
+        c = self.a.cells[int(cid)]
+        if not self.pace.eligible_ticks(c, self.breaks_of[int(cid)]):
+            return False
+        return self.pace.cut_y is None or not self.below_cut_cid(int(cid))
+
+    def below_cut_cid(self, cid: int) -> bool:
+        """The cell's representative is below the fall cut (a level >= K, y < Y); False with the cut off."""
+        if self.pace.cut_y is None:
+            return False
+        assert self.y_of is not None
+        return self.pace.below_cut(int(self.a.cells[int(cid)].level), float(self.y_of(int(cid))))
+
+    def cut_undrawable(self) -> Dict[str, int]:
+        """Per level, the cells the fall cut alone makes undrawable (alive, inside the arrival rule with the open line, below Y);
+        report-only. Empty with the cut off."""
+        if self.pace.cut_y is None:
+            return {}
+        out: Counter = Counter()
+        for cid, g in self.group.items():
+            c = self.a.cells[cid]
+            if int(g[0]) >= int(self.pace.open_from or 0) and self.pace.eligible_ticks(c, self.breaks_of[cid]) and self.below_cut_cid(cid):
+                out[str(g[0])] += 1
+        return {k: int(out[k]) for k in sorted(out, key=int, reverse=True)}
 
     def members(self, g: GKey) -> List[int]:
         """The order's ACTIVE cells (eligible under the arrival rule, not retired) in rank order (tick, cell id)."""
@@ -583,18 +676,22 @@ class OrderSelector(rs.Run3Selector):
                 lv = cand
                 break
         sets = lv_sets[lv]
+        if self.pace.open_from is not None and lv >= self.pace.open_from:
+            # owner 2026-11-19 (v5; open line set to K, levels >= K): the level's active cell with the fewest dispatches (the breadth
+            # count: every stream, counted when selected) across every set and order of the level, ties to the earlier tick, then the cell
+            # id; no set or order rotation, no anchor or rank draw (v4 drew inside the rotation's order)
+            pool = [cid for s_ in sets for g_ in self.rot_by_set[s_] for cid in self.members(g_)]
+            cid = min(pool, key=lambda x: (self.bcount.get(x, 0), self.tick_of[x], x))
+            g = self.group[cid]
+            mem = self.members(g)
+            draw = {"stream": "fewest", "scope": "level", "level": lv, "p_level": round(lw[lv] / total, 5), "set": slabel(set_of(g)), "sets": len(sets),
+                    "group": rs.glabel(g), "orders": sum(len(self.rot_by_set[s_]) for s_ in sets), "level_active": len(pool),
+                    "group_eligible": len(mem), "rank": mem.index(cid), "count": int(self.bcount.get(cid, 0)), "fallback": False}
+            return self.a.cells[cid], draw
         s = min(sets, key=lambda x: (self.set_count[x],) + self._set_first(x))
         orders = self.rot_by_set[s]
         g = min(orders, key=lambda x: (self.order_count[x],) + self._first(x))
         mem = self.members(g)
-        if self.pace.open_from is not None and lv >= self.pace.open_from:
-            # owner 2026-11-18 (open line set to K, levels >= K): the order's active cell with the fewest dispatches (the breadth count:
-            # every stream, counted when selected), ties to the earlier tick, then the cell id; no anchor or rank draw
-            cid = min(mem, key=lambda x: (self.bcount.get(x, 0), self.tick_of[x], x))
-            draw = {"stream": "fewest", "level": lv, "p_level": round(lw[lv] / total, 5), "set": slabel(s), "set_count": int(self.set_count[s]),
-                    "sets": len(sets), "group": rs.glabel(g), "order_count": int(self.order_count[g]), "orders": len(orders),
-                    "group_eligible": len(mem), "rank": mem.index(cid), "count": int(self.bcount.get(cid, 0)), "fallback": False}
-            return self.a.cells[cid], draw
         # run 3's cell draw inside a group, unchanged (run3_select.Run3Selector._exploit after its group draw)
         p = self.p
         anc = self.anchors.get(g, [])
@@ -654,8 +751,13 @@ class OrderSelector(rs.Run3Selector):
             g = info["group"]
             if not self.in_rotation(g):
                 raise RuntimeError(f"an exploitation draw from order {rs.glabel(g)}, which is not in the rotation")
-            self.order_count[g] += 1
-            self.set_count[set_of(g)] += 1
+            if draw.get("scope") == "level":               # v5: a level-wide draw at a level >= K: no set or order rotation there
+                if self.pace.open_from is None or int(g[0]) < self.pace.open_from:
+                    raise RuntimeError(f"a level-wide draw at level {g[0]} without the open line from that level")
+                self.dstat["level_draws"] += 1
+            else:
+                self.order_count[g] += 1
+                self.set_count[set_of(g)] += 1
         return info
 
     def on_ingest(self, info: Mapping[str, Any], row: Mapping[str, Any], kept: Sequence[Tuple[str, Any, Any]],
