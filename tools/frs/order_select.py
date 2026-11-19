@@ -9,6 +9,11 @@
                     therefore the clear line line(10). The line applies to the arrival at a level, and the state may then stay until the
                     next level's line. Keeping, drawing and the milestones use this one rule. (order_select_v1 applied t <= line(L) to
                     every state.)
+    open line       (owner 2026-11-18, order_select_v4; option open_line_from = K, default None = off = v3 exactly) a state that has
+                    broken K or more targets is also kept, and its cell eligible, when its K-th break came at or before line(K): no line
+                    then applies to its later breaks or to its own tick. A state the arrival rule above keeps stays kept (the option only
+                    opens). Keeping, drawing, the burst continuation and the resume read the rule with the option; the milestones do not
+                    (M2 ... M4 still need the L-th break at or before line(L)).
     rejected        (owner 2026-11-12, section 7.2; v2 2026-11-16) per level, the count of reaches the rule rejected and the earliest
                     rejected tick with its distance over the limit it failed, split by reason: a late arrival (a > line(L)) or a passed
                     window (t > line(L + 1)): report-only, read by no rule.
@@ -22,7 +27,10 @@
                     of that set with the lowest budget count (ties: the earliest active cell's tick, then its cell id, gap A); then
                     run 3's cell draw unchanged (anchors, rank draw, staleness: tools/frs/run3_select.Run3Selector, subclassed, not
                     edited) over the order's active cells. No trigger stream (D-Q5). An exploitation draw with no active cell falls
-                    back to a breadth draw, recorded (gap G2).
+                    back to a breadth draw, recorded (gap G2). With the open line set to K (owner 2026-11-18), the cell draw inside an
+                    order at a level >= K is the stream "fewest": the order's active cell with the fewest dispatches of the cell (the
+                    breadth count: every stream, counted when selected, from zero each night), ties to the earlier tick, then the cell
+                    id; no anchor or rank draw there. Levels below K keep run 3's cell draw.
     budget counts   exploitation draws only, counted when the dispatch is selected (D-Q3). A unit (set or order) is in the rotation
                     while it has an active cell. A unit entering it starts at max(its count, the minimum over its siblings in the
                     rotation) (gap F); with no sibling in the rotation, at max(its count, the highest count any sibling ever had), 0
@@ -56,13 +64,15 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, 
 
 import run3_select as rs
 
-SELECT_CONTRACT = "order_select_v3"                 # v2 (owner 2026-11-16): the arrival rule; v1 kept a state only if its tick <= line(L);
+SELECT_CONTRACT = "order_select_v4"                 # v2 (owner 2026-11-16): the arrival rule; v1 kept a state only if its tick <= line(L);
                                                      # v3 (owner 2026-11-16): a milestone's L-th break must happen in one of the night's bursts
+                                                     # v4 (owner 2026-11-18): the open line from level K and the fewest-dispatches cell draw at
+                                                     # levels >= K, both behind open_line_from (default None: v3's behaviour exactly)
 REJECT_REASONS = ("late_arrival", "window_passed")
 TARGETS_TOTAL = 10
 ROOT_MASK = (1 << TARGETS_TOTAL) - 1                 # 1023: nothing broken at tick 0
-STREAMS = ("rank", "anchor", "breadth")              # D-Q5: no trigger stream
-EXPLOIT_STREAMS = ("rank", "anchor")
+STREAMS = ("rank", "anchor", "breadth", "fewest")    # D-Q5: no trigger stream; "fewest" only with the open line (levels >= K)
+EXPLOIT_STREAMS = ("rank", "anchor", "fewest")
 MILESTONES: Tuple[Tuple[str, int], ...] = (("M1", 6), ("M2", 7), ("M3", 8), ("M4", 9))
 CLEAR_LINE = "clear_line"
 SKey = Tuple[int, int]                               # a target set: (level, live mask)
@@ -91,6 +101,7 @@ class OrderParams:
     rank_exp: float = 1.0                            # run 3's rank draw (DECISIVE 1), unchanged
     novelty_floor: float = 0.05
     cleared_weight: float = 0.1
+    open_line_from: Optional[int] = None             # owner 2026-11-18: K, the open line from level K (1 ... 9); None = off (v3 exactly)
 
     def check(self) -> None:
         if not _is_int(self.goal) or not _is_int(self.slack):
@@ -112,10 +123,16 @@ class OrderParams:
             raise OrderParamsError("refused: anchor_k >= 0, anchor_share and anchor_w_floor in (0, 1]")
         if self.rank_exp < 0 or not 0.0 <= self.novelty_floor <= 1.0 or not 0.0 < self.cleared_weight <= 1.0:
             raise OrderParamsError("refused: a cell-draw parameter is out of range")
+        k = self.open_line_from
+        if k is not None and (not _is_int(k) or not 1 <= k < TARGETS_TOTAL):
+            raise OrderParamsError(f"refused: the open line's level K is an integer in [1, {TARGETS_TOTAL - 1}] or off ({k!r})")
 
     def as_record(self) -> Dict[str, Any]:
+        """The parameters as JSON; the open line appears only when set, so with it off the record (and the plan's) is v3's."""
         d = asdict(self)
         d["level_weights"] = list(self.level_weights)
+        if self.open_line_from is None:
+            d.pop("open_line_from")
         return d
 
 
@@ -144,12 +161,16 @@ def arrival_tick(break_ticks: Sequence[int], level: int) -> int:
 
 
 class Pace:
-    """The arrival rule for one parameter set: the keep / eligible test, and the rejected-reach readout (report-only)."""
+    """The arrival rule for one parameter set: the keep / eligible test, and the rejected-reach readout (report-only). `reason`, `keeps`
+    and `eligible` take the L-th break's tick and answer the v3 arrival rule; `reason_ticks`, `keeps_ticks` and `eligible_ticks` take all
+    the state's break ticks and answer the rule with the open line (the same answers when it is off). D's engine and selector use the
+    latter."""
 
     def __init__(self, p: OrderParams):
         p.check()
         self.p = p
         self.lines = tuple(pace_line(L, p.goal, p.slack) for L in range(TARGETS_TOTAL + 1))
+        self.open_from: Optional[int] = None if p.open_line_from is None else int(p.open_line_from)
         self.rejected = RejectedReaches(self.lines)
 
     def line(self, level: int) -> int:
@@ -181,6 +202,27 @@ class Pace:
         """A cell (run 3's Cell or any object with level, tick, alive()) whose level-th break came at `arrival` is eligible: alive, not
         cleared, inside the arrival rule."""
         return bool(c.alive()) and int(c.level) < TARGETS_TOTAL and self.keeps(c.level, c.tick, arrival)
+
+    def opened(self, level: int, break_ticks: Sequence[int]) -> bool:
+        """The open line (owner 2026-11-18): the option is set to K, the state has broken K or more targets and its K-th break came at or
+        before line(K). `break_ticks`: the state's break ticks, sorted, one per target broken."""
+        k = self.open_from
+        return k is not None and int(level) >= k and int(break_ticks[k - 1]) <= self.lines[k]
+
+    def reason_ticks(self, level: int, tick: int, break_ticks: Sequence[int]) -> Optional[Tuple[str, int]]:
+        """`reason` with the open line: None when the v3 rule keeps the state or the open line does; otherwise the v3 rule's reason and
+        distance. `break_ticks`: sorted, one per target broken (the level-th is the arrival)."""
+        bt = [int(t) for t in break_ticks]
+        why = self.reason(level, tick, arrival_tick(bt, int(level)))
+        if why is not None and self.opened(level, bt):
+            return None
+        return why
+
+    def keeps_ticks(self, level: int, tick: int, break_ticks: Sequence[int]) -> bool:
+        return int(level) < TARGETS_TOTAL and self.reason_ticks(level, tick, break_ticks) is None
+
+    def eligible_ticks(self, c: Any, break_ticks: Sequence[int]) -> bool:
+        return bool(c.alive()) and int(c.level) < TARGETS_TOTAL and self.keeps_ticks(c.level, c.tick, break_ticks)
 
 
 class RejectedReaches:
@@ -410,7 +452,8 @@ class OrderSelector(rs.Run3Selector):
         return arrival_tick(self.breaks_of[int(cid)], int(self.a.cells[int(cid)].level))
 
     def eligible_cid(self, cid: int) -> bool:
-        return self.pace.eligible(self.a.cells[int(cid)], self.arrival(cid))
+        """Eligible under the arrival rule, with the open line when it is set (v4; off: v3's answer)."""
+        return self.pace.eligible_ticks(self.a.cells[int(cid)], self.breaks_of[int(cid)])
 
     def members(self, g: GKey) -> List[int]:
         """The order's ACTIVE cells (eligible under the arrival rule, not retired) in rank order (tick, cell id)."""
@@ -543,9 +586,17 @@ class OrderSelector(rs.Run3Selector):
         s = min(sets, key=lambda x: (self.set_count[x],) + self._set_first(x))
         orders = self.rot_by_set[s]
         g = min(orders, key=lambda x: (self.order_count[x],) + self._first(x))
+        mem = self.members(g)
+        if self.pace.open_from is not None and lv >= self.pace.open_from:
+            # owner 2026-11-18 (open line set to K, levels >= K): the order's active cell with the fewest dispatches (the breadth count:
+            # every stream, counted when selected), ties to the earlier tick, then the cell id; no anchor or rank draw
+            cid = min(mem, key=lambda x: (self.bcount.get(x, 0), self.tick_of[x], x))
+            draw = {"stream": "fewest", "level": lv, "p_level": round(lw[lv] / total, 5), "set": slabel(s), "set_count": int(self.set_count[s]),
+                    "sets": len(sets), "group": rs.glabel(g), "order_count": int(self.order_count[g]), "orders": len(orders),
+                    "group_eligible": len(mem), "rank": mem.index(cid), "count": int(self.bcount.get(cid, 0)), "fallback": False}
+            return self.a.cells[cid], draw
         # run 3's cell draw inside a group, unchanged (run3_select.Run3Selector._exploit after its group draw)
         p = self.p
-        mem = self.members(g)
         anc = self.anchors.get(g, [])
         wmax = max((self.anc[cid]["w"] for cid in anc), default=0.0)
         u3 = rng.random()

@@ -1066,6 +1066,184 @@ def unit_resume_lineage() -> Dict[str, Any]:
     return {"b": [rs.niche_label(nb), list(pb)], "c": [rs.niche_label(nc), list(pc)]}
 
 
+# -- the open line from level K and the fewest-dispatches draw (owner 2026-11-18, order_select_v4) ---------------------------------------------
+
+
+def _v3_or_open(pace: osel.Pace, lv: int, tick: int, bt: Sequence[int], k: Optional[int]) -> bool:
+    """The rule by hand: v3 (L-th break <= line(L), tick <= line(L + 1)) or, at a level >= K, the K-th break <= line(K)."""
+    a = bt[lv - 1] if lv else 0
+    v3 = a <= pace.line(lv) and tick <= pace.line(min(lv + 1, 10))
+    return lv < 10 and (v3 or (k is not None and lv >= k and bt[k - 1] <= pace.line(k)))
+
+
+def unit_open_line_rule() -> Dict[str, Any]:
+    """K = 7 at goal 480, slack 200 (line(7) = 536, line(8) = 584): a level-7 state past line(8) is kept when its 7th break came by 536 and
+    not when it came after; levels >= 8 need only the 7th break by 536; a state v3 keeps stays kept; levels below 7 and the option off give
+    v3's answers everywhere."""
+    off = osel.Pace(osel.OrderParams(slack=200))
+    on = osel.Pace(osel.OrderParams(slack=200, open_line_from=7))
+    check((on.line(7), on.line(8), on.line(10)) == (536, 584, 680) and on.open_from == 7 and off.open_from is None, f"lines {on.lines}")
+    b7 = [10, 50, 100, 200, 300, 400, 536]
+    check(on.keeps_ticks(7, 585, b7) and on.keeps_ticks(7, 3600, b7) and not off.keeps_ticks(7, 585, b7), "a level-7 state past line(8) is kept with K = 7 only")
+    late = b7[:6] + [537]
+    check(not on.keeps_ticks(7, 560, late) and on.reason_ticks(7, 560, late) == ("late_arrival", 1) and not on.keeps_ticks(7, 900, late),
+          "a level-7 state whose 7th break came after line(7) is not kept (v3's reason and distance)")
+    check(on.keeps_ticks(8, 1500, b7 + [1400]) and on.keeps_ticks(9, 3000, b7 + [900, 2900]) and not off.keeps_ticks(8, 1500, b7 + [1400]),
+          "levels 8 and 9: no line on the later breaks or the own tick")
+    check(on.keeps_ticks(8, 600, late + [560]) and not on.keeps_ticks(8, 600, late + [590]) and on.reason_ticks(8, 600, late + [590]) == ("late_arrival", 6),
+          "a level-8 state with a late 7th break: kept exactly when v3 keeps it (the option only opens)")
+    check(not on.keeps_ticks(10, 700, b7 + [600, 650, 690]), "a clear is never a kept state")
+    grid = 0
+    for lv in range(10):
+        for tick in (0, 100, 300, 400, 488, 489, 536, 537, 584, 585, 632, 680, 681, 900, 3600):
+            for a in (0, 50, 200, 400, 488, 489, 536, 537, 584, 585, 700):
+                if (lv == 0 and a) or a > tick:
+                    continue
+                bt = sorted([min(a, 5 + j) for j in range(lv - 1)] + ([a] if lv else []))
+                want_on = _v3_or_open(on, lv, tick, bt, 7)
+                check(on.keeps_ticks(lv, tick, bt) == want_on and off.keeps_ticks(lv, tick, bt) == _v3_or_open(off, lv, tick, bt, None)
+                      == off.keeps(lv, tick, a), f"level {lv} tick {tick} breaks {bt}")
+                if lv < 7:
+                    check(on.reason_ticks(lv, tick, bt) == off.reason(lv, tick, a), f"level {lv} unaffected by K = 7")
+                grid += 1
+    c = SimpleCell(7, 700, True)
+    check(on.eligible_ticks(c, b7) and not off.eligible_ticks(c, b7) and not on.eligible_ticks(SimpleCell(7, 700, False), b7), "eligible_ticks: alive and inside")
+    return {"lines": list(on.lines), "grid": grid}
+
+
+@dataclass
+class SimpleCell:
+    level: int
+    tick: int
+    live: bool
+
+    def alive(self) -> bool:
+        return self.live
+
+
+def unit_open_line_params() -> Dict[str, Any]:
+    """The option: K in 1 ... 9 or off (None); off keeps the parameter record v3's (no key), on adds it and changes the fingerprint."""
+    for bad in (0, 10, -1, 7.0, True, "7"):
+        check(_refused(osel.OrderParams(open_line_from=bad).check), f"refused: K = {bad!r}")
+    for ok in (1, 7, 9, None):
+        osel.OrderParams(open_line_from=ok).check()
+    off, on = osel.OrderParams(), osel.OrderParams(open_line_from=7)
+    check("open_line_from" not in off.as_record() and on.as_record()["open_line_from"] == 7, "the record carries K only when set")
+    check(osel.params_fingerprint(on) != osel.params_fingerprint(off) != osel.params_fingerprint(osel.OrderParams(open_line_from=6)),
+          "K changes the fingerprint")
+    check(osel.SELECT_CONTRACT == "order_select_v4" and "fewest" in osel.STREAMS and "fewest" in osel.EXPLOIT_STREAMS, "contract v4, stream fewest")
+    return {"fingerprint_off": osel.params_fingerprint(off)[:16], "fingerprint_k7": osel.params_fingerprint(on)[:16]}
+
+
+def _lv7_static(k: Optional[int]) -> Tuple[Static, osel.OrderSelector, List[FCell]]:
+    """Level-7 cells of one order past line(8) = 504 (default slack 120), 7th break at line(7) = 456; one with a late 7th break (460); one
+    level-8 cell (7th at 456, 8th at 900)."""
+    s = Static(root=False)
+    order = (0, 1, 2, 3, 4, 5, 9)
+    cells = [s.add(order, t) for t in (600, 520, 700, 650)]
+    for c in cells:
+        s.breaks[c.cid] = (10, 20, 30, 40, 50, 60, 456)
+    late = s.add(order, 470)
+    s.breaks[late.cid] = (10, 20, 30, 40, 50, 60, 460)
+    deep = s.add(order + (6,), 950)
+    s.breaks[deep.cid] = (10, 20, 30, 40, 50, 60, 456, 900)
+    return s, s.selector(open_line_from=k), cells + [late, deep]
+
+
+def unit_open_line_draw() -> Dict[str, Any]:
+    """Draws at levels >= K follow the fewest dispatches of the cell (breadth included, counted when selected), ties to the earlier tick;
+    no anchor or rank draw there; the budget counts the draw; levels below K draw as before (same cells, same records, same uniforms)."""
+    s, sel, cells = _lv7_static(7)
+    a600, b520, c700, d650, late, deep = cells
+    _s0, sel_off, _c0 = _lv7_static(None)
+    check(sel_off.select(ScriptRng([0.5, 0.0, 0.0, 0.0])) is None, "option off: none of these cells is eligible (all past line(8) or late)")
+    check(sel.is_active(a600.cid) and not sel.is_active(late.cid) and sel.is_active(deep.cid), "K = 7: eligible by the open line; the late one is not")
+    picks = []
+    for n in range(6):                                   # level 8 is the deepest: force the level draw to level 7 (r below its share)
+        c, draw = sel.select(ScriptRng([0.5, 0.0]))
+        check(draw["stream"] == "fewest" and draw["level"] == 7 and "anchor_p" not in draw, f"draw {n}: {draw}")
+        exp = min(sel.members(sel.group[c.cid]), key=lambda x: (sel.bcount.get(x, 0), sel.tick_of[x], x))
+        check(c.cid == exp and draw["count"] == sel.bcount.get(c.cid, 0) and draw["rank"] == sel.members(sel.group[c.cid]).index(c.cid),
+              f"draw {n}: the fewest-dispatch cell, then the earliest tick ({c.cid} vs {exp})")
+        info = dict(sel.on_dispatch(c, draw, n))
+        info.update(cid=int(c.cid), level=int(c.level))
+        take(sel, info, n=n)
+        picks.append(int(c.tick))
+    check(picks == [520, 600, 650, 700, 520, 600], f"each cell once in tick order, then again: {picks}")
+    check(sel.set_count[(7, a600.key[3])] == 6 and sum(sel.order_count.values()) >= 6, "the budget counts the fewest draws")
+    info = send(sel, d650, 6, stream="breadth")          # a breadth dispatch counts for the cell too
+    take(sel, info, n=6)
+    c, draw = sel.select(ScriptRng([0.5, 0.0]))
+    check(c.tick == 700 and draw["count"] == 1, f"after a breadth dispatch of 650, 700 has the fewest: {c.tick} {draw}")
+    c8, d8 = sel.select(ScriptRng([0.5, 0.99]))
+    check(c8.cid == deep.cid and d8["stream"] == "fewest" and d8["level"] == 8, f"level 8 (>= K) draws by fewest too: {d8}")
+    # levels below K: the same draws with and without the option
+    spec = [((0, 1, 2), 100 + 3 * i) for i in range(8)] + [((0, 1, 2, 3, 4, 5), 300 + 5 * i) for i in range(6)] + [((4, 5, 6, 7, 8), 250 + 7 * i) for i in range(5)]
+    t_on, t_off = Static(spec), Static(spec)
+    s_on, s_off = t_on.selector(open_line_from=7), t_off.selector()
+    r_on, r_off = random.Random(5), random.Random(5)
+    streams: Counter = Counter()
+    for n in range(400):
+        p_on, p_off = s_on.select(r_on), s_off.select(r_off)
+        check(p_on[0].cid == p_off[0].cid and p_on[1] == p_off[1], f"draw {n} below K: {p_on[1]} vs {p_off[1]}")
+        for sel_, p in ((s_on, p_on), (s_off, p_off)):
+            info = dict(sel_.on_dispatch(p[0], p[1], n))
+            info.update(cid=int(p[0].cid), level=int(p[0].level))
+            take(sel_, info, n=n)
+        streams[p_on[1]["stream"]] += 1
+    check(streams["anchor"] and streams["rank"] and not streams["fewest"], f"run 3's draw below K: {dict(streams)}")
+    return {"picks": picks, "below_k_streams": dict(streams)}
+
+
+def unit_open_line_plan() -> Dict[str, Any]:
+    """The plan and the archive bound: off, the keep rule record is v3's (no open key) and the archive bound line(10); with K, the record
+    states the open rule and the archive's bound is the horizon (crossing_search.Archive.keep never cuts a level >= K state's tick)."""
+    lab = tmpdir("order_open_plan_")
+    try:
+        fr_dir = write_fake_frontier(lab, 3000)
+        out = {}
+        for name, kw in (("off", {"slack": 200}), ("k7", {"slack": 200, "open_line_from": 7})):
+            dp = osel.OrderParams(**kw)
+            ep = O.engine_params(dp, rng_seed=3)
+            P = O.build_plan(lab, fr_dir, lab / f"order_{name}", dp, ep, code="test")
+            E = O.engine_plan(P, ep)
+            out[name] = (P, E)
+        P0, E0 = out["off"]
+        P7, E7 = out["k7"]
+        check(set(P0["keep_rule"]) == {"selection_contract", "rule", "windows"} and "open_line_from" not in P0["params"], f"off: v3's records {P0['keep_rule'].keys()}")
+        check(E0["archive"].bound == E0["bound"] == 680 == O.archive_bound(osel.OrderParams(slack=200)), f"off: the archive bound is line(10) = 680: {E0['bound']}")
+        kr = P7["keep_rule"]
+        check(kr["open_line_from"] == 7 and kr["open_line"] == 536 and kr["archive_bound"] == O.mcell.HORIZON == 3600 and P7["params"]["open_line_from"] == 7,
+              f"K = 7: the plan states the open rule: {kr}")
+        check(E7["archive"].bound == E7["bound"] == 3600 and E7["plan"]["e7"]["bound_max_L"] == 3600, "K = 7: the archive's bound is the horizon")
+        check(P7["pace"] == P0["pace"] and P7["milestones"] == P0["milestones"] and kr["windows"] == P0["keep_rule"]["windows"], "lines, milestones and windows unchanged")
+        return {"off_bound": E0["bound"], "k7": {k: kr[k] for k in ("open_line_from", "open_line", "archive_bound")}}
+    finally:
+        cleanup(lab)
+
+
+def unit_break_record() -> Dict[str, Any]:
+    """E1: one entry per credited break (after the start tick), in break order, with the level it gave, Mario's position and the reach's
+    fields at the break tick; None without a reach; prefix breaks are not credited; the job result is not changed."""
+    import copy
+    obs = lambda x, y, t: tuple([1, 99, t, t, 2, 1, 7, 1, float(x), float(y), 1.5, -2.0, 0.0, 1, 1, 18, 1])  # noqa: E731
+    res = {"L": 100, "breaks_all": [(50, 3), (130, 5), (120, 1), (130, 2), (140, 9)],
+           "reaches": [(110, (1, 2, "A1", 1000, -1), obs(10, 20, 110), b"\x01" * 32, b"\x02" * 32, False),
+                       (120, (3, 4, "A1", 998, -1), obs(-300, 400, 120), b"\x03" * 32, b"\x04" * 32, False),
+                       (130, (5, 6, "G", 974, 4), obs(-1650, 1200, 130), b"\x05" * 32, b"\x06" * 32, False)]}
+    before = copy.deepcopy(res)
+    br = O.break_record(res)
+    check([(e["tick"], e["target"], e["level"]) for e in br] == [(120, 1, 2), (130, 2, 3), (130, 5, 4), (140, 9, 5)],
+          f"credited breaks only, in break order, with the level: {[(e['tick'], e['target'], e['level']) for e in br]}")
+    check(br[0]["x"] == -300.0 and br[0]["y"] == 400.0 and br[0]["obs"]["position_x"] == -300.0 and br[0]["key"] == [3, 4, "A1", 998, -1]
+          and br[0]["record_digest"] == "03" * 32 and br[0]["chain"] == "04" * 32 and br[0]["terminal"] is False and len(br[0]["obs"]) == 17,
+          f"the reach's fields at the break tick: {br[0]}")
+    check(br[1]["x"] == br[2]["x"] == -1650.0 and br[1]["key"][4] == 4, "a same-tick pair shares the tick's reach")
+    check(br[3] == {"tick": 140, "target": 9, "level": 5, "reach": None}, f"no reach at the break tick: {br[3]}")
+    check(res == before and O.break_record({"L": 200, "breaks_all": res["breaks_all"], "reaches": res["reaches"]}) == [], "the result is unchanged; nothing after 200")
+    return {"entries": len(br)}
+
+
 # -- fake-game end to end (run 3's fake game; zero native ticks) -----------------------------------------------------------------------------
 
 E_FLAGS = {"SSB64_RL_NO_RENDER": "1", "SSB64_RAPHNET_DISABLE": "1", "SSB64_RL_SPATIAL": "1", "FAKEGAME_WORLD": "easy", "FAKEGAME_BOOT_S": "0.1",
@@ -1552,6 +1730,69 @@ def e2e_e10_extent() -> Dict[str, Any]:
                                                                      for m in sorted(sc)[:3]}}
 
 
+def _rows_rule(pace: osel.Pace, k: Optional[int], lv: int, tick: int, pairs: Sequence[Sequence[int]]) -> bool:
+    return _v3_or_open(pace, lv, tick, sorted(int(t) for t, _i in pairs), k)
+
+
+def e2e_e11_open_line() -> Dict[str, Any]:
+    """The open line, K = 7, goal 480, slack 200 (owner 2026-11-18), on the fake game: every kept cell is inside v3's rule or (level >= 7)
+    has its 7th break by line(7) = 536; some level-7+ cells are kept past line(8) = 584 and dispatched; levels below 7 are inside v3's rule;
+    exploitation at levels >= 7 is the fewest stream only, below 7 run 3's; every boundary answer follows the rule (0 mismatches); every
+    burst row's break record lists its credited breaks with the reach's position; the milestones keep their lines."""
+    b = dbench()
+    K = 7
+    # its own port base: DBench adds 1,000 per night from 52,000, and in the whole suite this is the 13th night (65,000 + workers > 65,535)
+    A = b.run("open7", order={"slack": 200, "open_line_from": K}, engine=dict(E_ENGINE, max_dispatches=240, rng_seed=11), port_base=46000)
+    s, o = A["summary"], A["summary"]["order"]
+    check(A["code"] == 0 and s["status"] == "DISPATCH_CAP" and not A["violations"] and s["work"]["mismatches"] == 0, f"a clean night: {s['status']} {s['stop']}")
+    pace = osel.Pace(osel.OrderParams(slack=200, open_line_from=K))
+    kr = o["keep_rule"]
+    check(kr["open_line_from"] == K and kr["archive_bound"] == 3600 and A["config"]["order_params"]["open_line_from"] == K, f"the open rule is recorded: {kr}")
+    kept = [c for c in A["cells"] if c["ev"] in ("new", "replaced") and (c.get("origin") or {}).get("kind") == "burst"]
+    check(all(_rows_rule(pace, K, int(c["level"]), int(c["tick"]), c["origin"]["d_breaks"]) for c in kept), "every kept cell: v3's rule, or level >= 7 with the 7th break by 536")
+    check(all(_rows_rule(pace, None, int(c["level"]), int(c["tick"]), c["origin"]["d_breaks"]) for c in kept if int(c["level"]) < K), "levels below 7: v3's rule")
+    past = [c for c in kept if int(c["level"]) >= K and int(c["tick"]) > pace.window_end(int(c["level"]))]
+    check(past and max(int(c["tick"]) for c in past) > pace.line(10), f"level-7+ cells kept past v3's window, some past line(10) = 680: {len(past)}")
+    by_cid = {int(c["cid"]) for c in past}
+    rows = _bursts(A)
+    from_past = [x for x in rows if int(x["cid"]) in by_cid and int(x["start_tick"]) > pace.window_end(int(x["level"]))]
+    check(from_past, f"cells past v3's window are dispatched: {len(from_past)}")
+    ex = [x for x in rows if x.get("stream") in ("rank", "anchor", "fewest")]
+    check(all((x["stream"] == "fewest") == (int(x["draw"]["level"]) >= K) for x in ex) and any(x["stream"] == "fewest" for x in ex),
+          f"exploitation: fewest at levels >= 7 only: {Counter((x['stream'], int(x['draw']['level']) >= K) for x in ex)}")
+    seen: Counter = Counter()
+    for x in rows:                                       # the fewest draw's count is the cell's earlier dispatches (any stream)
+        if x.get("stream") == "fewest":
+            check(int(x["draw"]["count"]) == seen[int(x["cid"])], f"dispatch {x['n']}: count {x['draw']['count']} vs {seen[int(x['cid'])]} earlier")
+        seen[int(x["cid"])] += 1
+    check(o["continuation"]["checked"] > 0 and o["continuation"]["mismatches"] == 0, f"boundary answers: {o['continuation']}")
+    d_of = {c["digest"]: c["origin"].get("d_breaks") or [] for c in A["cells"] if c["ev"] in ("new", "replaced")}
+    longer = answers = 0
+    for x in rows:
+        allp = sorted([tuple(p) for p in (x.get("breaks_after_start") or [])])
+        pre = d_of[str(x["draw_id"]).rsplit("|", 1)[1]]  # the dispatched representative's break pairs (draw id = archive|family|digest)
+        for e in x.get("cont") or []:
+            if e[2] is None:
+                continue
+            p = [q for q in list(pre) + allp if int(q[0]) <= int(e[4])]
+            check(len(p) == int(e[2]) and int(e[5]) == int(_rows_rule(pace, K, len(p), int(e[4]), p)), f"dispatch {x['n']} boundary {e}: the open rule by hand")
+            answers += 1
+        longer += int(int(x["level"]) >= K and int(x["words_played"]) > 120)
+        br = x["break_record"]
+        check([(e["tick"], e["target"]) for e in br] == [(int(t), int(i)) for t, i in allp], f"dispatch {x['n']}: one break-record entry per credited break")
+        check(all(e.get("reach", 1) is None or (e["x"] == e["obs"]["position_x"] and e["y"] == e["obs"]["position_y"] and len(e["obs"]) == 17) for e in br),
+              f"dispatch {x['n']}: positions on the break record")
+        check(all(e["level"] == int(x["prefix_breaks"]) + j + 1 for j, e in enumerate(br)), f"dispatch {x['n']}: the levels count from tick 0")
+    check(longer > 0, f"bursts from levels >= 7 run past one segment: {longer}")
+    for m in o["milestones"]:
+        if m["milestone"] != "clear_line":
+            check(int(m["tick"]) <= int(m["line"]), f"milestone {m['milestone']} keeps its line: {m}")
+    nbr = sum(len(x["break_record"]) for x in rows)
+    return {"kept_past_window": len(past), "max_tick_past": max(int(c["tick"]) for c in past), "dispatched_past": len(from_past), "longer_7plus": longer, "answers": answers,
+            "streams": dict(Counter(x.get("stream") for x in rows)), "break_record_entries": nbr,
+            "levels": dict(Counter(int(c["level"]) for c in kept)), "milestones": [(m["milestone"], m["tick"]) for m in o["milestones"]]}
+
+
 def e2e_u11_isolation() -> Dict[str, Any]:
     """U11: run 3 refuses a D folder; D refuses a D folder as its frontier, another tool's plan in its folder, and any inheritance flag;
     D writes only under its own folder through the guard."""
@@ -1649,11 +1890,12 @@ def real_frontier_best() -> Dict[str, Any]:
 UNIT = {f.__name__: f for f in (unit_u1_pace_line, unit_u2_rejected_readout, unit_u2_group_move, unit_u3_root_and_niches, unit_u4_set_then_order,
                                 unit_u4_ties, unit_u4_cell_draw_is_run3s, unit_u5_newcomers, unit_u6_level_weights, unit_u7_retirement,
                                 unit_u7_stale_clear_fallback, unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_root_differences,
-                                unit_u14_tree_sampler, unit_cont_window_rule, unit_burst_extent, unit_resume_lineage, unit_tm1_run3_digest)}
+                                unit_u14_tree_sampler, unit_cont_window_rule, unit_burst_extent, unit_resume_lineage, unit_tm1_run3_digest,
+                                unit_open_line_rule, unit_open_line_params, unit_open_line_draw, unit_open_line_plan, unit_break_record)}
 
 E2E = {f.__name__: f for f in (e2e_e1_same_seed, e2e_e2_root, e2e_e3_pace_budget, e2e_e4_milestone, e2e_e5_caps_stops, e2e_e6_exports,
                                e2e_e7_resume, e2e_e8_long_bursts, e2e_e9_scoreboard, e2e_e10_extent, e2e_u11_isolation, e2e_u13_no_human_input,
-                               e2e_tm2_code_digest)}
+                               e2e_tm2_code_digest, e2e_e11_open_line)}
 REAL = {f.__name__: f for f in (real_frontier_best,)}
 
 if __name__ == "__main__":
