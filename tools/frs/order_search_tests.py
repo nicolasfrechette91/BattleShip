@@ -1132,7 +1132,7 @@ def unit_open_line_params() -> Dict[str, Any]:
     check("open_line_from" not in off.as_record() and on.as_record()["open_line_from"] == 7, "the record carries K only when set")
     check(osel.params_fingerprint(on) != osel.params_fingerprint(off) != osel.params_fingerprint(osel.OrderParams(open_line_from=6)),
           "K changes the fingerprint")
-    check(osel.SELECT_CONTRACT == "order_select_v4" and "fewest" in osel.STREAMS and "fewest" in osel.EXPLOIT_STREAMS, "contract v4, stream fewest")
+    check(osel.SELECT_CONTRACT == "order_select_v5" and "fewest" in osel.STREAMS and "fewest" in osel.EXPLOIT_STREAMS, "contract v5, stream fewest")
     return {"fingerprint_off": osel.params_fingerprint(off)[:16], "fingerprint_k7": osel.params_fingerprint(on)[:16]}
 
 
@@ -1153,7 +1153,8 @@ def _lv7_static(k: Optional[int]) -> Tuple[Static, osel.OrderSelector, List[FCel
 
 def unit_open_line_draw() -> Dict[str, Any]:
     """Draws at levels >= K follow the fewest dispatches of the cell (breadth included, counted when selected), ties to the earlier tick;
-    no anchor or rank draw there; the budget counts the draw; levels below K draw as before (same cells, same records, same uniforms)."""
+    no anchor or rank draw there; v5 (owner 2026-11-19): the draw is level-wide (scope "level") and the set / order budget does not count
+    it; levels below K draw as before (same cells, same records, same uniforms)."""
     s, sel, cells = _lv7_static(7)
     a600, b520, c700, d650, late, deep = cells
     _s0, sel_off, _c0 = _lv7_static(None)
@@ -1162,7 +1163,7 @@ def unit_open_line_draw() -> Dict[str, Any]:
     picks = []
     for n in range(6):                                   # level 8 is the deepest: force the level draw to level 7 (r below its share)
         c, draw = sel.select(ScriptRng([0.5, 0.0]))
-        check(draw["stream"] == "fewest" and draw["level"] == 7 and "anchor_p" not in draw, f"draw {n}: {draw}")
+        check(draw["stream"] == "fewest" and draw["scope"] == "level" and draw["level"] == 7 and "anchor_p" not in draw, f"draw {n}: {draw}")
         exp = min(sel.members(sel.group[c.cid]), key=lambda x: (sel.bcount.get(x, 0), sel.tick_of[x], x))
         check(c.cid == exp and draw["count"] == sel.bcount.get(c.cid, 0) and draw["rank"] == sel.members(sel.group[c.cid]).index(c.cid),
               f"draw {n}: the fewest-dispatch cell, then the earliest tick ({c.cid} vs {exp})")
@@ -1171,7 +1172,8 @@ def unit_open_line_draw() -> Dict[str, Any]:
         take(sel, info, n=n)
         picks.append(int(c.tick))
     check(picks == [520, 600, 650, 700, 520, 600], f"each cell once in tick order, then again: {picks}")
-    check(sel.set_count[(7, a600.key[3])] == 6 and sum(sel.order_count.values()) >= 6, "the budget counts the fewest draws")
+    check(sel.set_count[(7, a600.key[3])] == 0 and sum(sel.order_count.values()) == 0 and sel.dstat["level_draws"] == 6,
+          "v5: the set / order budget does not count the level-wide draws (no rotation at levels >= K)")
     info = send(sel, d650, 6, stream="breadth")          # a breadth dispatch counts for the cell too
     take(sel, info, n=6)
     c, draw = sel.select(ScriptRng([0.5, 0.0]))
@@ -1221,6 +1223,169 @@ def unit_open_line_plan() -> Dict[str, Any]:
         return {"off_bound": E0["bound"], "k7": {k: kr[k] for k in ("open_line_from", "open_line", "archive_bound")}}
     finally:
         cleanup(lab)
+
+
+# -- v5 (owner 2026-11-19): the level-wide fewest draw at levels >= K and the fall cut ---------------------------------------------------------
+
+B7 = (10, 20, 30, 40, 50, 60, 456)                       # 7th break at line(7) = 456 (slack 120): kept past line(8) = 504 by the open line only
+
+
+def _lv7_orders() -> Tuple[Static, Dict[str, List[FCell]]]:
+    """Level 7, past line(8): set S1 with order A (5 cells) and order B (2 cells, one tied with A's first tick), set S2 with order C
+    (2 cells); every 7th break at 456."""
+    s = Static(root=False)
+    spec = {"A": ((0, 1, 2, 3, 4, 5, 9), (600, 610, 620, 630, 640)), "B": ((0, 1, 2, 3, 4, 9, 5), (605, 600)),
+            "C": ((0, 1, 2, 3, 4, 5, 6), (601, 700))}
+    cells: Dict[str, List[FCell]] = {}
+    for name, (order, ticks) in spec.items():
+        for t in ticks:
+            c = s.add(order, t)
+            s.breaks[c.cid] = B7
+            cells.setdefault(name, []).append(c)
+    return s, cells
+
+
+def unit_level_fewest_draw() -> Dict[str, Any]:
+    """Ruling 2 (owner 2026-11-19): with the open line, an exploitation draw at a level >= K takes the level's active cell with the fewest
+    dispatches across every target set and order (ties: earlier tick, then cell id), so every cell of the level is drawn once before any
+    twice, whatever its order's size; no set or order budget is counted there, and the within-1 check holds."""
+    s, cells = _lv7_orders()
+    sel = s.selector(open_line_from=7)
+    check(len(sel.rot_by_level[7]) == 2 and sum(len(sel.rot_by_set[x]) for x in sel.rot_by_level[7]) == 3, "two sets, three orders at level 7")
+    picks, groups = [], []
+    for n in range(9):
+        c, draw = sel.select(ScriptRng([0.5, 0.0]))
+        pool = [cid for x in sel.rot_by_level[7] for g_ in sel.rot_by_set[x] for cid in sel.members(g_)]
+        exp = min(pool, key=lambda x: (sel.bcount.get(x, 0), sel.tick_of[x], x))
+        check(c.cid == exp and draw["stream"] == "fewest" and draw["scope"] == "level" and draw["level_active"] == 9 and draw["count"] == sel.bcount.get(c.cid, 0)
+              and draw["group"] == rs.glabel(sel.group[c.cid]) and draw["set"] == osel.slabel(osel.set_of(sel.group[c.cid])), f"draw {n}: {draw} (want cell {exp})")
+        info = dict(sel.on_dispatch(c, draw, n))
+        info.update(cid=int(c.cid), level=int(c.level))
+        take(sel, info, n=n)
+        picks.append((int(c.tick), int(c.cid)))
+        groups.append(draw["group"])
+    a600, b600 = cells["A"][0], cells["B"][1]
+    check([t for t, _c in picks] == [600, 600, 601, 605, 610, 620, 630, 640, 700], f"every level-7 cell once, in tick order: {picks}")
+    check(picks[0][1] == a600.cid < b600.cid == picks[1][1], "a tick tie goes to the lower cell id, across orders")
+    c, draw = sel.select(ScriptRng([0.5, 0.0]))
+    check(c.cid == a600.cid and draw["count"] == 1, f"then the first again: {c.cid} {draw}")
+    per_order = Counter(groups)
+    check(sorted(per_order.values()) == [2, 2, 5], f"draws per order follow the order's size, not an equal share: {dict(per_order)}")
+    check(all(v == 0 for v in sel.set_count.values()) and all(v == 0 for v in sel.order_count.values()) and sel.dstat["level_draws"] == 9
+          and not sel.within_one_violations(), "no set / order budget at levels >= K; within 1 holds")
+    s4, _c4 = _lv7_orders()                              # the same cells without the open line: none eligible (all past line(8))
+    check(s4.selector().select(ScriptRng([0.5, 0.0, 0.0, 0.0])) is None, "off: no cell eligible")
+    return {"picks": [t for t, _c in picks], "per_order": dict(per_order)}
+
+
+def unit_fall_cut_params() -> Dict[str, Any]:
+    """The fall cut's parameter (owner 2026-11-19): a finite number, only with the open line's K; off keeps the record v4's (no key); on it
+    is recorded as a float and changes the fingerprint."""
+    check(_refused(osel.OrderParams(fall_cut_y=-1000.0).check), "refused: the cut without the open line")
+    for bad in (float("nan"), float("inf"), -float("inf"), True, "-1000"):
+        check(_refused(osel.OrderParams(open_line_from=7, fall_cut_y=bad).check), f"refused: Y = {bad!r}")
+    for ok in (-2850.0, -1172, 0, 3000.5):
+        osel.OrderParams(open_line_from=7, fall_cut_y=ok).check()
+    off, k7 = osel.OrderParams(open_line_from=7), osel.OrderParams(open_line_from=7, fall_cut_y=-1172)
+    check("fall_cut_y" not in off.as_record() and "fall_cut_y" not in osel.OrderParams().as_record(), "off: no key in the record")
+    check(k7.as_record()["fall_cut_y"] == -1172.0 and isinstance(k7.as_record()["fall_cut_y"], float), f"on: a float {k7.as_record()}")
+    fp = {osel.params_fingerprint(osel.OrderParams(open_line_from=7, fall_cut_y=y)) for y in (-1172, -2850)}
+    check(len(fp) == 2 and osel.params_fingerprint(off) not in fp, "Y changes the fingerprint")
+    return {"fingerprint_cut": osel.params_fingerprint(k7)[:16]}
+
+
+def unit_fall_cut_rule() -> Dict[str, Any]:
+    """Pace.below_cut: at levels >= K only, strictly below Y; off (no Y, or no K) never."""
+    on = osel.Pace(osel.OrderParams(open_line_from=7, fall_cut_y=-1000.0))
+    check(on.below_cut(7, -1000.001) and not on.below_cut(7, -1000.0) and not on.below_cut(7, 5000.0) and on.below_cut(9, -2000.0),
+          "levels >= K: below Y (strict)")
+    check(not any(on.below_cut(lv, -9000.0) for lv in range(7)), "levels below K: never")
+    for p in (osel.OrderParams(), osel.OrderParams(open_line_from=7)):
+        check(not any(osel.Pace(p).below_cut(lv, -1e9) for lv in range(10)), f"off: never ({p.as_record()})")
+    return {"cut_y": on.cut_y, "from": on.open_from}
+
+
+def unit_fall_cut_selector() -> Dict[str, Any]:
+    """Ruling 1 in the selector: at levels >= K a cell whose representative is below Y is neither active nor in the breadth pool; a cell
+    above Y is; levels below K are unaffected whatever their y; a representative replaced by one above Y becomes drawable; the cut needs
+    each cell's y."""
+    s = Static(root=False)
+    order = (0, 1, 2, 3, 4, 5, 9)
+    low, mid, high = (s.add(order, t) for t in (600, 610, 620))
+    for c in (low, mid, high):
+        s.breaks[c.cid] = B7
+    six = s.add(order[:6], 400)                          # level 6, inside v3's window by its own tick (TickArrivals)
+    ys = {low.cid: -2000.0, mid.cid: 100.0, high.cid: -999.0, six.cid: -5000.0}
+    p = osel.OrderParams(open_line_from=7, fall_cut_y=-1000.0)
+    try:
+        osel.OrderSelector(s.a, p, niches=s.niches, breaks=s.breaks)
+        raise AssertionError("a cut without y_of was accepted")
+    except osel.OrderParamsError:
+        pass
+    sel = osel.OrderSelector(s.a, p, niches=s.niches, breaks=s.breaks, y_of=lambda cid: ys[int(cid)])
+    check(not sel.is_active(low.cid) and sel.is_active(mid.cid) and sel.is_active(high.cid) and sel.is_active(six.cid),
+          "below Y at level 7: not active; above Y, and level 6 at any y: active")
+    check(low.cid not in sel.breadth_pool() and {mid.cid, high.cid, six.cid} <= set(sel.breadth_pool()), "the breadth pool excludes the cell below Y")
+    check(sel.cut_undrawable() == {"7": 1}, f"the readout: {sel.cut_undrawable()}")
+    got: Counter = Counter()
+    for n in range(12):                                  # exploitation at level 7 (r >= 3/7) and breadth (u < 0.2)
+        c, draw = sel.select(ScriptRng([0.5, 0.99]) if n % 2 else ScriptRng([0.1, 0.0]))
+        got[int(c.cid)] += 1
+        info = dict(sel.on_dispatch(c, draw, n))
+        info.update(cid=int(c.cid), level=int(c.level))
+        take(sel, info, n=n)
+    check(got[low.cid] == 0 and got[mid.cid] and got[high.cid], f"never drawn below Y: {dict(got)}")
+    v, c2, niche = kept_child(s.a, s.niches[mid.cid], [], 590, int(low.key[0]))   # low's key, an earlier tick: a replacement
+    check(v == REPLACED and c2.cid == low.cid, f"the replacement: {v} {c2.cid}")
+    s.breaks[low.cid] = B7
+    ys[low.cid] = 50.0
+    info = send(sel, mid, 12)
+    take(sel, info, kept=[(v, c2, s.niches[low.cid])], n=12)
+    check(sel.is_active(low.cid) and low.cid in sel.breadth_pool() and sel.cut_undrawable() == {}, "a representative above Y is drawable again")
+    off = s.selector(open_line_from=7)
+    check(all(off.is_active(x.cid) for x in (low, mid, high, six)), "without the cut every cell is active")
+    return {"draws": dict(got)}
+
+
+def unit_fall_cut_plan() -> Dict[str, Any]:
+    """The cut in the plan and on the command line: off, no fall-cut key (the open line's plan as before); on, the keep rule states it; run
+    refuses a different Y; --fall-cut-y=-2850 and --fall-cut-y -2850 both parse; the printed run command carries it."""
+    import argparse
+
+    lab = tmpdir("order_cut_plan_")
+    try:
+        fr_dir = write_fake_frontier(lab, 3000)
+        k7 = osel.OrderParams(slack=200, open_line_from=7)
+        cut = osel.OrderParams(slack=200, open_line_from=7, fall_cut_y=-1172.0)
+        ep = O.engine_params(k7, rng_seed=3)
+        P7 = O.build_plan(lab, fr_dir, lab / "order_k7", k7, ep, code="test")
+        PC = O.build_plan(lab, fr_dir, lab / "order_cut", cut, O.engine_params(cut, rng_seed=3), code="test")
+        check(not any(k.startswith("fall_cut") for k in P7["keep_rule"]) and "fall_cut_y" not in P7["params"], f"off: no fall-cut key {list(P7['keep_rule'])}")
+        kr = PC["keep_rule"]
+        check(kr["fall_cut_y"] == -1172.0 and kr["fall_cut_from"] == 7 and "y < -1172" in kr["fall_cut_rule"] and kr["fall_cut_inherited_undrawable"] == {}
+              and PC["params"]["fall_cut_y"] == -1172.0, f"on: the keep rule states the cut: {kr}")
+        strip = lambda P: {k: v for k, v in P.items() if k not in ("utc", "out", "keep_rule", "params", "params_fingerprint")}  # noqa: E731
+        check(strip(P7) == strip(PC) and {k: v for k, v in kr.items() if not k.startswith("fall_cut")} == P7["keep_rule"], "nothing else in the plan changes")
+        check(O.run_flag_problems(PC, cut, O.engine_params(cut, rng_seed=3), fr_dir) is None, "the same Y runs")
+        other = osel.OrderParams(slack=200, open_line_from=7, fall_cut_y=-2850.0)
+        check("selection parameters differ" in (O.run_flag_problems(PC, other, O.engine_params(other, rng_seed=3), fr_dir) or "")
+              and "selection parameters differ" in (O.run_flag_problems(P7, cut, O.engine_params(cut, rng_seed=3), fr_dir) or ""), "a different Y, or none, is refused")
+    finally:
+        cleanup(lab)
+    codes = []
+    for argv in (["plan", "--frontier", "x", "--rng-seed", "1", "--open-line-from", "7", "--fall-cut-y=-2850", "--lab-root", str(lab)],
+                 ["plan", "--frontier", "x", "--rng-seed", "1", "--open-line-from", "7", "--fall-cut-y", "-2850", "--lab-root", str(lab)]):
+        try:
+            O.main(argv)
+            raise AssertionError("main returned on a missing lab")
+        except SystemExit as exc:
+            codes.append(exc.code)
+    check(all(not isinstance(c_, int) for c_ in codes), f"both forms parse (the refusal is the lab root's, not argparse's): {codes}")
+    a = argparse.Namespace(rng_seed=1, workers=3, max_ticks=10, max_wall_min=30.0, summary_every_s=60.0, max_cells=O.C.Params3.max_cells, max_dispatches=0,
+                           min_commit_free_mb=None, override_reason="", goal=480, slack=200, open_line_from=7, fall_cut_y=-2850.0, hitter_record=True, resume_from=[])
+    cmd = O.run_command(Path("C:/lab"), Path("C:/lab/f"), Path("C:/lab/order_x"), a)
+    check(" --open-line-from 7 --fall-cut-y=-2850.0 --hitter-record" in cmd, f"the run command: {cmd}")
+    return {"cmd_tail": cmd[-80:]}
 
 
 def unit_break_record() -> Dict[str, Any]:
@@ -1975,6 +2140,22 @@ def _rows_rule(pace: osel.Pace, k: Optional[int], lv: int, tick: int, pairs: Seq
     return _v3_or_open(pace, lv, tick, sorted(int(t) for t, _i in pairs), k)
 
 
+def _open7(b: DBench) -> Dict[str, Any]:
+    """The open-line night, K = 7, slack 200 (E11's; E14 resumes from it). Its own port base: DBench adds 1,000 per night from 52,000, and
+    in the whole suite this is the 13th night (65,000 + workers > 65,535); every later night names its own port base too."""
+    return b.run("open7", order={"slack": 200, "open_line_from": 7}, engine=dict(E_ENGINE, max_dispatches=240, rng_seed=11), port_base=46000)
+
+
+FAKE_CUT_Y = 50.0          # a test value on the fake game's "easy" world (floors at y -500, 0, 420, 500; falls below -1,400): not a night's
+
+
+def _cut7(b: DBench, **extra: Any) -> Dict[str, Any]:
+    """E11's night with the fall cut at FAKE_CUT_Y (E13; E15 adds the hitter record)."""
+    name = "cut7" + ("_hit" if extra.get("hitter") else "")
+    return b.run(name, order={"slack": 200, "open_line_from": 7, "fall_cut_y": FAKE_CUT_Y}, engine=dict(E_ENGINE, max_dispatches=240, rng_seed=11),
+                 port_base=51000 if extra.get("hitter") else 49000, **extra)
+
+
 def e2e_e11_open_line() -> Dict[str, Any]:
     """The open line, K = 7, goal 480, slack 200 (owner 2026-11-18), on the fake game: every kept cell is inside v3's rule or (level >= 7)
     has its 7th break by line(7) = 536; some level-7+ cells are kept past line(8) = 584 and dispatched; levels below 7 are inside v3's rule;
@@ -1982,8 +2163,7 @@ def e2e_e11_open_line() -> Dict[str, Any]:
     burst row's break record lists its credited breaks with the reach's position; the milestones keep their lines."""
     b = dbench()
     K = 7
-    # its own port base: DBench adds 1,000 per night from 52,000, and in the whole suite this is the 13th night (65,000 + workers > 65,535)
-    A = b.run("open7", order={"slack": 200, "open_line_from": K}, engine=dict(E_ENGINE, max_dispatches=240, rng_seed=11), port_base=46000)
+    A = _open7(b)
     s, o = A["summary"], A["summary"]["order"]
     check(A["code"] == 0 and s["status"] == "DISPATCH_CAP" and not A["violations"] and s["work"]["mismatches"] == 0, f"a clean night: {s['status']} {s['stop']}")
     pace = osel.Pace(osel.OrderParams(slack=200, open_line_from=K))
@@ -2042,18 +2222,9 @@ def _no_host(e: Mapping[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def e2e_e12_hitter_record() -> Dict[str, Any]:
-    """The hitter record (owner 2026-11-19, report-only) on the fake game with a synthetic entity object: the same-seed night as E1's "a"
-    with the option on makes the same decisions (dispatch rows, draws, cells, milestones, boundary answers, root, extents, break-record
-    fields, hourly records, glitch counts); every credited break carries the hitter fields, each the kind the synthetic object implies
-    (mario, projectile with its serial and first tick, unseen, ambiguous); the records and counts agree; with the option on and no entity
-    object in the replies the open stops (the tick-0 reads fail)."""
-    b = dbench()
-    A = b.run("a")
-    H = b.run("hit", hitter=True, fake_entity=True, port_base=47000)
-    for r in (A, H):
-        check(r["code"] == 0 and r["summary"]["status"] == "DISPATCH_CAP" and not r["violations"] and len(_bursts(r)) == 160,
-              f"a clean 160-dispatch night: {r['code']} {r.get('summary', {}).get('status')} {r.get('summary', {}).get('stop')} {r['violations']}")
+def _same_decisions(A: Mapping[str, Any], H: Mapping[str, Any]) -> Dict[str, Any]:
+    """Two same-seed nights, one with the hitter record (E12, E15): the same dispatch rows, draws, cells, milestones and verdicts, hourly
+    records, root, extents, break-record fields (E1's), glitch counts; run 3's self-check on every result. Returns H's anomaly record."""
     check(det.dispatch_signature(A["dispatches"]) == det.dispatch_signature(H["dispatches"]), "the same dispatch rows (cell, k, draw id, words, outcome, kept, cont)")
     sel = lambda r: [(x["n"], x.get("stream"), x.get("group"), x.get("niche"), json.dumps(x.get("draw"), sort_keys=True)) for x in _bursts(r)]  # noqa: E731
     check(sel(A) == sel(H), "the same draws (stream, set, order, counts, rank)")
@@ -2070,9 +2241,12 @@ def e2e_e12_hitter_record() -> Dict[str, Any]:
     ga, gh = A["summary"]["anomalies"], H["summary"]["anomalies"]
     check(ga == gh and "counts" in ga and ga["counts"], f"the same glitch / anomaly counts (run 3's detectors see entity-off replies): {ga} vs {gh}")
     check(gh["selfcheck"]["checked"] == len(_bursts(H)) and gh["selfcheck"]["failed"] == 0, f"run 3's rebuild from the replies it saw equals every result: {gh['selfcheck']}")
-    check(all("hitter" not in e for x in _bursts(A) for e in x["break_record"]) and "hitter_record" not in A["config"] and "hitter_record" not in A["summary"]["order"],
-          "option off: no hitter field, no record")
-    # every credited break: the fields, the synthetic kind, a projectile's serial and first tick
+    return gh
+
+
+def _hitter_kinds(H: Mapping[str, Any]) -> Tuple[int, Counter]:
+    """Every credited break of a hitter-record night (E12, E15): the fields, the kind the synthetic entity object implies, a projectile's
+    serial and first tick; the summary's counts and the scoreboard's attribution agree. Returns (credited breaks, kinds)."""
     d_of = {c["digest"]: c["origin"].get("d_breaks") or [] for c in H["cells"] if c["ev"] in ("new", "replaced")}
     kinds: Counter = Counter()
     n = 0
@@ -2090,7 +2264,6 @@ def e2e_e12_hitter_record() -> Dict[str, Any]:
                       and isinstance(e["hitter_first_tick"], int) and 0 <= e["hitter_first_tick"] < int(e["tick"])
                       and e["hitter_evidence"]["vanished"][0]["serial"] == e["hitter_serial"], f"dispatch {x['n']}: a projectile's fields {e}")
             kinds[e["hitter"]] += 1
-    check(n > 0 and {"mario", "projectile", "unseen", "ambiguous"} <= set(kinds) and not kinds["unavailable"], f"every kind but unavailable occurs: {dict(kinds)}")
     hr = H["summary"]["order"]["hitter_record"]
     check(hr["credited_breaks"] == n and hr["by_kind"] == {k: kinds.get(k, 0) for k in OW.KINDS} and hr["jobs_without_record"] == 0 and hr["tracker_errors"] == 0
           and hr["jobs_with_record"] == len(_bursts(H)), f"the summary counts: {hr}")
@@ -2099,6 +2272,26 @@ def e2e_e12_hitter_record() -> Dict[str, Any]:
     for d in ba.values():
         sb_k.update(d["hitter"])
     check(sb_k == kinds and "unknown (entity off)" not in sb_k, f"the scoreboard's break attribution: {dict(sb_k)}")
+    return n, kinds
+
+
+def e2e_e12_hitter_record() -> Dict[str, Any]:
+    """The hitter record (owner 2026-11-19, report-only) on the fake game with a synthetic entity object: the same-seed night as E1's "a"
+    with the option on makes the same decisions (dispatch rows, draws, cells, milestones, boundary answers, root, extents, break-record
+    fields, hourly records, glitch counts); every credited break carries the hitter fields, each the kind the synthetic object implies
+    (mario, projectile with its serial and first tick, unseen, ambiguous); the records and counts agree; with the option on and no entity
+    object in the replies the open stops (the tick-0 reads fail)."""
+    b = dbench()
+    A = b.run("a")
+    H = b.run("hit", hitter=True, fake_entity=True, port_base=47000)
+    for r in (A, H):
+        check(r["code"] == 0 and r["summary"]["status"] == "DISPATCH_CAP" and not r["violations"] and len(_bursts(r)) == 160,
+              f"a clean 160-dispatch night: {r['code']} {r.get('summary', {}).get('status')} {r.get('summary', {}).get('stop')} {r['violations']}")
+    gh = _same_decisions(A, H)
+    check(all("hitter" not in e for x in _bursts(A) for e in x["break_record"]) and "hitter_record" not in A["config"] and "hitter_record" not in A["summary"]["order"],
+          "option off: no hitter field, no record")
+    n, kinds = _hitter_kinds(H)
+    check(n > 0 and {"mario", "projectile", "unseen", "ambiguous"} <= set(kinds) and not kinds["unavailable"], f"every kind but unavailable occurs: {dict(kinds)}")
     check(H["config"]["hitter_record"]["search_flags"].get("SSB64_RL_ENTITY") == "1" and H["config"]["hitter_record"]["contract"] == OW.HITTER_CONTRACT
           and "## Hitter record" in H["report"], "config and report record the option")
     # the option on without an entity object in the replies: the open stops
@@ -2107,6 +2300,119 @@ def e2e_e12_hitter_record() -> Dict[str, Any]:
     check(M.get("summary", {}).get("status") == "SEARCH_INVALID" and "EntityMissing" in stop and not _bursts(M), f"no entity object: the open stops: {M.get('summary', {}).get('status')} {stop[:300]}")
     return {"credited_breaks": n, "kinds": dict(kinds), "dispatches": len(_bursts(H)), "glitch_counts": dict(gh["counts"]), "selfcheck": gh["selfcheck"]["checked"],
             "missing_stop": stop[:160]}
+
+
+def _y(row: Mapping[str, Any]) -> float:
+    return float(row["end"][O.OBS_Y])
+
+
+def e2e_e13_fall_cut() -> Dict[str, Any]:
+    """Rulings 1 and 2 (owner 2026-11-19) on the fake game: E11's night with the fall cut at FAKE_CUT_Y. Every cell kept tonight at a level
+    >= 7 is at y >= Y, while levels below 7 keep cells below Y; the reaches the cut did not keep are logged (deep reaches, reason
+    fall_cut) and counted (summary, report); every dispatch from a level >= 7 starts at y >= Y; every exploitation draw at levels >= 7 is
+    the level-wide fewest draw, which is the fewest-dispatches cell among the level's cells kept by the ingested dispatches (ties: earlier
+    tick, cell id), and no set / order budget counts there; boundary answers follow the rule; the records state the cut."""
+    b = dbench()
+    K, Y = 7, FAKE_CUT_Y
+    A = _cut7(b)
+    s, o = A["summary"], A["summary"]["order"]
+    check(A["code"] == 0 and s["status"] == "DISPATCH_CAP" and not A["violations"] and s["work"]["mismatches"] == 0 and len(_bursts(A)) == 240,
+          f"a clean night: {s['status']} {s['stop']}")
+    kr = o["keep_rule"]
+    check(kr["fall_cut_y"] == Y and kr["fall_cut_from"] == K and A["config"]["order_params"]["fall_cut_y"] == Y and s["order"]["plan"]["params_fingerprint"]
+          and "## Fall cut" in A["report"], f"the records state the cut: {kr}")
+    kept = [c for c in A["cells"] if c["ev"] in ("new", "replaced") and (c.get("origin") or {}).get("kind") == "burst"]
+    hi = [c for c in kept if int(c["level"]) >= K]
+    lo_below = [c for c in kept if int(c["level"]) < K and _y(c) < Y]
+    check(hi and all(_y(c) >= Y for c in hi), f"every level-7+ cell kept tonight is at y >= {Y}: {len(hi)} cells, lowest {min((_y(c) for c in hi), default=None)}")
+    check(lo_below, f"levels below 7 still keep states below Y: {len(lo_below)}")
+    cut_rows = [d for d in A["deep"] if d.get("reason") == "fall_cut"]
+    check(cut_rows and all(d["verdict"] == O.cs.BEYOND and int(d["level"]) >= K and float(d["over"]) > 0 for d in cut_rows), f"the cut reaches are logged: {len(cut_rows)}")
+    fc = o["fall_cut"]
+    check(fc["reaches_cut_total"] == len(cut_rows) == sum(int(v["count"]) for v in fc["reaches_cut"].values()) and fc["y"] == Y and fc["from_level"] == K,
+          f"the readout counts them: {fc}")
+    y_of = {c["digest"]: _y(c) for c in A["cells"] if c["ev"] in ("new", "replaced")}
+    rows = _bursts(A)
+    starts = [x for x in rows if int(x["level"]) >= K]
+    check(starts and all(y_of[str(x["draw_id"]).rsplit("|", 1)[1]] >= Y for x in starts), f"every level-7+ dispatch starts at y >= Y: {len(starts)}")
+    fewest = [x for x in rows if x.get("stream") == "fewest"]
+    check(fewest and all(x["draw"]["scope"] == "level" and int(x["draw"]["level"]) >= K for x in fewest)
+          and not [x for x in rows if x.get("stream") in ("rank", "anchor") and int(x["draw"]["level"]) >= K], f"exploitation at levels >= 7: the level-wide draw ({len(fewest)})")
+    # the level-wide minimum, rebuilt from the rows: the cells kept by the dispatches ingested before the selection (sched.ingested_through)
+    by_n: Dict[int, List[Mapping[str, Any]]] = {}
+    for c in kept:
+        by_n.setdefault(int(c["origin"]["n"]), []).append(c)
+    cnt: Counter = Counter()
+    checked = 0
+    for x in rows:
+        if x.get("stream") == "fewest":
+            lv, upto = int(x["draw"]["level"]), int(x["sched"]["ingested_through"])
+            pool: Dict[int, int] = {}
+            for n_ in sorted(k for k in by_n if k <= upto):
+                for c in by_n[n_]:
+                    if int(c["level"]) == lv:
+                        pool[int(c["cid"])] = int(c["tick"])       # a later row of the same cell is its replacement (an earlier tick)
+            if len(pool) == int(x["draw"]["level_active"]):
+                want = min(pool, key=lambda cid: (cnt[cid], pool[cid], cid))
+                check(int(x["cid"]) == want and int(x["draw"]["count"]) == cnt[int(x["cid"])], f"dispatch {x['n']}: cell {x['cid']}, the level's fewest is {want}")
+                checked += 1
+        cnt[int(x["cid"])] += 1
+    check(checked >= len(fewest) // 2, f"the level-wide minimum checked on {checked} of {len(fewest)} draws (the rest: retirement or an in-flight replacement)")
+    lv_read = o["selection"]["levels"]
+    check(all(not lv_read[lv]["set_count_max"] for lv in lv_read if int(lv) >= K) and o["selection"]["within_one_violations"] == []
+          and o["selection"]["rotation"].get("level_draws") == len(fewest), f"no budget at levels >= 7: {[(lv, lv_read[lv]['set_count_max']) for lv in lv_read]}")
+    check(not any("budget_counts_not_within_1" in h["flags"] for h in o["hourly_records"]) and all("fall_cut" in h for h in A["hourly"]), "hourly: no within-1 flag; the cut's readout")
+    check(o["continuation"]["checked"] > 0 and o["continuation"]["mismatches"] == 0, f"boundary answers: {o['continuation']}")
+    for m in o["milestones"]:
+        if m["milestone"] != "clear_line":
+            check(int(m["tick"]) <= int(m["line"]), f"milestone {m['milestone']} keeps its line: {m}")
+    return {"kept_7plus": len(hi), "lowest_y_7plus": min(_y(c) for c in hi), "kept_below_y_under_7": len(lo_below), "cut_reaches": len(cut_rows),
+            "level_draws": len(fewest), "minimum_checked": checked, "levels": dict(Counter(int(c["level"]) for c in kept))}
+
+
+def e2e_e14_fall_cut_resume() -> Dict[str, Any]:
+    """Ruling 1 on resume: a night with the cut resumed from E11's night (no cut) inherits the same set as without the cut (the cut drops no
+    cell); the inherited cells at levels >= 7 below Y are inserted but never dispatched; the plan's count of them equals the open's; the
+    inherited cells above Y are dispatched."""
+    b = dbench()
+    A = _open7(b)
+    order = {"slack": 200, "open_line_from": 7, "fall_cut_y": FAKE_CUT_Y}
+    R = b.run("cut7_resumed", resume=[str(A["out"])], order=order, engine=dict(E_ENGINE, max_dispatches=120, rng_seed=8), port_base=50000)
+    s, o = R["summary"], R["summary"]["order"]
+    check(R["code"] == 0 and s["status"] == "DISPATCH_CAP" and not R["violations"] and s["work"]["mismatches"] == 0, f"a clean resumed night: {s['status']} {s['stop']}")
+    dp0 = osel.OrderParams(slack=200, open_line_from=7)
+    P0 = O.build_plan(b.lab, b.frontier, b.lab / "order_cut_preview_off", dp0, O.engine_params(dp0, rng_seed=8), code="preview", resume=[A["out"]])
+    check(P0["resume"]["set_digest"] == R["plan"]["resume"]["set_digest"] and P0["resume"]["counts"] == R["plan"]["resume"]["counts"],
+          "the cut drops no inherited cell: the same set as without it")
+    res_rows = [c for c in R["cells"] if (c.get("origin") or {}).get("kind") == "resume"]
+    below = [c for c in res_rows if int(c["level"]) >= 7 and _y(c) < FAKE_CUT_Y]
+    above = [c for c in res_rows if int(c["level"]) >= 7 and _y(c) >= FAKE_CUT_Y]
+    check(below and above, f"inherited level-7+ cells on both sides of Y: {len(below)} below, {len(above)} above")
+    want = dict(sorted(Counter(str(c["level"]) for c in below).items(), key=lambda kv: -int(kv[0])))
+    check(o["keep_rule"]["fall_cut_inherited_undrawable"] == want == o["fall_cut"]["inherited_undrawable_at_open"], f"the plan's and the open's count: {want} {o['fall_cut']}")
+    low_dig = {c["digest"] for c in below}
+    rows = _bursts(R)
+    started = {str(x["draw_id"]).rsplit("|", 1)[1] for x in rows}
+    check(not (low_dig & started), "no dispatch from an inherited cell below Y")
+    check({c["digest"] for c in above} & started, "inherited cells above Y are dispatched")
+    return {"inherited": len(res_rows), "below": len(below), "above": len(above), "undrawable": want}
+
+
+def e2e_e15_fall_cut_hitter() -> Dict[str, Any]:
+    """The hitter record with the new options on (open line 7, the cut, the level-wide draw): the same decisions as E13's night without it,
+    every credited break carries the hitter fields of the synthetic entity object, and the cut's readout is the same."""
+    b = dbench()
+    A = _cut7(b)
+    H = _cut7(b, hitter=True, fake_entity=True)
+    for r in (A, H):
+        check(r["code"] == 0 and r["summary"]["status"] == "DISPATCH_CAP" and not r["violations"] and len(_bursts(r)) == 240,
+              f"a clean 240-dispatch night: {r['code']} {r.get('summary', {}).get('status')} {r.get('summary', {}).get('stop')} {r['violations']}")
+    _same_decisions(A, H)
+    n, kinds = _hitter_kinds(H)
+    check(n > 0 and not kinds["unavailable"] and len(kinds) >= 2, f"credited breaks with their hitter: {dict(kinds)}")
+    fa_, fh = A["summary"]["order"]["fall_cut"], H["summary"]["order"]["fall_cut"]
+    check(fa_ == fh and fh["reaches_cut_total"] > 0, f"the same cut readout: {fa_} vs {fh}")
+    return {"credited_breaks": n, "kinds": dict(kinds), "cut_reaches": fh["reaches_cut_total"]}
 
 
 def e2e_u11_isolation() -> Dict[str, Any]:
@@ -2209,11 +2515,13 @@ UNIT = {f.__name__: f for f in (unit_u1_pace_line, unit_u2_rejected_readout, uni
                                 unit_u7_stale_clear_fallback, unit_u8_milestones, unit_u9_claims, unit_u10_params, unit_u12_relabelling, unit_root_differences,
                                 unit_u14_tree_sampler, unit_cont_window_rule, unit_burst_extent, unit_resume_lineage, unit_tm1_run3_digest,
                                 unit_open_line_rule, unit_open_line_params, unit_open_line_draw, unit_open_line_plan, unit_break_record,
-                                unit_hitter_rule, unit_hitter_tracker, unit_hitter_break_record, unit_hitter_plan)}
+                                unit_hitter_rule, unit_hitter_tracker, unit_hitter_break_record, unit_hitter_plan, unit_level_fewest_draw,
+                                unit_fall_cut_params, unit_fall_cut_rule, unit_fall_cut_selector, unit_fall_cut_plan)}
 
 E2E = {f.__name__: f for f in (e2e_e1_same_seed, e2e_e2_root, e2e_e3_pace_budget, e2e_e4_milestone, e2e_e5_caps_stops, e2e_e6_exports,
                                e2e_e7_resume, e2e_e8_long_bursts, e2e_e9_scoreboard, e2e_e10_extent, e2e_u11_isolation, e2e_u13_no_human_input,
-                               e2e_tm2_code_digest, e2e_e11_open_line, e2e_e12_hitter_record)}
+                               e2e_tm2_code_digest, e2e_e11_open_line, e2e_e12_hitter_record, e2e_e13_fall_cut, e2e_e14_fall_cut_resume,
+                               e2e_e15_fall_cut_hitter)}
 REAL = {f.__name__: f for f in (real_frontier_best,)}
 
 if __name__ == "__main__":
