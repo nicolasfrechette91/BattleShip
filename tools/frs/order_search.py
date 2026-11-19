@@ -17,13 +17,15 @@
                     targets broken whose K-th break came at or before line(K) is also kept, whatever its later breaks and its own tick;
                     the archive's own bound (crossing_search.Archive.keep, line(10) without the option) is then the horizon, so no line
                     applies to its tick. The keep, the draw's eligibility, the continuation, the resume and the extent's "inside" read
-                    the rule with the option; the milestones do not. The cell draw at levels >= K is the fewest dispatches over the whole
-                    level, across every target set and order (owner 2026-11-19, order_select_v5; v4 drew inside the rotation's order).
-    fall cut        (owner 2026-11-19, order_select_v5; --fall-cut-y Y, needs --open-line-from K, default off = no change) at levels >= K
-                    an in-night reach whose position y is below Y, inside the rule above, is not kept (the BEYOND verdict, as a rule
-                    rejection) and counts in the fall-cut readout (report-only); a cell below Y is not drawable, so an inherited cell below
-                    Y stays in the archive (it holds its key) undrawable. The reach records (deep reaches, extent, break record) keep every
-                    reach; the continuation, the resume's set, the milestones and levels below K are unchanged.
+                    the rule with the option; the milestones do not. With the option the levels >= K are one draw group (owner
+                    2026-11-19, order_select_v6): the deepest level's weight in the level draw, the fewest dispatches over all its cells,
+                    ties to the deeper level, then the earlier tick, then the cell id (order_select).
+    fall cut        (owner 2026-11-19, order_select_v5; v6: grounded states spared; --fall-cut-y Y, needs --open-line-from K, default off
+                    = no change) at levels >= K an in-night reach whose position y is below Y and whose key's resource class is not G,
+                    inside the rule above, is not kept (the BEYOND verdict, as a rule rejection) and counts in the fall-cut readout
+                    (report-only; the grounded reaches below Y it spares are counted too); such a cell is not drawable, so an inherited
+                    one stays in the archive (it holds its key) undrawable. The reach records (deep reaches, extent, break record) keep
+                    every reach; the continuation, the resume's set, the milestones and levels below K are unchanged.
     continuation    (owner 2026-11-16, replaces F3) at every 120-word boundary a burst continues while the episode is live (the worker
                     asks only then) and the state at the boundary is inside the arrival rule, up to max_segments x 120 = 720 words. D's
                     jobs carry a boundary window of one segment (the arm's window = segment_words), so each boundary question holds all
@@ -146,6 +148,8 @@ CONT_RULE = ("at a segment boundary (n a multiple of segment_words, the episode 
 OBS_GROUND = mcell.OBS_INDEX["ground_air_state"]
 OBS_STATUS = mcell.OBS_INDEX["fighter_status_id"]
 OBS_X, OBS_Y = mcell.OBS_INDEX["position_x"], mcell.OBS_INDEX["position_y"]
+if osel.GROUNDED != mcell.RES_GROUNDED:                  # the fall cut's grounded exception reads the cell key's resource class (v6)
+    raise ImportError(f"order_select.GROUNDED {osel.GROUNDED!r} is not m8_rd_cells.RES_GROUNDED {mcell.RES_GROUNDED!r}")
 EXTENT_GROUPS = ("all", "inside")
 
 
@@ -750,20 +754,26 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
         keep_rule.update({"open_line_from": k, "open_line": pace.line(k), "archive_bound": archive_bound(dp),
                           "open_rule": (f"levels >= {k}: also kept and drawable when the {k}-th break <= line({k}) = {pace.line(k)}; no line on the later "
                                         f"breaks or the own tick (the archive's own bound is the horizon); the windows above still keep what they keep; "
-                                        f"keep, draw, continuation and resume read it, the milestones do not; the cell draw at levels >= {k} is the "
-                                        f"fewest dispatches over the whole level, every target set and order, no rotation (ties: earlier tick, "
+                                        f"keep, draw, continuation and resume read it, the milestones do not; the levels >= {k} are one draw "
+                                        f"group: the deepest level's weight in the level draw (the levels below {k} weighted as if {k} were the "
+                                        f"deepest), the fewest dispatches over all its cells, no rotation (ties: deeper level, earlier tick, "
                                         f"cell id)")})
     if pace.cut_y is not None:                           # owner 2026-11-19: only with the option, so the plan with it off is v4's
         k = int(pace.open_from)                          # OrderParams.check: the cut needs the open line
         final: Dict[Tuple[Any, ...], Mapping[str, Any]] = {}
         for e in _seq:                                   # the resume's final representative per key (the archive's keep rule, mirrored)
             final[fa.norm_key(e["cand"]["key"])] = e["cand"]
-        below: Counter = Counter(str(cd["level"]) for cd in final.values() if pace.below_cut(int(cd["level"]), float(cd["end"][OBS_Y])))
+        below: Counter = Counter(str(cd["level"]) for cd in final.values()
+                                 if pace.below_cut(int(cd["level"]), float(cd["end"][OBS_Y]), str(cd["key"][2])))
+        spared: Counter = Counter(str(cd["level"]) for cd in final.values()
+                                  if pace.below_y(int(cd["level"]), float(cd["end"][OBS_Y])) and str(cd["key"][2]) == osel.GROUNDED)
         keep_rule.update({"fall_cut_y": float(pace.cut_y), "fall_cut_from": k,
-                          "fall_cut_rule": (f"levels >= {k}: a state with position y < {pace.cut_y:g} is not kept as a cell and its cell is not "
-                                            f"drawable (exploitation or breadth); an inherited cell below it stays kept, undrawable; reaches are still "
-                                            f"recorded; levels below {k}, the continuation and the milestones unchanged"),
-                          "fall_cut_inherited_undrawable": {lv: int(below[lv]) for lv in sorted(below, key=int, reverse=True)}})
+                          "fall_cut_rule": (f"levels >= {k}: a state with position y < {pace.cut_y:g} whose resource class is not "
+                                            f"{osel.GROUNDED} (grounded) is not kept as a cell and its cell is not drawable (exploitation or "
+                                            f"breadth); an inherited such cell stays kept, undrawable; grounded states below it are kept and "
+                                            f"drawable; reaches are still recorded; levels below {k}, the continuation and the milestones unchanged"),
+                          "fall_cut_inherited_undrawable": {lv: int(below[lv]) for lv in sorted(below, key=int, reverse=True)},
+                          "fall_cut_inherited_grounded_spared": {lv: int(spared[lv]) for lv in sorted(spared, key=int, reverse=True)}})
     plan = {"contract": ORDER_CONTRACT, "mode": "lab", "utc": g.utc(), "lab_root": str(lab_root), "out": str(out),
             "archive_id": ARCHIVE_ID.format(seed=int(ep.rng_seed)), "key_family": KEY_FAMILY,
             "root": {"level": 0, "mask": osel.ROOT_MASK, "niche": rs.niche_label(rs.seed_niche(osel.ROOT_MASK)), "words": 0,
@@ -928,14 +938,17 @@ class OrderEngine(C.Run3Engine):
                     if deep:
                         self.log_deep_reach(key, lv, t, arrival, cs.BEYOND, why)
                     return cs.BEYOND, None
-                y = float(end[OBS_Y]) if self.pace.cut_y is not None else 0.0
-                if self.pace.cut_y is not None and self._insert_pairs is None and self.pace.below_cut(lv, y):   # the fall cut (owner
-                    self.archive.counts[cs.BEYOND] += 1          # 2026-11-19), in-night reaches only: not kept, as a rule rejection
-                    self.pace.cut.note(lv, t, y)
-                    self.c["cut_reaches"] += 1
-                    if deep:
-                        self.log_deep_reach(key, lv, t, arrival, cs.BEYOND, ("fall_cut", round(float(self.pace.cut_y) - y, 3)))
-                    return cs.BEYOND, None
+                if self.pace.cut_y is not None and self._insert_pairs is None and self.pace.below_y(lv, float(end[OBS_Y])):
+                    y = float(end[OBS_Y])                        # the fall cut (owner 2026-11-19), in-night reaches only
+                    if str(key[2]) == osel.GROUNDED:             # v6: a grounded state below Y is spared (counted, then the keep rule)
+                        self.pace.cut.spare(lv)
+                    else:                                        # not kept, as a rule rejection
+                        self.archive.counts[cs.BEYOND] += 1
+                        self.pace.cut.note(lv, t, y)
+                        self.c["cut_reaches"] += 1
+                        if deep:
+                            self.log_deep_reach(key, lv, t, arrival, cs.BEYOND, ("fall_cut", round(float(self.pace.cut_y) - y, 3)))
+                        return cs.BEYOND, None
             if lv < osel.TARGETS_TOTAL:
                 origin = dict(origin, d_breaks=[list(p) for p in pairs])
             verdict, c = orig_keep(key, level, tick, words, end, end_digest, chain, origin, n_dispatch, **kw)
@@ -1469,7 +1482,8 @@ class OrderEngine(C.Run3Engine):
                "claim_threshold": int(self.order_plan["claim_threshold"]), "memory_main_mb": mb, "jobs_per_h": round(self.c["jobs"] / ex_h, 1) if wall else None,
                "flags": flags, "status": self.status if wall else None, "owner_tables": self.owner_tables()}
         if self.pace.cut_y is not None:                      # owner 2026-11-19: only with the fall cut (report-only)
-            rec["fall_cut"] = {"reaches": self.pace.cut.snapshot(), "undrawable_cells": sel.cut_undrawable()}
+            rec["fall_cut"] = {"reaches": self.pace.cut.snapshot(), "grounded_spared": self.pace.cut.spared_snapshot(),
+                               "undrawable_cells": sel.cut_undrawable()}
         for name in ("milestones",):
             rec[name] = [{k: v for k, v in m.items() if k != "utc"} for m in rec[name]]
         sel.period = rs._new_period()
@@ -1583,6 +1597,7 @@ class OrderEngine(C.Run3Engine):
             s["order"]["hitter_record"] = self.hitter_summary()
         if self.pace.cut_y is not None:                     # owner 2026-11-19: only with the fall cut (report-only)
             s["order"]["fall_cut"] = {"y": float(self.pace.cut_y), "from_level": self.pace.open_from, "reaches_cut": self.pace.cut.summary(),
+                                      "grounded_spared": self.pace.cut.spared_summary(),
                                       "reaches_cut_total": int(self.c.get("cut_reaches", 0)), "inherited_undrawable_at_open": dict(self.cut_open),
                                       "undrawable_cells_now": sel.cut_undrawable() if sel is not None else {}}
         return s
@@ -1871,7 +1886,9 @@ def report_md(s: Mapping[str, Any]) -> str:
     fc = o.get("fall_cut")
     if fc:
         lines += ["", "## Fall cut (owner 2026-11-19)", "", f"- {kr.get('fall_cut_rule')}",
-                  f"- reaches not kept by the cut: {fc.get('reaches_cut_total')}; per level {json.dumps(fc.get('reaches_cut'))}",
+                  f"- reaches not kept by the cut: {fc.get('reaches_cut_total')}; per level {json.dumps(fc.get('reaches_cut'))}; grounded reaches below "
+                  f"Y spared, per level {json.dumps(fc.get('grounded_spared'))} (inherited, at the plan: "
+                  f"{json.dumps(kr.get('fall_cut_inherited_grounded_spared'))})",
                   f"- inherited cells made undrawable at the open {json.dumps(fc.get('inherited_undrawable_at_open'))} (plan: "
                   f"{json.dumps(kr.get('fall_cut_inherited_undrawable'))}); undrawable at the close {json.dumps(fc.get('undrawable_cells_now'))}"]
     hr = o.get("hitter_record")
@@ -2026,13 +2043,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--retire-after", type=int, default=osel.OrderParams.retire_after)
     ap.add_argument("--open-line-from", type=int, default=None, metavar="K",
                     help="owner 2026-11-18: open the pace line from level K (1-9): a state with K or more targets broken is also kept and drawable "
-                         "when its K-th break <= line(K), with no line on later breaks or its own tick; the cell draw at levels >= K is the "
-                         "fewest dispatches over the whole level (every target set and order, no rotation); default off (order_select_v3's "
-                         "behaviour)")
+                         "when its K-th break <= line(K), with no line on later breaks or its own tick; the "
+                         "levels >= K are one draw group (the deepest level's weight; fewest dispatches over all its cells, ties deeper level, "
+                         "earlier tick, cell id); default off (order_select_v3's behaviour)")
     ap.add_argument("--fall-cut-y", type=float, default=None, metavar="Y",
-                    help="owner 2026-11-19, needs --open-line-from K: at levels >= K a state whose position y is below Y is not kept as a cell "
-                         "and is not drawable; inherited cells below Y stay kept but undrawable; reaches are still recorded; default off (no "
-                         "change). Write a negative value as --fall-cut-y=-2850; plan and run take the same value")
+                    help="owner 2026-11-19, needs --open-line-from K: at levels >= K a state whose position y is below Y and whose resource class "
+                         "is not G (grounded) is not kept as a cell and is not drawable; inherited such cells stay kept but undrawable; grounded "
+                         "states are spared; reaches are still recorded; default off (no change). Write a negative value as --fall-cut-y=-2700; "
+                         "plan and run take the same value")
     ap.add_argument("--hitter-record", action="store_true",
                     help="owner 2026-11-19, report-only: D's search workers run with SSB64_RL_ENTITY=1 (tools/frs/order_worker.py) and every "
                          "break_record entry gains the hitter fields (mario / projectile with its serial, owner and first tick / unseen / "
