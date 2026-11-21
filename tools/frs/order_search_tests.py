@@ -1132,7 +1132,7 @@ def unit_open_line_params() -> Dict[str, Any]:
     check("open_line_from" not in off.as_record() and on.as_record()["open_line_from"] == 7, "the record carries K only when set")
     check(osel.params_fingerprint(on) != osel.params_fingerprint(off) != osel.params_fingerprint(osel.OrderParams(open_line_from=6)),
           "K changes the fingerprint")
-    check(osel.SELECT_CONTRACT == "order_select_v6" and "fewest" in osel.STREAMS and "fewest" in osel.EXPLOIT_STREAMS, "contract v6, stream fewest")
+    check(osel.SELECT_CONTRACT == "order_select_v7" and "fewest" in osel.STREAMS and "fewest" in osel.EXPLOIT_STREAMS, "contract v7, stream fewest")
     return {"fingerprint_off": osel.params_fingerprint(off)[:16], "fingerprint_k7": osel.params_fingerprint(on)[:16]}
 
 
@@ -1457,6 +1457,194 @@ def unit_fall_cut_plan() -> Dict[str, Any]:
     cmd = O.run_command(Path("C:/lab"), Path("C:/lab/f"), Path("C:/lab/order_x"), a)
     check(" --open-line-from 7 --fall-cut-y=-2850.0 --hitter-record" in cmd, f"the run command: {cmd}")
     return {"cmd_tail": cmd[-80:]}
+
+
+# -- v7 (owner 2026-11-20): the record bound, the one-live-target exemption, the floor-direction key -------------------------------------------
+
+V7_KEYS = ("record_bound", "fall_cut_spare_one_live", "floor_direction_key")
+
+
+def unit_v7_params() -> Dict[str, Any]:
+    """The v7 options: the record bound B is an integer tick >= 1 and needs K; the one-live exemption needs the fall cut; the direction key
+    is on or off; off, none of them is in the parameter record (v6's record exactly); each one on changes the fingerprint."""
+    for bad in ({"record_bound": 900}, {"open_line_from": 7, "record_bound": 0}, {"open_line_from": 7, "record_bound": 900.0},
+                {"open_line_from": 7, "record_bound": True}, {"open_line_from": 7, "fall_cut_spare_one_live": True},
+                {"open_line_from": 7, "fall_cut_y": -2700.0, "fall_cut_spare_one_live": 1}, {"floor_direction_key": 1}, {"floor_direction_key": "on"}):
+        check(_refused(osel.OrderParams(**bad).check), f"refused: {bad}")
+    base = {"slack": 200, "open_line_from": 7, "fall_cut_y": -2700.0}
+    for p in (osel.OrderParams(), osel.OrderParams(**base)):
+        check(not set(V7_KEYS) & set(p.as_record()), f"off: no v7 key in the record {sorted(p.as_record())}")
+    ons = [osel.OrderParams(**dict(base, record_bound=900)), osel.OrderParams(**dict(base, fall_cut_spare_one_live=True)),
+           osel.OrderParams(**dict(base, floor_direction_key=True))]
+    for p, k in zip(ons, V7_KEYS):
+        rec = p.as_record()
+        check(set(rec) - set(osel.OrderParams(**base).as_record()) == {k}, f"on: only {k} is added: {rec}")
+    check(ons[0].as_record()["record_bound"] == 900 and ons[1].as_record()["fall_cut_spare_one_live"] is True
+          and ons[2].as_record()["floor_direction_key"] is True, "the values as given")
+    fps = {osel.params_fingerprint(p) for p in ons} | {osel.params_fingerprint(osel.OrderParams(**base))}
+    check(len(fps) == 4 and osel.params_fingerprint(osel.OrderParams(**dict(base, record_bound=901))) not in fps, "each option changes the fingerprint")
+    return {"fingerprints": sorted(f[:12] for f in fps)}
+
+
+def _bt(level: int, arrival: int, tick: int) -> List[int]:
+    return [min(int(arrival), int(tick))] * int(level)
+
+
+def unit_record_bound_rule() -> Dict[str, Any]:
+    """Pace.past_bound: at levels >= K only, own tick >= B (B itself is past); Pace.continues: the arrival rule (with the open line) and not
+    past B; with the bound off, continues is keeps_ticks on every state of a grid (the continuation is v6's)."""
+    on = osel.Pace(osel.OrderParams(slack=200, open_line_from=7, record_bound=900))
+    check(on.past_bound(7, 900) and on.past_bound(9, 3000) and not on.past_bound(7, 899) and not any(on.past_bound(lv, 5000) for lv in range(7)),
+          "levels >= K, tick >= B")
+    bt7 = [10, 20, 30, 40, 50, 60, 500]                  # 7th break by line(7) = 536 (slack 200): opened
+    check(on.keeps_ticks(7, 950, bt7) and not on.continues(7, 950, bt7) and on.continues(7, 899, bt7) and on.keeps_ticks(7, 899, bt7),
+          "a level-7 state inside the open line stops at a boundary past B, not before")
+    n = 0
+    for p in (osel.OrderParams(), osel.OrderParams(slack=200, open_line_from=7), osel.OrderParams(slack=200, open_line_from=7, fall_cut_y=-2700.0),
+              osel.OrderParams(slack=200, open_line_from=7, fall_cut_y=-2700.0, fall_cut_spare_one_live=True, floor_direction_key=True)):
+        pc = osel.Pace(p)
+        for lv in range(10):
+            for tick in (0, 100, 300, 536, 600, 899, 900, 901, 1500, 3600):
+                for arr in (5, 200, 536, 537, 900):
+                    bt = _bt(lv, arr, tick)
+                    check(pc.continues(lv, tick, bt) == pc.keeps_ticks(lv, tick, bt), f"bound off: continues == keeps_ticks ({p.as_record()}, {lv}, {tick}, {arr})")
+                    check(not pc.past_bound(lv, tick), "bound off: never past")
+                    n += 1
+    return {"grid_states": n}
+
+
+def unit_record_bound_selector() -> Dict[str, Any]:
+    """The bound in the selector: at levels >= K a cell whose own tick is >= B is neither active nor in the breadth pool, one below B is;
+    levels below K are unaffected; the readout counts per level; a representative replaced by an earlier one below B is drawable again."""
+    s = Static(root=False)
+    order = (0, 1, 2, 3, 4, 5, 9)
+    early, at_b, late = (s.add(order, t) for t in (600, 900, 1200))
+    for c in (early, at_b, late):
+        s.breaks[c.cid] = B7
+    six = s.add(order[:6], 400)
+    sel = s.selector(open_line_from=7, record_bound=900)
+    check(sel.is_active(early.cid) and not sel.is_active(at_b.cid) and not sel.is_active(late.cid) and sel.is_active(six.cid),
+          "tick >= B at level 7: not active; below B, and level 6: active")
+    check(early.cid in sel.breadth_pool() and not {at_b.cid, late.cid} & set(sel.breadth_pool()), "the breadth pool excludes them")
+    check(sel.bound_undrawable() == {"7": 2}, f"the readout: {sel.bound_undrawable()}")
+    got: Counter = Counter()
+    for n in range(12):
+        c, draw = sel.select(ScriptRng([0.5, 0.99]) if n % 2 else ScriptRng([0.1, 0.0]))
+        got[int(c.cid)] += 1
+        info = dict(sel.on_dispatch(c, draw, n))
+        info.update(cid=int(c.cid), level=int(c.level))
+        take(sel, info, n=n)
+    check(not got[at_b.cid] and not got[late.cid] and got[early.cid], f"never drawn past B: {dict(got)}")
+    v, c2, _niche = kept_child(s.a, s.niches[early.cid], [], 650, int(late.key[0]))   # late's key, an earlier tick below B: a replacement
+    check(v == REPLACED and c2.cid == late.cid, f"the replacement: {v} {c2.cid}")
+    s.breaks[late.cid] = B7
+    info = send(sel, early, 12)
+    take(sel, info, kept=[(v, c2, s.niches[late.cid])], n=12)
+    check(sel.is_active(late.cid) and late.cid in sel.breadth_pool() and sel.bound_undrawable() == {"7": 1}, "a representative below B is drawable again")
+    off = s.selector(open_line_from=7)
+    check(all(off.is_active(x.cid) for x in (early, at_b, late, six)) and off.bound_undrawable() == {}, "without the bound every cell is active")
+    return {"draws": dict(got)}
+
+
+def unit_one_live_rule() -> Dict[str, Any]:
+    """The one-live-target exemption: with it on, Pace.below_cut spares a level-9 state below Y whatever its class, and still cuts levels
+    7 and 8; off (or without the cut) v6's answers; in the selector an airborne level-9 cell below Y is drawable with it on, a level-8 one is
+    not, and neither is without it."""
+    on = osel.Pace(osel.OrderParams(open_line_from=7, fall_cut_y=-1000.0, fall_cut_spare_one_live=True))
+    off = osel.Pace(osel.OrderParams(open_line_from=7, fall_cut_y=-1000.0))
+    air = ("A2", "A1", "A0", "X")
+    check(not any(on.below_cut(9, -2000.0, r) for r in air) and all(on.below_cut(lv, -2000.0, r) for lv in (7, 8) for r in air),
+          "on: level 9 spared, levels 7 and 8 cut")
+    check(all(off.below_cut(9, -2000.0, r) for r in air) and on.one_live(9) and not on.one_live(8) and not off.one_live(9), "off: v6's cut")
+    check(all(on.below_cut(lv, y, r) == off.below_cut(lv, y, r) for lv in range(9) for y in (-5000.0, -1000.0, 0.0) for r in air + ("G",)),
+          "below level 9 the two agree everywhere")
+    s = Static(root=False)
+    order9 = (0, 1, 2, 3, 4, 5, 9, 6, 7)
+    c9, c8 = s.add(order9, 700), s.add(order9[:8], 690)
+    s.breaks[c9.cid] = B7 + (600, 650)
+    s.breaks[c8.cid] = B7 + (600,)
+    ys = {c9.cid: -2000.0, c8.cid: -2000.0}
+    mk = lambda **kw: osel.OrderSelector(s.a, osel.OrderParams(open_line_from=7, fall_cut_y=-1000.0, **kw), niches=s.niches, breaks=s.breaks,  # noqa: E731
+                                         y_of=lambda cid: ys[int(cid)])
+    sel_on, sel_off = mk(fall_cut_spare_one_live=True), mk()
+    check(sel_on.is_active(c9.cid) and not sel_on.is_active(c8.cid) and c9.cid in sel_on.breadth_pool() and sel_on.cut_undrawable() == {"8": 1},
+          f"on: the level-9 cell is drawable, the level-8 one is not: {sel_on.cut_undrawable()}")
+    check(not sel_off.is_active(c9.cid) and not sel_off.is_active(c8.cid) and sel_off.cut_undrawable() == {"9": 1, "8": 1}, f"off: {sel_off.cut_undrawable()}")
+    return {"on": sel_on.cut_undrawable(), "off": sel_off.cut_undrawable()}
+
+
+def unit_direction_key() -> Dict[str, Any]:
+    """The floor-direction key: the moving floor lines are the stage table's floor lines of the platform's group (line 19); the platform
+    moves down exactly on the residues 90 ... 239 of its 300-tick period; two states on a moving floor at the same position with opposite
+    directions get different keys, with the same direction the same key; other floors, airborne states and the option off keep today's key;
+    re-keying is deterministic and idempotent; off reads an encoded floor field back as the line id."""
+    import m7g_spatial as msp
+
+    check(O.MOVING_FLOOR_LINES == (19,) and all(ln[2] == msp.PLATFORM_GROUP for ln in msp.EXPECTED_LINES if ln[0] in O.MOVING_FLOOR_LINES),
+          f"the moving floor lines: {O.MOVING_FLOOR_LINES}")
+    check([O.platform_direction(t) for t in range(300)] == ["up"] * 90 + ["down"] * 150 + ["up"] * 60, "down exactly on residues 90 ... 239")
+    check(all(O.platform_direction(t) == O.platform_direction(t + 300 * m) for t in range(300) for m in (1, 2, 11)), "period 300")
+    k = (9, 8, "G", 0b0000000010, 19)
+    up, down = O.direction_key(k, 300, True), O.direction_key(k, 150, True)
+    check(up != down and up[:4] == down[:4] == k[:4] and (up[4], down[4]) == (1019, 2019), f"opposite directions, different keys: {up} {down}")
+    check(O.direction_key(k, 60, True) == up and O.direction_key(k, 239, True) == down, "the same direction, the same key")
+    check(O.direction_key(up, 300, True) == up and O.direction_key(down, 150, True) == down and O.direction_key(up, 150, True) == down,
+          "idempotent; an encoded key re-keyed from its tick")
+    check(O.direction_key(k, 150, False) == k and O.direction_key(down, 150, False) == k and O.plain_floor(2019) == 19 and O.plain_floor(-1) == -1,
+          "off: today's key, an encoded field read back")
+    for other in ((9, 8, "G", 2, 4), (9, 8, "G", 2, 0), (9, 8, "A1", 2, -1), (9, 8, "X", 2, -1), (9, 8, "A0", 2, 19)):
+        check(O.direction_key(other, 150, True) == other and O.direction_key(other, 150, False) == other, f"unchanged: {other}")
+    check(O.direction_key(list(k), 150, True) == down and isinstance(O.direction_key(list(k), 150, True), tuple), "a list key: the same tuple")
+    rnd = random.Random(5)
+    keys = [(rnd.randint(-20, 20), rnd.randint(-12, 15), rnd.choice(("G", "A2", "A1", "A0", "X")), rnd.randint(0, 1023), rnd.choice((-1, 0, 4, 19)))
+            for _ in range(2000)]
+    ticks = [rnd.randint(0, 3600) for _ in keys]
+    first = [O.direction_key(kk, t, True) for kk, t in zip(keys, ticks)]
+    check(first == [O.direction_key(kk, t, True) for kk, t in zip(keys, ticks)] == [O.direction_key(f, t, True) for f, t in zip(first, ticks)],
+          "deterministic and idempotent over 2,000 keys")
+    rec = O.direction_key_record()
+    check(rec["lines"] == [19] and rec["period"] == 300 and rec["down_residues"] == [90, 239] and "five-field" in rec["limit"], f"the record: {rec}")
+    return {"up": list(up), "down": list(down), "encoded": sum(1 for f in first if int(f[4]) >= 1000)}
+
+
+def unit_v7_plan() -> Dict[str, Any]:
+    """The v7 options in the plan and on the command line: off, no v7 key and today's continuation text (the plan as before); on, the keep
+    rule states the bound, the exemption and the direction key's definition, and the continuation text states the stop; run refuses a
+    different B and a missing option; the printed run command carries the flags."""
+    import argparse
+
+    lab = tmpdir("order_v7_plan_")
+    try:
+        fr_dir = write_fake_frontier(lab, 3000)
+        base = osel.OrderParams(slack=200, open_line_from=7, fall_cut_y=-1172.0)
+        allv = osel.OrderParams(slack=200, open_line_from=7, fall_cut_y=-1172.0, fall_cut_spare_one_live=True, record_bound=900, floor_direction_key=True)
+        PB = O.build_plan(lab, fr_dir, lab / "order_v6like", base, O.engine_params(base, rng_seed=3), code="test")
+        PA = O.build_plan(lab, fr_dir, lab / "order_v7all", allv, O.engine_params(allv, rng_seed=3), code="test")
+        v7kr = ("record_bound", "record_bound_from", "record_bound_rule", "record_bound_inherited_undrawable", "fall_cut_one_live",
+                "fall_cut_inherited_one_live_spared", "floor_direction_key")
+        check(not set(v7kr) & set(PB["keep_rule"]) and PB["continuation"] == O.CONT_RULE and not set(V7_KEYS) & set(PB["params"]),
+              f"off: no v7 key, today's continuation {list(PB['keep_rule'])}")
+        kr = PA["keep_rule"]
+        check(kr["record_bound"] == 900 and kr["record_bound_from"] == 7 and "900 or later" in kr["record_bound_rule"] and kr["record_bound_inherited_undrawable"] == {}
+              and "one live target" in kr["fall_cut_one_live"] and kr["fall_cut_inherited_one_live_spared"] == {} and kr["floor_direction_key"] == O.direction_key_record(),
+              f"on: the keep rule states them: {kr}")
+        check(PA["continuation"].startswith(O.CONT_RULE) and "record bound 900" in PA["continuation"], f"the continuation text: {PA['continuation'][-160:]}")
+        strip = lambda P: {k: v for k, v in P.items() if k not in ("utc", "out", "keep_rule", "params", "params_fingerprint", "continuation")}  # noqa: E731
+        check(strip(PB) == strip(PA) and {k: v for k, v in kr.items() if k not in v7kr} == PB["keep_rule"], "nothing else in the plan changes")
+        check(O.run_flag_problems(PA, allv, O.engine_params(allv, rng_seed=3), fr_dir) is None, "the same options run")
+        for other in (osel.OrderParams(slack=200, open_line_from=7, fall_cut_y=-1172.0, fall_cut_spare_one_live=True, record_bound=901, floor_direction_key=True),
+                      osel.OrderParams(slack=200, open_line_from=7, fall_cut_y=-1172.0, fall_cut_spare_one_live=True, record_bound=900), base):
+            check("selection parameters differ" in (O.run_flag_problems(PA, other, O.engine_params(other, rng_seed=3), fr_dir) or ""), f"refused: {other.as_record()}")
+    finally:
+        cleanup(lab)
+    a = argparse.Namespace(rng_seed=1, workers=3, max_ticks=10, max_wall_min=30.0, summary_every_s=60.0, max_cells=O.C.Params3.max_cells, max_dispatches=0,
+                           min_commit_free_mb=None, override_reason="", goal=480, slack=200, open_line_from=7, fall_cut_y=-2700.0, hitter_record=True, resume_from=[],
+                           fall_cut_spare_one_live=True, record_bound=900, floor_direction_key=True, level_weights="", breadth_share=0.2, retire_after=300)
+    cmd = O.run_command(Path("C:/lab"), Path("C:/lab/f"), Path("C:/lab/order_x"), a)
+    check(" --fall-cut-y=-2700.0 --fall-cut-spare-one-live --record-bound 900 --floor-direction-key --hitter-record" in cmd, f"the run command: {cmd}")
+    check(O.order_params_from_args(a) == osel.OrderParams(slack=200, open_line_from=7, fall_cut_y=-2700.0, fall_cut_spare_one_live=True, record_bound=900,
+                                                          floor_direction_key=True), "the flags make the parameters")
+    return {"cmd_tail": cmd[-110:]}
 
 
 def unit_break_record() -> Dict[str, Any]:
@@ -1794,6 +1982,8 @@ def order_child(a: Mapping[str, Any]) -> Dict[str, Any]:
 
     lab, out, frontier = Path(a["lab"]), Path(a["out"]), Path(a["frontier"])
     run_dir = out / "run"
+    if a.get("dir_lines") is not None:                 # v7 tests only: a fake-world floor stands in for the moving floor (none in the fake game)
+        O.MOVING_FLOOR_LINES = tuple(int(x) for x in a["dir_lines"])
     dp = osel.OrderParams(**(a.get("order") or {}))
     ep = O.engine_params(dp, **a["engine"])
     opened: List[str] = []
@@ -2546,6 +2736,201 @@ def e2e_e16_clear_below_cut() -> Dict[str, Any]:
             "clear_y": [round(float(x["break_record"][-1]["y"]), 1) for x in below_air], "cut_reaches": o["fall_cut"]["reaches_cut_total"]}
 
 
+# -- v7 on the fake game (owner 2026-11-20) -----------------------------------------------------------------------------------------------
+
+FAKE_DIR_LINES = (4,)      # a test value: the fake world's main floor stands in for the moving floor line (the fake game has none)
+
+
+def _kept_burst(r: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    return [c for c in r["cells"] if c["ev"] in ("new", "replaced") and (c.get("origin") or {}).get("kind") == "burst"]
+
+
+def _fake_bound(b: DBench) -> int:
+    """A test value of B on the fake game: the median own tick of the level-7+ cells E11's night (same seed) kept, so that level-7+ reaches
+    fall on both sides of it. Not a night's value."""
+    ticks = sorted(int(c["tick"]) for c in _kept_burst(_open7(b)) if int(c["level"]) >= 7)
+    check(len(ticks) >= 10, f"E11's night keeps level-7+ cells: {len(ticks)}")
+    return ticks[len(ticks) // 2]
+
+
+def _clean(r: Mapping[str, Any], n: Optional[int] = None) -> None:
+    s = r.get("summary") or {}
+    check(r["code"] == 0 and s.get("status") == "DISPATCH_CAP" and not r["violations"] and s["work"]["mismatches"] == 0 and (n is None or len(_bursts(r)) == n),
+          f"a clean night: {r['code']} {s.get('status')} {s.get('stop')} {r['violations']}")
+
+
+def e2e_e17_record_bound() -> Dict[str, Any]:
+    """The record bound (owner 2026-11-20) on the fake game: E11's night with B (a test value, _fake_bound). Every level-7+ cell kept tonight
+    has its own tick below B; the level-7+ reaches at or past B inside the arrival rule are logged (deep reaches, reason record_bound, over =
+    tick - B) and counted; every dispatch from a level-7+ cell starts below B; every boundary whose state is at a level >= 7 at a tick >= B
+    stops the burst, and some burst is stopped that way; boundary answers follow the rule (0 mismatches); levels below 7 keep v6's rule;
+    every clear is claimed; the milestones keep their lines; plan, config, summary, hourly records and report state the bound."""
+    b = dbench()
+    K, B = 7, _fake_bound(b)
+    A = b.run("bound7", order={"slack": 200, "open_line_from": K, "record_bound": B}, engine=dict(E_ENGINE, max_dispatches=240, rng_seed=11), port_base=36000)
+    _clean(A, 240)
+    s, o = A["summary"], A["summary"]["order"]
+    kr = o["keep_rule"]
+    check(kr["record_bound"] == B and kr["record_bound_from"] == K and A["config"]["order_params"]["record_bound"] == B and "## Record bound" in A["report"]
+          and all("record_bound" in h for h in A["hourly"]) and f"record bound {B}" in A["config"]["continuation"], f"the records state the bound: {kr}")
+    kept = _kept_burst(A)
+    hi = [c for c in kept if int(c["level"]) >= K]
+    check(hi and all(int(c["tick"]) < B for c in hi), f"every level-7+ cell kept tonight is below B = {B}: {len(hi)}")
+    pace = osel.Pace(osel.OrderParams(slack=200, open_line_from=K))
+    check(all(_rows_rule(pace, K, int(c["level"]), int(c["tick"]), c["origin"]["d_breaks"]) for c in kept if int(c["level"]) < K), "levels below 7: the rule as before")
+    rows_b = [d for d in A["deep"] if d.get("reason") == "record_bound"]
+    check(rows_b and all(d["verdict"] == O.cs.BEYOND and int(d["level"]) >= K and int(d["tick"]) >= B and int(d["over"]) == int(d["tick"]) - B for d in rows_b),
+          f"the reaches past B are logged: {len(rows_b)}")
+    rb = o["record_bound"]
+    check(rb["reaches_not_kept_total"] == len(rows_b) == sum(int(v["count"]) for v in rb["reaches_not_kept"].values()) and rb["bound"] == B, f"the readout: {rb}")
+    rows = _bursts(A)
+    starts = [x for x in rows if int(x["level"]) >= K]
+    check(starts and all(int(x["start_tick"]) < B for x in starts), f"every level-7+ dispatch starts below B: {len(starts)}")
+    stops = past_go = 0
+    for x in rows:
+        for e in x.get("cont") or []:
+            if e[2] is not None and int(e[2]) >= K and int(e[4]) >= B:
+                past_go += int(bool(e[5]))
+                stops += int(not e[5])
+    check(stops > 0 and past_go == 0, f"bursts stop at their first boundary past B: {stops} stops, {past_go} went on")
+    check(o["continuation"]["checked"] > 0 and o["continuation"]["mismatches"] == 0 and str(B) in o["continuation"]["rule"], f"boundary answers: {o['continuation']}")
+    clears = [x for x in rows if x.get("outcome") == "clear"]
+    check(o["claims"]["claimed"] == len(clears) == s["work"]["clears_claimed"], f"every clear is claimed: {o['claims']} vs {len(clears)}")
+    for m in o["milestones"]:
+        if m["milestone"] != "clear_line":
+            check(int(m["tick"]) <= int(m["line"]), f"milestone {m['milestone']} keeps its line: {m}")
+    return {"B": B, "kept_7plus": len(hi), "reaches_past_b": len(rows_b), "stops": stops, "dispatches_7plus": len(starts), "clears": len(clears),
+            "levels": dict(Counter(int(c["level"]) for c in kept))}
+
+
+def e2e_e18_one_live() -> Dict[str, Any]:
+    """The one-live-target exemption (owner 2026-11-20): E16's night (Y above the whole fake world: every level-7+ state below Y) with the
+    exemption on keeps airborne level-9 states (none without it) and still keeps only grounded level-7 and level-8 ones; the cut's readout
+    counts the spared level-9 reaches and logs no level-9 cut; airborne level-9 cells are dispatched; every clear is claimed."""
+    b = dbench()
+    K, Y = 7, FAKE_CUT_Y_ALL
+    C0 = b.run("clear_cut", order={"slack": 200, "open_line_from": K, "fall_cut_y": Y}, engine=dict(E_ENGINE, max_dispatches=240, rng_seed=11), port_base=52000)
+    E = b.run("onelive", order={"slack": 200, "open_line_from": K, "fall_cut_y": Y, "fall_cut_spare_one_live": True}, engine=dict(E_ENGINE, max_dispatches=240, rng_seed=11),
+              port_base=38000)
+    _clean(E, 240)
+    G = osel.GROUNDED
+    air9 = [c for c in _kept_burst(E) if int(c["level"]) == 9 and c["key"][2] != G]
+    check(air9, f"airborne level-9 states are kept with the exemption: {len(air9)}")
+    check(not [c for c in _kept_burst(C0) if int(c["level"]) == 9 and c["key"][2] != G], "without it, none")
+    check(all(c["key"][2] == G for c in _kept_burst(E) if int(c["level"]) in (7, 8)), "levels 7 and 8: only grounded states kept")
+    fc = E["summary"]["order"]["fall_cut"]
+    check(set(fc["one_live_spared"]) == {"9"} and int(fc["one_live_spared"]["9"]) > 0 and "9" not in fc["reaches_cut"]
+          and not [d for d in E["deep"] if d.get("reason") == "fall_cut" and int(d["level"]) == 9], f"the readout: {fc}")
+    check("one live target" in E["summary"]["order"]["keep_rule"]["fall_cut_one_live"] and "one live target" in E["report"], "the records state it")
+    dig9 = {c["digest"] for c in air9}
+    started = [x for x in _bursts(E) if str(x["draw_id"]).rsplit("|", 1)[1] in dig9]
+    check(started, f"airborne level-9 cells are dispatched: {len(started)}")
+    clears = [x for x in _bursts(E) if x.get("outcome") == "clear"]
+    check(E["summary"]["order"]["claims"]["claimed"] == len(clears), f"every clear is claimed: {E['summary']['order']['claims']}")
+    return {"air9_kept": len(air9), "spared": fc["one_live_spared"], "dispatched_air9": len(started), "clears": len(clears)}
+
+
+def _dir_ok(c: Mapping[str, Any]) -> bool:
+    """A kept row's key under the direction key with FAKE_DIR_LINES: a grounded state on such a line carries its tick's direction, every
+    other key a plain floor field."""
+    k = c["key"]
+    if k[2] == osel.GROUNDED and O.plain_floor(int(k[4])) in FAKE_DIR_LINES:
+        return int(k[4]) == O.plain_floor(int(k[4])) + O.DIR_FLOOR_OFFSET[O.platform_direction(int(c["tick"]))]
+    return int(k[4]) < 1000
+
+
+def _dir7(b: DBench) -> Dict[str, Any]:
+    return b.run("dir7", order={"slack": 200, "open_line_from": 7, "floor_direction_key": True}, engine=dict(E_ENGINE, max_dispatches=240, rng_seed=11),
+                 port_base=39000, dir_lines=list(FAKE_DIR_LINES))
+
+
+def e2e_e19_direction_key() -> Dict[str, Any]:
+    """The floor-direction key (owner 2026-11-20) on the fake game, with the fake main floor standing in for the moving line: every kept
+    state grounded on it carries its tick's direction in the key, no other key is changed; states at the same position with opposite
+    directions are kept as two cells; reaches are logged under the key the night keeps; the boundary answers follow the rule. Re-keying at
+    the resume (zero ticks): two plans of the same resume give the same set; the re-keyed keys are the folder's stored keys (idempotent); a
+    plain folder resumed with the option gets its moving-floor cells re-keyed from their ticks; with the option off the keys are plain."""
+    b = dbench()
+    D = _dir7(b)
+    _clean(D, 240)
+    o = D["summary"]["order"]
+    rec = dict(O.direction_key_record(), lines=list(FAKE_DIR_LINES))
+    check(o["keep_rule"]["floor_direction_key"] == rec and D["config"]["order_params"]["floor_direction_key"] is True and "## Floor-direction key" in D["report"],
+          f"the records state the key: {o['keep_rule'].get('floor_direction_key')}")
+    rows = [c for c in D["cells"] if c["ev"] in ("new", "replaced")]
+    check(all(_dir_ok(c) for c in rows), "every kept key: the direction on the stand-in line, plain elsewhere")
+    mf = [c for c in rows if c["key"][2] == osel.GROUNDED and int(c["key"][4]) >= 1000]
+    pos: Dict[Tuple[Any, ...], set] = {}
+    for c in mf:
+        pos.setdefault(tuple(c["key"][:4]), set()).add(int(c["key"][4]))
+    both = [p for p, fs in pos.items() if len(fs) == 2]
+    check(mf and both, f"same position, opposite directions: two cells ({len(both)} positions of {len(pos)})")
+    check(all(int(d["key"][4]) < 1000 or d["key"][2] == osel.GROUNDED for d in D["deep"])
+          and all(_dir_ok({"key": d["key"], "tick": d["tick"]}) for d in D["deep"] if int(d["level"]) < osel.TARGETS_TOTAL), "the deep reaches carry the night's keys")
+    check(o["continuation"]["mismatches"] == 0 and o["continuation"]["checked"] > 0, f"boundary answers: {o['continuation']}")
+    fin: Dict[int, Mapping[str, Any]] = {}
+    for c in rows:
+        fin[int(c["cid"])] = c
+    cnt = Counter(f"{int(c['level'])}|{'down' if int(c['key'][4]) >= 2000 else 'up'}" for c in fin.values() if c["key"][2] == osel.GROUNDED and int(c["key"][4]) >= 1000)
+    check(o["floor_direction_key"]["cells_by_level_direction"] == {k: cnt[k] for k in sorted(cnt)}, f"the summary's counts: {o['floor_direction_key']}")
+    saved = O.MOVING_FLOOR_LINES
+    O.MOVING_FLOOR_LINES = FAKE_DIR_LINES
+    try:
+        on = osel.OrderParams(slack=200, open_line_from=7, floor_direction_key=True)
+        off = osel.OrderParams(slack=200, open_line_from=7)
+        P1, P2 = (O.build_plan(b.lab, b.frontier, b.lab / f"order_dir_preview_{i}", on, O.engine_params(on, rng_seed=5), code="preview", resume=[D["out"]])
+                  for i in (1, 2))
+        check(P1["resume"]["set_digest"] == P2["resume"]["set_digest"] and P1["resume"]["counts"] == P2["resume"]["counts"], "re-keying at the resume is deterministic")
+        seq, _rec = O.resume_selection([D["out"]], osel.Pace(on))
+        stored = {(c["digest"], int(c["tick"])): list(c["key"]) for c in fin.values()}
+        check(all(e["key"] == stored[(e["cand"]["digest"], int(e["cand"]["tick"]))] for e in seq), "the re-keyed keys are the stored keys")
+        fk = Counter(f"{int(c['level'])}|{'down' if int(k[4]) >= 2000 else 'up'}" for k, c in O.resume_finals(seq).items() if int(k[4]) >= 1000)
+        check(P1["resume"]["floor_direction_cells"] == {k: fk[k] for k in sorted(fk, key=lambda s_: (-int(s_.split("|")[0]), s_))} and fk,
+              f"the plan counts the inherited moving-floor cells: {P1['resume']['floor_direction_cells']}")
+        seq_off, _r = O.resume_selection([D["out"]], osel.Pace(off))
+        check(all(int(e["key"][4]) < 1000 for e in seq_off) and len(seq_off) <= len(seq), f"off: plain keys ({len(seq_off)} cells, {len(seq)} with the key)")
+        A = _open7(b)
+        seq_p, _r2 = O.resume_selection([A["out"]], osel.Pace(on))
+        g4 = [e for e in seq_p if e["key"][2] == osel.GROUNDED and O.plain_floor(int(e["key"][4])) in FAKE_DIR_LINES]
+        check(g4 and all(int(e["key"][4]) == O.plain_floor(int(e["key"][4])) + O.DIR_FLOOR_OFFSET[O.platform_direction(int(e["cand"]["tick"]))] for e in g4),
+              f"a plain folder resumed with the key: its stand-in-floor cells re-keyed from their ticks ({len(g4)})")
+    finally:
+        O.MOVING_FLOOR_LINES = saved
+    return {"moving_floor_cells": len(mf), "positions_both_directions": len(both), "resume_cells": len(seq), "resume_cells_off": len(seq_off),
+            "plain_folder_rekeyed": len(g4)}
+
+
+def e2e_e20_v7_hitter() -> Dict[str, Any]:
+    """All three v7 options on (with the open line, the cut, a resume from E19's night and the stand-in moving line), with and without the
+    hitter record: the same decisions (E12's checks), the hitter fields on every credited break, and the same bound and cut readouts; the
+    resumed cells keep the keys E19's night stored; the inherited level-7+ cells at or past B stay in the archive, undrawable (the plan's
+    count is the open's) and are never dispatched."""
+    b = dbench()
+    B = _fake_bound(b)
+    D = _dir7(b)
+    order = {"slack": 200, "open_line_from": 7, "fall_cut_y": FAKE_CUT_Y, "fall_cut_spare_one_live": True, "record_bound": B, "floor_direction_key": True}
+    eng = dict(E_ENGINE, max_dispatches=160, rng_seed=12)
+    A = b.run("v7all", order=order, resume=[str(D["out"])], engine=eng, port_base=41000, dir_lines=list(FAKE_DIR_LINES))
+    H = b.run("v7all_hit", order=order, resume=[str(D["out"])], engine=eng, port_base=42000, dir_lines=list(FAKE_DIR_LINES), hitter=True, fake_entity=True)
+    for r in (A, H):
+        _clean(r, 160)
+    _same_decisions(A, H)
+    n, kinds = _hitter_kinds(H)
+    check(n > 0 and not kinds["unavailable"], f"credited breaks with their hitter: {dict(kinds)}")
+    oa, oh = A["summary"]["order"], H["summary"]["order"]
+    check(oa["record_bound"] == oh["record_bound"] and oa["fall_cut"] == oh["fall_cut"] and oa["floor_direction_key"] == oh["floor_direction_key"], "the same v7 readouts")
+    stored = {c["digest"]: list(c["key"]) for c in D["cells"] if c["ev"] in ("new", "replaced")}
+    res_rows = [c for c in A["cells"] if (c.get("origin") or {}).get("kind") == "resume"]
+    check(res_rows and all(c["key"] == stored[c["origin"]["d_digest"]] for c in res_rows), f"the resumed cells keep E19's keys: {len(res_rows)}")
+    past = [c for c in res_rows if int(c["level"]) >= 7 and int(c["tick"]) >= B]
+    lvc = dict(sorted(Counter(str(c["level"]) for c in past).items(), key=lambda kv: -int(kv[0])))
+    check(past and oa["keep_rule"]["record_bound_inherited_undrawable"] == lvc == oa["record_bound"]["inherited_undrawable_at_open"],
+          f"the inherited cells past B: plan {oa['keep_rule']['record_bound_inherited_undrawable']}, open {oa['record_bound']['inherited_undrawable_at_open']}, rows {lvc}")
+    started = {str(x["draw_id"]).rsplit("|", 1)[1] for x in _bursts(A)}
+    check(not ({c["digest"] for c in past} & started), "no dispatch from an inherited cell past B")
+    return {"B": B, "credited_breaks": n, "kinds": dict(kinds), "inherited_past_b": lvc, "resumed": len(res_rows)}
+
+
 def e2e_u11_isolation() -> Dict[str, Any]:
     """U11: run 3 refuses a D folder; D refuses a D folder as its frontier, another tool's plan in its folder, and any inheritance flag;
     D writes only under its own folder through the guard."""
@@ -2647,12 +3032,14 @@ UNIT = {f.__name__: f for f in (unit_u1_pace_line, unit_u2_rejected_readout, uni
                                 unit_u14_tree_sampler, unit_cont_window_rule, unit_burst_extent, unit_resume_lineage, unit_tm1_run3_digest,
                                 unit_open_line_rule, unit_open_line_params, unit_open_line_draw, unit_open_line_plan, unit_break_record,
                                 unit_hitter_rule, unit_hitter_tracker, unit_hitter_break_record, unit_hitter_plan, unit_group_fewest_draw, unit_group_weights,
-                                unit_fall_cut_params, unit_fall_cut_rule, unit_fall_cut_selector, unit_fall_cut_plan)}
+                                unit_fall_cut_params, unit_fall_cut_rule, unit_fall_cut_selector, unit_fall_cut_plan,
+                                unit_v7_params, unit_record_bound_rule, unit_record_bound_selector, unit_one_live_rule, unit_direction_key, unit_v7_plan)}
 
 E2E = {f.__name__: f for f in (e2e_e1_same_seed, e2e_e2_root, e2e_e3_pace_budget, e2e_e4_milestone, e2e_e5_caps_stops, e2e_e6_exports,
                                e2e_e7_resume, e2e_e8_long_bursts, e2e_e9_scoreboard, e2e_e10_extent, e2e_u11_isolation, e2e_u13_no_human_input,
                                e2e_tm2_code_digest, e2e_e11_open_line, e2e_e12_hitter_record, e2e_e13_fall_cut, e2e_e14_fall_cut_resume,
-                               e2e_e15_fall_cut_hitter, e2e_e16_clear_below_cut)}
+                               e2e_e15_fall_cut_hitter, e2e_e16_clear_below_cut, e2e_e17_record_bound, e2e_e18_one_live, e2e_e19_direction_key,
+                               e2e_e20_v7_hitter)}
 REAL = {f.__name__: f for f in (real_frontier_best,)}
 
 if __name__ == "__main__":
