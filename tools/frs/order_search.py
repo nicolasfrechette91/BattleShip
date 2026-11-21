@@ -26,6 +26,28 @@
                     (report-only; the grounded reaches below Y it spares are counted too); such a cell is not drawable, so an inherited
                     one stays in the archive (it holds its key) undrawable. The reach records (deep reaches, extent, break record) keep
                     every reach; the continuation, the resume's set, the milestones and levels below K are unchanged.
+                    v7 (owner 2026-11-20; --fall-cut-spare-one-live, needs --fall-cut-y, default off): the cut does not apply to a state
+                    with exactly one live target (level 9), whose next break is the clear; such a reach below Y is kept by the rules
+                    above whatever its class, counted as spared (one_live).
+    record bound    (owner 2026-11-20, order_select_v7; --record-bound B, needs --open-line-from K, default off = the archive's own bound
+                    only) at levels >= K an in-night reach whose own tick is B or later, inside the arrival rule, is not kept (the BEYOND
+                    verdict, as a rule rejection; deep reaches reason record_bound) and counts in the bound's readout (report-only); such a
+                    cell is not drawable, so an inherited one stays in the archive undrawable (the plan counts them per level). A burst
+                    stops at its first boundary whose state is at a level >= K at a tick >= B (the continuation below, Pace.continues).
+                    Clears and claims are unchanged: a clear's reach is level 10 and terminal (never kept), the claim comes from the
+                    job's outcome. The bound is checked before the fall cut (a reach past B is counted by the bound only).
+    direction key   (owner 2026-11-20, order_select_v7; --floor-direction-key, default off = today's keys) a state grounded on a floor
+                    line that moves (rl/m7g_spatial.EXPECTED_LINES: the floor lines of the moving platform's group, PLATFORM_GROUP; line
+                    19) gets the platform's direction of motion at the state's tick in its key, at every level: the key's floor field is
+                    the line id + 1000 when the platform moves up, + 2000 when it moves down (the frozen archive keeps five key fields,
+                    frs_archive.norm_key; native line ids are below 32). The direction is a function of the tick (PLATFORM_PERIOD,
+                    PLATFORM_DOWN: the agent's own platform motion, measured in its traces). Other keys are unchanged. The main process
+                    applies it to every reach before the keep rule and to every inherited cell at the resume (re-keyed from its tick;
+                    idempotent; with the option off an encoded floor field is read back as the plain line id). LIMIT (owner 2026-11-20,
+                    accepted): the frozen worker (rl/frs_worker.run_iterate_frs) reports a reach only at the first visit of its
+                    FIVE-FIELD key in a burst, so a burst that comes back to the same five-field key after the platform changed direction
+                    reports nothing for it, and that state is never keyed here. A new height bucket is a first visit (it gets its
+                    direction), and another burst reaching the bucket while the platform moves the other way gets its own key.
     continuation    (owner 2026-11-16, replaces F3) at every 120-word boundary a burst continues while the episode is live (the worker
                     asks only then) and the state at the boundary is inside the arrival rule, up to max_segments x 120 = 720 words. D's
                     jobs carry a boundary window of one segment (the arm's window = segment_words), so each boundary question holds all
@@ -117,6 +139,7 @@ import frs_report as frep  # noqa: E402
 import frs_run as fr  # noqa: E402
 import frs_verify as fv  # noqa: E402
 import frs_worker as fw  # noqa: E402
+import m7g_spatial as msp  # noqa: E402
 import m8_rd_cells as mcell  # noqa: E402
 import order_select as osel  # noqa: E402
 import order_worker as ow  # noqa: E402
@@ -145,12 +168,72 @@ M1_REFERENCE_SLACK = osel.OrderParams.slack   # owner 2026-11-16: M1 also shown 
 CONT_RULE = ("at a segment boundary (n a multiple of segment_words, the episode live): continue iff the state at the boundary is inside the "
              "arrival rule (its level-L break at or before line(L), its tick at or before line(L + 1)); the boundary window is one segment, "
              "so the main process follows the job's mask through every reach; at most max_segments segments")
+
+
+def cont_rule(pace: osel.Pace) -> str:
+    """The continuation rule's text; v7 (owner 2026-11-20): with the record bound, the stop at the first boundary past it."""
+    if pace.bound is None:
+        return CONT_RULE
+    return (CONT_RULE + f"; v7 (owner 2026-11-20): and, when the state at the boundary is at a level >= {pace.open_from}, the boundary tick is "
+                        f"below the record bound {pace.bound} (a burst stops at its first boundary at a tick >= {pace.bound})")
+
+
 OBS_GROUND = mcell.OBS_INDEX["ground_air_state"]
 OBS_STATUS = mcell.OBS_INDEX["fighter_status_id"]
 OBS_X, OBS_Y = mcell.OBS_INDEX["position_x"], mcell.OBS_INDEX["position_y"]
 if osel.GROUNDED != mcell.RES_GROUNDED:                  # the fall cut's grounded exception reads the cell key's resource class (v6)
     raise ImportError(f"order_select.GROUNDED {osel.GROUNDED!r} is not m8_rd_cells.RES_GROUNDED {mcell.RES_GROUNDED!r}")
 EXTENT_GROUPS = ("all", "inside")
+
+# -- the moving-floor direction key (owner 2026-11-20, order_select_v7; --floor-direction-key) ------------------------------------------
+# The floor lines that move: the stage table's floor lines in the moving platform's group (rl/m7g_spatial: group 2 is the platform's DObj).
+MOVING_FLOOR_LINES: Tuple[int, ...] = tuple(sorted(int(ln[0]) for ln in msp.EXPECTED_LINES
+                                                   if int(ln[1]) == msp.LINE_FLOOR and int(ln[2]) == msp.PLATFORM_GROUP))
+# The platform's direction of motion is a function of the input tick: period 300 ticks (owner 2026-11-20); it moves down on the ticks t
+# with 90 <= t mod 300 < 240 and up on every other tick. Measured in the agent's own traces: the sign of the platform group's speed y
+# (spatial groups[2].speed[1]) in every step of the 28 D milestone traces in the lab (12,834 ticks, no mismatch, no tick with speed 0;
+# step 0 of the night-6 build, C:/BattleShip_lab/analysis/night6_step0_2026-11-20).
+PLATFORM_PERIOD = 300
+PLATFORM_DOWN = (90, 240)                                # [first, last + 1) residues of the descent
+DIR_UP, DIR_DOWN = "up", "down"
+DIR_FLOOR_OFFSET = {DIR_UP: 1000, DIR_DOWN: 2000}        # the key's floor field: line id + offset (native line ids are 0 ... 31)
+if not MOVING_FLOOR_LINES or max(MOVING_FLOOR_LINES) >= min(DIR_FLOOR_OFFSET.values()) or len(msp.EXPECTED_LINES) > msp.MAX_LINES:
+    raise ImportError(f"the moving floor lines {MOVING_FLOOR_LINES} do not fit the direction key's floor field")
+
+
+def platform_direction(tick: int) -> str:
+    """The moving platform's direction of motion at an input tick (up or down)."""
+    r = int(tick) % PLATFORM_PERIOD
+    return DIR_DOWN if PLATFORM_DOWN[0] <= r < PLATFORM_DOWN[1] else DIR_UP
+
+
+def plain_floor(floor: int) -> int:
+    """A key's floor field without the direction: the line id (an unencoded field, -1 included, is returned as it is)."""
+    f = int(floor)
+    return f % 1000 if f >= 1000 else f
+
+
+def direction_key(key: Sequence[Any], tick: int, on: bool, lines: Optional[Sequence[int]] = None) -> Tuple[Any, ...]:
+    """The cell key with the moving floor's direction (on): a grounded key (class G) whose floor field is a moving line (`lines`, default
+    MOVING_FLOOR_LINES read at the call) gets the line id + 1000 (up) or + 2000 (down) at `tick`; every other key is unchanged. Off: the
+    plain key (an encoded floor field read back as its line id, so a folder written with the option resumes into a night without it under
+    today's keys). Deterministic and idempotent."""
+    k = fa.norm_key(key)
+    f = plain_floor(k[4])
+    if on and k[2] == mcell.RES_GROUNDED and f in tuple(int(x) for x in (MOVING_FLOOR_LINES if lines is None else lines)):
+        f += DIR_FLOOR_OFFSET[platform_direction(tick)]
+    return (k[0], k[1], k[2], k[3], f)
+
+
+def direction_key_record(lines: Optional[Sequence[int]] = None) -> Dict[str, Any]:
+    """The direction key's definition, recorded in the plan when the option is on; the run refuses another definition."""
+    lines = MOVING_FLOOR_LINES if lines is None else lines
+    return {"contract": "order_floor_direction_v1", "lines": [int(x) for x in lines], "period": PLATFORM_PERIOD,
+            "down_residues": [PLATFORM_DOWN[0], PLATFORM_DOWN[1] - 1], "floor_field": {"up": "line + 1000", "down": "line + 2000"},
+            "source": "lines: rl/m7g_spatial.EXPECTED_LINES floor lines of PLATFORM_GROUP; direction: the sign of the platform group's speed y "
+                      "per input tick in the agent's own traces (28 D milestone traces, 12,834 ticks)",
+            "limit": "the frozen worker reports a reach at the first visit of its five-field key in a burst: a revisit of the same five-field key "
+                     "after the platform changed direction is not reported, so it is never keyed (owner 2026-11-20: partial version accepted)"}
 
 
 # -- D's code manifest (T-M2): line endings normalised to LF ------------------------------------------------------------------------------
@@ -504,6 +587,15 @@ def _lr(level: Any, res: Any) -> str:
     return f"{int(level)}|{res}"
 
 
+def resume_finals(seq: Sequence[Mapping[str, Any]]) -> Dict[Tuple[Any, ...], Mapping[str, Any]]:
+    """The resume's final representative per key (the archive's keep rule, mirrored), under the keys the night keeps them by (v7: the
+    sequence entry's key; an entry without one, its candidate's plain key)."""
+    final: Dict[Tuple[Any, ...], Mapping[str, Any]] = {}
+    for e in seq:
+        final[tuple(e["key"]) if "key" in e else fa.norm_key(e["cand"]["key"])] = e["cand"]
+    return final
+
+
 def resume_selection(folders: Sequence[Path], pace: osel.Pace) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """The resume (zero native ticks): every folder's candidates through this night's arrival rule, then the archive's keep rule mirrored,
     in tick order, ties in the order the folders are given, then by D cell id; this night's tick-0 root holds the root's key at tick 0.
@@ -526,7 +618,7 @@ def resume_selection(folders: Sequence[Path], pace: osel.Pace) -> Tuple[List[Dic
     roots = {(r["root"]["digest"], r["root"]["chain"], json.dumps(r["root"]["key"])) for r in recs}
     if len(roots) != 1:
         raise SearchError(f"refused: the resume folders' tick-0 roots differ ({sorted(x[0][:16] for x in roots)})")
-    root_key = fa.norm_key(recs[0]["root"]["key"])
+    root_key = direction_key(recs[0]["root"]["key"], 0, pace.dir_key)   # v7: the keys as this night keeps them (option off: today's)
     held: Dict[Tuple[Any, ...], int] = {root_key: 0}
     queue = sorted(((int(c["tick"]), i, int(c["d_cid"]), c) for i, cands in enumerate(sources) for c in cands), key=lambda x: x[:3])
     seq: List[Dict[str, Any]] = []
@@ -542,7 +634,7 @@ def resume_selection(folders: Sequence[Path], pace: osel.Pace) -> Tuple[List[Dic
             pc["dropped_rule"] += 1
             reasons[why[0]] += 1
             continue
-        k = fa.norm_key(c["key"])
+        k = direction_key(c["key"], tick, pace.dir_key)                   # v7: re-keyed from the cell's own tick when the option is on
         if k not in held:
             verdict = cs.NEW
         elif tick < held[k]:
@@ -552,11 +644,14 @@ def resume_selection(folders: Sequence[Path], pace: osel.Pace) -> Tuple[List[Dic
             continue
         held[k] = tick
         pc["inherited" if verdict == cs.NEW else "replaced_in_resume"] += 1
-        seq.append({"verdict": verdict, "folder_index": i, "cand": c})
+        seq.append({"verdict": verdict, "folder_index": i, "cand": c, "key": list(k)})
         h.update(f"{verdict}:{i}:{d_cid}:{c['digest']}:{tick};".encode("utf-8"))
     tot = Counter()
     for pc in per.values():
         tot.update(pc)
+    final_keys: Dict[Tuple[Any, ...], Mapping[str, Any]] = {}
+    for e in seq:
+        final_keys[tuple(e["key"])] = e["cand"]
     record = {"contract": RESUME_CONTRACT, "folders": recs, "reports": reps, "root": dict(recs[0]["root"]),
               "rule": "all final representatives; a cell outside this night's arrival rule is dropped; the rest enter through the archive's keep "
                       "rule in tick order (ties: folder order, then D cell id); selector and retirement counts start at zero",
@@ -565,6 +660,10 @@ def resume_selection(folders: Sequence[Path], pace: osel.Pace) -> Tuple[List[Dic
               "per_level_res": {k: {x: int(v.get(x, 0)) for x in ("candidates", "inherited", "replaced_in_resume", "dropped_rule", "dropped_later")}
                                 for k, v in sorted(per.items(), key=lambda kv: (int(kv[0].split("|")[0]), kv[0]))},
               "set_digest": h.hexdigest()}
+    if pace.dir_key:                                     # v7, only with the option: the inherited moving-floor cells, per level and direction
+        mf: Counter = Counter(f"{int(c['level'])}|{'up' if k[4] < DIR_FLOOR_OFFSET[DIR_DOWN] else 'down'}" for k, c in final_keys.items()
+                     if k[2] == mcell.RES_GROUNDED and int(k[4]) >= DIR_FLOOR_OFFSET[DIR_UP])
+        record["floor_direction_cells"] = {k: int(mf[k]) for k in sorted(mf, key=lambda s: (-int(s.split("|")[0]), s))}
     return seq, record
 
 
@@ -760,9 +859,7 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
                                         f"cell id)")})
     if pace.cut_y is not None:                           # owner 2026-11-19: only with the option, so the plan with it off is v4's
         k = int(pace.open_from)                          # OrderParams.check: the cut needs the open line
-        final: Dict[Tuple[Any, ...], Mapping[str, Any]] = {}
-        for e in _seq:                                   # the resume's final representative per key (the archive's keep rule, mirrored)
-            final[fa.norm_key(e["cand"]["key"])] = e["cand"]
+        final = resume_finals(_seq)
         below: Counter = Counter(str(cd["level"]) for cd in final.values()
                                  if pace.below_cut(int(cd["level"]), float(cd["end"][OBS_Y]), str(cd["key"][2])))
         spared: Counter = Counter(str(cd["level"]) for cd in final.values()
@@ -774,6 +871,24 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
                                             f"drawable; reaches are still recorded; levels below {k}, the continuation and the milestones unchanged"),
                           "fall_cut_inherited_undrawable": {lv: int(below[lv]) for lv in sorted(below, key=int, reverse=True)},
                           "fall_cut_inherited_grounded_spared": {lv: int(spared[lv]) for lv in sorted(spared, key=int, reverse=True)}})
+        if pace.spare_one_live:                          # owner 2026-11-20 (v7): only with the option, so the plan with it off is v6's
+            one: Counter = Counter(str(cd["level"]) for cd in final.values() if pace.one_live(int(cd["level"]))
+                                   and pace.below_y(int(cd["level"]), float(cd["end"][OBS_Y])) and str(cd["key"][2]) != osel.GROUNDED)
+            keep_rule.update({"fall_cut_one_live": (f"the fall cut does not apply to a state with exactly one live target (level "
+                                                    f"{osel.TARGETS_TOTAL - 1}): its next break is the clear; such a state below Y is kept and "
+                                                    f"drawable whatever its resource class"),
+                              "fall_cut_inherited_one_live_spared": {lv: int(one[lv]) for lv in sorted(one, key=int, reverse=True)}})
+    if pace.bound is not None:                           # owner 2026-11-20 (v7): only with the option, so the plan with it off is v6's
+        k = int(pace.open_from)                          # OrderParams.check: the bound needs the open line
+        past: Counter = Counter(str(cd["level"]) for cd in resume_finals(_seq).values() if pace.past_bound(int(cd["level"]), int(cd["tick"])))
+        keep_rule.update({"record_bound": int(pace.bound), "record_bound_from": k,
+                          "record_bound_rule": (f"levels >= {k}: a state whose own tick is {pace.bound} or later is not kept and its cell is not "
+                                                f"drawable (exploitation or breadth); an inherited such cell stays kept, undrawable; a burst stops "
+                                                f"at its first boundary whose state is at a level >= {k} at a tick >= {pace.bound}; reaches are "
+                                                f"still recorded; clears, claims, the milestones and levels below {k} unchanged"),
+                          "record_bound_inherited_undrawable": {lv: int(past[lv]) for lv in sorted(past, key=int, reverse=True)}})
+    if pace.dir_key:                                     # owner 2026-11-20 (v7): only with the option, so the plan with it off is v6's
+        keep_rule["floor_direction_key"] = direction_key_record()
     plan = {"contract": ORDER_CONTRACT, "mode": "lab", "utc": g.utc(), "lab_root": str(lab_root), "out": str(out),
             "archive_id": ARCHIVE_ID.format(seed=int(ep.rng_seed)), "key_family": KEY_FAMILY,
             "root": {"level": 0, "mask": osel.ROOT_MASK, "niche": rs.niche_label(rs.seed_niche(osel.ROOT_MASK)), "words": 0,
@@ -784,7 +899,7 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
             "gate_reference": {"milestone": "M1", "level": 6, "slack": M1_REFERENCE_SLACK, "line": ref.line(6),
                                "note": "report-only: the earliest in-night 6th break against line(6) at the decided D-Q1 slack"},
             "keep_rule": keep_rule,
-            "continuation": CONT_RULE,
+            "continuation": cont_rule(pace),
             "params": dp.as_record(), "params_fingerprint": osel.params_fingerprint(dp), "selection_contract": osel.SELECT_CONTRACT,
             "engine_params": ep.as_dict(), "arm": d_arm(ep), "frontier": fb, "claim_threshold": fb["completion_input_tick"],
             "sources": sources, "code": {"contract": MANIFEST_CONTRACT, "entries": list(ENTRY_MODULES), "digest": digest},
@@ -903,7 +1018,14 @@ class OrderEngine(C.Run3Engine):
         self.c.update({"rejected_reaches": 0, "milestone_ticks": 0, "cont_checked": 0, "cont_mismatches": 0, "deep_reaches": 0, "new_in_night": 0})
         if self.pace.cut_y is not None:                      # owner 2026-11-19: only with the fall cut, so the counters with it off are v4's
             self.c["cut_reaches"] = 0
+        if self.pace.bound is not None:                      # owner 2026-11-20 (v7): only with the record bound
+            self.c["bound_reaches"] = 0
         self.cut_open: Dict[str, int] = {}                   # the fall cut: per level, the inherited cells it makes undrawable at the open
+        self.bound_open: Dict[str, int] = {}                 # v7: the record bound's, per level
+        # v7 (owner 2026-11-20): the direction key's definition is the plan's, or the night is refused (plan again)
+        self.dir_plan: Optional[Dict[str, Any]] = (self.order_plan.get("keep_rule") or {}).get("floor_direction_key")
+        if self.pace.dir_key and self.dir_plan != direction_key_record():
+            raise SearchError("refused: the plan's floor-direction key is not this code's (plan again)")
         self.arm = d_arm(params)                             # the boundary window = one segment (CONT_RULE); jobs carry it
         self.breaks_of: Dict[int, Tuple[Tuple[int, int], ...]] = {}   # every kept cell's break pairs (tick, target), sorted (v2)
         self._insert_pairs: Optional[Tuple[Tuple[int, int], ...]] = None   # set while the open keeps the root and the resumed cells
@@ -926,6 +1048,11 @@ class OrderEngine(C.Run3Engine):
         def keep(key: Sequence[Any], level: int, tick: int, words: bytes, end: Sequence[Any], end_digest: bytes, chain: bytes, origin: Mapping[str, Any],
                  n_dispatch: int, **kw: Any) -> Tuple[str, Optional[cs.Cell]]:
             lv, t = int(level), int(tick)
+            # v7 (owner 2026-11-20): the key as this night keeps it: with --floor-direction-key a state grounded on a moving floor line gets
+            # the platform's direction at its tick in the floor field; off, the plain key (today's). The frozen ingest compares it with the
+            # dispatched cell's stored key (self_key), which went through here too. LIMIT: a reach exists only at the first visit of its
+            # five-field key in the burst (the frozen worker), so a same-burst revisit after the platform turned is never keyed.
+            key = direction_key(key, t, self.pace.dir_key)
             pairs = self.reach_pairs(lv, t)
             arrival = osel.arrival_tick([p[0] for p in pairs], lv) if lv < osel.TARGETS_TOTAL else None
             deep = self._cur is not None and lv >= DEEP_REACH_LEVEL
@@ -938,10 +1065,19 @@ class OrderEngine(C.Run3Engine):
                     if deep:
                         self.log_deep_reach(key, lv, t, arrival, cs.BEYOND, why)
                     return cs.BEYOND, None
+                if self.pace.bound is not None and self._insert_pairs is None and self.pace.past_bound(lv, t):
+                    self.archive.counts[cs.BEYOND] += 1          # the record bound (owner 2026-11-20, v7), in-night reaches only: not kept,
+                    self.pace.bound_reaches.note(lv, t)          # as a rule rejection; checked before the fall cut
+                    self.c["bound_reaches"] += 1
+                    if deep:
+                        self.log_deep_reach(key, lv, t, arrival, cs.BEYOND, ("record_bound", t - int(self.pace.bound)))
+                    return cs.BEYOND, None
                 if self.pace.cut_y is not None and self._insert_pairs is None and self.pace.below_y(lv, float(end[OBS_Y])):
                     y = float(end[OBS_Y])                        # the fall cut (owner 2026-11-19), in-night reaches only
                     if str(key[2]) == osel.GROUNDED:             # v6: a grounded state below Y is spared (counted, then the keep rule)
                         self.pace.cut.spare(lv)
+                    elif self.pace.one_live(lv):                 # v7: one live target, spared (counted, then the keep rule)
+                        self.pace.cut.spare_one_live(lv)
                     else:                                        # not kept, as a rule rejection
                         self.archive.counts[cs.BEYOND] += 1
                         self.pace.cut.note(lv, t, y)
@@ -1107,6 +1243,14 @@ class OrderEngine(C.Run3Engine):
             self.cut_open = self.selector.cut_undrawable()
             self.log(f"fall cut: y < {self.pace.cut_y:g} at levels >= {self.pace.open_from} not kept, not drawable; inherited cells made undrawable "
                      f"at the open, per level: {json.dumps(self.cut_open)}")
+        if self.pace.bound is not None:                      # owner 2026-11-20 (v7): the inherited cells the bound makes undrawable (kept)
+            self.bound_open = self.selector.bound_undrawable()
+            self.log(f"record bound: tick >= {self.pace.bound} at levels >= {self.pace.open_from} not kept, not drawable; inherited cells made "
+                     f"undrawable at the open, per level: {json.dumps(self.bound_open)}")
+        if self.pace.dir_key:                                # owner 2026-11-20 (v7)
+            self.log(f"floor-direction key: moving floor lines {list(MOVING_FLOOR_LINES)}, period {PLATFORM_PERIOD}, down on residues "
+                     f"{PLATFORM_DOWN[0]}..{PLATFORM_DOWN[1] - 1}; inherited moving-floor cells per level|direction: "
+                     f"{json.dumps((self.resume_plan or {}).get('floor_direction_cells'))}")
         if self.readiness_use and self.readiness_use.get("applied"):
             self.event(f"READINESS OVERRIDE (owner): free commit {self.readiness_use['commit_free_mb']:.0f} MB admitted at >= "
                        f"{self.readiness_use['min_commit_free_mb']} MB (registered {self.readiness_use['registered_min_commit_free_mb']} MB); "
@@ -1304,7 +1448,7 @@ class OrderEngine(C.Run3Engine):
             p = [x for x in allp if int(x[0]) <= tick]
             lv = len(p)
             arr = osel.arrival_tick([x[0] for x in p], lv) if lv < osel.TARGETS_TOTAL else None
-            go = lv < osel.TARGETS_TOTAL and self.pace.keeps_ticks(lv, tick, [x[0] for x in p])
+            go = lv < osel.TARGETS_TOTAL and self.pace.continues(lv, tick, [x[0] for x in p])   # v7: and not past the record bound
             self.c["cont_checked"] += 1
             if [int(e[2]), e[3], bool(e[5])] != [lv, arr, go]:
                 self.c["cont_mismatches"] += 1
@@ -1312,7 +1456,8 @@ class OrderEngine(C.Run3Engine):
 
     def window_decision(self, info: Dict[str, Any], payload: Mapping[str, Any]) -> Dict[str, Any]:
         """The continuation rule (owner 2026-11-16): the job's mask followed through the reaches of every boundary question so far (each
-        holds its whole segment), the state at the boundary inside the arrival rule. From the job's own trajectory only."""
+        holds its whole segment), the state at the boundary inside the arrival rule and (v7, owner 2026-11-20) not at a level >= K at a tick
+        >= the record bound. From the job's own trajectory only."""
         tr = info.setdefault("d_track", {"pairs": list(info["d_pairs0"]), "mask": int(info["d_mask0"]), "seen_to": int(payload["L"])})
         for rj, rk in sorted(((int(r[0]), r[1]) for r in payload["reaches"]), key=lambda x: x[0]):
             if rj <= tr["seen_to"]:
@@ -1330,7 +1475,7 @@ class OrderEngine(C.Run3Engine):
             return {"go": False, "level": lv, "arrival": None, "tick": t_now}
         ticks = sorted(int(t) for t, _i in tr["pairs"])
         arrival = osel.arrival_tick(ticks, lv)
-        return {"go": self.pace.keeps_ticks(lv, t_now, ticks), "level": lv, "arrival": arrival, "tick": t_now}
+        return {"go": self.pace.continues(lv, t_now, ticks), "level": lv, "arrival": arrival, "tick": t_now}
 
     def log_milestones(self, info: Mapping[str, Any]) -> None:
         met = self.selector.milestones.met
@@ -1484,6 +1629,10 @@ class OrderEngine(C.Run3Engine):
         if self.pace.cut_y is not None:                      # owner 2026-11-19: only with the fall cut (report-only)
             rec["fall_cut"] = {"reaches": self.pace.cut.snapshot(), "grounded_spared": self.pace.cut.spared_snapshot(),
                                "undrawable_cells": sel.cut_undrawable()}
+            if self.pace.spare_one_live:                     # owner 2026-11-20 (v7): only with the exemption
+                rec["fall_cut"]["one_live_spared"] = self.pace.cut.one_live_snapshot()
+        if self.pace.bound is not None:                      # owner 2026-11-20 (v7): only with the record bound (report-only)
+            rec["record_bound"] = {"reaches": self.pace.bound_reaches.snapshot(), "undrawable_cells": sel.bound_undrawable()}
         for name in ("milestones",):
             rec[name] = [{k: v for k, v in m.items() if k != "utc"} for m in rec[name]]
         sel.period = rs._new_period()
@@ -1586,7 +1735,7 @@ class OrderEngine(C.Run3Engine):
                                                              "within_one_violations": sel.within_one_violations(), "levels": sel.level_readout(),
                                                              "same_tick": sel.same_tick.summary(), "moves": int(sel.cnt["moves"])},
                       "niche_live": dict(self.niche_live), "exports": list(self.exports), "text_replays": list(self.text_replays), "hourly_records": list(self.hourly),
-                      "keep_rule": self.order_plan.get("keep_rule"), "continuation": {"rule": CONT_RULE, "checked": self.c["cont_checked"],
+                      "keep_rule": self.order_plan.get("keep_rule"), "continuation": {"rule": cont_rule(self.pace), "checked": self.c["cont_checked"],
                                                                                       "mismatches": self.c["cont_mismatches"]},
                       "resume": None if self.resume_plan is None else {"plan": {k: self.resume_plan.get(k) for k in ("counts", "dropped_rule_reasons", "inserts",
                                                                                                                    "cells_after", "set_digest", "root")},
@@ -1600,6 +1749,19 @@ class OrderEngine(C.Run3Engine):
                                       "grounded_spared": self.pace.cut.spared_summary(),
                                       "reaches_cut_total": int(self.c.get("cut_reaches", 0)), "inherited_undrawable_at_open": dict(self.cut_open),
                                       "undrawable_cells_now": sel.cut_undrawable() if sel is not None else {}}
+            if self.pace.spare_one_live:                    # owner 2026-11-20 (v7): only with the exemption
+                s["order"]["fall_cut"]["one_live_spared"] = self.pace.cut.one_live_summary()
+        if self.pace.bound is not None:                     # owner 2026-11-20 (v7): only with the record bound (report-only)
+            s["order"]["record_bound"] = {"bound": int(self.pace.bound), "from_level": self.pace.open_from, "reaches_not_kept": self.pace.bound_reaches.summary(),
+                                          "reaches_not_kept_total": int(self.c.get("bound_reaches", 0)), "inherited_undrawable_at_open": dict(self.bound_open),
+                                          "undrawable_cells_now": sel.bound_undrawable() if sel is not None else {}}
+        if self.pace.dir_key:                               # owner 2026-11-20 (v7): only with the direction key (report-only counts)
+            mf: Counter = Counter()
+            for c in self.archive.cells:
+                if c.key is not None and str(c.key[2]) == mcell.RES_GROUNDED and int(c.key[4]) >= DIR_FLOOR_OFFSET[DIR_UP]:
+                    mf[f"{int(c.level)}|{DIR_DOWN if int(c.key[4]) >= DIR_FLOOR_OFFSET[DIR_DOWN] else DIR_UP}"] += 1
+            s["order"]["floor_direction_key"] = {"definition": self.dir_plan, "cells_by_level_direction": {k: int(mf[k]) for k in sorted(mf)},
+                                                 "inherited_at_plan": (self.resume_plan or {}).get("floor_direction_cells")}
         return s
 
     def build_scoreboard(self, s: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1891,6 +2053,24 @@ def report_md(s: Mapping[str, Any]) -> str:
                   f"{json.dumps(kr.get('fall_cut_inherited_grounded_spared'))})",
                   f"- inherited cells made undrawable at the open {json.dumps(fc.get('inherited_undrawable_at_open'))} (plan: "
                   f"{json.dumps(kr.get('fall_cut_inherited_undrawable'))}); undrawable at the close {json.dumps(fc.get('undrawable_cells_now'))}"]
+        if fc.get("one_live_spared") is not None:
+            lines.append(f"- one live target (owner 2026-11-20): {kr.get('fall_cut_one_live')}; reaches spared, per level "
+                         f"{json.dumps(fc.get('one_live_spared'))} (inherited, at the plan: {json.dumps(kr.get('fall_cut_inherited_one_live_spared'))})")
+    rb = o.get("record_bound")
+    if rb:
+        lines += ["", "## Record bound (owner 2026-11-20)", "", f"- {kr.get('record_bound_rule')}",
+                  f"- reaches not kept by the bound: {rb.get('reaches_not_kept_total')}; per level {json.dumps(rb.get('reaches_not_kept'))}",
+                  f"- inherited cells made undrawable at the open {json.dumps(rb.get('inherited_undrawable_at_open'))} (plan: "
+                  f"{json.dumps(kr.get('record_bound_inherited_undrawable'))}); undrawable at the close {json.dumps(rb.get('undrawable_cells_now'))}"]
+    fd = o.get("floor_direction_key")
+    if fd:
+        d_ = fd.get("definition") or {}
+        lines += ["", "## Floor-direction key (owner 2026-11-20)", "",
+                  f"- moving floor lines {d_.get('lines')}, period {d_.get('period')}, down on residues {d_.get('down_residues')}, floor field "
+                  f"{json.dumps(d_.get('floor_field'))}",
+                  f"- limit: {d_.get('limit')}",
+                  f"- moving-floor cells at the close, per level|direction {json.dumps(fd.get('cells_by_level_direction'))} (inherited at the plan: "
+                  f"{json.dumps(fd.get('inherited_at_plan'))})"]
     hr = o.get("hitter_record")
     if hr:
         lines += ["", "## Hitter record (owner 2026-11-19; report-only)", "",
@@ -1920,7 +2100,9 @@ def report_md(s: Mapping[str, Any]) -> str:
 def order_params_from_args(a: argparse.Namespace) -> osel.OrderParams:
     lw = tuple(float(x) for x in a.level_weights.split(",")) if a.level_weights else osel.OrderParams.level_weights
     p = osel.OrderParams(goal=a.goal, slack=a.slack, level_weights=lw, breadth_share=a.breadth_share, retire_after=a.retire_after,
-                         open_line_from=a.open_line_from, fall_cut_y=getattr(a, "fall_cut_y", None))
+                         open_line_from=a.open_line_from, fall_cut_y=getattr(a, "fall_cut_y", None),
+                         fall_cut_spare_one_live=bool(getattr(a, "fall_cut_spare_one_live", False)), record_bound=getattr(a, "record_bound", None),
+                         floor_direction_key=bool(getattr(a, "floor_direction_key", False)))
     p.check()
     return p
 
@@ -1938,6 +2120,9 @@ def run_command(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> 
             + (f" --goal {a.goal}" if a.goal != osel.OrderParams.goal else "") + (f" --slack {a.slack}" if a.slack != osel.OrderParams.slack else "")
             + (f" --open-line-from {a.open_line_from}" if a.open_line_from is not None else "")
             + (f" --fall-cut-y={a.fall_cut_y!r}" if getattr(a, "fall_cut_y", None) is not None else "")
+            + (" --fall-cut-spare-one-live" if getattr(a, "fall_cut_spare_one_live", False) else "")
+            + (f" --record-bound {a.record_bound}" if getattr(a, "record_bound", None) is not None else "")
+            + (" --floor-direction-key" if getattr(a, "floor_direction_key", False) else "")
             + (" --hitter-record" if getattr(a, "hitter_record", False) else "")
             + "".join(f" --resume-from {Path(d).as_posix()}" for d in (a.resume_from or [])))
 
@@ -1959,6 +2144,15 @@ def cmd_plan(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int
     if P["keep_rule"].get("fall_cut_y") is not None:
         print("fall cut (owner 2026-11-19):", P["keep_rule"]["fall_cut_rule"], "| inherited cells made undrawable, per level:",
               json.dumps(P["keep_rule"]["fall_cut_inherited_undrawable"]))
+    if P["keep_rule"].get("fall_cut_one_live") is not None:
+        print("fall cut, one live target (owner 2026-11-20):", P["keep_rule"]["fall_cut_one_live"], "| inherited cells spared, per level:",
+              json.dumps(P["keep_rule"]["fall_cut_inherited_one_live_spared"]))
+    if P["keep_rule"].get("record_bound") is not None:
+        print("record bound (owner 2026-11-20):", P["keep_rule"]["record_bound_rule"], "| inherited cells made undrawable, per level:",
+              json.dumps(P["keep_rule"]["record_bound_inherited_undrawable"]))
+    if P["keep_rule"].get("floor_direction_key") is not None:
+        print("floor-direction key (owner 2026-11-20):", json.dumps({k: v for k, v in P["keep_rule"]["floor_direction_key"].items() if k != "source"}),
+              "| inherited moving-floor cells per level|direction:", json.dumps((P["resume"] or {}).get("floor_direction_cells")))
     if P["resume"]:
         rz = P["resume"]
         print("resume:", json.dumps({"folders": [f["dir"] for f in rz["folders"]], "counts": rz["counts"], "dropped_rule_reasons": rz["dropped_rule_reasons"],
@@ -2051,6 +2245,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                          "is not G (grounded) is not kept as a cell and is not drawable; inherited such cells stay kept but undrawable; grounded "
                          "states are spared; reaches are still recorded; default off (no change). Write a negative value as --fall-cut-y=-2700; "
                          "plan and run take the same value")
+    ap.add_argument("--fall-cut-spare-one-live", action="store_true",
+                    help="owner 2026-11-20, needs --fall-cut-y: the fall cut does not apply to a state with exactly one live target (level 9; "
+                         "its next break is the clear); default off (no change); plan and run take the same flag")
+    ap.add_argument("--record-bound", type=int, default=None, metavar="B",
+                    help="owner 2026-11-20, needs --open-line-from K: at levels >= K a state whose own tick is B or later is not kept and not "
+                         "drawable; inherited such cells stay kept but undrawable; a burst stops at its first boundary at a level >= K at a tick "
+                         ">= B; clears and claims unchanged; default off (the archive's own bound only); plan and run take the same value")
+    ap.add_argument("--floor-direction-key", action="store_true",
+                    help="owner 2026-11-20: a state grounded on a moving floor line (line 19) gets the platform's direction at its tick in its "
+                         "cell key (floor field + 1000 up / + 2000 down), at every level; inherited cells are re-keyed at the resume; applied in "
+                         "the main process only (a same-burst revisit of a five-field key after the platform turned is not reported by the "
+                         "frozen worker); default off (today's keys); plan and run take the same flag")
     ap.add_argument("--hitter-record", action="store_true",
                     help="owner 2026-11-19, report-only: D's search workers run with SSB64_RL_ENTITY=1 (tools/frs/order_worker.py) and every "
                          "break_record entry gains the hitter fields (mario / projectile with its serial, owner and first tick / unseen / "

@@ -43,6 +43,16 @@
                     The engine gives the selector each cell's y (`y_of`); levels below K, the milestones, the continuation and the
                     reach records are unchanged. Report-only readout: the reaches the cut did not keep, and the grounded reaches below Y
                     it spared, per level (FallCutReaches).
+    one live target (owner 2026-11-20, order_select_v7; option fall_cut_spare_one_live, needs the fall cut, default False = off) the
+                    fall cut does not apply to a state with exactly one live target (level 9): its next break is the clear, which does not
+                    need Mario to survive. Such a state below Y is kept and drawable whatever its resource class; counted in the
+                    readout as spared (FallCutReaches.one_live).
+    record bound    (owner 2026-11-20, order_select_v7; option record_bound = B, a tick, needs the open line's K, default None = off =
+                    the archive's own bound only) at levels >= K a state whose own tick is B or later (tick >= B) is not kept and its
+                    cell is not drawable (exploitation or breadth); an inherited such cell stays in the archive, undrawable; a burst stops
+                    at its first boundary whose state is at a level >= K at a tick >= B (`continues`). Clears and claims are unchanged
+                    (a clear's reach is level 10, never kept; the claim comes from the job's outcome). Report-only readout: the reaches
+                    the bound did not keep, per level (BoundReaches).
     budget counts   exploitation draws only, counted when the dispatch is selected (D-Q3); with the open line, not the group's
                     draws at levels >= K (no rotation there). A unit (set or order) is in the rotation
                     while it has an active cell. A unit entering it starts at max(its count, the minimum over its siblings in the
@@ -77,7 +87,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 
 import run3_select as rs
 
-SELECT_CONTRACT = "order_select_v6"                 # v2 (owner 2026-11-16): the arrival rule; v1 kept a state only if its tick <= line(L);
+SELECT_CONTRACT = "order_select_v7"                 # v2 (owner 2026-11-16): the arrival rule; v1 kept a state only if its tick <= line(L);
                                                      # v3 (owner 2026-11-16): a milestone's L-th break must happen in one of the night's bursts
                                                      # v4 (owner 2026-11-18): the open line from level K and the fewest-dispatches cell draw at
                                                      # levels >= K, both behind open_line_from (default None: v3's behaviour exactly)
@@ -85,6 +95,10 @@ SELECT_CONTRACT = "order_select_v6"                 # v2 (owner 2026-11-16): the
                                                      # order rotation there); the fall cut behind fall_cut_y (default None: off)
                                                      # v6 (owner 2026-11-19): with the open line, the levels >= K are one draw group (the
                                                      # deepest level's weight, fewest over the group, ties deeper level); the cut spares G
+                                                     # v7 (owner 2026-11-20): the record bound B at levels >= K (record_bound), the fall
+                                                     # cut's one-live-target exemption (fall_cut_spare_one_live) and the moving-floor
+                                                     # direction in the cell key (floor_direction_key, applied by order_search); each
+                                                     # default off, so with all three off a night decides as v6
 REJECT_REASONS = ("late_arrival", "window_passed")
 GROUNDED = "G"                                       # the cell key's grounded resource class (rl/m8_rd_cells.RES_GROUNDED; order_search checks)
 TARGETS_TOTAL = 10
@@ -121,6 +135,9 @@ class OrderParams:
     cleared_weight: float = 0.1
     open_line_from: Optional[int] = None             # owner 2026-11-18: K, the open line from level K (1 ... 9); None = off (v3 exactly)
     fall_cut_y: Optional[float] = None               # owner 2026-11-19: Y, the fall cut at levels >= K (needs K); None = off
+    fall_cut_spare_one_live: bool = False            # owner 2026-11-20: the cut spares a state with one live target (needs Y); False = off
+    record_bound: Optional[int] = None               # owner 2026-11-20: B, the record bound at levels >= K (needs K); None = off
+    floor_direction_key: bool = False                # owner 2026-11-20: the moving floor's direction in the cell key (order_search); False = off
 
     def check(self) -> None:
         if not _is_int(self.goal) or not _is_int(self.slack):
@@ -151,10 +168,22 @@ class OrderParams:
                 raise OrderParamsError(f"refused: the fall cut's Y is a finite number or off ({y!r})")
             if k is None:
                 raise OrderParamsError("refused: the fall cut applies at levels >= K, the open line's level: it needs open_line_from")
+        if not isinstance(self.fall_cut_spare_one_live, bool):
+            raise OrderParamsError(f"refused: the one-live-target exemption is on or off ({self.fall_cut_spare_one_live!r})")
+        if self.fall_cut_spare_one_live and y is None:
+            raise OrderParamsError("refused: the one-live-target exemption is an exemption from the fall cut: it needs fall_cut_y")
+        b = self.record_bound
+        if b is not None:
+            if not _is_int(b) or b < 1:
+                raise OrderParamsError(f"refused: the record bound B is a tick, an integer >= 1, or off ({b!r})")
+            if k is None:
+                raise OrderParamsError("refused: the record bound applies at levels >= K, the open line's level: it needs open_line_from")
+        if not isinstance(self.floor_direction_key, bool):
+            raise OrderParamsError(f"refused: the floor-direction key is on or off ({self.floor_direction_key!r})")
 
     def as_record(self) -> Dict[str, Any]:
-        """The parameters as JSON; the open line and the fall cut appear only when set, so with them off the record (and the plan's) is
-        v3's."""
+        """The parameters as JSON; the open line, the fall cut and the v7 options appear only when set, so with them off the record (and
+        the plan's) is v3's."""
         d = asdict(self)
         d["level_weights"] = list(self.level_weights)
         if self.open_line_from is None:
@@ -163,6 +192,11 @@ class OrderParams:
             d.pop("fall_cut_y")
         else:
             d["fall_cut_y"] = float(self.fall_cut_y)
+        for name in ("fall_cut_spare_one_live", "floor_direction_key"):
+            if not d[name]:
+                d.pop(name)
+        if self.record_bound is None:
+            d.pop("record_bound")
         return d
 
 
@@ -202,17 +236,35 @@ class Pace:
         self.lines = tuple(pace_line(L, p.goal, p.slack) for L in range(TARGETS_TOTAL + 1))
         self.open_from: Optional[int] = None if p.open_line_from is None else int(p.open_line_from)
         self.cut_y: Optional[float] = None if p.fall_cut_y is None else float(p.fall_cut_y)
+        self.spare_one_live = bool(p.fall_cut_spare_one_live)
+        self.bound: Optional[int] = None if p.record_bound is None else int(p.record_bound)
+        self.dir_key = bool(p.floor_direction_key)
         self.rejected = RejectedReaches(self.lines)
         self.cut = FallCutReaches()
+        self.bound_reaches = BoundReaches()
 
     def below_y(self, level: int, y: float) -> bool:
         """The option is set to Y, the state is at a level >= K (the open line's) and its position y is below Y (y < Y). Off: never."""
         return self.cut_y is not None and self.open_from is not None and int(level) >= self.open_from and float(y) < self.cut_y
 
+    def one_live(self, level: int) -> bool:
+        """v7 (owner 2026-11-20): the one-live-target exemption is on and the state has exactly one live target (level 9)."""
+        return self.spare_one_live and int(level) == TARGETS_TOTAL - 1
+
     def below_cut(self, level: int, y: float, res: str) -> bool:
         """The fall cut (owner 2026-11-19; v6): below Y at a level >= K (below_y) and not grounded (the resource class `res`, the cell
-        key's, is not G). Off: never."""
-        return self.below_y(level, y) and str(res) != GROUNDED
+        key's, is not G); v7: with the exemption on, not at level 9 (one live target). Off: never."""
+        return self.below_y(level, y) and str(res) != GROUNDED and not self.one_live(level)
+
+    def past_bound(self, level: int, tick: int) -> bool:
+        """The record bound (owner 2026-11-20, v7): the option is set to B, the state is at a level >= K and its own tick is B or later.
+        Off: never."""
+        return self.bound is not None and self.open_from is not None and int(level) >= self.open_from and int(tick) >= self.bound
+
+    def continues(self, level: int, tick: int, break_ticks: Sequence[int]) -> bool:
+        """The continuation's answer at a boundary: inside the arrival rule (with the open line, `keeps_ticks`) and, v7, not past the record
+        bound (a burst at a level >= K stops at its first boundary at a tick >= B). With the bound off: `keeps_ticks` exactly."""
+        return self.keeps_ticks(level, tick, break_ticks) and not self.past_bound(level, tick)
 
     def line(self, level: int) -> int:
         return self.lines[int(level)]
@@ -314,17 +366,24 @@ class RejectedReaches:
 class FallCutReaches:
     """The fall cut's readout (owner 2026-11-19, report-only): per level, the in-night reaches the cut did not keep (inside the arrival
     rule, below Y, not grounded), with the highest such y and its tick, and the earliest tick; and (v6) the grounded reaches below Y it
-    spared (`spared`: per level, they went on to the archive's keep rule); for the current period and the whole night. Read by no rule."""
+    spared (`spared`: per level, they went on to the archive's keep rule); and (v7) the airborne reaches below Y with one live target it
+    spared under the exemption (`one_live`); for the current period and the whole night. Read by no rule."""
 
     def __init__(self) -> None:
         self.night: Dict[int, Dict[str, Any]] = {}
         self.period: Dict[int, Dict[str, Any]] = {}
         self.spared_night: Counter = Counter()
         self.spared_period: Counter = Counter()
+        self.one_live_night: Counter = Counter()
+        self.one_live_period: Counter = Counter()
 
     def spare(self, level: int) -> None:
         self.spared_night[str(int(level))] += 1
         self.spared_period[str(int(level))] += 1
+
+    def spare_one_live(self, level: int) -> None:
+        self.one_live_night[str(int(level))] += 1
+        self.one_live_period[str(int(level))] += 1
 
     @staticmethod
     def _spared(c: Counter) -> Dict[str, int]:
@@ -337,6 +396,14 @@ class FallCutReaches:
 
     def spared_summary(self) -> Dict[str, int]:
         return self._spared(self.spared_night)
+
+    def one_live_snapshot(self) -> Dict[str, int]:
+        out = self._spared(self.one_live_period)
+        self.one_live_period = Counter()
+        return out
+
+    def one_live_summary(self) -> Dict[str, int]:
+        return self._spared(self.one_live_night)
 
     @staticmethod
     def _note(d: Dict[int, Dict[str, Any]], level: int, tick: int, y: float) -> None:
@@ -363,6 +430,42 @@ class FallCutReaches:
         return out
 
     def summary(self) -> Dict[str, Dict[str, Any]]:
+        return self._rec(self.night)
+
+
+class BoundReaches:
+    """The record bound's readout (owner 2026-11-20, v7, report-only): per level, the in-night reaches inside the arrival rule that the
+    bound did not keep (a level >= K, tick >= B), with the earliest and the latest such tick; for the current period and the whole night.
+    Read by no rule."""
+
+    def __init__(self) -> None:
+        self.night: Dict[int, Dict[str, int]] = {}
+        self.period: Dict[int, Dict[str, int]] = {}
+
+    @staticmethod
+    def _note(d: Dict[int, Dict[str, int]], level: int, tick: int) -> None:
+        r = d.get(level)
+        if r is None:
+            r = d[level] = {"count": 0, "earliest_tick": tick, "latest_tick": tick}
+        r["count"] += 1
+        r["earliest_tick"] = min(r["earliest_tick"], tick)
+        r["latest_tick"] = max(r["latest_tick"], tick)
+
+    def note(self, level: int, tick: int) -> None:
+        level, tick = int(level), int(tick)
+        self._note(self.night, level, tick)
+        self._note(self.period, level, tick)
+
+    @staticmethod
+    def _rec(d: Mapping[int, Mapping[str, int]]) -> Dict[str, Dict[str, int]]:
+        return {str(lv): dict(d[lv]) for lv in sorted(d, reverse=True)}
+
+    def snapshot(self) -> Dict[str, Dict[str, int]]:
+        out = self._rec(self.period)
+        self.period = {}
+        return out
+
+    def summary(self) -> Dict[str, Dict[str, int]]:
         return self._rec(self.night)
 
 
@@ -553,11 +656,26 @@ class OrderSelector(rs.Run3Selector):
         return arrival_tick(self.breaks_of[int(cid)], int(self.a.cells[int(cid)].level))
 
     def eligible_cid(self, cid: int) -> bool:
-        """Eligible under the arrival rule, with the open line when it is set (v4; off: v3's answer), and not below the fall cut (v5)."""
+        """Eligible under the arrival rule, with the open line when it is set (v4; off: v3's answer), not below the fall cut (v5) and not
+        past the record bound (v7: a level >= K, own tick >= B)."""
         c = self.a.cells[int(cid)]
         if not self.pace.eligible_ticks(c, self.breaks_of[int(cid)]):
             return False
+        if self.pace.past_bound(int(c.level), int(c.tick)):
+            return False
         return self.pace.cut_y is None or not self.below_cut_cid(int(cid))
+
+    def bound_undrawable(self) -> Dict[str, int]:
+        """Per level, the cells the record bound makes undrawable (alive, inside the arrival rule with the open line, a level >= K, own
+        tick >= B), whatever the fall cut says; report-only. Empty with the bound off."""
+        if self.pace.bound is None:
+            return {}
+        out: Counter = Counter()
+        for cid, g in self.group.items():
+            c = self.a.cells[cid]
+            if self.pace.past_bound(int(g[0]), int(c.tick)) and self.pace.eligible_ticks(c, self.breaks_of[cid]):
+                out[str(g[0])] += 1
+        return {k: int(out[k]) for k in sorted(out, key=int, reverse=True)}
 
     def below_cut_cid(self, cid: int) -> bool:
         """The cell's representative is below the fall cut (a level >= K, y < Y, its key's resource class not G); False with the cut
