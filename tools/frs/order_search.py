@@ -60,6 +60,12 @@
                     open, in tick order, ties in the order the folders are given (a new key is a new cell, a strictly earlier tick
                     replaces, an equal or later tick is dropped as later). The selector's counts and the retirement counts start from
                     zero. The folders' root must equal this night's root. Inherited cells meet no milestone (in-night arrivals only).
+                    With --resume-child (owner 2026-11-21, default off = the derivation in the main process, as before) the plan and the
+                    open run the same derivation (resume_selection: the same folders, arrival rule and key options) in a child Python
+                    process that pickles the insertion sequence and the record back through its stdout and exits; at the open it runs
+                    where the in-process derivation did, before the workers start, and the main process drops the sequence once it is
+                    inserted. The inherited cells, keys, ticks, records and the set digest are the in-process derivation's; only the main
+                    process's memory changes (the derivation's ~2 GB on 9 folders is the child's and leaves with it).
     scoreboard      (owner 2026-11-16) a fixed close record in summary.json (order.scoreboard) and report.md; report-only.
     extent          (owner 2026-11-16, report-only) every dispatch row's `extent`: per level and target set the burst was at, over every
                     reach the main process received (rejected ones included), the highest y, the lowest x and the highest x, each with
@@ -113,8 +119,10 @@ import datetime as dt
 import hashlib
 import json
 import os
+import pickle
 import subprocess
 import sys
+import time
 from collections import Counter
 from collections.abc import Mapping as ABCMapping
 from pathlib import Path
@@ -596,6 +604,93 @@ def resume_finals(seq: Sequence[Mapping[str, Any]]) -> Dict[Tuple[Any, ...], Map
     return final
 
 
+RESUME_CHILD_CONTRACT = "order_resume_child_v1"
+# The child's program: the same resume_selection on the same folders and parameters, its result pickled to stdout; an error is pickled
+# too (its traceback), so stderr is not read (no pipe can fill and block). Run with -B (order_search asserts it).
+_RESUME_CHILD_CODE = """
+import json, pickle, sys, traceback
+sys.path[:0] = json.loads(sys.argv[1])
+out = sys.stdout.buffer
+try:
+    from pathlib import Path
+    import order_search as O
+    import order_select as osel
+    a = json.loads(sys.argv[2])
+    p = dict(a["params"])
+    p["level_weights"] = tuple(p["level_weights"])
+    seq, rec = O.resume_selection([Path(x) for x in a["folders"]], osel.Pace(osel.OrderParams(**p)))
+    msg = ("ok", seq, rec, O.peak_private_mb())
+except BaseException:
+    msg = ("error", traceback.format_exc()[-4000:], None, O.peak_private_mb() if "O" in globals() else None)
+pickle.dump(msg, out, protocol=pickle.HIGHEST_PROTOCOL)
+out.flush()
+"""
+
+
+def resume_child_plan_record() -> Dict[str, Any]:
+    """The resume-in-a-child option's record (owner 2026-11-21), in the plan only when it is on; the run refuses another."""
+    return {"contract": RESUME_CHILD_CONTRACT,
+            "rule": ("the plan and the open derive the resume (resume_selection: the same folders, arrival rule and key options) in a child "
+                     "Python process that pickles the insertion sequence and the record to the main process through its stdout and exits; "
+                     "at the open this happens where the in-process derivation did, before the workers start; the main process checks the "
+                     "set digest against the plan's as before and drops the sequence once it is inserted"),
+            "why": "the derivation's memory (about 2 GB on 9 folders) is held by the child and returned to the system when it exits"}
+
+
+def peak_private_mb() -> Optional[float]:
+    """This process's peak private bytes (commit charge) in MB on Windows (K32GetProcessMemoryInfo PeakPagefileUsage); None elsewhere or on
+    failure. Report-only."""
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+
+        class _PMC(ctypes.Structure):
+            _fields_ = [("cb", wt.DWORD), ("PageFaultCount", wt.DWORD), ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                        ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t), ("PrivateUsage", ctypes.c_size_t)]
+
+        k32 = ctypes.WinDLL("kernel32")
+        k32.GetCurrentProcess.restype = wt.HANDLE
+        k32.K32GetProcessMemoryInfo.argtypes = [wt.HANDLE, ctypes.POINTER(_PMC), wt.DWORD]
+        pmc = _PMC()
+        pmc.cb = ctypes.sizeof(pmc)
+        if not k32.K32GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(pmc), pmc.cb):
+            return None
+        return round(pmc.PeakPagefileUsage / 2 ** 20, 1)
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def resume_selection_child(folders: Sequence[Path], dp: osel.OrderParams) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """resume_selection(folders, Pace(dp)) run in a child Python process (owner 2026-11-21, --resume-child): the same code on the same
+    inputs, so the same insertion sequence and record; the child's derivation memory leaves with it. Returns (sequence, record, the child's
+    report: wall seconds, peak private MB, exit code, inserts); with no folder ([], None, None) as resume_selection. A child that fails,
+    returns nothing or exits non-zero raises SearchError."""
+    if not folders:
+        return [], None, None
+    paths = [str(REPO / "rl"), str(HERE)]
+    args = {"folders": [str(Path(d)) for d in folders], "params": dp.as_record()}
+    t0 = time.perf_counter()
+    proc = subprocess.Popen([sys.executable, "-B", "-c", _RESUME_CHILD_CODE, json.dumps(paths), json.dumps(args)], stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=str(HERE))
+    assert proc.stdout is not None
+    try:
+        status, seq, rec, peak = pickle.load(proc.stdout)
+    except Exception as exc:                             # nothing (or not a whole result) came back: the child died
+        proc.kill()
+        proc.wait()
+        raise SearchError(f"the resume derivation in a child process returned no result ({exc!r}; exit {proc.returncode})")
+    finally:
+        proc.stdout.close()
+    rc = proc.wait()
+    if status != "ok":
+        raise SearchError(f"the resume derivation in a child process failed: {seq}")
+    if rc != 0:
+        raise SearchError(f"the resume derivation's child process exited {rc} after its result")
+    return seq, rec, {"wall_s": round(time.perf_counter() - t0, 1), "child_peak_private_mb": peak, "exit_code": rc, "inserts": len(seq)}
+
+
 def resume_selection(folders: Sequence[Path], pace: osel.Pace) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """The resume (zero native ticks): every folder's candidates through this night's arrival rule, then the archive's keep rule mirrored,
     in tick order, ties in the order the folders are given, then by D cell id; this night's tick-0 root holds the root's key at tick 0.
@@ -830,9 +925,11 @@ def readiness_verdict(ready: Mapping[str, Any], override: Optional[Mapping[str, 
 
 
 def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderParams, ep: C.Params3, *, code: Optional[str] = None,
-               readiness_override: Optional[Mapping[str, Any]] = None, resume: Sequence[Path] = (), hitter_record: bool = False) -> Dict[str, Any]:
+               readiness_override: Optional[Mapping[str, Any]] = None, resume: Sequence[Path] = (), hitter_record: bool = False,
+               resume_child: bool = False) -> Dict[str, Any]:
     """The plan (section 7.1 step 2): the root, the pace table, the parameters, the frontier reference read, the resume. Zero ticks. With the
-    hitter record (owner 2026-11-19) it also holds `hitter_record`; without it the plan has no such key."""
+    hitter record (owner 2026-11-19) it also holds `hitter_record`; without it the plan has no such key. With the resume in a child (owner
+    2026-11-21) the derivation runs in a child process and the plan holds `resume_child`; without it, no such key."""
     dp.check()
     ep.check()
     pace = osel.Pace(dp)
@@ -841,7 +938,12 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
     for d in resume:
         if g.norm(Path(d)) == g.norm(Path(out)) or g.under(g.norm(Path(d)), g.norm(Path(out))) or g.under(g.norm(Path(out)), g.norm(Path(d))):
             raise SearchError(f"refused: the resume folder {d} overlaps the output folder {out}")
-    _seq, res_rec = resume_selection([Path(d) for d in resume], pace)
+    if resume_child and not resume:
+        raise SearchError("refused: --resume-child derives a resume in a child process: it needs --resume-from")
+    if resume_child:
+        _seq, res_rec, _info = resume_selection_child([Path(d) for d in resume], dp)
+    else:
+        _seq, res_rec = resume_selection([Path(d) for d in resume], pace)
     digest = code or code_digest(order_code_manifest())
     ref = osel.Pace(osel.OrderParams(goal=dp.goal, slack=M1_REFERENCE_SLACK, level_weights=dp.level_weights, breadth_share=dp.breadth_share,
                                      retire_after=dp.retire_after))
@@ -906,11 +1008,14 @@ def build_plan(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderPara
             "readiness_override": None if readiness_override is None else dict(readiness_override), "resume": res_rec}
     if hitter_record:                                    # owner 2026-11-19: only with the option, so the plan with it off is v4's
         plan["hitter_record"] = hitter_plan_record()
+    if resume_child:                                     # owner 2026-11-21: only with the option, so the plan with it off is c74e042's
+        plan["resume_child"] = resume_child_plan_record()
     return plan
 
 
 def plan_and_write(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.OrderParams, ep: C.Params3, *, code: Optional[str] = None,
-                   readiness_override: Optional[Mapping[str, Any]] = None, resume: Sequence[Path] = (), hitter_record: bool = False) -> Dict[str, Any]:
+                   readiness_override: Optional[Mapping[str, Any]] = None, resume: Sequence[Path] = (), hitter_record: bool = False,
+                   resume_child: bool = False) -> Dict[str, Any]:
     out = Path(out)
     if not out.name.startswith(FOLDER_PREFIX):
         raise SearchError(f"refused: D's folder name starts with {FOLDER_PREFIX!r} ({out.name})")
@@ -921,7 +1026,8 @@ def plan_and_write(lab_root: Path, frontier_dir: Path, out: Path, dp: osel.Order
             raise SearchError(f"refused: {out} holds another tool's plan ({old.get('contract')}); D plans only into its own folder")
     if (out / "run").exists():
         raise SearchError(f"refused: {out / 'run'} exists (a run folder is never re-planned)")
-    plan = build_plan(lab_root, frontier_dir, out, dp, ep, code=code, readiness_override=readiness_override, resume=resume, hitter_record=hitter_record)
+    plan = build_plan(lab_root, frontier_dir, out, dp, ep, code=code, readiness_override=readiness_override, resume=resume, hitter_record=hitter_record,
+                      resume_child=resume_child)
     fs = g.LabFS(Path(lab_root))
     fs.mkdir(out)
     fs.write_json(pp, plan)
@@ -990,6 +1096,12 @@ class OrderEngine(C.Run3Engine):
         if self.hitter_plan is not None and self.hitter_plan != hitter_plan_record():
             raise SearchError("refused: the plan's hitter record is not this code's (plan again)")
         self.hitter = self.hitter_plan is not None
+        # the resume in a child process (owner 2026-11-21): on exactly when the plan holds it, and then this code's record
+        self.resume_child_plan: Optional[Dict[str, Any]] = self.order_plan.get("resume_child")
+        if self.resume_child_plan is not None and self.resume_child_plan != resume_child_plan_record():
+            raise SearchError("refused: the plan's resume-child record is not this code's (plan again)")
+        self.resume_child = self.resume_child_plan is not None
+        self.resume_child_info: Optional[Dict[str, Any]] = None
         self.hit_stats: Dict[str, Any] = {"credited": 0, "by_kind": Counter(), "by_level_kind": Counter(), "unavailable_why": Counter(),
                                           "jobs_with_record": 0, "jobs_without_record": 0, "tracker_errors": 0}
         self.order_code_expect: Optional[str] = (self.order_plan.get("code") or {}).get("digest")
@@ -1184,7 +1296,10 @@ class OrderEngine(C.Run3Engine):
             if bad:
                 raise Refused(f"resume: {bad}")
             try:
-                self.resume_seq, rec = resume_selection(self.resume_folders, self.pace)
+                if self.resume_child:                       # owner 2026-11-21: the same derivation in a child process that exits here
+                    self.resume_seq, rec, self.resume_child_info = resume_selection_child(self.resume_folders, self.dp)
+                else:
+                    self.resume_seq, rec = resume_selection(self.resume_folders, self.pace)
             except (SearchError, rl3.LoadError, ValueError, OSError) as exc:
                 raise Refused(f"resume: {exc}")
             if rec is None or rec["set_digest"] != self.resume_plan["set_digest"]:
@@ -1297,6 +1412,9 @@ class OrderEngine(C.Run3Engine):
         self.resume_open = {"inserted": {k: int(v) for k, v in sorted(counts.items())}, "cells": len(niches), "set_digest": self.resume_plan["set_digest"]}
         self.log(f"resume: {len(niches)} cells inherited from {len(self.resume_folders)} D folder(s) ({json.dumps(self.resume_open['inserted'])}; set "
                  f"{self.resume_plan['set_digest'][:16]}); counts and retirement start at zero")
+        if self.resume_child:                               # owner 2026-11-21: the sequence is not read after the insertion; drop it
+            self.resume_seq = []
+            self.log(f"resume in a child process: {json.dumps(self.resume_child_info)}; the insertion sequence is dropped")
         return niches
 
     def sets_orders(self) -> Dict[str, Dict[str, int]]:
@@ -1671,6 +1789,8 @@ class OrderEngine(C.Run3Engine):
         if self.hitter:                                     # owner 2026-11-19: only with the option, so the record with it off is v4's
             rec["hitter_record"] = dict(self.hitter_plan or {}, search_flags=dict(fv.FLAGS_EXPLORE, **ow.ENTITY_FLAGS),
                                         worker_module_sha256=lf_sha256(Path(ow.__file__)))
+        if self.resume_child:                               # owner 2026-11-21: only with the option
+            rec["resume_child"] = dict(self.resume_child_plan or {}, derivation=self.resume_child_info)
         return rec
 
     def _config_record(self, ready: Mapping[str, Any], c: Any, p: Mapping[str, Any], mods: Sequence[Any]) -> Dict[str, Any]:
@@ -1744,6 +1864,9 @@ class OrderEngine(C.Run3Engine):
                       "scoreboard": self.scoreboard}
         if self.hitter:                                     # owner 2026-11-19: only with the option
             s["order"]["hitter_record"] = self.hitter_summary()
+        if self.resume_child and s["order"].get("resume") is not None:   # owner 2026-11-21: only with the option (report-only)
+            s["order"]["resume"]["child"] = {"contract": RESUME_CHILD_CONTRACT, "derivation": self.resume_child_info,
+                                             "sequence_dropped": not self.resume_seq}
         if self.pace.cut_y is not None:                     # owner 2026-11-19: only with the fall cut (report-only)
             s["order"]["fall_cut"] = {"y": float(self.pace.cut_y), "from_level": self.pace.open_from, "reaches_cut": self.pace.cut.summary(),
                                       "grounded_spared": self.pace.cut.spared_summary(),
@@ -2124,6 +2247,7 @@ def run_command(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> 
             + (f" --record-bound {a.record_bound}" if getattr(a, "record_bound", None) is not None else "")
             + (" --floor-direction-key" if getattr(a, "floor_direction_key", False) else "")
             + (" --hitter-record" if getattr(a, "hitter_record", False) else "")
+            + (" --resume-child" if getattr(a, "resume_child", False) else "")
             + "".join(f" --resume-from {Path(d).as_posix()}" for d in (a.resume_from or [])))
 
 
@@ -2131,11 +2255,14 @@ def cmd_plan(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int
     dp = order_params_from_args(a)
     ep = engine_params_from_args(a, dp)
     P = plan_and_write(lab, frontier, out, dp, ep, readiness_override=readiness_override_record(a.min_commit_free_mb, a.override_reason),
-                       resume=[Path(d) for d in (a.resume_from or [])], hitter_record=bool(a.hitter_record))
+                       resume=[Path(d) for d in (a.resume_from or [])], hitter_record=bool(a.hitter_record),
+                       resume_child=bool(getattr(a, "resume_child", False)))
     if P["readiness_override"]:
         print("readiness override (owner):", json.dumps(P["readiness_override"]))
     if P.get("hitter_record"):
         print("hitter record (owner 2026-11-19, report-only):", P["hitter_record"]["contract"], "search flags +", json.dumps(P["hitter_record"]["search_flags_added"]))
+    if P.get("resume_child"):
+        print("resume in a child process (owner 2026-11-21):", P["resume_child"]["contract"], "; the plan's own derivation also ran in a child")
     print("root:", json.dumps(P["root"]))
     print("pace lines:", json.dumps(P["pace"]["lines"]), "gate:", json.dumps(P["gate"]), "reference:", json.dumps(P["gate_reference"]))
     print("keep windows (line(L), line(L + 1)):", json.dumps(P["keep_rule"]["windows"]))
@@ -2184,7 +2311,8 @@ def cmd_run(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int:
         return 2
     dp = order_params_from_args(a)
     ep = engine_params_from_args(a, dp)
-    bad = run_flag_problems(plan, dp, ep, frontier, readiness_override_record(a.min_commit_free_mb, a.override_reason), bool(a.hitter_record)) \
+    bad = run_flag_problems(plan, dp, ep, frontier, readiness_override_record(a.min_commit_free_mb, a.override_reason), bool(a.hitter_record),
+                            resume_child=bool(getattr(a, "resume_child", False))) \
         or (resume_check(plan.get("resume"), [Path(d) for d in (a.resume_from or [])]) if (plan.get("resume") or a.resume_from) else None)
     if bad:
         print(f"refused: {bad}")
@@ -2204,14 +2332,17 @@ def cmd_run(lab: Path, frontier: Path, out: Path, a: argparse.Namespace) -> int:
 
 
 def run_flag_problems(plan: Mapping[str, Any], dp: osel.OrderParams, ep: C.Params3, frontier: Path,
-                      readiness_override: Optional[Mapping[str, Any]] = None, hitter_record: bool = False) -> Optional[str]:
-    """`run` takes exactly the plan's parameters, frontier, readiness override and hitter option (U10, as run 3): a flag that differs is
-    refused, plan again."""
+                      readiness_override: Optional[Mapping[str, Any]] = None, hitter_record: bool = False, *, resume_child: bool = False) -> Optional[str]:
+    """`run` takes exactly the plan's parameters, frontier, readiness override, hitter option and resume-child option (U10, as run 3): a flag
+    that differs is refused, plan again."""
     if plan.get("readiness_override") != (None if readiness_override is None else dict(readiness_override)):
         return f"the readiness override differs from the saved plan's ({plan.get('readiness_override')}): plan again with the same flags"
     if plan.get("hitter_record") != (hitter_plan_record() if hitter_record else None):
         return (f"--hitter-record {'on' if hitter_record else 'off'} differs from the saved plan's "
                 f"({'on' if plan.get('hitter_record') is not None else 'off'}, or another hitter contract): plan again with the same flags")
+    if plan.get("resume_child") != (resume_child_plan_record() if resume_child else None):
+        return (f"--resume-child {'on' if resume_child else 'off'} differs from the saved plan's "
+                f"({'on' if plan.get('resume_child') is not None else 'off'}, or another contract): plan again with the same flags")
     if plan.get("params") != dp.as_record():
         return f"the selection parameters differ from the saved plan's ({plan.get('params')}): plan again with the same flags"
     if plan.get("engine_params") != ep.as_dict():
@@ -2261,6 +2392,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     help="owner 2026-11-19, report-only: D's search workers run with SSB64_RL_ENTITY=1 (tools/frs/order_worker.py) and every "
                          "break_record entry gains the hitter fields (mario / projectile with its serial, owner and first tick / unseen / "
                          "ambiguous / unavailable); nothing kept, drawn, retired or credited changes; default off (no change); plan and run "
+                         "take the same flag")
+    ap.add_argument("--resume-child", action="store_true",
+                    help="owner 2026-11-21, needs --resume-from: the plan and the open derive the resume in a child process that exits before "
+                         "the workers start (the same code, folders and options, so the same inherited cells, keys and records); the open "
+                         "drops the insertion sequence once inserted; lowers the main process's memory; default off (no change); plan and run "
                          "take the same flag")
     ap.add_argument("--max-segments", type=int, default=C.Params3.max_segments)
     ap.add_argument("--check-slots", type=int, default=C.Params3.check_slots)

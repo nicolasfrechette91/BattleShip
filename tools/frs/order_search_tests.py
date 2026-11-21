@@ -1992,7 +1992,8 @@ def order_child(a: Mapping[str, Any]) -> Dict[str, Any]:
             if ev == "open" and args and isinstance(args[0], (str, bytes, os.PathLike)):
                 opened.append(os.fsdecode(args[0]))
         sys.addaudithook(hook)
-    plan = O.plan_and_write(lab, frontier, out, dp, ep, resume=[Path(x) for x in a.get("resume") or []], hitter_record=bool(a.get("hitter")))
+    plan = O.plan_and_write(lab, frontier, out, dp, ep, resume=[Path(x) for x in a.get("resume") or []], hitter_record=bool(a.get("hitter")),
+                            resume_child=bool(a.get("resume_child")))
     world = a.get("world", "easy")
     flags = dict(E_FLAGS, FAKEGAME_WORLD=world)
     os.environ["FAKEGAME_WORLD"] = world          # this child only: the text replay passes the environment (minus SSB64_*) to the fake game
@@ -2931,6 +2932,95 @@ def e2e_e20_v7_hitter() -> Dict[str, Any]:
     return {"B": B, "credited_breaks": n, "kinds": dict(kinds), "inherited_past_b": lvc, "resumed": len(res_rows)}
 
 
+# -- the resume in a child process (owner 2026-11-21) -------------------------------------------------------------------------------------
+
+
+def unit_resume_child_cli() -> Dict[str, Any]:
+    """--resume-child on the command line: plan and run parse it (the refusal is the lab root's, not argparse's); the printed run command
+    carries it; its plan record is a fixed contract."""
+    import argparse
+
+    codes = []
+    for cmd in ("plan", "run"):
+        try:
+            O.main([cmd, "--frontier", "x", "--rng-seed", "1", "--resume-child", "--lab-root", str(tmpdir("order_child_cli_") / "missing")])
+            raise AssertionError("main returned on a missing lab")
+        except SystemExit as exc:
+            codes.append(exc.code)
+    check(all(not isinstance(c_, int) for c_ in codes), f"both commands parse the flag: {codes}")
+    a = argparse.Namespace(rng_seed=1, workers=3, max_ticks=10, max_wall_min=30.0, summary_every_s=60.0, max_cells=O.C.Params3.max_cells, max_dispatches=0,
+                           min_commit_free_mb=None, override_reason="", goal=480, slack=200, open_line_from=7, fall_cut_y=None, hitter_record=True,
+                           resume_child=True, resume_from=[Path("C:/lab/order_a")])
+    cmd = O.run_command(Path("C:/lab"), Path("C:/lab/f"), Path("C:/lab/order_x"), a)
+    check(" --hitter-record --resume-child --resume-from C:/lab/order_a" in cmd, f"the run command: {cmd}")
+    rec = O.resume_child_plan_record()
+    check(rec["contract"] == O.RESUME_CHILD_CONTRACT == "order_resume_child_v1" and rec == O.resume_child_plan_record(), f"the record: {rec}")
+    return {"cmd_tail": cmd[-80:]}
+
+
+def _no_utc(rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    """Rows without their wall-clock fields; a 17-field record without host_frame (index 1)."""
+    out = []
+    for r in rows:
+        d = {k: v for k, v in r.items() if k not in ("utc",)}
+        if isinstance(d.get("end"), list) and len(d["end"]) == 17:
+            d["end"] = d["end"][:1] + d["end"][2:]
+        out.append(d)
+    return out
+
+
+def e2e_e21_resume_child() -> Dict[str, Any]:
+    """The resume derived in a child process (owner 2026-11-21): on E11's folder, the child's insertion sequence and record equal the
+    in-process derivation's, field by field, with every v7 option on and off; the plan with the option equals the plan without it but for
+    its own record; a night resumed with the option (E14's settings) makes the same same-seed decisions as E14's night and writes the same
+    cells (every key, tick, digest, words, end record, origin), extents, break records, hourly records and milestones; its config and
+    summary record the child (exit 0, a result) and the dropped sequence; the plan refuses the option without a resume and the run refuses
+    a flag that differs from the plan."""
+    b = dbench()
+    A = _open7(b)
+    for dp in (osel.OrderParams(slack=200, open_line_from=7),
+               osel.OrderParams(slack=200, open_line_from=7, fall_cut_y=FAKE_CUT_Y, fall_cut_spare_one_live=True, record_bound=900, floor_direction_key=True)):
+        seq_in, rec_in = O.resume_selection([A["out"]], osel.Pace(dp))
+        seq_ch, rec_ch, info = O.resume_selection_child([A["out"]], dp)
+        check(seq_ch == seq_in and rec_ch == rec_in and len(seq_ch) > 100, f"the child's derivation is the in-process one: {len(seq_ch)} vs {len(seq_in)} inserts")
+        check(info and info["exit_code"] == 0 and info["inserts"] == len(seq_in) and info["wall_s"] > 0, f"the child's report: {info}")
+    check(O.resume_selection_child([], osel.OrderParams()) == ([], None, None), "no folder: nothing, as resume_selection")
+    order = {"slack": 200, "open_line_from": 7, "fall_cut_y": FAKE_CUT_Y}
+    dp = osel.OrderParams(**order)
+    P0 = O.build_plan(b.lab, b.frontier, b.lab / "order_child_preview_off", dp, O.engine_params(dp, rng_seed=8), code="preview", resume=[A["out"]])
+    P1 = O.build_plan(b.lab, b.frontier, b.lab / "order_child_preview_on", dp, O.engine_params(dp, rng_seed=8), code="preview", resume=[A["out"]], resume_child=True)
+    strip = lambda P: {k: v for k, v in P.items() if k not in ("utc", "out", "resume_child")}  # noqa: E731
+    check(strip(P0) == strip(P1) and "resume_child" not in P0 and P1["resume_child"] == O.resume_child_plan_record(), "the plan: the same but for the option's record")
+    try:
+        O.build_plan(b.lab, b.frontier, b.lab / "order_child_noresume", dp, O.engine_params(dp, rng_seed=8), code="preview", resume_child=True)
+        raise AssertionError("the option was accepted without a resume")
+    except O.SearchError as exc:
+        check("needs --resume-from" in str(exc), str(exc))
+    fr_dir = b.frontier
+    check(O.run_flag_problems(P1, dp, O.engine_params(dp, rng_seed=8), fr_dir, resume_child=True) is None
+          and "--resume-child off differs" in (O.run_flag_problems(P1, dp, O.engine_params(dp, rng_seed=8), fr_dir) or "")
+          and "--resume-child on differs" in (O.run_flag_problems(P0, dp, O.engine_params(dp, rng_seed=8), fr_dir, resume_child=True) or ""),
+          "run refuses a flag that differs from the plan")
+    R0 = b.run("cut7_resumed", resume=[str(A["out"])], order=order, engine=dict(E_ENGINE, max_dispatches=120, rng_seed=8), port_base=50000)
+    R1 = b.run("cut7_resumed_child", resume=[str(A["out"])], order=order, engine=dict(E_ENGINE, max_dispatches=120, rng_seed=8), port_base=43000,
+               resume_child=True)
+    for r in (R0, R1):
+        _clean(r, 120)
+    _same_decisions(R0, R1)
+    check(_no_utc(R0["cells"]) == _no_utc(R1["cells"]), "the same cells.jsonl rows, field by field (resumed and kept tonight)")
+    check(_no_utc(R0["deep"]) == _no_utc(R1["deep"]), "the same deep reaches")
+    o0, o1 = R0["summary"]["order"], R1["summary"]["order"]
+    check({k: v for k, v in o1["resume"].items() if k != "child"} == o0["resume"] and o0["keep_rule"] == o1["keep_rule"] and o0["fall_cut"] == o1["fall_cut"],
+          f"the same resume record and readouts: {o0['resume'].get('open')} vs {o1['resume'].get('open')}")
+    ch = o1["resume"]["child"]
+    check(ch["contract"] == O.RESUME_CHILD_CONTRACT and ch["sequence_dropped"] is True and ch["derivation"]["exit_code"] == 0
+          and ch["derivation"]["inserts"] == o0["resume"]["open"]["cells"] and "child" not in o0["resume"]
+          and R1["config"]["resume_child"]["derivation"] == ch["derivation"] and "resume_child" not in R0["config"],
+          f"the records state the child: {ch}")
+    return {"inserts": ch["derivation"]["inserts"], "child_wall_s": ch["derivation"]["wall_s"], "child_peak_private_mb": ch["derivation"]["child_peak_private_mb"],
+            "dispatches": len(_bursts(R1)), "cells_rows": len(R1["cells"])}
+
+
 def e2e_u11_isolation() -> Dict[str, Any]:
     """U11: run 3 refuses a D folder; D refuses a D folder as its frontier, another tool's plan in its folder, and any inheritance flag;
     D writes only under its own folder through the guard."""
@@ -3033,13 +3123,14 @@ UNIT = {f.__name__: f for f in (unit_u1_pace_line, unit_u2_rejected_readout, uni
                                 unit_open_line_rule, unit_open_line_params, unit_open_line_draw, unit_open_line_plan, unit_break_record,
                                 unit_hitter_rule, unit_hitter_tracker, unit_hitter_break_record, unit_hitter_plan, unit_group_fewest_draw, unit_group_weights,
                                 unit_fall_cut_params, unit_fall_cut_rule, unit_fall_cut_selector, unit_fall_cut_plan,
-                                unit_v7_params, unit_record_bound_rule, unit_record_bound_selector, unit_one_live_rule, unit_direction_key, unit_v7_plan)}
+                                unit_v7_params, unit_record_bound_rule, unit_record_bound_selector, unit_one_live_rule, unit_direction_key, unit_v7_plan,
+                                unit_resume_child_cli)}
 
 E2E = {f.__name__: f for f in (e2e_e1_same_seed, e2e_e2_root, e2e_e3_pace_budget, e2e_e4_milestone, e2e_e5_caps_stops, e2e_e6_exports,
                                e2e_e7_resume, e2e_e8_long_bursts, e2e_e9_scoreboard, e2e_e10_extent, e2e_u11_isolation, e2e_u13_no_human_input,
                                e2e_tm2_code_digest, e2e_e11_open_line, e2e_e12_hitter_record, e2e_e13_fall_cut, e2e_e14_fall_cut_resume,
                                e2e_e15_fall_cut_hitter, e2e_e16_clear_below_cut, e2e_e17_record_bound, e2e_e18_one_live, e2e_e19_direction_key,
-                               e2e_e20_v7_hitter)}
+                               e2e_e20_v7_hitter, e2e_e21_resume_child)}
 REAL = {f.__name__: f for f in (real_frontier_best,)}
 
 if __name__ == "__main__":
